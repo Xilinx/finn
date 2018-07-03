@@ -1,0 +1,167 @@
+\documentclass[DIV12]{scrreprt}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{tabularx}
+
+\parskip1ex
+\DeclareMathOperator{\ld}{ld}
+
+\begin{document}
+
+\chapter{Parameter Conventions}
+
+\section{Images}
+\begin{tabular}{ll}\toprule
+  $N$ & Image Dimension: $N\times N$\\
+  $C$ & Channels per Pixel\\
+  $A$ & Word Width for each Channel (Activation Precision)\\\bottomrule
+\end{tabular}
+
+With respect to a specific convolutional layer:
+\begin{itemize}
+\item  $N, C, A$ refer to the input image, and
+\item  $N', C', A'$ refer to the output image.
+\end{itemize}
+
+\section{Kernels}
+\begin{tabular}{ll}\toprule
+  $K$ & Kernel Dimension: $K\times K$\\
+  $S$ & Stride\\
+  $W$ & Word Width of Weights\\\bottomrule
+\end{tabular}
+
+\section{Compute Layout}
+\begin{tabular}{ll}\toprule
+  $P$ & Parallel PEs (mutually independent)\\
+  $Q$ & Simultaneous Products (added onto the same sum)\\\bottomrule
+\end{tabular}
+
+\chapter{Cost Functions}
+
+\section{Block RAM}
+Block RAM utilization is typically well predictable. Achieving the
+theoretical bounds derived below should be a key goal of the network
+generator.
+
+The use of memory blocks is always subject to address space and data
+word fragmentation. This is reflected by the ceilings in the equations
+below. The actually suffered waste of resources should be monitored in
+practice so as to identify severe penalties and think up suitable
+remedies if encountered.
+
+\subsection{Weight Memory}
+\begin{center}
+\begin{tabular}{ll}\toprule
+  Overall Content Size:  & $C'\cdot K^2\cdot C\cdot W$ bits\\
+  Parallel Access Width: & $P\cdot Q\cdot W$ bits\\
+  Implied Layout:        & $\frac{C\cdot C'\cdot K^2}{P\cdot Q}\times P\cdot Q\cdot W$\\\bottomrule
+\end{tabular}
+\end{center}
+
+Requiring just one port at each point in time allows to use RAMB18
+halves with an effective layout of $512\times 18$. This implies an
+ideal BRAM demand of:
+\[\mbox{RAMB18}_{Weights} =
+  \frac{1}{2}\times
+  \left\lceil\frac{C\cdot C'\cdot K^2}{512\cdot P\cdot Q}\right\rceil\times
+  \left\lceil\frac{P\cdot Q\cdot W}{18}\right\rceil\]
+
+\textbf{Notes}:
+\begin{itemize}
+\item
+  HLS is likely to have difficulties with packing half-utilized RAM blocks
+  together.
+\item
+  HLS will typically only utilize 16/32 bits of the BRAM data ports.
+\item
+  The current implementation structures the weight memory in a way
+  that $P$ ends up outside the ceiling.\newline
+  \emph{This is fixable and should be approached if it helps to
+    reduce fragmentation significantly.}
+\end{itemize}
+
+Effectively, the current state of affairs demands:
+\[\underline{\mbox{RAMB18}_{Weights} =
+  P\times
+  \left\lceil\frac{C\cdot C'\cdot K^2}{512\cdot P\cdot Q}\right\rceil\times
+  \left\lceil\frac{Q\cdot W}{32}\right\rceil}\]
+
+
+\subsection{Line Buffers}
+Line buffers are required for re-arranging and duplicating input data
+to be fed into the multi-matrix-vector-multiply units. The buffer
+maintains a history of $K$ lines of the input image.
+
+\begin{center}
+\begin{tabular}{ll}\toprule
+  Overall Content Size:  & $K\cdot N\cdot C\cdot A$ bits\\
+  Parallel Access Width: & $Q\cdot A$ bits\\
+  Implied Layout:        & $K\cdot N\cdot\frac{C}{Q}\times Q\cdot A$\\\bottomrule
+\end{tabular}
+\end{center}
+
+The line buffers are ideally filled and drained concurrently, which
+requires the underlying BRAM to be configured in SDP mode. This
+restricts its granularity to $512\times 36$ and implies a BRAM demand of:
+\[\mbox{RAMB18}_{Line Buffers} =
+  \left\lceil\frac{K\cdot N\cdot C}{512\cdot Q}\right\rceil\times
+  \left\lceil\frac{Q\cdot A}{36}\right\rceil\]
+
+\textbf{Notes}:
+\begin{itemize}
+\item
+  HLS will typically only utilize 16/32 bits of the BRAM data ports.
+\item
+  The current implementation works the line buffer on the granularity
+  of the stride $S$, which might introduce more severe fragmentation.\newline
+  \emph{
+    Thomas is challenging this approach and will have to prove that
+    it is doable otherwise if significant fragmentation is observed in
+    practice.
+  }
+\end{itemize}
+
+The current state of affairs is thus:
+\[\underline{\mbox{RAMB18}_{Line Buffers} = \left(\frac{K}{S}+1\right)\cdot
+  \left\lceil\frac{S\cdot N\cdot C}{512\cdot Q}\right\rceil\times
+  \left\lceil\frac{Q\cdot A}{32}\right\rceil}\]
+
+\section{Logic}
+The logic utilization of HLS synthesis results is estimated by models
+that are tuned and validated by experimental heuristic data.
+
+\subsection{PE}
+The logic consumption of a PE can be modeled in terms of its
+constituents:
+
+\noindent\begin{tabularx}{\linewidth}{lX}\toprule
+  $Q$-element Dot Product & linear growth in $Q\cdot W\cdot A$\\
+  Accumulation            & linear growth in accumulator width,\newline
+                            which is something like
+                            $W+A+log_2 C+2\cdot log_2 K$\\
+  Counters                & various progress counters and associated
+                            comparators, which grow logarithmically
+                            with the high-level problem complexity,
+                            i.e. with $log_2 N + log_2 C + log_2 C'$\\\bottomrule
+\end{tabularx}
+
+This already yields an initial model with the parameters
+$\alpha, \beta, \gamma$:
+
+\[\mbox{LUT}_{PE}=
+\alpha\left(Q\cdot W\cdot A\right) +
+\beta\left(W+A+log_2 C+2\cdot log_2 K\right) +
+\gamma\left(log_2 N + log_2 C + log_2 C'\right)\]
+
+\textbf{Note}: The accuracy of the predicted composed cost may suffer
+from the massive inlining performed within the HLS code base, which
+causes the boundaries of the constituents to blur.
+
+\subsection{Sliding Window Generator}
+
+\subsection{Stream Width Adaptation}
+
+\subsection{Host Interface and Global Control}
+
+
+\end{document}

@@ -1,0 +1,230 @@
+syntax = "proto2";
+
+// ER-DN-N
+
+package finn;
+
+
+message NetParameter {
+  optional string name = 1; // consider giving the network a name
+  
+  // The layers that make up the net.  Each of their configurations, including
+  // connectivity and behavior, is specified as a LayerParameter.
+  repeated LayerParameter layer = 100;  // ID 100 so layers are printed last.
+}
+
+message DataRepresentation {
+
+  optional uint32 weight_bits = 1 [default = 1 ]; // Number of bits per weight
+  optional uint32 input_bits  = 2 [default = 1 ]; // Output precision of previous layer
+  optional uint32 output_bits = 3 [default = 1 ]; // Precision of the output (activation)
+
+  enum Representation {
+    BNN  = 0; // 0 stands for -1, 1 for +1
+    UINT = 1; // Unsigned int representation
+    C2   = 2; // 2 complement representation 
+  }
+
+  optional Representation input_repr  = 4 [default = BNN]; 
+  optional Representation weigth_repr = 5 [default = BNN]; 
+  optional Representation output_repr = 6 [default = BNN]; 
+}
+
+
+// Specifies the shape (dimensions) of a Blob.
+message BlobShape {
+  repeated int64 dim = 1 [packed = true];
+}
+
+// Layer
+// NOTE: Caffe LayerParameter next available layer-specific ID: 147 (last added: recurrent_param)
+//       Please check and update the ID when adding a new parameter.
+message LayerParameter {
+  optional string name = 1; // the layer name
+  optional string type = 2; // the layer type
+  // Graph connection
+  repeated string bottom = 3; // the name of each bottom blob
+  repeated string top = 4; // the name of each top blob
+
+  // Layer type-specific parameters
+  // 
+  // Image preprocessing layers
+  optional ImageDataParameter image_data_param = 115;
+  // Shape and size of the input data
+  optional InputParameter input_param = 143;
+  // Crop of the input image - NON OFFLOADED YET
+  optional CropParameter crop_param = 144;
+  // Transformation on the image - can be used for removing average from input image - NON OFFLOADED YET
+  optional TransformationParameter transform_param = 100;
+
+  // Compute layers
+  // Fully connected, keep the name as in Caffe for visualization
+  optional InnerProductParameter inner_product_param = 117;
+  // Convolutional layer
+  optional ConvolutionParameter convolution_param = 106;
+  // Pooling (MAX/Avg)
+  optional PoolingParameter pooling_param = 121;
+  // Thresholding, should always follow a Conv or Inner Product
+  optional ThresholdParameter threshold_param = 128;
+  // Concatenation in the channel dimension
+  optional ConcatParameter concat_param = 104;
+  // Element wise operation, sum or multiplication should be supported (linear layer in cromulent, resnet add)
+  optional EltwiseParameter eltwise_param = 24;
+  // Relu with possible slope on the negative part
+  optional ReLUParameter relu_param = 123;
+  // Post processing layers
+  optional SoftmaxParameter softmax_param = 125;
+
+
+  // FINN parameters (ID starting from 200 to keep distance from last Caffe ID)
+
+  // Overall data representation
+  optional DataRepresentation data_repr = 200;
+  // Layer input shape
+  optional BlobShape input_shape = 202;
+  // Layer output shape
+  optional BlobShape output_shape = 203;
+}
+
+// Messages that store parameters used by Image preprocessing layers
+
+message ImageDataParameter {
+  // Specify the data source.
+  optional string source = 1;
+  // Specify if the images are color or gray
+  optional bool is_color = 11 [default = true];
+  optional string root_folder = 12 [default = ""];
+}
+
+message InputParameter {
+  repeated BlobShape shape = 1;
+}
+
+message CropParameter {
+  optional int32 axis = 1 [default = 2];
+  repeated uint32 offset = 2;
+}
+
+message TransformationParameter {
+  // For data pre-processing, we can do simple scaling and subtracting the
+  // data mean, if provided. Note that the mean subtraction is always carried
+  // out before scaling.
+  optional float scale = 1 [default = 1];
+  // Specify if we want to randomly mirror data.
+  optional bool mirror = 2 [default = false];
+  // Specify if we would like to randomly crop an image.
+  optional uint32 crop_size = 3 [default = 0];
+  // mean_file and mean_value cannot be specified at the same time
+  optional string mean_file = 4;
+  // if specified can be repeated once (would subtract it from all the channels)
+  // or can be repeated the same number of times as channels
+  // (would subtract them from the corresponding channel)
+  repeated float mean_value = 5;
+  // Force the decoded image to have 3 color channels.
+  optional bool force_color = 6 [default = false];
+  // Force the decoded image to have 1 color channels.
+  optional bool force_gray = 7 [default = false];
+  // Force the decoded image to be black and white
+  optional bool force_bw = 8 [default = false];
+}
+
+
+message InnerProductParameter {
+  // Output neurons
+  optional uint32 num_output = 1; // The number of outputs for the layer
+}
+
+message ConvolutionParameter {
+  optional uint32 num_output = 1; // The number of outputs for the layer
+  optional bool bias_term = 2 [default = true]; // whether to have bias terms
+
+  // Pad, kernel size, and stride are all given as a single value for equal
+  // dimensions in all spatial dimensions, or once per spatial dimension.
+  repeated uint32 pad = 3; // The padding size; defaults to 0
+  repeated uint32 kernel_size = 4; // The kernel size
+  repeated uint32 stride = 6; // The stride; defaults to 1
+  // Factor used to dilate the kernel, (implicitly) zero-filling the resulting
+
+  // For 2D convolution only, the *_h and *_w versions may also be used to
+  // specify both spatial dimensions.
+  // Currently we support only squared kernels, equal stride and padding
+
+  optional uint32 pad_h = 9 [default = 0]; // The padding height (2D only)
+  optional uint32 pad_w = 10 [default = 0]; // The padding width (2D only)
+  optional uint32 kernel_h = 11; // The kernel height (2D only)
+  optional uint32 kernel_w = 12; // The kernel width (2D only)
+  optional uint32 stride_h = 13; // The stride height (2D only)
+  optional uint32 stride_w = 14; // The stride width (2D only)
+
+  // Parallel convolution, as in Alexnet first version
+  optional uint32 group = 5 [default = 1]; // The group size for group conv
+}
+
+
+message PoolingParameter {
+  enum PoolMethod {
+    MAX = 0;
+    AVE = 1;
+  }
+  optional PoolMethod pool = 1 [default = MAX]; // The pooling method
+  // Pad, kernel size, and stride are all given as a single value for equal
+  // dimensions in height and width or as Y, X pairs.
+  optional uint32 pad = 4 [default = 0]; // The padding size (equal in Y, X)
+  optional uint32 kernel_size = 2; // The kernel size (square)
+  optional uint32 stride = 3 [default = 1]; // The stride (equal in Y, X)  
+
+  // The *_h and *_w versions may also be used to
+  // specify both spatial dimensions.
+  // Currently we support only squared kernels, equal stride and padding
+
+  optional uint32 pad_h = 9 [default = 0]; // The padding height
+  optional uint32 pad_w = 10 [default = 0]; // The padding width
+  optional uint32 kernel_h = 5; // The kernel height
+  optional uint32 kernel_w = 6; // The kernel width
+  optional uint32 stride_h = 7; // The stride height
+  optional uint32 stride_w = 8; // The stride width
+}
+
+// Message that stores parameters used by ThresholdLayer
+message ThresholdParameter {
+  optional float threshold = 1 [default = 0]; // Strictly positive values
+}
+
+message ConcatParameter {
+  // The axis along which to concatenate -- may be negative to index from the
+  // end (e.g., -1 for the last axis).  Other axes must have the
+  // same dimension for all the bottom blobs.
+  // By default, ConcatLayer concatenates blobs along the "channels" axis (1).
+  optional int32 axis = 2 [default = 1];
+}
+
+message EltwiseParameter {
+  enum EltwiseOp {
+    PROD = 0;
+    SUM = 1;
+    MAX = 2;
+  }
+  optional EltwiseOp operation = 1 [default = SUM]; // element-wise operation
+  repeated float coeff = 2; // blob-wise coefficient for SUM operation
+}
+
+// Message that stores parameters used by ReLULayer
+message ReLUParameter {
+  // Allow non-zero slope for negative inputs to speed up optimization
+  // Described in:
+  // Maas, A. L., Hannun, A. Y., & Ng, A. Y. (2013). Rectifier nonlinearities
+  // improve neural network acoustic models. In ICML Workshop on Deep Learning
+  // for Audio, Speech, and Language Processing.
+  optional float negative_slope = 1 [default = 0];
+}
+
+// Message that stores parameters used by SoftmaxLayer, SoftmaxWithLossLayer
+message SoftmaxParameter {
+
+  // The axis along which to perform the softmax -- may be negative to index
+  // from the end (e.g., -1 for the last axis).
+  // Any other axes will be evaluated as independent softmaxes.
+  optional int32 axis = 2 [default = 1];
+}
+
+

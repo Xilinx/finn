@@ -1,0 +1,11 @@
+{
+  "name": "XLNX:KU115",
+  "type": "fpga",
+  "frequency" : 250,
+  "resources": {
+    "LUT": 663360,
+    "DSP": 5520,
+    "BRAM": 75.9,
+    "URAM": 0
+  }
+}

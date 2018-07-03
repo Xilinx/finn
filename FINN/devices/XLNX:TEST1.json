@@ -1,0 +1,11 @@
+{
+  "name": "XLNX:TEST1",
+  "type": "fpga",
+  "frequency" : 200,
+  "resources": {
+    "LUT": 1451000,
+    "DSP": 5520,
+    "BRAM": 75.9,
+    "URAM": 0
+  }
+}

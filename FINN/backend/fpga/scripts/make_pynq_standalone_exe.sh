@@ -1,0 +1,15 @@
+
+#!/bin/sh
+
+CXX_OPTS="-O3 -std=c++11"
+GENSRC_DIR=$(pwd)
+FPGA_BACKEND="$FINN_ROOT/backend/fpga"
+SIMTOOLS_INCLUDE="-I$FPGA_BACKEND/simtools"
+MLBP_DRVDIR="$BNN_PYNQ_PATH/bnn/src/library/driver"
+INCLUDES="$SIMTOOLS_INCLUDE -I$MLBP_DRVDIR"
+#SIMTOOLS_SOURCES="$FPGA_BACKEND/simtools/sim-ondevice-mlbp.cpp $FPGA_BACKEND/simtools/cnpy.cpp"
+MLBP_SOURCES="$MLBP_DRVDIR/platform-xlnk.cpp"
+SOURCES="$MLBP_SOURCES" # $SIMTOOLS_SOURCES
+OUTPUT="$GENSRC_DIR/ondevice"
+
+g++ $CXX_OPTS $INCLUDES $SOURCES -lsds_lib -o $OUTPUT

@@ -1,0 +1,604 @@
+name: "cifar10-CNV"
+
+input: "data"
+input_shape {
+    dim: 50
+    dim: 3
+    dim: 32
+    dim: 32
+}
+
+#layer {
+#  name: "input_scale"
+#  type: "Scale"
+#  bottom: "data"
+#  top: "scaled"
+#  param {
+#    lr_mult: 0
+#    decay_mult: 0
+#  }
+#  param {
+#    lr_mult: 0
+#    decay_mult: 0
+#  }
+#  scale_param {
+#    filler {
+#      value: 7.84313725490196e-03 # 2 / 255
+#    }
+#    bias_term: true
+#    bias_filler {
+#      value: -1
+#    }
+#  }
+#}
+layer {
+  name: "conv1"
+  type: "BinaryConvolution"
+  bottom: "data"
+  top: "conv1"
+  param {
+    lr_mult: 20.0499
+    decay_mult: 1
+  }
+  convolution_param {
+    num_output: 64
+    pad: 0
+    kernel_size: 3
+    bias_term: false
+    weight_filler {
+      type: "uniform"
+      min: -1
+      max: 1
+    }
+  }
+  binary_convolution_param { use_alpha: true }
+}
+layer {
+  name: "bn1"
+  type: "BatchNorm"
+  bottom: "conv1"
+  top: "bn1"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "scale1"
+  type: "Scale"
+  bottom: "bn1"
+  top: "scale1"
+  scale_param {
+    bias_term: true
+  }
+}
+layer {
+  name: "qt1"
+  type: "Quant"
+  bottom: "scale1"
+  top: "qt1"
+  quant_param {
+    forward_func: "sign"
+    backward_func: "hard_tanh"
+    clip_thr: 1.0
+  }
+}
+layer {
+  name: "conv2"
+  type: "BinaryConvolution"
+  bottom: "qt1"
+  top: "conv2"
+  param {
+    lr_mult: 27.7128
+    decay_mult: 1
+  }
+  convolution_param {
+    num_output: 64
+    pad: 0
+    kernel_size: 3
+    bias_term: false
+    weight_filler {
+      type: "uniform"
+      min: -1
+      max: 1
+    }
+  }
+  binary_convolution_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "pool1"
+  type: "Pooling"
+  bottom: "conv2"
+  top: "pool1"
+  pooling_param {
+    pool: MAX
+    kernel_size: 2
+    stride: 2
+  }
+}
+layer {
+  name: "bn2"
+  type: "BatchNorm"
+  bottom: "pool1"
+  top: "bn2"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "scale2"
+  type: "Scale"
+  bottom: "bn2"
+  top: "scale2"
+  scale_param {
+    bias_term: true
+  }
+}
+layer {
+  name: "qt2"
+  type: "Quant"
+  bottom: "scale2"
+  top: "qt2"
+  quant_param {
+    forward_func: "sign"
+    backward_func: "hard_tanh"
+    clip_thr: 1.0
+  }
+}
+layer {
+  name: "conv3"
+  type: "BinaryConvolution"
+  bottom: "qt2"
+  top: "conv3"
+  param {
+    lr_mult: 33.9411
+    decay_mult: 1
+  }
+  convolution_param {
+    num_output: 128
+    pad: 0
+    kernel_size: 3
+    bias_term: false
+    weight_filler {
+      type: "uniform"
+      min: -1
+      max: 1
+    }
+  }
+  binary_convolution_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "bn3"
+  type: "BatchNorm"
+  bottom: "conv3"
+  top: "bn3"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "scale3"
+  type: "Scale"
+  bottom: "bn3"
+  top: "scale3"
+  scale_param {
+    bias_term: true
+  }
+}
+layer {
+  name: "qt3"
+  type: "Quant"
+  bottom: "scale3"
+  top: "qt3"
+  quant_param {
+    forward_func: "sign"
+    backward_func: "hard_tanh"
+    clip_thr: 1.0
+  }
+}
+layer {
+  name: "conv4"
+  type: "BinaryConvolution"
+  bottom: "qt3"
+  top: "conv4"
+  param {
+    lr_mult: 39.1918
+    decay_mult: 1
+  }
+  convolution_param {
+    num_output: 128
+    pad: 0
+    kernel_size: 3
+    bias_term: false
+    weight_filler {
+      type: "uniform"
+      min: -1
+      max: 1
+      std: 0.01
+    }
+  }
+  binary_convolution_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "pool2"
+  type: "Pooling"
+  bottom: "conv4"
+  top: "pool2"
+  pooling_param {
+    pool: MAX
+    kernel_size: 2
+    stride: 2
+  }
+}
+layer {
+  name: "bn4"
+  type: "BatchNorm"
+  bottom: "pool2"
+  top: "bn4"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "scale4"
+  type: "Scale"
+  bottom: "bn4"
+  top: "scale4"
+  scale_param {
+    bias_term: true
+  }
+}
+layer {
+  name: "qt4"
+  type: "Quant"
+  bottom: "scale4"
+  top: "qt4"
+  quant_param {
+    forward_func: "sign"
+    backward_func: "hard_tanh"
+    clip_thr: 1.0
+  }
+}
+layer {
+  name: "conv5"
+  type: "BinaryConvolution"
+  bottom: "qt4"
+  top: "conv5"
+  param {
+    lr_mult: 48.0
+    decay_mult: 1
+  }
+  convolution_param {
+    num_output: 256
+    pad: 0
+    kernel_size: 3
+    bias_term: false
+    weight_filler {
+      type: "uniform"
+      min: -1
+      max: 1
+    }
+  }
+  binary_convolution_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "bn5"
+  type: "BatchNorm"
+  bottom: "conv5"
+  top: "bn5"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "scale5"
+  type: "Scale"
+  bottom: "bn5"
+  top: "scale5"
+  scale_param {
+    bias_term: true
+  }
+}
+layer {
+  name: "qt5"
+  type: "Quant"
+  bottom: "scale5"
+  top: "qt5"
+  quant_param {
+    forward_func: "sign"
+    backward_func: "hard_tanh"
+    clip_thr: 1.0
+  }
+}
+layer {
+  name: "conv6"
+  type: "BinaryConvolution"
+  bottom: "qt5"
+  top: "conv6"
+  param {
+    lr_mult: 55.4256
+    decay_mult: 1
+  }
+  convolution_param {
+    num_output: 256
+    pad: 0
+    kernel_size: 3
+    bias_term: false
+    weight_filler {
+      type: "uniform"
+      min: -1
+      max: 1
+    }
+  }
+  binary_convolution_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "pool3"
+  type: "Pooling"
+  bottom: "conv6"
+  top: "pool3"
+  pooling_param {
+    pool: MAX
+    kernel_size: 2
+    stride: 2
+  }
+}
+layer {
+  name: "bn6"
+  type: "BatchNorm"
+  bottom: "pool3"
+  top: "bn6"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "scale6"
+  type: "Scale"
+  bottom: "bn6"
+  top: "scale6"
+  scale_param {
+    bias_term: true
+  }
+}
+layer {
+  name: "qt6"
+  type: "Quant"
+  bottom: "scale6"
+  top: "qt6"
+  quant_param {
+    forward_func: "sign"
+    backward_func: "hard_tanh"
+    clip_thr: 1.0
+  }
+}
+layer {
+  name: "fc1"
+  type: "BinaryInnerProduct"
+  bottom: "qt6"
+  top: "fc1"
+  param {
+    lr_mult: 22.6274
+    decay_mult: 1
+  }
+  inner_product_param {
+    num_output: 512
+    bias_term: false
+    weight_filler {
+      type: "uniform"
+      min: -1
+      max: 1
+    }
+  }
+  binary_inner_product_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "bn7"
+  type: "BatchNorm"
+  bottom: "fc1"
+  top: "bn7"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "scale7"
+  type: "Scale"
+  bottom: "bn7"
+  top: "scale7"
+  scale_param {
+    bias_term: true
+  }
+}
+layer {
+  name: "qt7"
+  type: "Quant"
+  bottom: "scale7"
+  top: "qt7"
+  quant_param {
+    forward_func: "sign"
+    backward_func: "hard_tanh"
+    clip_thr: 1.0
+  }
+}
+layer {
+  name: "fc2"
+  type: "BinaryInnerProduct"
+  bottom: "qt7"
+  top: "fc2"
+  param {
+    lr_mult: 26.1279
+    decay_mult: 1
+  }
+  inner_product_param {
+    num_output: 512
+    bias_term: false
+    weight_filler {
+      type: "uniform"
+      min: -1
+      max: 1
+    }
+  }
+  binary_inner_product_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "bn8"
+  type: "BatchNorm"
+  bottom: "fc2"
+  top: "bn8"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "scale8"
+  type: "Scale"
+  bottom: "bn8"
+  top: "scale8"
+  scale_param {
+    bias_term: true
+  }
+}
+layer {
+  name: "qt8"
+  type: "Quant"
+  bottom: "scale8"
+  top: "qt8"
+  quant_param {
+    forward_func: "sign"
+    backward_func: "hard_tanh"
+    clip_thr: 1.0
+  }
+}
+layer {
+  name: "fc3"
+  type: "BinaryInnerProduct"
+  bottom: "qt8"
+  top: "fc3"
+  param {
+    lr_mult: 18.6548
+    decay_mult: 1
+  }
+  inner_product_param {
+    num_output: 10
+    bias_term: false
+    weight_filler {
+      type: "uniform"
+      min: -1
+      max: 1
+    }
+  }
+  binary_inner_product_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "bn9"
+  type: "BatchNorm"
+  bottom: "fc3"
+  top: "bn9"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "scaleout"
+  bottom: "bn9"
+  top: "scaleout"
+  type: "Scale"
+  scale_param { bias_term: true }
+}

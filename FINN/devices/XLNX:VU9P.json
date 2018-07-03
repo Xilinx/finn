@@ -1,0 +1,12 @@
+{
+  "name": "XLNX:VU9P",
+  "type": "fpga",
+  "frequency" : 300,
+  "part" : "xcvu9p-flgb2104-2-i",
+  "resources": {
+    "LUT": 1181768,
+    "DSP": 6840,
+    "BRAM": 75.9,
+    "URAM": 270
+  }
+}
