@@ -1,0 +1,13 @@
+*.finn
+*~
+*.bak
+*.gz
+FINN.egg-info
+dist
+*.pyc
+config.h
+*.log
+*.jou
+*.finn
+caffenet-hwgq-w1a2.caffemodel
+ilsvrc12_val_tiny_subset_lmdb/

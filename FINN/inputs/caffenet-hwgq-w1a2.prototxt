@@ -1,0 +1,295 @@
+name: "CaffeNet"
+input: "data"
+input_shape {
+  dim: 1
+  dim: 3
+  dim: 227
+  dim: 227
+}
+layer {
+  name: "conv1"
+  type: "Convolution"
+  bottom: "data"
+  top: "conv1"
+  convolution_param {
+    num_output: 96
+    kernel_size: 11
+    stride: 4
+    bias_term: false
+  }
+}
+layer {
+  name: "pool1"
+  type: "Pooling"
+  bottom: "conv1"
+  top: "pool1"
+  pooling_param {
+    pool: MAX
+    kernel_size: 3
+    stride: 2
+  }
+}
+layer {
+  name: "bn2"
+  type: "BatchNorm"
+  bottom: "pool1"
+  top: "pool1"
+  batch_norm_param {
+    use_global_stats: true
+  }
+}
+layer {
+  name: "qt2"
+  type: "Quant"
+  bottom: "pool1"
+  top: "qt2"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+layer {
+  name: "conv2"
+  type: "BinaryConvolution"
+  bottom: "qt2"
+  top: "conv2"
+  convolution_param {
+    num_output: 256
+    pad: 2
+    kernel_size: 5
+    bias_term: false
+  }
+  binary_convolution_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "pool2"
+  type: "Pooling"
+  bottom: "conv2"
+  top: "pool2"
+  pooling_param {
+    pool: MAX
+    kernel_size: 3
+    stride: 2
+  }
+}
+layer {
+  name: "bn3"
+  type: "BatchNorm"
+  bottom: "pool2"
+  top: "pool2"
+  batch_norm_param {
+    use_global_stats: true
+  }
+}
+layer {
+  name: "qt3"
+  type: "Quant"
+  bottom: "pool2"
+  top: "qt3"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+layer {
+  name: "conv3"
+  type: "BinaryConvolution"
+  bottom: "qt3"
+  top: "conv3"
+  convolution_param {
+    num_output: 384
+    pad: 1
+    kernel_size: 3
+    bias_term: false
+  }
+  binary_convolution_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "bn4"
+  type: "BatchNorm"
+  bottom: "conv3"
+  top: "conv3"
+  batch_norm_param {
+    use_global_stats: true
+  }
+}
+layer {
+  name: "qt4"
+  type: "Quant"
+  bottom: "conv3"
+  top: "qt4"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+layer {
+  name: "conv4"
+  type: "BinaryConvolution"
+  bottom: "qt4"
+  top: "conv4"
+  convolution_param {
+    num_output: 384
+    pad: 1
+    kernel_size: 3
+    bias_term: false
+  }
+  binary_convolution_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "bn5"
+  type: "BatchNorm"
+  bottom: "conv4"
+  top: "conv4"
+  batch_norm_param {
+    use_global_stats: true
+  }
+}
+layer {
+  name: "qt5"
+  type: "Quant"
+  bottom: "conv4"
+  top: "qt5"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+layer {
+  name: "conv5"
+  type: "BinaryConvolution"
+  bottom: "qt5"
+  top: "conv5"
+  convolution_param {
+    num_output: 256
+    pad: 1
+    kernel_size: 3
+    bias_term: false
+  }
+  binary_convolution_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "pool5"
+  type: "Pooling"
+  bottom: "conv5"
+  top: "pool5"
+  pooling_param {
+    pool: MAX
+    kernel_size: 3
+    stride: 2
+  }
+}
+layer {
+  name: "bn6"
+  type: "BatchNorm"
+  bottom: "pool5"
+  top: "pool5"
+  batch_norm_param {
+    use_global_stats: true
+  }
+}
+layer {
+  name: "qt6"
+  type: "Quant"
+  bottom: "pool5"
+  top: "qt6"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+layer {
+  name: "fc6"
+  type: "BinaryInnerProduct"
+  bottom: "qt6"
+  top: "fc6"
+  inner_product_param {
+    num_output: 4096
+    bias_term: false
+  }
+  binary_inner_product_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "bn7"
+  type: "BatchNorm"
+  bottom: "fc6"
+  top: "fc6"
+  batch_norm_param {
+    use_global_stats: true
+  }
+}
+layer {
+  name: "qt7"
+  type: "Quant"
+  bottom: "fc6"
+  top: "qt7"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+layer {
+  name: "fc7"
+  type: "BinaryInnerProduct"
+  bottom: "qt7"
+  top: "fc7"
+  inner_product_param {
+    num_output: 4096
+    bias_term: false
+  }
+  binary_inner_product_param {
+    use_alpha: true
+  }
+}
+layer {
+  name: "bn8"
+  type: "BatchNorm"
+  bottom: "fc7"
+  top: "fc7"
+  batch_norm_param {
+    use_global_stats: true
+  }
+}
+layer {
+  name: "relu8"
+  type: "ReLU"
+  bottom: "fc7"
+  top: "fc7"
+}
+layer {
+  name: "fc8"
+  type: "InnerProduct"
+  bottom: "fc7"
+  top: "fc8"
+  inner_product_param {
+    num_output: 1000
+  }
+}
+layer {
+  name: "prob"
+  type: "Softmax"
+  bottom: "fc8"
+  top: "prob"
+}

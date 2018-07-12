@@ -1,0 +1,12 @@
+{
+  "name": "XLNX:PYNQ-Z1",
+  "type": "fpga",
+  "frequency" : 200,
+  "part": "xc7z020clg400-1",
+  "resources": {
+    "LUT": 53200,
+    "DSP": 220,
+    "BRAM": 4.9,
+    "URAM": 0
+  }
+}

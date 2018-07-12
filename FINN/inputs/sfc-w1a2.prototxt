@@ -1,0 +1,226 @@
+name: "sfc-hwgq"
+input: "data"
+input_shape {
+  dim: 64
+  dim: 1
+  dim: 28
+  dim: 28
+}
+layer {
+  name: "bn_inp"
+  type: "BatchNorm"
+  bottom: "data"
+  top: "bn_inp"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "qt_inp"
+  type: "Quant"
+  bottom: "bn_inp"
+  top: "qt_inp"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+layer {
+  name: "ip1"
+  type: "BinaryInnerProduct"
+  bottom: "qt_inp"
+  top: "ip1"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  inner_product_param {
+    num_output: 256
+    weight_filler {
+      type: "gaussian"
+      std: 0.005
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+  binary_inner_product_param {
+    use_alpha: true
+  }  
+}
+layer {
+  name: "bn1"
+  type: "BatchNorm"
+  bottom: "ip1"
+  top: "bn1"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "qt1"
+  type: "Quant"
+  bottom: "bn1"
+  top: "qt1"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+
+
+layer {
+  name: "ip2"
+  type: "BinaryInnerProduct"
+  bottom: "qt1"
+  top: "ip2"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  inner_product_param {
+    num_output: 256
+    weight_filler {
+      type: "gaussian"
+      std: 0.005
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+  binary_inner_product_param {
+    use_alpha: true
+  }  
+}
+layer {
+  name: "bn2"
+  type: "BatchNorm"
+  bottom: "ip2"
+  top: "bn2"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "qt2"
+  type: "Quant"
+  bottom: "bn2"
+  top: "qt2"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+layer {
+  name: "ip3"
+  type: "BinaryInnerProduct"
+  bottom: "qt2"
+  top: "ip3"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  inner_product_param {
+    num_output: 256
+    weight_filler {
+      type: "gaussian"
+      std: 0.005
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+  binary_inner_product_param {
+    use_alpha: true
+  }  
+}
+layer {
+  name: "bn3"
+  type: "BatchNorm"
+  bottom: "ip3"
+  top: "bn3"
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  param {
+    lr_mult: 0
+  }
+  batch_norm_param {
+    moving_average_fraction: 0.95
+  }
+}
+layer {
+  name: "qt3"
+  type: "Quant"
+  bottom: "bn3"
+  top: "qt3"
+  quant_param {
+    forward_func: "hwgq"
+    backward_func: "relu"
+    centers: 0.538 centers: 1.076 centers: 1.614
+    clip_thr: 1.614
+  }
+}
+layer {
+  name: "ip4"
+  type: "BinaryInnerProduct"
+  bottom: "qt3"
+  top: "ip4"
+  param {
+    lr_mult: 1
+    decay_mult: 1
+  }
+  inner_product_param {
+    num_output: 10
+    weight_filler {
+      type: "gaussian"
+      std: 0.005
+    }
+    bias_filler {
+      type: "constant"
+      value: 0
+    }
+  }
+  binary_inner_product_param {
+    use_alpha: true
+  }  
+}

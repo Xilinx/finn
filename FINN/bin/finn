@@ -1,0 +1,192 @@
+#!/usr/bin/env python
+# Copyright (c) 2018, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+#    1. Redistributions of source code must retain the above copyright
+#       notice, this list of conditions and the following disclaimer.
+#    2. Redistributions in binary form must reproduce the above copyright
+#       notice, this list of conditions and the following disclaimer in the
+#       documentation and/or other materials provided with the distribution.
+#    3. Neither the name of the <organization> nor the
+#       names of its contributors may be used to endorse or promote products
+#       derived from this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
+# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
+# DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
+# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
+# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+"""
+	Calculates SIMD, PE, MMV folding factors for FINN
+
+	Supports two flows:
+		1) Given an FPS, increase folding factors until FPS is reached. Determine if network fits.
+		2) Given a network, increase foldering factors to maximum size that fits, return FPS.
+	Throughput of all layers in the network must be balanced to ensure
+	minimal bottlenecking in dataflow.
+"""
+
+__author__ = "Ken O'Brien"
+__email__ = "kennetho@xilinx.com"
+
+import FINN.core.nn
+from FINN.core import device as device
+from FINN.core import perf_model as pm
+from FINN.frontend.caffeloader import CaffeLoader
+from FINN.frontend.excelloader import ExcelLoader
+from FINN.core.coverification import testOnMNIST
+import FINN.backend.fpga.backend_fpga as fpga_backend
+import FINN.transforms.transformations as transform
+import FINN.core.datasets as datasets
+import logging
+import sys
+import argparse
+import copy
+import tempfile
+
+def get_loader(args):
+    if 'caffe' in args.frontend:
+        return CaffeLoader(args.caffemodel, args.prototxt)
+    elif 'excel' in args.frontend:
+        return ExcelLoader(args.excelfile, args.excelsheet)
+    else:
+        raise NotImplementedError
+
+def get_device(args):
+    frequency = None
+    if args.frequency:
+        frequency = float(args.frequency)
+    if 'ku115' in args.device:
+        return device.Device('XLNX:KU115.json', frequency)
+    elif 'vu9p' in args.device:
+        return device.Device('XLNX:VU9P.json', frequency)
+    elif 'pynqz1' in args.device:
+        return device.Device('XLNX:PYNQ-Z1.json', frequency)
+    else:
+        raise NotImplementedError
+
+enableMMV=False
+verbose=False
+
+def process_args(args):
+    global verbose 
+    global enableMMV 
+    verbose = args.v
+    enableMMV = args.enableMMV
+    l = get_loader(args) # Get the right loader
+    net = FINN.core.nn.NN(l)
+    dev = get_device(args)
+    if args.mode == "synth":
+        if args.caffemodel is None:
+			print("Weights are undefined, please specify a caffemodel")
+			sys.exit(-1)
+        generate_hardware(net, dev, gen_bitfile=True)
+    else:
+        generate_hardware(net, dev, gen_bitfile=False)
+
+
+def res_alloc_predetermined(pipeline, net, dev):
+	ret_pipeline = copy.deepcopy(pipeline)
+	net.layers = ret_pipeline
+	perfmodel = pm.PerfModel(net, dev, enableMMV)
+	fps = perfmodel.maximise_fps()
+	perfmodel.print_topology()
+	perfmodel.print_cycles()
+	perfmodel.print_hardware_cost()
+	perfmodel.print_folding_factors()
+	if verbose:
+		print perfmodel.nswg
+		net.print_weights()
+		net.print_activations()
+	print "Most computationally expensive layer is #%d, a %s with %d operations." % (perfmodel.max_ops()[0], net.layers[perfmodel.max_ops()[0]], perfmodel.max_ops()[1])
+	print "Achieved fps of %f with %f%% LUT utilisation and %f%% BRAM utilisation" % (fps, perfmodel.network_utilisation()['luts']/dev.luts*100, perfmodel.network_utilisation()['brams']/dev.brams*100) 
+	print "LUTS: %d/%d, BRAM %d/%d " % (perfmodel.network_utilisation()['luts'], dev.luts, perfmodel.network_utilisation()['brams'], dev.brams)
+	for i in xrange(len(ret_pipeline)):
+		ret_pipeline[i].simd = perfmodel.SIMD[i]
+		ret_pipeline[i].pe = perfmodel.PE[i]
+		ret_pipeline[i].mmv = perfmodel.MMV[i]
+
+#	ret_pipeline[0].simd = 3
+#	ret_pipeline[1].simd = 32
+#	ret_pipeline[3].simd = 32 
+#	ret_pipeline[4].simd = 32
+#	ret_pipeline[6].simd = 32
+#	ret_pipeline[7].simd = 32
+#	ret_pipeline[8].simd = 4
+#	ret_pipeline[9].simd = 8
+#	ret_pipeline[10].simd = 1
+#	
+#	ret_pipeline[0].pe = 16
+#	ret_pipeline[1].pe = 32
+#	ret_pipeline[3].pe = 16 
+#	ret_pipeline[4].pe = 16
+#	ret_pipeline[6].pe = 4
+#	ret_pipeline[7].pe = 1
+#	ret_pipeline[8].pe = 1
+#	ret_pipeline[9].pe = 1
+#	ret_pipeline[10].pe = 1
+	return ret_pipeline
+
+def sanitize_stream(stream):
+	layers = []
+	for layer in stream:
+		if layer.get_type() == "LinearLayer":
+			continue
+		layers.append(layer)
+	if layers[0].get_type() == "BipolarThresholdingLayer":
+		layers = layers[1:]
+	return layers
+
+
+def generate_hardware(net, dev, gen_bitfile):
+	print "Generating hardware"
+	streamlined_net = copy.deepcopy(net)
+	streamlined_net.layers = transform.makeCromulent(streamlined_net.layers)
+	
+	dirpath = tempfile.mkdtemp(prefix="finn-build-")
+	print  streamlined_net.layers
+	hlslayers = sanitize_stream(streamlined_net.layers)
+	print hlslayers
+	ret = fpga_backend.synthesize(hlslayers, net, dev, res_alloc_predetermined, dirpath, "sfcall-")
+	if gen_bitfile:
+		ret.synthesis_bitfile()	
+
+#	print "Synthesised"
+#	hlspipeline = ret.getSimLayer()
+#	mixed_pipeline = [streamlined_net.layers[0]] + hlspipeline + [streamlined_net.layers[-1]]
+#	numImagesToTest = 1000
+#	ok_golden = 956
+#	nok_golden = 44
+#	(ok, nok) = testOnMNIST(FINN.core.nn.NN(layers=mixed_pipeline), numImagesToTest)
+#	assert(ok == ok_golden and nok == nok_golden)
+
+def finn_description():
+	return "FINN: A Framework for Fast, Scalable Binarized Neural Network Inference"
+
+def finn_usage():
+	return "python2 ./FINN/bin/finn --mode=[estimate|synth] --caffemodel ./FINN/inputs/lfc-w1a1.caffemodel --prototxt ./FINN/inputs/cnv-w1a1.prototxt caffe hls vu9p"
+
+
+if __name__ == "__main__":
+	logging.basicConfig(filename='FINN.log', level=logging.INFO, filemode='w') # Changed WARNING to INFO if you want logging
+	parser = argparse.ArgumentParser(description=finn_description(), usage=finn_usage())
+	parser.add_argument("--frontend", choices=["caffe"], default="caffe")
+	parser.add_argument("--backend", choices=["hls"], default="hls")
+	parser.add_argument("--device", choices=['ku115','vu9p','pynqz1'], required=True)
+	parser.add_argument("--mode", choices=['estimate','synth'], default="estimate")
+	parser.add_argument("--caffemodel", dest='caffemodel',  help="Weights to bake into bit file. Required for synth flow")
+	parser.add_argument("--prototxt", help="Network deploy prototxt", required=True)
+	parser.add_argument("--enableMMV", action='store_true', help="Enable MMV. ConvNets only")
+	parser.add_argument("--frequency", help="Override default device frequency (Mhz)")
+	parser.add_argument("-v", action='store_true', help="Enable verbose mode")
+	args = parser.parse_args()
+	process_args(args)
