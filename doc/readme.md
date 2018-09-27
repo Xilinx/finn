@@ -2,6 +2,9 @@
 
 ## What is FINN?
 
+|<img src="img/finn-flow.png" alt="drawing" width="300"/>|<img src="img/finn-example.png" alt="drawing" width="300"/>|
+|-------|-------|
+
 FINN is an
 experimental framework from Xilinx Research Labs to explore deep neural network
 inference on FPGAs. 
@@ -20,7 +23,7 @@ support a wide range of precisions.
 * **Ultra low-latency and high performance
 with dataflow:** By composing streaming components for each layer, FINN can
 generate accelerators that can classify images at sub-microsecond latency.
-* **End-to-end example designs:** We provide examples that start from training a
+* **Many end-to-end example designs:** We provide examples that start from training a
 quantized neural network, all the way down to an accelerated design running on
 hardware. The examples span a range of datasets and network topologies.
 * **Toolflow for rapid design generation:** The FINN toolflow supports allocating
@@ -35,8 +38,8 @@ different suggestions on where to get started:
 
 * **I want to try out premade accelerators on real hardware.** Head over to [BNN-
 PYNQ](https://github.com/Xilinx/BNN-PYNQ) repository to try out some image
-classification accelerators, or to [LSTM-PYNQ](https://github.com/Xilinx/LSTM-
-PYNQ) to try optical character recognition with LSTMs.
+classification accelerators, or to [LSTM-PYNQ](https://github.com/Xilinx/LSTM-PYNQ) 
+to try optical character recognition with LSTMs.
 * **I want to try the full design flow.** The [FINN](https://github.com/Xilinx/LSTM-PYNQ) repository
 contains the Python toolflow that goes from a trained, quantized Caffe network
 to an accelerator running on real hardware.
@@ -161,6 +164,18 @@ work and would like to be listed here, please contact us!
 * [BinaryEye: A 20 kfps Streaming Camera System on FPGA with Real-Time On-Device Image Recognition Using Binary Neural Networks](https://ieeexplore.ieee.org/abstract/document/8442108)
 * [Cucumber sorting with FINN (in Japanese)](https://qiita.com/ykshr/items/08147098516a45203761)
 * [ReBNet: Residual Binarized Neural Network, FCCM'18 best paper](https://github.com/mohaghasemzadeh/ReBNet)
+
+## Events, Tutorials and Keynotes
+
+* CLUSTER'2018 keynote
+* RCML'2018 invited talk
+* HotChips'2018 ML tutorial
+* ASAP'2018 keynote
+* ARC'2018 keynote
+* FPGA'2018 tutorial 
+* MPSoC 2017 talk
+* TCD 2017 guest lecture on ML
+* QPYNQ'2017 tutorial
 
 ## People
 
