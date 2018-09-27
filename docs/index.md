@@ -192,7 +192,7 @@ Missing: Peter Ogden
 * NTNU, Norway: Magnus Jahre, Magnus Sjalander
 * University of Sydney, Australia: Julian Faraone, Philip Leong
 * ETH Zurich, Switzerland: Kaan Kara, Ce Zhang, Lois Orosa, Onur Mutlu
-* University of Kaiserslautern, Germany: Vladimir Rybalkin, Mohsin Ghaffar, Nobert When
+* University of Kaiserslautern, Germany: Vladimir Rybalkin, Mohsin Ghaffar, Nobert Wehn
 * Imperial College, UK: Alex (Jiang) Su and Peter Cheung
 * Northeastern University, USA: Miriam Leeser
 * Trinity College Dublin, Ireland: Linda Doyle
