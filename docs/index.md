@@ -167,15 +167,15 @@ work and would like to be listed here, please contact us!
 
 ## Events, Tutorials and Keynotes
 
-* CLUSTER'2018 keynote
-* RCML'2018 invited talk
-* HotChips'2018 ML tutorial
-* ASAP'2018 keynote
-* ARC'2018 keynote
-* FPGA'2018 tutorial 
-* MPSoC 2017 talk
-* TCD 2017 guest lecture on ML
-* QPYNQ'2017 tutorial
+* CLUSTER'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/IEEECluster2018.pdf
+* RCML'2018 invited talk: https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf 
+* HotChips'2018 ML tutorial: https://github.com/Xilinx/FINN/blob/master/docs/Hotchips2018_Tutorial.pdf
+* ASAP'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/ASAP2018.pdf
+* ARC'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf
+* FPGA'2018 tutorial: https://github.com/Xilinx/FINN/blob/master/docs/FPGA2018_tutorial.pdf 
+* MPSoC 2017 talk: https://github.com/Xilinx/FINN/blob/master/docs/MPSOC2018.pdf
+* TCD 2017 guest lecture on ML: https://www.youtube.com/watch?v=pIVh-4tqjPc
+* QPYNQ'2017 tutorial: https://www.ntnu.edu/ie/eecs/qpynq
 
 ## People
 
