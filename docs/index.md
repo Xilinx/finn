@@ -13,7 +13,7 @@ generating dataflow-style architectures customized for each network.
 It is not
 intended to be a generic DNN accelerator like xDNN, but rather a tool for
 exploring the design space of DNN inference accelerators on FPGAs.
-
+<br>
 ## Features
 
 * **Templated Vivado HLS library of streaming components:** FINN comes with an
