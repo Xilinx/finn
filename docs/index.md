@@ -2,8 +2,7 @@
 
 ## What is FINN?
 
-|<img src="img/finn-flow.png" alt="drawing" width="300"/>|<img src="img/finn-example.png" alt="drawing" width="300"/>|
-|-------|-------|
+<img align="left" src="img/finn-example.png" alt="drawing" width="300"/>
 
 FINN is an
 experimental framework from Xilinx Research Labs to explore deep neural network
@@ -16,6 +15,7 @@ intended to be a generic DNN accelerator like xDNN, but rather a tool for
 exploring the design space of DNN inference accelerators on FPGAs.
 
 ## Features
+
 * **Templated Vivado HLS library of streaming components:** FINN comes with an
 HLS hardware library that implements convolutional, fully-connected, pooling and
 LSTM layer types as streaming components. The library uses C++ templates to
