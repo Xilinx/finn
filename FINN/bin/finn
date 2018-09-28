@@ -173,7 +173,7 @@ def finn_description():
 	return "FINN: A Framework for Fast, Scalable Binarized Neural Network Inference"
 
 def finn_usage():
-	return "python2 ./FINN/bin/finn --mode=[estimate|synth] --caffemodel ./FINN/inputs/lfc-w1a1.caffemodel --prototxt ./FINN/inputs/cnv-w1a1.prototxt caffe hls vu9p"
+	return "python2 ./FINN/bin/finn --device=pynqz1 --mode=[estimate|synth] --caffemodel ./FINN/inputs/lfc-w1a1.caffemodel --prototxt ./FINN/inputs/lfc-w1a1.prototxt"
 
 
 if __name__ == "__main__":
