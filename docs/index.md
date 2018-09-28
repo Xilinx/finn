@@ -181,12 +181,13 @@ work and would like to be listed here, please contact us!
 
 ### The FINN Team
 
+We are part of Xilinx's CTO group under Ivo Bolsens (CTO) and Kees Vissers (Fellow) and working very closely with Peter Ogden, Graham Schelle and Cathal McCabe in the Pynq team and Kristof Denolf and Jack Lo for integration with video processing.
+
 <img src="img/finn-team.jpg" alt="The FINN Team" width="400"/>
 
 From left to right: Lucian Petrica, Giulio Gambardella,
 Alessandro Pappalardo, Ken O’Brien, Michaela Blott, Nick Fraser, Yaman Umuroglu
 
-Missing: Peter Ogden
 
 ### External Collaborators
 * NTNU, Norway: Magnus Jahre, Magnus Sjalander
