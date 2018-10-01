@@ -43,7 +43,7 @@ to try optical character recognition with LSTMs.
 * **I want to try the full design flow.** The [FINN](https://github.com/Xilinx/LSTM-PYNQ) repository
 contains the Python toolflow that goes from a trained, quantized Caffe network
 to an accelerator running on real hardware.
-* **I want to train new quantized networks for FINN.** Have a look at 
+* **I want to train new quantized networks for FINN.** Have a look [here](https://github.com/Xilinx/BNN-PYNQ/tree/master/bnn/src/training), at 
 [this presentation](https://drive.google.com/open?id=17oorGvtUbdFd-o1OzSuxGCSrWsvm_S2ftC1UC2FLtuE) 
 for an example with Fashion-MNIST, or [here](https://github.com/Xilinx/pytorch-ocr) for quantized 
 LSTMs with PyTorch.
