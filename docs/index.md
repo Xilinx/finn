@@ -170,7 +170,7 @@ work and would like to be listed here, please contact us!
 * CLUSTER'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/IEEECluster2018.pdf
 * RCML'2018 invited talk: https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf 
 * HotChips'2018 ML tutorial: https://github.com/Xilinx/FINN/blob/master/docs/Hotchips2018_Tutorial.pdf
-  Video: http://www.hotchips.org/hc30/videos.html
+  Video: https://youtu.be/ydsZ7A0FF0I
 * ASAP'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/ASAP2018.pdf
 * ARC'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf
 * FPGA'2018 tutorial: https://github.com/Xilinx/FINN/blob/master/docs/FPGA2018_tutorial.pdf 
