@@ -167,6 +167,7 @@ work and would like to be listed here, please contact us!
 
 ## Events, Tutorials and Keynotes
 
+* BigData Belfast'2018 talk: https://github.com/Xilinx/FINN/blob/master/docs/BigDataBelfast2018.pdf
 * CLUSTER'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/IEEECluster2018.pdf
 * RCML'2018 invited talk: https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf 
 * HotChips'2018 ML tutorial: https://github.com/Xilinx/FINN/blob/master/docs/Hotchips2018_Tutorial.pdf
