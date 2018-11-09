@@ -140,7 +140,7 @@ Logic](https://arxiv.org/pdf/1807.10577.pdf)
 * CVPR’18: [SYQ: Learning Symmetric
 Quantization For Efﬁcient Deep Neural
 Networks](https://arxiv.org/abs/1807.00301)
-* DATE'18:[Inference of quantized
+* DATE'18: [Inference of quantized
 neural networks on heterogeneous all-programmable
 devices](https://ieeexplore.ieee.org/abstract/document/8342121/)
 * ICONIP’17:
