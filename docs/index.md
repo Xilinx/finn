@@ -171,7 +171,7 @@ work and would like to be listed here, please contact us!
 * CLUSTER'2018 keynote: [Unconventional Compute Architectures with Reconfigurable Devices in the Cloud](https://github.com/Xilinx/FINN/blob/master/docs/IEEECluster2018.pdf)
 * RCML'2018 invited talk: [The Emerging Computational Landscape of Neural Networks](https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf)
 * HotChips'2018 ML tutorial: [Overview of Deep Learning and Computer Architectures for Accelerating DNNs](https://github.com/Xilinx/FINN/blob/master/docs/Hotchips2018_Tutorial.pdf)
-  [Video](https://youtu.be/ydsZ7A0FF0I)
+  + [Video](https://youtu.be/ydsZ7A0FF0I)
 * ASAP'2018 keynote: [Design Trade-offs for Machine Learning Solutions on Reconfigurable Devices](https://github.com/Xilinx/FINN/blob/master/docs/ASAP2018.pdf)
 * ARC'2018 keynote: [Scalable Machine Learning with Reconfigurable Devices](https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf)
 * FPGA'2018 tutorial: [Training Quantized Neural Networks](https://github.com/Xilinx/FINN/blob/master/docs/FPGA2018_tutorial.pdf)
