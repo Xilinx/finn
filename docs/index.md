@@ -40,7 +40,7 @@ different suggestions on where to get started:
 PYNQ](https://github.com/Xilinx/BNN-PYNQ) repository to try out some image
 classification accelerators, or to [LSTM-PYNQ](https://github.com/Xilinx/LSTM-PYNQ) 
 to try optical character recognition with LSTMs.
-* **I want to try the full design flow.** The [FINN](https://github.com/Xilinx/LSTM-PYNQ) repository
+* **I want to try the full design flow.** The [FINN](https://github.com/Xilinx/FINN) repository
 contains the Python toolflow that goes from a trained, quantized Caffe network
 to an accelerator running on real hardware.
 * **I want to train new quantized networks for FINN.** Have a look [here](https://github.com/Xilinx/BNN-PYNQ/tree/master/bnn/src/training), at 
@@ -167,17 +167,17 @@ work and would like to be listed here, please contact us!
 
 ## Events, Tutorials and Keynotes
 
-* BigData Belfast'2018 talk: https://github.com/Xilinx/FINN/blob/master/docs/BigDataBelfast2018.pdf
-* CLUSTER'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/IEEECluster2018.pdf
-* RCML'2018 invited talk: https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf 
-* HotChips'2018 ML tutorial: https://github.com/Xilinx/FINN/blob/master/docs/Hotchips2018_Tutorial.pdf
-  Video: https://youtu.be/ydsZ7A0FF0I
-* ASAP'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/ASAP2018.pdf
-* ARC'2018 keynote: https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf
-* FPGA'2018 tutorial: https://github.com/Xilinx/FINN/blob/master/docs/FPGA2018_tutorial.pdf 
-* MPSoC 2017 talk: https://github.com/Xilinx/FINN/blob/master/docs/MPSOC2018.pdf
-* TCD 2017 guest lecture on ML: https://www.youtube.com/watch?v=pIVh-4tqjPc
-* QPYNQ'2017 tutorial: https://www.ntnu.edu/ie/eecs/qpynq
+* BigData Belfast'2018 talk: [Unconventional Compute Architectures for Enabling the Roll-Out of Deep Learning](https://github.com/Xilinx/FINN/blob/master/docs/BigDataBelfast2018.pdf)
+* CLUSTER'2018 keynote: [Unconventional Compute Architectures with Reconfigurable Devices in the Cloud](https://github.com/Xilinx/FINN/blob/master/docs/IEEECluster2018.pdf)
+* RCML'2018 invited talk: [The Emerging Computational Landscape of Neural Networks](https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf)
+* HotChips'2018 ML tutorial: [Overview of Deep Learning and Computer Architectures for Accelerating DNNs](https://github.com/Xilinx/FINN/blob/master/docs/Hotchips2018_Tutorial.pdf)
+  [Video](https://youtu.be/ydsZ7A0FF0I)
+* ASAP'2018 keynote: [Design Trade-offs for Machine Learning Solutions on Reconfigurable Devices](https://github.com/Xilinx/FINN/blob/master/docs/ASAP2018.pdf)
+* ARC'2018 keynote: [Scalable Machine Learning with Reconfigurable Devices](https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf)
+* FPGA'2018 tutorial: [Training Quantized Neural Networks](https://github.com/Xilinx/FINN/blob/master/docs/FPGA2018_tutorial.pdf)
+* MPSoC 2017 talk: [A Framework for Reduced Precision Neural Networks on FPGAs](https://github.com/Xilinx/FINN/blob/master/docs/MPSOC2018.pdf)
+* TCD 2017 guest lecture on ML: [Machine Learning for Embedded Systems (Video)](https://www.youtube.com/watch?v=pIVh-4tqjPc)
+* QPYNQ'2017 tutorial: [Quantized Neural Networks with Xilinx PYNQ](https://www.ntnu.edu/ie/eecs/qpynq)
 
 ## People
 
