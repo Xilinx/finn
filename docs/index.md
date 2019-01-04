@@ -76,11 +76,11 @@ also planned.
 
 | Thumbnail | Dataset | Neural Network | Task | Link |
 |-----------|---------|-------------|------|--------|
-|<img src="img/cifar-10.png" alt="drawing" width="200"/>|<a href="https://www.cs.toronto.edu/~kriz/cifar.html" target="_blank">CIFAR-10</a>|6 convolutional, 3 max pool and 3 fully connected layers|Image classification (animals and vehicles)|[Cifar10](https://github.com/Xilinx/BNN-PYNQ/blob/master/notebooks/CNV-BNN_Cifar10.ipynb)|
-|<img src="img/svhn.png" alt="drawing" width="200"/>|<a href="http://ufldl.stanford.edu/housenumbers/" target="_blank">Street View House Numbers</a>|6 convolutional, 3 max pool and 3 fully connected layers|Image classification (house numbers)|[SVHN](https://github.com/Xilinx/BNN-PYNQ/blob/master/notebooks/CNV-BNN_SVHN.ipynb)|
-|<img src="img/gtsrb.png" alt="drawing" width="200"/>|<a href="http://benchmark.ini.rub.de/?section=gtsdb&subsection=dataset" target="_blank">German Road Signs</a>|6 convolutional, 3 max pool and 3 fully connected layers|Image classification (road signs)|[GTRSB](https://github.com/Xilinx/BNN-PYNQ/blob/master/notebooks/CNV-BNN_Road-Signs.ipynb)|
-|<img src="img/mnist.jpg" alt="drawing" width="200"/>|<a href="http://yann.lecun.com/exdb/mnist/" target="_blank">MNIST</a>|3 fully connected layers|Image classification (handwritten digits)|[MNIST](https://github.com/Xilinx/BNN-PYNQ/blob/master/notebooks/LFC-BNN_MNIST_Webcam.ipynb)|
-|<img src="img/fraktur.png" alt="drawing" width="200"/>|Fraktur|Bi-LSTM|Optical Character Recognition|[Fraktur](https://github.com/Xilinx/LSTM-PYNQ/blob/master/notebooks/Fraktur_OCR.ipynb)|
+|<img src="img/cifar-10.png" alt="drawing" width="200"/>|<a href="https://www.cs.toronto.edu/~kriz/cifar.html" target="_blank">CIFAR-10</a>|6 convolutional, 3 max pool and 3 fully connected layers|Image classification (animals and vehicles)|<a href="https://github.com/Xilinx/BNN-PYNQ/blob/master/notebooks/CNV-BNN_Cifar10.ipynb" target="_blank">Cifar10</a>|
+|<img src="img/svhn.png" alt="drawing" width="200"/>|<a href="http://ufldl.stanford.edu/housenumbers/" target="_blank">Street View House Numbers</a>|6 convolutional, 3 max pool and 3 fully connected layers|Image classification (house numbers)|<a href="https://github.com/Xilinx/BNN-PYNQ/blob/master/notebooks/CNV-BNN_SVHN.ipynb" target="_blank">SVHN</a>|
+|<img src="img/gtsrb.png" alt="drawing" width="200"/>|<a href="http://benchmark.ini.rub.de/?section=gtsdb&subsection=dataset" target="_blank">German Road Signs</a>|6 convolutional, 3 max pool and 3 fully connected layers|Image classification (road signs)|<a href="https://github.com/Xilinx/BNN-PYNQ/blob/master/notebooks/CNV-BNN_Road-Signs.ipynb" target="_blank">GTRSB</a>|
+|<img src="img/mnist.jpg" alt="drawing" width="200"/>|<a href="http://yann.lecun.com/exdb/mnist/" target="_blank">MNIST</a>|3 fully connected layers|Image classification (handwritten digits)|<a href="https://github.com/Xilinx/BNN-PYNQ/blob/master/notebooks/LFC-BNN_MNIST_Webcam.ipynb" target="_blank">MNIST</a>|
+|<img src="img/fraktur.png" alt="drawing" width="200"/>|Fraktur|Bi-LSTM|Optical Character Recognition|<a href="https://github.com/Xilinx/LSTM-PYNQ/blob/master/notebooks/Fraktur_OCR.ipynb" target="_blank">Fraktur</a>|
 
 ### Demos with Loopback Architecture
 
