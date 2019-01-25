@@ -138,6 +138,7 @@ using **PyTorch**.
 If you are using FINN in your
 work and would like to be listed here, please contact us!
 
+* <a href="https://coefs.uncc.edu/htabkhiv/teaching/hardware-software-co-design-real-time-ai/" target="_blank">Hardware-Software Co-Design Real-time AI (UNC Charlotte)</a>
 * <a href="https://ieeexplore.ieee.org/abstract/document/8442108" target="_blank">BinaryEye: A 20 kfps Streaming Camera System on FPGA with Real-Time On-Device Image Recognition Using Binary Neural Networks</a>
 * <a href="https://qiita.com/ykshr/items/08147098516a45203761" target="_blank">Cucumber sorting with FINN (in Japanese)</a>
 * <a href="https://github.com/mohaghasemzadeh/ReBNet" target="_blank">ReBNet: Residual Binarized Neural Network, FCCM'18 best paper</a>
