@@ -24,7 +24,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import numpy as np
-
+import sys
 # various utility functions for FPGA code generation
 
 def isBipolarMatrix(W):
@@ -68,7 +68,7 @@ def npyNDArrayToHLSArray(ndarray, hls_type_str, hls_var_name, elem2str):
     for d in range(ndims):
         ret += "[%d]" % ndarray.shape[d]
     orig_printops = np.get_printoptions()
-    np.set_printoptions(threshold=np.nan)
+    np.set_printoptions(threshold=sys.maxsize)
     strarr = np.array2string(ndarray, separator=", ", formatter={'all': elem2str})
     np.set_printoptions(**orig_printops)
     strarr = strarr.replace("[", "{").replace("]", "}")
