@@ -3,8 +3,15 @@
 FINN is an end to end framework for generating high performance FPGA hardware implementations of neural networks. 
 
 ## Installation
+### Docker flow
 
-### Prerequisites
+```git clone <repo>```
+```cd FINN```
+```docker build . --tag=finn```
+```docker run -it finn```
+
+### Local Install flow
+#### Prerequisites
 
 - Install HWGQ Caffe in the same directory as FINN: https://github.com/zhaoweicai/hwgq
 - Install git lfs: https://git-lfs.github.com/
@@ -14,18 +21,18 @@ FINN is an end to end framework for generating high performance FPGA hardware im
 - Install pandas and lmdb packages
     - `sudo pip install pandas lmdb`
 
-## Quick Start
-### Environmental Setup
-
 ```git clone <repo>```
+
+### Quick Start
+
 ```cd FINN```
 ```source env.sh```
 
-### Estimate performance of LFC MLP network
+#### Estimate performance of LFC MLP network
 
 ```python FINN/bin/finn --device=pynqz1 --prototxt=FINN/inputs/lfc-w1a1.prototxt --mode=estimate```
 
-### Estimate performance and synthesize CNV network
+#### Estimate performance and synthesize CNV network
 
 ```python FINN/bin/finn --device=pynqz1 --prototxt=FINN/inputs/cnv-w1a1.prototxt --caffemodel=FINN/inputs/cnv-w1a1.caffemodel --mode=synth```
 
