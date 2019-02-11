@@ -27,6 +27,7 @@ FINN is an end to end framework for generating high performance FPGA hardware im
 
 ```cd FINN```
 ```source env.sh```
+```git lfs pull```
 
 #### Estimate performance of LFC MLP network
 
