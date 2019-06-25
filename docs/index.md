@@ -145,6 +145,7 @@ work and would like to be listed here, please contact us!
 
 ## Events, Tutorials and Keynotes
 
+* Future of AI'2019 keynote:  <a href="https://github.com/Xilinx/FINN/blob/master/docs/FutureofAI2019_Blott.pdf" 
 * BigData Belfast'2018 talk: <a href="https://github.com/Xilinx/FINN/blob/master/docs/BigDataBelfast2018.pdf" target="_blank">Unconventional Compute Architectures for Enabling the Roll-Out of Deep Learning</a>
 * CLUSTER'2018 keynote: <a href="https://github.com/Xilinx/FINN/blob/master/docs/IEEECluster2018.pdf" target="_blank">Unconventional Compute Architectures with Reconfigurable Devices in the Cloud</a>
 * RCML'2018 invited talk: <a href="https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf" target="_blank">The Emerging Computational Landscape of Neural Networks</a>
