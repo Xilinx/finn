@@ -144,7 +144,7 @@ work and would like to be listed here, please contact us!
 * <a href="https://github.com/mohaghasemzadeh/ReBNet" target="_blank">ReBNet: Residual Binarized Neural Network, FCCM'18 best paper</a>
 
 ## Events, Tutorials and Keynotes
-
+* DAMON'2019 keynote:  <a href="https://github.com/Xilinx/FINN/blob/master/docs/DAMON2019_Blott_final.pdf" target="_blank">Performance Scaling with Innovative Compute Architectures and FPGAs</a>
 * Future of AI'2019 keynote:  <a href="https://github.com/Xilinx/FINN/blob/master/docs/FutureofAI2019_Blott.pdf" target="_blank">Future of AI: Unconventional Compute Architectures</a>
 * BigData Belfast'2018 talk: <a href="https://github.com/Xilinx/FINN/blob/master/docs/BigDataBelfast2018.pdf" target="_blank">Unconventional Compute Architectures for Enabling the Roll-Out of Deep Learning</a>
 * CLUSTER'2018 keynote: <a href="https://github.com/Xilinx/FINN/blob/master/docs/IEEECluster2018.pdf" target="_blank">Unconventional Compute Architectures with Reconfigurable Devices in the Cloud</a>
