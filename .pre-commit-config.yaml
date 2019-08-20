@@ -1,6 +1,12 @@
 exclude: '^docs/conf.py'
 
 repos:
+# black
+- repo: https://github.com/ambv/black
+  rev: stable
+  hooks:
+  - id: black
+    language_version: python3
 - repo: git://github.com/pre-commit/pre-commit-hooks
   rev: v2.2.3
   hooks:
