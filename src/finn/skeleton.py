@@ -16,8 +16,8 @@ Note: This skeleton file can be safely removed if not needed!
 """
 
 import argparse
-import sys
 import logging
+import sys
 
 from finn import __version__
 

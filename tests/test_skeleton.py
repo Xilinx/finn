@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 
 import pytest
+
 from finn.skeleton import fib
 
 __author__ = "Yaman Umuroglu"

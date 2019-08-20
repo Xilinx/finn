@@ -8,7 +8,6 @@
     Learn more under: https://pyscaffold.org/
 """
 import sys
-
 from pkg_resources import VersionConflict, require
 from setuptools import setup
 
