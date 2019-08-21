@@ -96,7 +96,7 @@ class DataType(Enum):
     if "FLOAT" in self.name:
       return True
     elif "INT" in self.name:
-      return (self.min() <= value) and (value <= self.max())
+      return (self.min() <= value) and (value <= self.max()) and float(value).is_integer()
     elif self.name == "BINARY":
       return value in [0, 1]
     elif self.name == "BIPOLAR":
