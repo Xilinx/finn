@@ -110,7 +110,6 @@ class Tensor(object):
   Attributes:
     dtype (DataType): Element data type for this Tensor
     data (numpy ndarray of float32): Numpy container for data
-    ndims (int): Number of dimensions in array, 0 indicates scalar
     dim_names (list of str): names associated with each dimension, e.g.
       ["N", "C", "H", "W"]
   """
