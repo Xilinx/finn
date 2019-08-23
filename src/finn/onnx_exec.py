@@ -33,18 +33,10 @@ model = onnx.load_model("model.onnx")
 graph = model.graph
 
 def valueinfo_to_tensor(vi):
-  """Creates an empty TensorProto from a ValueInfoProto."""
+  """Creates an all-zeroes numpy tensor from a ValueInfoProto."""
 
   dims = [x.dim_value for x in vi.type.tensor_type.shape.dim]
-  n_elems = reduce(lambda x,y: x*y, dims, 1)
-  return helper.make_tensor(
-    name = vi.name,
-    #data_type = vi.type.tensor_type.elem_type,
-    data_type = 1,
-    dims = dims,
-    vals = np.zeros((n_elems,)),  # TODO always float32 for now - respect type?
-    raw = False
-  )
+  return np.zeros(dims, dtype = onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[vi.type.tensor_type.elem_type])
 
 # first, we need to make sure that every variable required by the graph has
 # some buffer associated with it. this includes graph inputs (which includes
@@ -55,19 +47,19 @@ execution_context = dict()
 # make empty tensors for all the graph inputs and outputs
 for vi in graph.input:
   new_tensor = valueinfo_to_tensor(vi)
-  execution_context[new_tensor.name] = new_tensor
+  execution_context[vi.name] = new_tensor
 for vi in graph.output:
   new_tensor = valueinfo_to_tensor(vi)
-  execution_context[new_tensor.name] = new_tensor
+  execution_context[vi.name] = new_tensor
 # make empty tensors for all intermediate buffers
 # TODO are we guaranteed to have the .value_info filled?
 # do we need to call ONNX shape inference first?
 for vi in graph.value_info:
   new_tensor = valueinfo_to_tensor(vi)
-  execution_context[new_tensor.name] = new_tensor
-# fill in the constants provided by the initializers
+  execution_context[vi.name] = new_tensor
+# fill in the constants provided by the initializers (TensorProto to npy)
 for t in graph.initializer:
-  execution_context[t.name] = t
+  execution_context[t.name] = np_helper.to_array(t)
 
 # now call each node in the graph nodes list
 # we can simply walk down the list since the ONNX spec guarantees that it is
