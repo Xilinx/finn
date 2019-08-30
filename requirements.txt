@@ -4,3 +4,4 @@ onnx
 onnxruntime
 pre-commit
 sphinx
+wget
