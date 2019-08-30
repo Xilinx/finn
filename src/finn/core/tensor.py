@@ -24,88 +24,95 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
 from enum import Enum
 
+import numpy as np
+
+
 class DataType(Enum):
-  FLOAT32 = 0
-  BINARY = 1
-  BIPOLAR = 2
-  UINT2 = 3
-  UINT3 = 4
-  UINT4 = 5
-  UINT8 = 6
-  UINT16 = 7
-  UINT32 = 8
-  INT2 = 9
-  INT3 = 10
-  INT4 = 11
-  INT8 = 12
-  INT16 = 13
-  INT32 = 14
+    FLOAT32 = 0
+    BINARY = 1
+    BIPOLAR = 2
+    UINT2 = 3
+    UINT3 = 4
+    UINT4 = 5
+    UINT8 = 6
+    UINT16 = 7
+    UINT32 = 8
+    INT2 = 9
+    INT3 = 10
+    INT4 = 11
+    INT8 = 12
+    INT16 = 13
+    INT32 = 14
 
-  def bitwidth(self):
-    """Returns the number of bits required for this DataType."""
+    def bitwidth(self):
+        """Returns the number of bits required for this DataType."""
 
-    if self.name.startswith("UINT"):
-      return int(self.name.strip("UINT"))
-    elif self.name.startswith("INT"):
-      return int(self.name.strip("INT"))
-    elif "FLOAT" in self.name:
-      return int(self.name.strip("FLOAT"))
-    elif self.name in ["BINARY", "BIPOLAR"]:
-      return 1
-    else:
-      raise Exception("Unrecognized data type: %s" % self.name)
+        if self.name.startswith("UINT"):
+            return int(self.name.strip("UINT"))
+        elif self.name.startswith("INT"):
+            return int(self.name.strip("INT"))
+        elif "FLOAT" in self.name:
+            return int(self.name.strip("FLOAT"))
+        elif self.name in ["BINARY", "BIPOLAR"]:
+            return 1
+        else:
+            raise Exception("Unrecognized data type: %s" % self.name)
 
-  def min(self):
-    """Returns the smallest possible value allowed by this DataType."""
+    def min(self):
+        """Returns the smallest possible value allowed by this DataType."""
 
-    if self.name.startswith("UINT") or self.name == "BINARY":
-      return 0
-    elif self.name.startswith("INT"):
-      return -(2 ** (self.bitwidth() - 1))
-    elif self.name == "FLOAT32":
-      return np.finfo(np.float32).min
-    elif self.name == "BIPOLAR":
-      return -1
-    else:
-      raise Exception("Unrecognized data type: %s" % self.name)
+        if self.name.startswith("UINT") or self.name == "BINARY":
+            return 0
+        elif self.name.startswith("INT"):
+            return -(2 ** (self.bitwidth() - 1))
+        elif self.name == "FLOAT32":
+            return np.finfo(np.float32).min
+        elif self.name == "BIPOLAR":
+            return -1
+        else:
+            raise Exception("Unrecognized data type: %s" % self.name)
 
-  def max(self):
-    """Returns the largest possible value allowed by this DataType."""
+    def max(self):
+        """Returns the largest possible value allowed by this DataType."""
 
-    if self.name.startswith("UINT"):
-      return (2 ** (self.bitwidth())) - 1
-    elif self.name == "BINARY":
-      return +1
-    elif self.name.startswith("INT"):
-      return (2 ** (self.bitwidth() - 1)) - 1
-    elif self.name == "FLOAT32":
-      return np.finfo(np.float32).max
-    elif self.name == "BIPOLAR":
-      return +1
-    else:
-      raise Exception("Unrecognized data type: %s" % self.name)
+        if self.name.startswith("UINT"):
+            return (2 ** (self.bitwidth())) - 1
+        elif self.name == "BINARY":
+            return +1
+        elif self.name.startswith("INT"):
+            return (2 ** (self.bitwidth() - 1)) - 1
+        elif self.name == "FLOAT32":
+            return np.finfo(np.float32).max
+        elif self.name == "BIPOLAR":
+            return +1
+        else:
+            raise Exception("Unrecognized data type: %s" % self.name)
 
-  def allowed(self, value):
-    """Check whether given value is allowed for this DataType.
+    def allowed(self, value):
+        """Check whether given value is allowed for this DataType.
 
     value (float32): value to be checked"""
 
-    if "FLOAT" in self.name:
-      return True
-    elif "INT" in self.name:
-      return (self.min() <= value) and (value <= self.max()) and float(value).is_integer()
-    elif self.name == "BINARY":
-      return value in [0, 1]
-    elif self.name == "BIPOLAR":
-      return value in [-1, +1]
-    else:
-      raise Exception("Unrecognized data type: %s" % self.name)
+        if "FLOAT" in self.name:
+            return True
+        elif "INT" in self.name:
+            return (
+                (self.min() <= value)
+                and (value <= self.max())
+                and float(value).is_integer()
+            )
+        elif self.name == "BINARY":
+            return value in [0, 1]
+        elif self.name == "BIPOLAR":
+            return value in [-1, +1]
+        else:
+            raise Exception("Unrecognized data type: %s" % self.name)
+
 
 class Tensor(object):
-  """A multidimensional array of numbers of given datatype.
+    """A multidimensional array of numbers of given datatype.
 
   Attributes:
     dtype (DataType): Element data type for this Tensor
@@ -114,7 +121,7 @@ class Tensor(object):
       ["N", "C", "H", "W"]
   """
 
-  def __init__(self, dtype, data, dim_names = []):
-    self.dtype = dtype
-    self.data = data
-    self.dim_names = dim_names
+    def __init__(self, dtype, data, dim_names=[]):
+        self.dtype = dtype
+        self.data = data
+        self.dim_names = dim_names
