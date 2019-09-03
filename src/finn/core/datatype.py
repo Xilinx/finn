@@ -109,19 +109,3 @@ class DataType(Enum):
             return value in [-1, +1]
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
-
-
-class Tensor(object):
-    """A multidimensional array of numbers of given datatype.
-
-  Attributes:
-    dtype (DataType): Element data type for this Tensor
-    data (numpy ndarray of float32): Numpy container for data
-    dim_names (list of str): names associated with each dimension, e.g.
-      ["N", "C", "H", "W"]
-  """
-
-    def __init__(self, dtype, data, dim_names=[]):
-        self.dtype = dtype
-        self.data = data
-        self.dim_names = dim_names
