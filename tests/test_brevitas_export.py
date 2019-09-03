@@ -95,7 +95,7 @@ def test_brevitas_to_onnx_export():
         int_weights_onnx = nph.to_array(model.graph.node[13].attribute[0].t)
         assert (int_weights_onnx == int_weights_pytorch).all()
         assert model.graph.node[12].attribute[0].name == "activation_qnt"
-        assert model.graph.node[12].attribute[0].s.decode("utf-8") == "1"
+        assert model.graph.node[12].attribute[0].s.decode("utf-8") == "BIPOLAR"
         assert model.graph.node[14].attribute[1].name == "weight_qnt"
-        assert model.graph.node[14].attribute[1].s.decode("utf-8") == "1"
+        assert model.graph.node[14].attribute[1].s.decode("utf-8") == "BIPOLAR"
         os.remove(export_onnx_path)
