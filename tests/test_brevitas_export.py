@@ -74,6 +74,7 @@ def test_brevitas_to_onnx_export():
     export_onnx_path = "test_output_lfc.onnx"
     with torch.no_grad():
         lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
+        lfc = lfc.eval()
         bo.prepare_for_onnx_export(lfc, True)
         torch.onnx.export(
             lfc, torch.empty(784, dtype=torch.float), export_onnx_path, verbose=True
