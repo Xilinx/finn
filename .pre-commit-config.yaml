@@ -11,7 +11,6 @@ repos:
   rev: v2.2.3
   hooks:
   - id: trailing-whitespace
-  - id: check-added-large-files
   - id: check-ast
   - id: check-json
   - id: check-merge-conflict
