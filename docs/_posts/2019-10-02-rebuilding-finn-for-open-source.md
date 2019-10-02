@@ -32,7 +32,7 @@ around it that shares our excitement around QNNs for FPGAs.
 
 ### Making FINN modular
 
-<img align="left" src="img/finn-stack.png" alt="drawing" style="margin-right: 20px" width="300"/>
+<img align="left" src="https://xilinx.github.io/finn/img/finn-stack.png" alt="drawing" style="margin-right: 20px" width="300"/>
 
 The first step towards making this happen is to define what layers exist in the solution stack.
 In many ways, this solution stack is inspired by the tested-and-tried frontend/backend software architecture found in compiler
