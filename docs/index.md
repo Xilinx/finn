@@ -23,5 +23,6 @@ classification accelerators, or to <a href="https://github.com/Xilinx/LSTM-PYNQ"
 to try optical character recognition with LSTMs.
 * **I want to train new quantized networks for FINN.** Check out <a href="https://github.com/Xilinx/brevitas">Brevitas</a>, 
 our PyTorch library for training quantized networks. The Brevitas-to-FINN part of the flow is coming soon!
+* **I want to understand the computations involved in quantized inference.** Check out these Jupyter notebooks on <a href="https://github.com/maltanar/qnn-inference-examples">QNN inference</a>. This repo contains simple Numpy/Python layer implementations and a few pretrained QNNs for instructive purposes.
 * **I want to understand how it all fits together.** Check out our [publications](#publications),
 particularly the <a href="https://arxiv.org/abs/1612.07119" target="_blank">FINN paper at FPGA'17</a> and the <a href="https://arxiv.org/abs/1809.04570" target="_blank">FINN-R paper in ACM TRETS</a>.
