@@ -32,7 +32,8 @@ def test_mnist_onnx_download_extract_run():
     input_dict = {"Input3": np_helper.to_array(input_tensor)}
     output_dict = oxe.execute_onnx(model, input_dict)
     assert np.isclose(
-        np_helper.to_array(output_tensor), output_dict["Plus214_Output_0"]
+        np_helper.to_array(output_tensor), output_dict["Plus214_Output_0"],
+        atol=1e-3
     ).all()
     # remove the downloaded model and extracted files
     os.remove(dl_ret)
