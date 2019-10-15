@@ -15,4 +15,4 @@ RUN rm requirements.txt
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
 # of how to do this.
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn:/workspace/brevitas_cnv_lfc/training_scripts"
+ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src:/workspace/brevitas_cnv_lfc/training_scripts"
