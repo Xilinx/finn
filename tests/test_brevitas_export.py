@@ -79,12 +79,12 @@ def test_brevitas_to_onnx_export():
         # TODO the following way of testing is highly sensitive to small changes
         # in PyTorch ONNX export: the order, names, count... of nodes could
         # easily change between different versions, and break this test.
-        assert len(model.graph.input) == 21
-        assert len(model.graph.node) == 25
+        assert len(model.graph.input) == 25
+        assert len(model.graph.node) == 29
         assert len(model.graph.output) == 1
         assert model.graph.output[0].type.tensor_type.shape.dim[1].dim_value == 10
         act_node = model.graph.node[8]
-        assert act_node.op_type == "QuantizedHardTanh"
+        assert act_node.op_type == "Sign"
         matmul_node = model.graph.node[9]
         assert matmul_node.op_type == "MatMul"
         assert act_node.output[0] == matmul_node.input[1]
