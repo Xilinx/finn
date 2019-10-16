@@ -121,6 +121,10 @@ def test_brevitas_to_onnx_export_and_exec():
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = onnx.load(export_onnx_path)
+    try:
+        os.remove("/tmp/" + mnist_onnx_filename)
+    except OSError:
+        pass
     dl_ret = wget.download(mnist_onnx_url_base + "/" + mnist_onnx_filename, out="/tmp")
     shutil.unpack_archive(dl_ret, mnist_onnx_local_dir)
     # load one of the test vectors
