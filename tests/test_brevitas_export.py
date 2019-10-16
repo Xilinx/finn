@@ -77,7 +77,9 @@ class LFC(Module):
 
     def forward(self, x):
         x = x.view(1, 784)
-        x = 2.0 * x - 1.0
+        # removing the torch.tensor here creates a float64 op for some reason..
+        # so explicitly wrapped with torch.tensor to make a float32 one instead
+        x = 2.0 * x - torch.tensor([1.0])
         for mod in self.features:
             x = mod(x)
         out = self.fc(x)
