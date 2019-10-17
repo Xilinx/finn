@@ -5,7 +5,6 @@ from onnx import numpy_helper as np_helper
 
 def give_unique_names(model):
     """Give unique names to each node in the graph using enumeration."""
-
     new_model = copy.deepcopy(model)
     node_count = 0
     for n in new_model.graph.node:
@@ -16,7 +15,6 @@ def give_unique_names(model):
 
 def set_initializer(model, tensor_name, tensor_value):
     """Set the initializer value for tensor with given name."""
-
     graph = model.graph
     # convert tensor_value (numpy array) into TensorProto w/ correct name
     tensor_init_proto = np_helper.from_array(tensor_value)
@@ -31,6 +29,20 @@ def set_initializer(model, tensor_name, tensor_value):
         pass
     # create and insert new initializer
     graph.initializer.append(tensor_init_proto)
+
+
+def get_initializer(model, tensor_name, tensor_value):
+    """Get the initializer value for tensor with given name, if any."""
+    graph = model.graph
+    # convert tensor_value (numpy array) into TensorProto w/ correct name
+    tensor_init_proto = np_helper.from_array(tensor_value)
+    tensor_init_proto.name = tensor_name
+    init_names = [x.name for x in graph.initializer]
+    try:
+        init_ind = init_names.index(tensor_name)
+        return np_helper.to_array(graph.initializer[init_ind])
+    except ValueError:
+        return None
 
 
 def find_producer(model, tensor_name):
