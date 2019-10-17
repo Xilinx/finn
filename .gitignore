@@ -47,3 +47,7 @@ MANIFEST
 
 # Per-project virtualenvs
 .venv*/
+
+# Cloned dependencies for Docker
+brevitas/
+brevitas_cnv_lfc/
