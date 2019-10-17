@@ -65,3 +65,15 @@ def find_consumer(model, tensor_name):
         return model.graph.node[consumer_ind]
     except ValueError:
         return None
+
+
+def make_new_valueinfo_name(model):
+    """Returns a name that can be used for a new value_info."""
+    graph = model.graph
+    names = [x.name for x in graph.value_info]
+    names += [x.name for x in graph.input]
+    names += [x.name for x in graph.output]
+    candidate = str(len(names) + 1)
+    while candidate in names:
+        candidate = str(int(candidate) + 1)
+    return candidate
