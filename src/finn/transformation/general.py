@@ -31,3 +31,25 @@ def set_initializer(model, tensor_name, tensor_value):
         pass
     # create and insert new initializer
     graph.initializer.append(tensor_init_proto)
+
+
+def find_producer(model, tensor_name):
+    """Find and return the node that produces the tensor with given name.
+    Currently only works for linear graphs."""
+    all_outputs = [x.output[0].name for x in model.graph.node]
+    try:
+        producer_ind = all_outputs.index(tensor_name)
+        return model.graph.node[producer_ind]
+    except ValueError:
+        return None
+
+
+def find_consumer(model, tensor_name):
+    """Find and return the node that consumes the tensor with given name.
+    Currently only works for linear graphs."""
+    all_inputs = [x.input[0].name for x in model.graph.node]
+    try:
+        consumer_ind = all_inputs.index(tensor_name)
+        return model.graph.node[consumer_ind]
+    except ValueError:
+        return None
