@@ -24,12 +24,16 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import copy
+
 import numpy as np
 import onnx
 import onnx.helper as helper
 import onnx.shape_inference as si
 import onnxruntime as rt
 from onnx import numpy_helper as np_helper
+
+import finn.transformation.general as tx
 
 
 def valueinfo_to_tensor(vi):
@@ -132,3 +136,20 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
             out_name = out_tensor.name
             output_dict[out_name] = execution_context[out_name]
         return output_dict
+
+
+def execute_onnx_and_make_model(model, input_dict):
+    """Execute given ONNX model with given named inputs and return a new model
+    where an initializer is provided for each tensor."""
+
+    model = si.infer_shapes(model)
+    # retrieve the full execution context
+    execution_context = execute_onnx(model, input_dict, True)
+    new_model = copy.deepcopy(model)
+    # create value_info entries and initializers for everything
+    for i in execution_context.keys():
+        tx.set_initializer(new_model, i, execution_context[i])
+    for vi in new_model.graph.value_info:
+        new_model.graph.output.append(vi)
+    # import pdb; pdb.set_trace()
+    return new_model
