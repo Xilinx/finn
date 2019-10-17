@@ -70,8 +70,13 @@ def execute_node(node, context, graph):
         context[outp] = output_list[output_ind]
 
 
-def execute_onnx(model, input_dict):
-    """Execute given ONNX model with given named inputs to return named outputs."""
+def execute_onnx(model, input_dict, return_full_exec_context=False):
+    """Execute given ONNX model with given named inputs.
+    If return_full_exec_context is False, a dict of named outputs is returned
+    as indicated by the model.graph.output.
+    If return return_full_exec_context is True, the full set of tensors used by
+    the execution (including inputs, weights, activations and final outputs)
+    will be returned as a dict."""
 
     # call ONNX shape inference to make sure we have value_info fields for all
     # the intermediate tensors in the graph
@@ -118,9 +123,12 @@ def execute_onnx(model, input_dict):
     # topologically sorted
     for node in graph.node:
         execute_node(node, execution_context, graph)
-    # provide outputs as dict
-    output_dict = dict()
-    for out_tensor in graph.output:
-        out_name = out_tensor.name
-        output_dict[out_name] = execution_context[out_name]
-    return output_dict
+    if return_full_exec_context:
+        return execution_context
+    else:
+        # provide outputs as dict
+        output_dict = dict()
+        for out_tensor in graph.output:
+            out_name = out_tensor.name
+            output_dict[out_name] = execution_context[out_name]
+        return output_dict
