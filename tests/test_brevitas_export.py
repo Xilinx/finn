@@ -171,15 +171,18 @@ def test_brevitas_to_onnx_export_and_exec():
     shutil.unpack_archive(dl_ret, mnist_onnx_local_dir)
     # load one of the test vectors
     input_tensor = onnx.TensorProto()
-    output_tensor = onnx.TensorProto()
     with open(mnist_onnx_local_dir + "/mnist/test_data_set_0/input_0.pb", "rb") as f:
         input_tensor.ParseFromString(f.read())
-    with open(mnist_onnx_local_dir + "/mnist/test_data_set_0/output_0.pb", "rb") as f:
-        output_tensor.ParseFromString(f.read())
     # run using FINN-based execution
     input_dict = {"0": nph.to_array(input_tensor)}
     output_dict = oxe.execute_onnx(model, input_dict)
-    assert np.isclose(nph.to_array(output_tensor), output_dict["53"], atol=1e-3).all()
+    produced = output_dict[list(output_dict.keys())[0]]
+    # run using PyTorch/Brevitas
+    input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()
+    assert input_tensor.shape == (1, 1, 28, 28)
+    # do forward pass in PyTorch/Brevitas
+    expected = lfc.forward(input_tensor).detach().numpy()
+    assert np.isclose(produced, expected, atol=1e-3).all()
     # remove the downloaded model and extracted files
     os.remove(dl_ret)
     shutil.rmtree(mnist_onnx_local_dir)
