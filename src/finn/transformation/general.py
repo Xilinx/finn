@@ -13,6 +13,20 @@ def give_unique_names(model):
     return new_model
 
 
+def apply_repeated(model, transform):
+    """Applies given transform repeatedly until no more changes can be made.
+    Transform must return (transformed_model, model_was_changed)."""
+    transformed_model = model
+    model_was_changed = True
+    while model_was_changed:
+        (transformed_model, model_was_changed) = transform(transformed_model)
+    return transformed_model
+
+
+# TODO consider making a wrapper for ONNX model and make the below functions
+# members - they aren't really proper transformations
+
+
 def get_tensor_shape(model, tensor_name):
     """Returns the shape of tensor with given name, if it has ValueInfoProto."""
     graph = model.graph
