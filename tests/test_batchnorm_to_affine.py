@@ -13,7 +13,7 @@ from models.common import get_act_quant, get_quant_linear, get_quant_type, get_s
 from torch.nn import BatchNorm1d, Dropout, Module, ModuleList
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.general as tx
+import finn.transformation.batchnorm_to_affine as tx
 
 FC_OUT_FEATURES = [1024, 1024, 1024]
 INTERMEDIATE_FC_PER_OUT_CH_SCALING = True
@@ -94,7 +94,7 @@ def test_batchnorm_to_affine():
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = onnx.load(export_onnx_path)
-    new_model = tx.replace_batchnorm_with_affine(model)
+    new_model = tx.batchnorm_to_affine(model)
     try:
         os.remove("/tmp/" + mnist_onnx_filename)
     except OSError:
