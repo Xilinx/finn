@@ -130,3 +130,16 @@ class ModelWrapper:
         for t in graph.initializer:
             execution_context[t.name] = np_helper.to_array(t)
         return execution_context
+
+    def check_all_tensor_shapes_specified(self):
+        """Checks whether all tensors have a specified shape (ValueInfo).
+        The ONNX standard allows for intermediate activations to have no
+        associated ValueInfo, but FINN expects this."""
+        graph = self._model_proto.graph
+        ret = True
+        for n in graph.node:
+            for i in n.input:
+                ret = ret and (self.get_tensor_shape(i) is not None)
+            for o in n.output:
+                ret = ret and (self.get_tensor_shape(o) is not None)
+        return ret
