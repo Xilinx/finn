@@ -1,5 +1,6 @@
 import copy
 
+import onnx
 import onnx.numpy_helper as np_helper
 
 
@@ -8,10 +9,19 @@ class ModelWrapper:
     functions for graph manipulation and exploration."""
 
     def __init__(self, onnx_model_proto, make_deepcopy=False):
-        if make_deepcopy:
-            self._model_proto = copy.deepcopy(onnx_model_proto)
+        """Creates a ModelWrapper instance.
+        onnx_model_proto can be either a ModelProto instance, or a string
+        with the path to a stored .onnx file on disk.
+        The make_deepcopy option controls whether a deep copy of the ModelProto
+        is made internally.
+        """
+        if isinstance(onnx_model_proto, str):
+            self._model_proto = onnx.load(onnx_model_proto)
         else:
-            self._model_proto = onnx_model_proto
+            if make_deepcopy:
+                self._model_proto = copy.deepcopy(onnx_model_proto)
+            else:
+                self._model_proto = onnx_model_proto
 
     def check_compatibility(self):
         """Checks this model for FINN compatibility:
