@@ -25,6 +25,14 @@ class ModelWrapper:
             else:
                 self._model_proto = onnx_model_proto
 
+    @property
+    def graph(self):
+        return self._model_proto.graph
+
+    @graph.setter
+    def graph(self, value):
+        self._model_proto.graph = value
+
     def check_compatibility(self):
         """Checks this model for FINN compatibility:
         * no embedded subgraphs
