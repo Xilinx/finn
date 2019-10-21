@@ -13,6 +13,17 @@ class ModelWrapper:
         else:
             self._model_proto = onnx_model_proto
 
+    def check_compatibility(self):
+        """Checks this model for FINN compatibility:
+        * no embedded subgraphs
+        * all tensor shapes are specified, including activations
+        * all constants are initializers
+        """
+        # TODO check for no embedded subgraphs
+        # TODO check that all shapes are inferred
+        # TODO check that all constants are initializers
+        return True
+
     def get_tensor_shape(self):
         """Returns the shape of tensor with given name, if it has ValueInfoProto."""
         graph = self._model_proto.graph
