@@ -26,23 +26,13 @@
 
 import copy
 
-import numpy as np
-import onnx
 import onnx.helper as helper
 import onnx.shape_inference as si
 import onnxruntime as rt
 from onnx import numpy_helper as np_helper
 
+import finn.core.utils as util
 import finn.transformation.general as tx
-
-
-def valueinfo_to_tensor(vi):
-    """Creates an all-zeroes numpy tensor from a ValueInfoProto."""
-
-    dims = [x.dim_value for x in vi.type.tensor_type.shape.dim]
-    return np.zeros(
-        dims, dtype=onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[vi.type.tensor_type.elem_type]
-    )
 
 
 def execute_node(node, context, graph):
@@ -94,14 +84,14 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
     execution_context = dict()
     # make empty tensors for all the graph inputs and outputs
     for vi in graph.input:
-        new_tensor = valueinfo_to_tensor(vi)
+        new_tensor = util.valueinfo_to_tensor(vi)
         execution_context[vi.name] = new_tensor
     for vi in graph.output:
-        new_tensor = valueinfo_to_tensor(vi)
+        new_tensor = util.valueinfo_to_tensor(vi)
         execution_context[vi.name] = new_tensor
     # make empty tensors for all intermediate buffers
     for vi in graph.value_info:
-        new_tensor = valueinfo_to_tensor(vi)
+        new_tensor = util.valueinfo_to_tensor(vi)
         execution_context[vi.name] = new_tensor
     # fill in the constants provided by the initializers (TensorProto to npy)
     for t in graph.initializer:
