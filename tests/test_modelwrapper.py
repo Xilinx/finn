@@ -86,6 +86,7 @@ def test_modelwrapper():
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
+    assert model.check_all_tensor_shapes_specified() is False
     inp_shape = model.get_tensor_shape("0")
     assert inp_shape == [1, 1, 28, 28]
     l0_weights = model.get_initializer("26")
