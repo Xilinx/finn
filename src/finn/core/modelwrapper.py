@@ -33,6 +33,18 @@ class ModelWrapper:
     def graph(self, value):
         self._model_proto.graph = value
 
+    @property
+    def model(self):
+        return self._model_proto
+
+    @model.setter
+    def model(self, value):
+        self._model_proto = value
+
+    def save(self, filename):
+        """Save the wrapper ONNX ModelProto into a file with given name."""
+        onnx.save(self._model_proto, filename)
+
     def transform_repeated(self, transform):
         """Applies given transform repeatedly until no more changes can be made
         and returns a transformed ModelWrapper instance.
