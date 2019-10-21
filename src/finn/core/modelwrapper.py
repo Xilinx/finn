@@ -3,6 +3,8 @@ import copy
 import onnx
 import onnx.numpy_helper as np_helper
 
+import finn.core.utils as util
+
 
 class ModelWrapper:
     """A wrapper around ONNX ModelProto that exposes some useful utility
@@ -105,3 +107,26 @@ class ModelWrapper:
         while candidate in names:
             candidate = str(int(candidate) + 1)
         return candidate
+
+    def make_empty_exec_context(self):
+        """Creates an empty execution context for this model.
+        The execution context is a dictionary of all tensors used for the
+        inference computation. Any initializer values will be taken into
+        account, all other tensors will be zero."""
+        execution_context = dict()
+        graph = self._model_proto.graph
+        # make empty tensors for all the graph inputs and outputs
+        for vi in graph.input:
+            new_tensor = util.valueinfo_to_tensor(vi)
+            execution_context[vi.name] = new_tensor
+        for vi in graph.output:
+            new_tensor = util.valueinfo_to_tensor(vi)
+            execution_context[vi.name] = new_tensor
+        # make empty tensors for all intermediate buffers
+        for vi in graph.value_info:
+            new_tensor = util.valueinfo_to_tensor(vi)
+            execution_context[vi.name] = new_tensor
+        # fill in the constants provided by the initializers (TensorProto to npy)
+        for t in graph.initializer:
+            execution_context[t.name] = np_helper.to_array(t)
+        return execution_context
