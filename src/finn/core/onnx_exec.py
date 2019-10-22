@@ -67,6 +67,9 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
     the execution (including inputs, weights, activations and final outputs)
     will be returned as a dict."""
 
+    if not model.check_all_tensor_shapes_specified():
+        raise Exception("Found unspecified tensor shapes, try infer_shapes")
+
     graph = model.graph
     # first, we need to make sure that every variable required by the graph has
     # some buffer associated with it. this includes graph inputs (which includes
