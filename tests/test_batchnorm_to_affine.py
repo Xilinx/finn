@@ -15,6 +15,7 @@ from torch.nn import BatchNorm1d, Dropout, Module, ModuleList
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.batchnorm_to_affine as tx
+from finn.core.modelwrapper import ModelWrapper
 
 FC_OUT_FEATURES = [1024, 1024, 1024]
 INTERMEDIATE_FC_PER_OUT_CH_SCALING = True
@@ -94,9 +95,9 @@ def test_batchnorm_to_affine():
     checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
-    model = onnx.load(export_onnx_path)
-    model = si.infer_shapes(model)
-    new_model = tx.batchnorm_to_affine(model)
+    model = ModelWrapper(export_onnx_path)
+    model.model = si.infer_shapes(model.model)
+    new_model = model.transform_single(tx.batchnorm_to_affine)
     try:
         os.remove("/tmp/" + mnist_onnx_filename)
     except OSError:
@@ -108,8 +109,8 @@ def test_batchnorm_to_affine():
     with open(mnist_onnx_local_dir + "/mnist/test_data_set_0/input_0.pb", "rb") as f:
         input_tensor.ParseFromString(f.read())
     input_dict = {"0": nph.to_array(input_tensor)}
-    output_original = oxe.execute_onnx(model, input_dict)["53"]
-    output_transformed = oxe.execute_onnx(new_model, input_dict)["53"]
+    output_original = oxe.execute_onnx(model.model, input_dict)["53"]
+    output_transformed = oxe.execute_onnx(new_model.model, input_dict)["53"]
     assert np.isclose(output_transformed, output_original, atol=1e-3).all()
     # remove the downloaded model and extracted files
     os.remove(dl_ret)
