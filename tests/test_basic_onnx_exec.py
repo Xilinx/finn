@@ -37,7 +37,7 @@ def test_mnist_onnx_download_extract_run():
         output_tensor.ParseFromString(f.read())
     # run using FINN-based execution
     input_dict = {"Input3": np_helper.to_array(input_tensor)}
-    output_dict = oxe.execute_onnx(model.model, input_dict)
+    output_dict = oxe.execute_onnx(model, input_dict)
     assert np.isclose(
         np_helper.to_array(output_tensor), output_dict["Plus214_Output_0"], atol=1e-3
     ).all()

@@ -178,7 +178,7 @@ def test_brevitas_to_onnx_export_and_exec():
         input_tensor.ParseFromString(f.read())
     # run using FINN-based execution
     input_dict = {"0": nph.to_array(input_tensor)}
-    output_dict = oxe.execute_onnx(model.model, input_dict)
+    output_dict = oxe.execute_onnx(model, input_dict)
     produced = output_dict[list(output_dict.keys())[0]]
     # run using PyTorch/Brevitas
     input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()

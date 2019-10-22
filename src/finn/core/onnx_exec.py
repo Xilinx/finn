@@ -28,10 +28,6 @@ import copy
 
 import onnx.helper as helper
 import onnxruntime as rt
-from onnx import numpy_helper as np_helper
-
-import finn.core.utils as util
-import finn.transformation.general as tx
 
 
 def execute_node(node, context, graph):
@@ -64,7 +60,7 @@ def execute_node(node, context, graph):
 
 
 def execute_onnx(model, input_dict, return_full_exec_context=False):
-    """Execute given ONNX model with given named inputs.
+    """Execute given ONNX ModelWrapper with given named inputs.
     If return_full_exec_context is False, a dict of named outputs is returned
     as indicated by the model.graph.output.
     If return return_full_exec_context is True, the full set of tensors used by
@@ -76,22 +72,8 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
     # some buffer associated with it. this includes graph inputs (which includes
     # the input data as well as the trained parameters) and the graph ValueInfo
     # (intermediate tensors between layers)
-    # we'll keep all our buffers in this dict here:
-    execution_context = dict()
-    # make empty tensors for all the graph inputs and outputs
-    for vi in graph.input:
-        new_tensor = util.valueinfo_to_tensor(vi)
-        execution_context[vi.name] = new_tensor
-    for vi in graph.output:
-        new_tensor = util.valueinfo_to_tensor(vi)
-        execution_context[vi.name] = new_tensor
-    # make empty tensors for all intermediate buffers
-    for vi in graph.value_info:
-        new_tensor = util.valueinfo_to_tensor(vi)
-        execution_context[vi.name] = new_tensor
-    # fill in the constants provided by the initializers (TensorProto to npy)
-    for t in graph.initializer:
-        execution_context[t.name] = np_helper.to_array(t)
+    # this is provided by the execution_context, which is a dict of np.ndarray
+    execution_context = model.make_empty_exec_context()
     # fill in any inputs provided to this function
     for inp_name in input_dict.keys():
         if inp_name in execution_context:
@@ -125,15 +107,17 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
 
 
 def execute_onnx_and_make_model(model, input_dict):
-    """Execute given ONNX model with given named inputs and return a new model
-    where an initializer is provided for each tensor."""
+    """Execute given ONNX ModelWrapper with given named inputs and return a new
+    ModelWrapper where an initializer is provided for each tensor as taken from
+    the execution. This new model is useful for debugging, since it contains
+    all the intermediate activation values."""
 
     # retrieve the full execution context
     execution_context = execute_onnx(model, input_dict, True)
     new_model = copy.deepcopy(model)
     # create value_info entries and initializers for everything
     for i in execution_context.keys():
-        tx.set_initializer(new_model, i, execution_context[i])
+        new_model.set_initializer(i, execution_context[i])
     for vi in new_model.graph.value_info:
         new_model.graph.output.append(vi)
     # import pdb; pdb.set_trace()

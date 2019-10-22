@@ -109,8 +109,8 @@ def test_batchnorm_to_affine():
     with open(mnist_onnx_local_dir + "/mnist/test_data_set_0/input_0.pb", "rb") as f:
         input_tensor.ParseFromString(f.read())
     input_dict = {"0": nph.to_array(input_tensor)}
-    output_original = oxe.execute_onnx(model.model, input_dict)["53"]
-    output_transformed = oxe.execute_onnx(new_model.model, input_dict)["53"]
+    output_original = oxe.execute_onnx(model, input_dict)["53"]
+    output_transformed = oxe.execute_onnx(new_model, input_dict)["53"]
     assert np.isclose(output_transformed, output_original, atol=1e-3).all()
     # remove the downloaded model and extracted files
     os.remove(dl_ret)
