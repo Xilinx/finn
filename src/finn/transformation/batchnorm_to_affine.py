@@ -1,7 +1,8 @@
 import numpy as np
-import onnx.shape_inference as si
 from onnx import TensorProto
 from onnx import helper as oh
+
+import finn.transformation.infer_shapes as si
 
 
 def batchnorm_to_affine(model):
@@ -68,5 +69,5 @@ def batchnorm_to_affine(model):
     for n in nodes_to_remove:
         graph.node.remove(n)
         graph_modified = True
-    model.model = si.infer_shapes(model.model)
+    model = model.transform_single(si.infer_shapes)
     return (model, graph_modified)
