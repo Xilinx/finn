@@ -5,10 +5,11 @@ import shutil
 import numpy as np
 import onnx
 import onnx.numpy_helper as np_helper
-import onnx.shape_inference as si
 import wget
 
 import finn.core.onnx_exec as oxe
+import finn.transformation.infer_shapes as si
+from finn.core.modelwrapper import ModelWrapper
 
 mnist_onnx_url_base = "https://onnxzoo.blob.core.windows.net/models/opset_8/mnist"
 mnist_onnx_filename = "mnist.tar.gz"
@@ -25,10 +26,8 @@ def test_mnist_onnx_download_extract_run():
     with open(mnist_onnx_local_dir + "/mnist/model.onnx", "rb") as f:
         assert hashlib.md5(f.read()).hexdigest() == "d7cd24a0a76cd492f31065301d468c3d"
     # load the onnx model
-    model = onnx.load(mnist_onnx_local_dir + "/mnist/model.onnx")
-    # call ONNX shape inference to make sure we have value_info fields for all
-    # the intermediate tensors in the graph
-    model = si.infer_shapes(model)
+    model = ModelWrapper(mnist_onnx_local_dir + "/mnist/model.onnx")
+    model = model.transform_single(si.infer_shapes)
     # load one of the test vectors
     input_tensor = onnx.TensorProto()
     output_tensor = onnx.TensorProto()
@@ -38,7 +37,7 @@ def test_mnist_onnx_download_extract_run():
         output_tensor.ParseFromString(f.read())
     # run using FINN-based execution
     input_dict = {"Input3": np_helper.to_array(input_tensor)}
-    output_dict = oxe.execute_onnx(model, input_dict)
+    output_dict = oxe.execute_onnx(model.model, input_dict)
     assert np.isclose(
         np_helper.to_array(output_tensor), output_dict["Plus214_Output_0"], atol=1e-3
     ).all()
