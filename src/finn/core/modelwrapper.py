@@ -45,21 +45,28 @@ class ModelWrapper:
         """Save the wrapper ONNX ModelProto into a file with given name."""
         onnx.save(self._model_proto, filename)
 
-    def transform_repeated(self, transform):
+    def transform_repeated(self, transform, make_deepcopy=True):
         """Applies given transform repeatedly until no more changes can be made
         and returns a transformed ModelWrapper instance.
+        If make_deepcopy is specified, operates on a new (deep)copy of model.
         Transform must return (transformed_model, model_was_changed)."""
         transformed_model = self
+        if make_deepcopy:
+            transformed_model = copy.deepcopy(self)
         model_was_changed = True
         while model_was_changed:
             (transformed_model, model_was_changed) = transform(transformed_model)
         return transformed_model
 
-    def transform_single(self, transform):
+    def transform_single(self, transform, make_deepcopy=True):
         """Applies given transform once and returns transformed ModelWrapper
-        instance. Transform must return (transformed_model, model_was_changed),
+        instance. If make_deepcopy is specified, operates on a new (deep)copy of
+        model. Transform must return (transformed_model, model_was_changed),
         although model_was_changed is ignored (see also apply_repeated)."""
-        (transformed_model, model_was_changed) = transform(self)
+        transformed_model = self
+        if make_deepcopy:
+            transformed_model = copy.deepcopy(self)
+        (transformed_model, model_was_changed) = transform(transformed_model)
         return transformed_model
 
     def check_compatibility(self):
