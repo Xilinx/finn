@@ -27,7 +27,6 @@
 import copy
 
 import onnx.helper as helper
-import onnx.shape_inference as si
 import onnxruntime as rt
 from onnx import numpy_helper as np_helper
 
@@ -72,9 +71,6 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
     the execution (including inputs, weights, activations and final outputs)
     will be returned as a dict."""
 
-    # call ONNX shape inference to make sure we have value_info fields for all
-    # the intermediate tensors in the graph
-    model = si.infer_shapes(model)
     graph = model.graph
     # first, we need to make sure that every variable required by the graph has
     # some buffer associated with it. this includes graph inputs (which includes
@@ -132,7 +128,6 @@ def execute_onnx_and_make_model(model, input_dict):
     """Execute given ONNX model with given named inputs and return a new model
     where an initializer is provided for each tensor."""
 
-    model = si.infer_shapes(model)
     # retrieve the full execution context
     execution_context = execute_onnx(model, input_dict, True)
     new_model = copy.deepcopy(model)

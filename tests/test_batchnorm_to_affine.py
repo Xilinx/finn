@@ -7,6 +7,7 @@ import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
+import onnx.shape_inference as si
 import torch
 import wget
 from models.common import get_act_quant, get_quant_linear, get_quant_type, get_stats_op
@@ -94,6 +95,7 @@ def test_batchnorm_to_affine():
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = onnx.load(export_onnx_path)
+    model = si.infer_shapes(model)
     new_model = tx.batchnorm_to_affine(model)
     try:
         os.remove("/tmp/" + mnist_onnx_filename)

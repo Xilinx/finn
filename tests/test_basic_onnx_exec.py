@@ -5,6 +5,7 @@ import shutil
 import numpy as np
 import onnx
 import onnx.numpy_helper as np_helper
+import onnx.shape_inference as si
 import wget
 
 import finn.core.onnx_exec as oxe
@@ -25,6 +26,9 @@ def test_mnist_onnx_download_extract_run():
         assert hashlib.md5(f.read()).hexdigest() == "d7cd24a0a76cd492f31065301d468c3d"
     # load the onnx model
     model = onnx.load(mnist_onnx_local_dir + "/mnist/model.onnx")
+    # call ONNX shape inference to make sure we have value_info fields for all
+    # the intermediate tensors in the graph
+    model = si.infer_shapes(model)
     # load one of the test vectors
     input_tensor = onnx.TensorProto()
     output_tensor = onnx.TensorProto()

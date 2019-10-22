@@ -7,6 +7,7 @@ import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
+import onnx.shape_inference as si
 import torch
 import wget
 from models.common import get_act_quant, get_quant_linear, get_quant_type, get_stats_op
@@ -163,6 +164,9 @@ def test_brevitas_to_onnx_export_and_exec():
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = onnx.load(export_onnx_path)
+    # call ONNX shape inference to make sure we have value_info fields for all
+    # the intermediate tensors in the graph
+    model = si.infer_shapes(model)
     try:
         os.remove("/tmp/" + mnist_onnx_filename)
     except OSError:

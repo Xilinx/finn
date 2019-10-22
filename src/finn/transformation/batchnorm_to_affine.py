@@ -11,7 +11,6 @@ import finn.transformation.general as tg
 def batchnorm_to_affine(model):
     """Replaces any test-time BatchNorm layers with Mul-Add layers."""
     new_model = copy.deepcopy(model)
-    new_model = si.infer_shapes(new_model)
     graph = new_model.graph
     nodes_to_remove = []
     node_ind = 0
