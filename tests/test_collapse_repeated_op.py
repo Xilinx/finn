@@ -37,8 +37,6 @@ def test_collapse_repeated_op():
     model.set_initializer("mul_param_1", np.asarray([2, -4], dtype=np.float32))
     new_model = model.transform_repeated(tx.collapse_repeated_add)
     new_model = new_model.transform_repeated(tx.collapse_repeated_mul)
-    model.save("original.onnx")
-    new_model.save("transformed.onnx")
     inp_dict = {"top_in": np.asarray([-1.0, 1.0], dtype=np.float32)}
     out_orig = ox.execute_onnx(model, inp_dict)["top_out"]
     out_transformed = ox.execute_onnx(new_model, inp_dict)["top_out"]
