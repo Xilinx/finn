@@ -27,7 +27,7 @@ def collapse_repeated_op(model, op_name, make_collapsed_param_fxn):
                 # compute the new parameter
                 new_param = make_collapsed_param_fxn(op0_param, op1_param)
                 # make and insert new node
-                new_node_param_name = model.make_new_valueinfo_name()
+                new_node_param_name = op0_param_name
                 new_node = oh.make_node(
                     op_name, [start_name, new_node_param_name], [end_name]
                 )
