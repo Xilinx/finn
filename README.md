@@ -1,5 +1,7 @@
 # FINN
 
+**Warning: this early preview version of FINN is deprecated and unsupported as there are many bugs lurking about. A new clean-slate version is under development here on GitHub, see the dev branch.**
+
 FINN is an end to end framework for generating high performance FPGA hardware implementations of neural networks. 
 
 ## Installation
