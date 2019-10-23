@@ -1,7 +1,9 @@
 import copy
 
 import onnx
+import onnx.helper as oh
 import onnx.numpy_helper as np_helper
+from onnx import TensorProto
 
 import finn.core.utils as util
 
@@ -94,6 +96,21 @@ class ModelWrapper:
         except ValueError:
             return None
 
+    def set_tensor_shape(self, tensor_name, tensor_shape):
+        """Assign shape in ValueInfoProto for tensor with given name."""
+        dtype = TensorProto.FLOAT
+        new_vi = oh.make_tensor_value_info(tensor_name, dtype, tensor_shape)
+        # find what container tis tensor's ValueInfo lives in
+        # if not found anywhere, we assume it's a new value_info
+        target_container = self.graph.value_info
+        if util.get_by_name(self.graph.input, tensor_name) is not None:
+            target_container = self.graph.input
+        if util.get_by_name(self.graph.output, tensor_name) is not None:
+            target_container = self.graph.output
+        # remove from target container and add new
+        util.remove_by_name(target_container, tensor_name)
+        target_container.append(new_vi)
+
     def set_initializer(self, tensor_name, tensor_value):
         """Set the initializer value for tensor with given name."""
         graph = self._model_proto.graph
@@ -110,6 +127,8 @@ class ModelWrapper:
             pass
         # create and insert new initializer
         graph.initializer.append(tensor_init_proto)
+        # set shape
+        self.set_tensor_shape(tensor_name, list(tensor_value.shape))
 
     def get_initializer(self, tensor_name):
         """Get the initializer value for tensor with given name, if any."""
