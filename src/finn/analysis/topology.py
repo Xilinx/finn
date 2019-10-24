@@ -44,4 +44,4 @@ def node_inputs_in_expected_order(model):
         # input 1 should be static (unless eltwise add)
         if n.op_type != "Add":
             all_OK = all_OK and (model.get_initializer(n.input[1]) is not None)
-    return all_OK
+    return {"node_inputs_in_expected_order": all_OK}
