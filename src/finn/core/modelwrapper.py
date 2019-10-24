@@ -134,6 +134,33 @@ class ModelWrapper:
         # set shape
         self.set_tensor_shape(tensor_name, list(tensor_value.shape))
 
+    def rename_tensor(self, old_name, new_name):
+        """Rename a tensor from old_name to new_name."""
+        graph = self.graph
+        # sweep over inputs
+        if util.get_by_name(graph.input, old_name) is not None:
+            util.get_by_name(graph.input, old_name).name = new_name
+        # sweep over outputs
+        if util.get_by_name(graph.output, old_name) is not None:
+            util.get_by_name(graph.output, old_name).name = new_name
+        # sweep over value_info
+        if util.get_by_name(graph.value_info, old_name) is not None:
+            util.get_by_name(graph.value_info, old_name).name = new_name
+        # sweep over quantization annotations
+        if (
+            util.get_by_name(graph.quantization_annotation, old_name, "tensor_name")
+            is not None
+        ):
+            util.get_by_name(
+                graph.quantization_annotation, old_name, "tensor_name"
+            ).tensor_name = new_name
+        # sweep over node i/o
+        for n in graph.node:
+            if old_name in n.input:
+                n.input[list(n.input).index(old_name)] = new_name
+            if old_name in n.output:
+                n.output[list(n.output).index(old_name)] = new_name
+
     def get_initializer(self, tensor_name):
         """Get the initializer value for tensor with given name, if any."""
         graph = self._model_proto.graph
