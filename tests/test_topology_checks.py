@@ -1,3 +1,5 @@
+from pkgutil import get_data
+
 import onnx.helper as oh
 from onnx import TensorProto
 
@@ -48,3 +50,13 @@ def test_all_tensors_f32():
     model = model.transform_single(si.infer_shapes)
     ret = model.analysis(ta.all_tensors_f32)
     assert ret["all_tensors_f32"] is False
+
+
+def test_node_inputs_in_expected_order():
+    raw_m = get_data("finn", "data/onnx/mnist-conv/model.onnx")
+    model = ModelWrapper(raw_m)
+    model = model.transform_single(si.infer_shapes)
+    ret = model.analysis(ta.node_inputs_in_expected_order)
+    # this model has an (unnecessary) dynamic reshape for its weight tensor
+    # and so it fails the check
+    assert ret["node_inputs_in_expected_order"] is False
