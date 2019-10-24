@@ -217,6 +217,6 @@ class ModelWrapper:
         graph = self.graph
         fanout = 0
         for n in graph.node:
-            if tensor_name in [x.name for x in n.input]:
+            if tensor_name in n.input:
                 fanout += 1
         return fanout
