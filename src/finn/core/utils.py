@@ -11,9 +11,9 @@ def valueinfo_to_tensor(vi):
     )
 
 
-def get_by_name(container, name):
+def get_by_name(container, name, name_field="name"):
     """Return item from container by .name field if it exists, None otherwise"""
-    names = [x.name for x in container]
+    names = [getattr(x, name_field) for x in container]
     try:
         ind = names.index(name)
         return container[ind]
@@ -21,8 +21,8 @@ def get_by_name(container, name):
         return None
 
 
-def remove_by_name(container, name):
+def remove_by_name(container, name, name_field="name"):
     """Remove item from container by .name field if it exists"""
-    item = get_by_name(container, name)
+    item = get_by_name(container, name, name_field)
     if item is not None:
         container.remove(item)
