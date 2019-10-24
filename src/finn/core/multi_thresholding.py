@@ -36,3 +36,4 @@ def execute(v, thresholds):
             for ce0 in range(vr.shape[0]):
                 for ce1 in range(ce1_low_lim, ce1_up_lim):
                     ret[ce0][ce1] += compare(vr[ce0][ce1], t[c])
+        return ret.reshape(v.shape)
