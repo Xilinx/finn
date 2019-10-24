@@ -206,3 +206,13 @@ class ModelWrapper:
             for o in n.output:
                 ret = ret and (self.get_tensor_shape(o) is not None)
         return ret
+
+    def get_tensor_fanout(self, tensor_name):
+        """Return the number of nodes for which the tensor with given name is
+        as input."""
+        graph = self.graph
+        fanout = 0
+        for n in graph.node:
+            if tensor_name in [x.name for x in n.input]:
+                fanout += 1
+        return fanout
