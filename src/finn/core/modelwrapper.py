@@ -15,12 +15,14 @@ class ModelWrapper:
     def __init__(self, onnx_model_proto, make_deepcopy=False):
         """Creates a ModelWrapper instance.
         onnx_model_proto can be either a ModelProto instance, or a string
-        with the path to a stored .onnx file on disk.
+        with the path to a stored .onnx file on disk, or serialized bytes.
         The make_deepcopy option controls whether a deep copy of the ModelProto
         is made internally.
         """
         if isinstance(onnx_model_proto, str):
             self._model_proto = onnx.load(onnx_model_proto)
+        elif isinstance(onnx_model_proto, bytes):
+            self._model_proto = onnx.load_from_string(onnx_model_proto)
         else:
             if make_deepcopy:
                 self._model_proto = copy.deepcopy(onnx_model_proto)
