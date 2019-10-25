@@ -24,21 +24,10 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
-import onnx
+import copy
+
 import onnx.helper as helper
-import onnx.shape_inference as si
 import onnxruntime as rt
-from onnx import numpy_helper as np_helper
-
-
-def valueinfo_to_tensor(vi):
-    """Creates an all-zeroes numpy tensor from a ValueInfoProto."""
-
-    dims = [x.dim_value for x in vi.type.tensor_type.shape.dim]
-    return np.zeros(
-        dims, dtype=onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[vi.type.tensor_type.elem_type]
-    )
 
 
 def execute_node(node, context, graph):
@@ -70,33 +59,24 @@ def execute_node(node, context, graph):
         context[outp] = output_list[output_ind]
 
 
-def execute_onnx(model, input_dict):
-    """Execute given ONNX model with given named inputs to return named outputs."""
+def execute_onnx(model, input_dict, return_full_exec_context=False):
+    """Execute given ONNX ModelWrapper with given named inputs.
+    If return_full_exec_context is False, a dict of named outputs is returned
+    as indicated by the model.graph.output.
+    If return return_full_exec_context is True, the full set of tensors used by
+    the execution (including inputs, weights, activations and final outputs)
+    will be returned as a dict."""
 
-    # call ONNX shape inference to make sure we have value_info fields for all
-    # the intermediate tensors in the graph
-    model = si.infer_shapes(model)
+    if not model.check_all_tensor_shapes_specified():
+        raise Exception("Found unspecified tensor shapes, try infer_shapes")
+
     graph = model.graph
     # first, we need to make sure that every variable required by the graph has
     # some buffer associated with it. this includes graph inputs (which includes
     # the input data as well as the trained parameters) and the graph ValueInfo
     # (intermediate tensors between layers)
-    # we'll keep all our buffers in this dict here:
-    execution_context = dict()
-    # make empty tensors for all the graph inputs and outputs
-    for vi in graph.input:
-        new_tensor = valueinfo_to_tensor(vi)
-        execution_context[vi.name] = new_tensor
-    for vi in graph.output:
-        new_tensor = valueinfo_to_tensor(vi)
-        execution_context[vi.name] = new_tensor
-    # make empty tensors for all intermediate buffers
-    for vi in graph.value_info:
-        new_tensor = valueinfo_to_tensor(vi)
-        execution_context[vi.name] = new_tensor
-    # fill in the constants provided by the initializers (TensorProto to npy)
-    for t in graph.initializer:
-        execution_context[t.name] = np_helper.to_array(t)
+    # this is provided by the execution_context, which is a dict of np.ndarray
+    execution_context = model.make_empty_exec_context()
     # fill in any inputs provided to this function
     for inp_name in input_dict.keys():
         if inp_name in execution_context:
@@ -118,9 +98,30 @@ def execute_onnx(model, input_dict):
     # topologically sorted
     for node in graph.node:
         execute_node(node, execution_context, graph)
-    # provide outputs as dict
-    output_dict = dict()
-    for out_tensor in graph.output:
-        out_name = out_tensor.name
-        output_dict[out_name] = execution_context[out_name]
-    return output_dict
+    if return_full_exec_context:
+        return execution_context
+    else:
+        # provide outputs as dict
+        output_dict = dict()
+        for out_tensor in graph.output:
+            out_name = out_tensor.name
+            output_dict[out_name] = execution_context[out_name]
+        return output_dict
+
+
+def execute_onnx_and_make_model(model, input_dict):
+    """Execute given ONNX ModelWrapper with given named inputs and return a new
+    ModelWrapper where an initializer is provided for each tensor as taken from
+    the execution. This new model is useful for debugging, since it contains
+    all the intermediate activation values."""
+
+    # retrieve the full execution context
+    execution_context = execute_onnx(model, input_dict, True)
+    new_model = copy.deepcopy(model)
+    # create value_info entries and initializers for everything
+    for i in execution_context.keys():
+        new_model.set_initializer(i, execution_context[i])
+    for vi in new_model.graph.value_info:
+        new_model.graph.output.append(vi)
+    # import pdb; pdb.set_trace()
+    return new_model
