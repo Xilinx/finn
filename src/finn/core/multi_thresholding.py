@@ -23,6 +23,7 @@ def execute(v, thresholds):
     # assert if channel sizes do not match
     assert v.shape[1] == thresholds.shape[0]
 
+    # save the required shape sizes for the loops (N, C and B)
     num_batch = v.shape[0]
     num_channel = v.shape[1]
 
@@ -31,6 +32,7 @@ def execute(v, thresholds):
     # reshape inputs to enable channel-wise reading
     vr = v.reshape((v.shape[0], v.shape[1], -1))
 
+    # save the new shape size of the images
     num_img_elem = vr.shape[2]
 
     # initiate output tensor
@@ -39,11 +41,16 @@ def execute(v, thresholds):
     # iterate over thresholds channel-wise
     for t in range(num_channel):
         channel_thresh = thresholds[t]
+
+        # iterate over batches
         for b in range(num_batch):
+
+            # iterate over image elements on which the thresholds should be applied
             for elem in range(num_img_elem):
-                print(vr[b][t][elem])
+
+                # iterate over the different thresholds that correspond to one channel
                 for a in range(num_act):
-                    print(channel_thresh[a])
+                    # apply successive thresholding to every element of one channel
                     ret[b][t][elem] += compare(vr[b][t][elem], channel_thresh[a])
-    print(ret)
+
     return ret.reshape(v.shape)
