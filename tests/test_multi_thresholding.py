@@ -220,7 +220,4 @@ def test_execute_multi_thresholding():
         ),
     )
 
-    if outputs == results:
-        return True
-    else:
-        return False
+    assert (outputs == results).all()
