@@ -16,7 +16,7 @@ git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  g
 git clone $EXAMPLES_REPO $EXAMPLES_LOCAL ||  git -C "$EXAMPLES_LOCAL" pull
 
 # remove possible temp files created from previous execution
-sudo rm -rf .eggs tests/__pycache__/
+/tools/xgs/bin/sudo rm -rf .eggs tests/__pycache__/
 
 echo "Mounting $SCRIPTPATH into /workspace/finn"
 echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
