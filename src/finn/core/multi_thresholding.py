@@ -24,6 +24,7 @@ def execute(v, thresholds):
 
     # iterate over thresholds channel-wise
     for t in thresholds:
+        print(t)
         i += 1
 
         # calculate the lower and upper limit in which elements belong to one channel
@@ -35,8 +36,4 @@ def execute(v, thresholds):
             for ce0 in range(vr.shape[0]):
                 for ce1 in range(ce1_low_lim, ce1_up_lim):
                     ret[ce0][ce1] += compare(vr[ce0][ce1], t[c])
-                # ret[ce0][ce1] += map(
-                # 	lambda x: 1.0 if x is True else 0.0, vr[ce0][ce1] >= t[c]
-                # )
-
-        return ret.reshape(v.shape)
+    return ret.reshape(v.shape)
