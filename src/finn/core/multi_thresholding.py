@@ -1,6 +1,13 @@
 import numpy as np
 
 
+def compare(x, y):
+    if x >= y:
+        return 1.0
+    else:
+        return 0.0
+
+
 def execute(v, thresholds):
     # reshape inputs to enable channel-wise reading
     vr = v.reshape((thresholds.shape[1], -1))
@@ -27,9 +34,9 @@ def execute(v, thresholds):
         for c in range(thresholds.shape[1]):
             for ce0 in range(vr.shape[0]):
                 for ce1 in range(ce1_low_lim, ce1_up_lim):
-                    # ret[ce0][ce1] += compare(vr[ce0][ce1], t[c])
-                    ret[ce0][ce1] += map(
-                        lambda x: 1.0 if x is True else 0.0, vr[ce0][ce1] >= t[c]
-                    )
+                    ret[ce0][ce1] += compare(vr[ce0][ce1], t[c])
+                # ret[ce0][ce1] += map(
+                # 	lambda x: 1.0 if x is True else 0.0, vr[ce0][ce1] >= t[c]
+                # )
 
         return ret.reshape(v.shape)
