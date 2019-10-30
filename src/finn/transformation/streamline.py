@@ -9,7 +9,6 @@ def collapse_repeated_op(model, op_name, make_collapsed_param_fxn):
     a single operation. make_collapsed_param_fxn must take two tensors and
     return a tensor which gives the equivalent result using a single op. """
     graph = model.graph
-    nodes_to_remove = []
     node_ind = 0
     graph_modified = False
     for n in graph.node:
@@ -35,13 +34,10 @@ def collapse_repeated_op(model, op_name, make_collapsed_param_fxn):
                 graph.node.insert(node_ind, new_node)
                 # replace parameter value
                 model.set_initializer(new_node_param_name, new_param)
-                # mark old nodes for removal
-                nodes_to_remove += [n, consumer]
+                # remove old nodes
+                graph.node.remove(n)
+                graph.node.remove(consumer)
                 graph_modified = True
-    # delete marked nodes
-    for n in nodes_to_remove:
-        graph.node.remove(n)
-        graph_modified = True
     model = model.transform_single(si.infer_shapes)
     return (model, graph_modified)
 
@@ -58,7 +54,6 @@ def move_add_past_mul(model):
     """Move add operations past multiply operations. The aim is to have them
     next to each other such that they can be collapsed into a single add."""
     graph = model.graph
-    nodes_to_remove = []
     node_ind = 0
     graph_modified = False
     for n in graph.node:
@@ -92,13 +87,10 @@ def move_add_past_mul(model):
                 graph.node.insert(node_ind + 1, new_add)
                 # replace add value
                 model.set_initializer(add_weight_name, BA)
-                # mark old nodes for removal
-                nodes_to_remove += [n, consumer]
+                # remove old nodes
+                graph.node.remove(n)
+                graph.node.remove(consumer)
                 graph_modified = True
-    # delete marked nodes
-    for n in nodes_to_remove:
-        graph.node.remove(n)
-        graph_modified = True
     model = model.transform_single(si.infer_shapes)
     return (model, graph_modified)
 
@@ -107,7 +99,6 @@ def move_scalar_mul_past_matmul(model):
     """Move scalar mul operations past matmul operations. We want to have muls
     next to each other such that they can be collapsed into a single mul."""
     graph = model.graph
-    nodes_to_remove = []
     node_ind = 0
     graph_modified = False
     for n in graph.node:
@@ -135,13 +126,10 @@ def move_scalar_mul_past_matmul(model):
                     )
                     graph.node.insert(node_ind, new_matmul)
                     graph.node.insert(node_ind + 1, new_mul)
-                    # mark old nodes for removal
-                    nodes_to_remove += [n, consumer]
+                    # remove old nodes
+                    graph.node.remove(n)
+                    graph.node.remove(consumer)
                     graph_modified = True
-    # delete marked nodes
-    for n in nodes_to_remove:
-        graph.node.remove(n)
-        graph_modified = True
     model = model.transform_single(si.infer_shapes)
     return (model, graph_modified)
 
