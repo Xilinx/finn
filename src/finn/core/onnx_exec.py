@@ -29,41 +29,53 @@ import copy
 import onnx.helper as helper
 import onnxruntime as rt
 
+import finn.core.execute_custom_node as ex_cu_node
+
 
 def execute_node(node, context, graph):
     """Call onnxruntime to execute a single node. Input/output provided via context."""
 
-    # onnxruntime unfortunately does not implement run_node as defined by ONNX,
-    # it can only execute entire models -- so we create a model which solely
-    # consists of our current node.
-    node_inputs = list(filter(lambda x: x.name in node.input, graph.input))
-    node_inputs += list(filter(lambda x: x.name in node.input, graph.value_info))
-    node_outputs = list(filter(lambda x: x.name in node.output, graph.output))
-    node_outputs += list(filter(lambda x: x.name in node.output, graph.value_info))
-    node_graph = helper.make_graph(
-        nodes=[node], name="single-node-exec", inputs=node_inputs, outputs=node_outputs
-    )
-    node_model = helper.make_model(node_graph)
-    input_dict = dict()
-    for inp in node.input:
-        input_dict[inp] = context[inp]
+    # run node with custom function or by using onnxruntime
+
     if node.domain == "finn":
-        print("Domain is finn")
-        #execute_costum_node(node, context, graph)
+
+        ex_cu_node.execute_custom_node(node, context, graph)
 
     else:
-        print("Domain is empty")
+
+        # onnxruntime unfortunately does not implement run_node as defined by ONNX,
+        # it can only execute entire models -- so we create a model which solely
+        # consists of our current node.
+        node_inputs = list(filter(lambda x: x.name in node.input, graph.input))
+        node_inputs += list(filter(lambda x: x.name in node.input, graph.value_info))
+        node_outputs = list(filter(lambda x: x.name in node.output, graph.output))
+        node_outputs += list(filter(lambda x: x.name in node.output, graph.value_info))
+        node_graph = helper.make_graph(
+            nodes=[node],
+            name="single-node-exec",
+            inputs=node_inputs,
+            outputs=node_outputs,
+        )
+        node_model = helper.make_model(node_graph)
+        input_dict = dict()
+        for inp in node.input:
+            input_dict[inp] = context[inp]
+
         sess = rt.InferenceSession(node_model.SerializeToString())
         output_list = sess.run(None, input_dict)
 
-    for output_ind in range(len(node.output)):
-        outp = node.output[output_ind]
-        if output_list[output_ind].shape != context[outp].shape:
-            raise Exception(
-                "Output shapes disagree after node execution: found %s vs expected %s"
-                % (str(output_list[output_ind].shape.shape), str(context[outp].shape))
-            )
-        context[outp] = output_list[output_ind]
+        for output_ind in range(len(node.output)):
+            outp = node.output[output_ind]
+            if output_list[output_ind].shape != context[outp].shape:
+                raise Exception(
+                    """Output shapes disagree after node execution:
+                    found %s vs expected %s"""
+                    % (
+                        str(output_list[output_ind].shape.shape),
+                        str(context[outp].shape),
+                    )
+                )
+            context[outp] = output_list[output_ind]
 
 
 def execute_onnx(model, input_dict, return_full_exec_context=False):

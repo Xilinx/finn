@@ -1,13 +1,12 @@
 import numpy as np
-
-import onnx
-from onnx import helper
-from onnx import AttributeProto, TensorProto, GraphProto
+# import onnx
+# from onnx import AttributeProto, GraphProto, TensorProto, helper
+from onnx import TensorProto, helper
 
 import finn.core.execute_custom_node as ex_cu_node
 
 
-def test_execute_custom_node() :
+def test_execute_custom_node():
     inputs = np.ndarray(
         shape=(6, 3, 2, 2),
         buffer=np.array(
@@ -117,31 +116,100 @@ def test_execute_custom_node() :
         ),
     )
 
-    v = helper.make_tensor_value_info('v', TensorProto.FLOAT, [6, 3, 2, 2])
-    thresholds = helper.make_tensor_value_info('thresholds', TensorProto.FLOAT, [3, 7])
-    out = helper.make_tensor_value_info('out', TensorProto.FLOAT, [6, 3, 2, 2])
+    v = helper.make_tensor_value_info("v", TensorProto.FLOAT, [6, 3, 2, 2])
+    thresholds = helper.make_tensor_value_info("thresholds", TensorProto.FLOAT, [3, 7])
+    out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [6, 3, 2, 2])
 
     node_def = helper.make_node(
-            'MultiThreshold',
-            ['v', 'thresholds'],
-            ['out'],
-            domain='finn'
-            )
+        "MultiThreshold", ["v", "thresholds"], ["out"], domain="finn"
+    )
 
-
-    graph_def = helper.make_graph(
-        [node_def],
-        "test_model",
-        [v, thresholds],
-        [out]
-        )
-    
-    model = helper.make_model(graph_def, producer_name='onnx-example')
+    graph_def = helper.make_graph([node_def], "test_model", [v, thresholds], [out])
 
     execution_context = {}
-    execution_context['v'] = inputs
-    execution_context['thresholds'] = threshold_values
+    execution_context["v"] = inputs
+    execution_context["thresholds"] = threshold_values
 
-    print(ex_cu_node.execute_custom_node(node_def, execution_context, graph_def))
+    ex_cu_node.execute_custom_node(node_def, execution_context, graph_def)
 
+    outputs = np.ndarray(
+        shape=(6, 3, 2, 2),
+        buffer=np.array(
+            [
+                4.0,
+                3.0,
+                1.0,
+                4.0,
+                5.0,
+                2.0,
+                2.0,
+                4.0,
+                3.0,
+                3.0,
+                3.0,
+                1.0,
+                5.0,
+                0.0,
+                1.0,
+                4.0,
+                1.0,
+                4.0,
+                6.0,
+                7.0,
+                7.0,
+                1.0,
+                1.0,
+                3.0,
+                3.0,
+                3.0,
+                1.0,
+                3.0,
+                4.0,
+                2.0,
+                3.0,
+                7.0,
+                3.0,
+                3.0,
+                1.0,
+                1.0,
+                7.0,
+                5.0,
+                4.0,
+                6.0,
+                2.0,
+                2.0,
+                1.0,
+                1.0,
+                2.0,
+                1.0,
+                3.0,
+                3.0,
+                2.0,
+                5.0,
+                3.0,
+                3.0,
+                4.0,
+                5.0,
+                7.0,
+                3.0,
+                1.0,
+                3.0,
+                2.0,
+                1.0,
+                4.0,
+                6.0,
+                6.0,
+                0.0,
+                1.0,
+                1.0,
+                3.0,
+                6.0,
+                1.0,
+                1.0,
+                6.0,
+                7.0,
+            ]
+        ),
+    )
 
+    assert (execution_context["out"] == outputs).all()
