@@ -47,6 +47,7 @@ def execute_node(node, context, graph):
     input_dict = dict()
     for inp in node.input:
         input_dict[inp] = context[inp]
+    print(node.hjl)
     sess = rt.InferenceSession(node_model.SerializeToString())
     output_list = sess.run(None, input_dict)
     for output_ind in range(len(node.output)):
