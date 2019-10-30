@@ -1,6 +1,4 @@
 import numpy as np
-# import onnx
-# from onnx import AttributeProto, GraphProto, TensorProto, helper
 from onnx import TensorProto, helper
 
 import finn.core.execute_custom_node as ex_cu_node
