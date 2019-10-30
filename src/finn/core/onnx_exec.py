@@ -47,9 +47,15 @@ def execute_node(node, context, graph):
     input_dict = dict()
     for inp in node.input:
         input_dict[inp] = context[inp]
-    print(node.hjl)
-    sess = rt.InferenceSession(node_model.SerializeToString())
-    output_list = sess.run(None, input_dict)
+    if node.domain == "finn":
+        print("Domain is finn")
+        #execute_costum_node(node, context, graph)
+
+    else:
+        print("Domain is empty")
+        sess = rt.InferenceSession(node_model.SerializeToString())
+        output_list = sess.run(None, input_dict)
+
     for output_ind in range(len(node.output)):
         outp = node.output[output_ind]
         if output_list[output_ind].shape != context[outp].shape:
