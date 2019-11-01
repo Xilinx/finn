@@ -24,3 +24,16 @@ def give_readable_tensor_names(model):
                 init_in_num += 1
     # return model_was_changed = False as single iteration is always enough
     return (model, False)
+
+
+def convert_sub_to_add(model):
+    """Convert sub nodes to add nodes of appropriate sign."""
+    graph = model.graph
+    for n in graph.node:
+        if n.op_type == "Sub":
+            A = model.get_initializer(n.input[1])
+            if A is not None:
+                n.op_type = "Add"
+                model.set_initializer(n.input[1], -A)
+    # return model_was_changed = False as single iteration is always enough
+    return (model, False)
