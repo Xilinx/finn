@@ -18,7 +18,6 @@ def execute_custom_node(node, context, graph):
 
         # setting context according to output
         context[node.output[0]] = output
-        print(output)
 
     else:
         # exception if op_type is not supported
