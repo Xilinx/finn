@@ -15,6 +15,7 @@ def convert_sign_to_thres(model):
             thres_param_name = model.make_new_valueinfo_name()
             thres_param = np.asarray([[0]], dtype=np.float32)
             n.input.append(thres_param_name)
+            n.domain = "finn"
             model.set_initializer(thres_param_name, thres_param)
             # mark output tensor as bipolar
             model.set_tensor_datatype(n.output[0], DataType.BIPOLAR)
