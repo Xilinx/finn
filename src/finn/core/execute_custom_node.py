@@ -1,6 +1,6 @@
 # import onnx.helper as helper
 
-import finn.core.MultiThreshold as multiThresh
+import finn.core.multithreshold as multiThresh
 
 
 def execute_custom_node(node, context, graph):
@@ -12,7 +12,7 @@ def execute_custom_node(node, context, graph):
         # save inputs
         v = context[node.input[0]]
         thresholds = context[node.input[1]]
-        
+
         # calculate output
         output = multiThresh.execute(v, thresholds)
 

@@ -1,6 +1,6 @@
 import numpy as np
 
-import finn.core.MultiThreshold as multi_thresh
+import finn.core.multithreshold as multi_thresh
 
 
 def test_execute_multi_thresholding():
