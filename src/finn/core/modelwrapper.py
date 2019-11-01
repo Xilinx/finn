@@ -6,6 +6,7 @@ import onnx.numpy_helper as np_helper
 from onnx import TensorProto
 
 import finn.core.utils as util
+from finn.core.datatype import DataType
 
 
 class ModelWrapper:
@@ -87,6 +88,40 @@ class ModelWrapper:
         # TODO check that all shapes are inferred
         # TODO check that all constants are initializers
         return True
+
+    def get_tensor_datatype(self, tensor_name):
+        """Returns the FINN DataType of tensor with given name."""
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret = util.get_by_name(
+                ret.quant_parameter_tensor_names, "finn_datatype", "key"
+            )
+            if ret is not None:
+                return DataType[ret.value]
+        # TODO maybe use native ONNX tensor type instead of assuming fp32?
+        return DataType["FLOAT32"]
+
+    def set_tensor_datatype(self, tensor_name, datatype):
+        """Sets the FINN DataType of tensor with given name."""
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret = util.get_by_name(
+                ret.quant_parameter_tensor_names, "finn_datatype", "key"
+            )
+            if ret is not None:
+                ret.value = datatype.name
+        else:
+            qa = onnx.TensorAnnotation()
+            dt = onnx.StringStringEntryProto()
+            dt.key = "finn_datatype"
+            dt.value = datatype.name
+            qa.tensor_name = tensor_name
+            qa.quant_parameter_tensor_names.append(dt)
+            qnt_annotations.append(qa)
 
     def get_tensor_shape(self, tensor_name):
         """Returns the shape of tensor with given name, if it has ValueInfoProto."""

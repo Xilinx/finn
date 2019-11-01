@@ -13,6 +13,7 @@ from torch.nn import BatchNorm1d, Dropout, Module, ModuleList
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.infer_shapes as si
+from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 
 FC_OUT_FEATURES = [1024, 1024, 1024]
@@ -100,18 +101,12 @@ def test_brevitas_to_onnx_export():
     matmul_node = model.graph.node[4]
     assert matmul_node.op_type == "MatMul"
     assert act_node.output[0] == matmul_node.input[0]
-    inits = [x.name for x in model.graph.initializer]
-    qnt_annotations = {
-        a.tensor_name: a.quant_parameter_tensor_names[0].value
-        for a in model.graph.quantization_annotation
-    }
-    assert qnt_annotations[matmul_node.input[0]] == "BIPOLAR"
-    assert matmul_node.input[1] in inits
-    assert qnt_annotations[matmul_node.input[1]] == "BIPOLAR"
-    init_ind = inits.index(matmul_node.input[1])
+    assert model.get_tensor_datatype(matmul_node.input[0]) == DataType.BIPOLAR
+    W = model.get_initializer(matmul_node.input[1])
+    assert W is not None
+    assert model.get_tensor_datatype(matmul_node.input[1]) == DataType.BIPOLAR
     int_weights_pytorch = lfc.features[2].int_weight.transpose(1, 0).detach().numpy()
-    int_weights_onnx = nph.to_array(model.graph.initializer[init_ind])
-    assert (int_weights_onnx == int_weights_pytorch).all()
+    assert (W == int_weights_pytorch).all()
     os.remove(export_onnx_path)
 
 
