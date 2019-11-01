@@ -3,5 +3,6 @@ numpy
 onnx
 onnxruntime
 pre-commit
+scipy
 sphinx
 wget
