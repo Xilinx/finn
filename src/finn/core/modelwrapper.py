@@ -1,7 +1,9 @@
 import copy
 
 import onnx
+import onnx.helper as oh
 import onnx.numpy_helper as np_helper
+from onnx import TensorProto
 
 import finn.core.utils as util
 
@@ -13,12 +15,14 @@ class ModelWrapper:
     def __init__(self, onnx_model_proto, make_deepcopy=False):
         """Creates a ModelWrapper instance.
         onnx_model_proto can be either a ModelProto instance, or a string
-        with the path to a stored .onnx file on disk.
+        with the path to a stored .onnx file on disk, or serialized bytes.
         The make_deepcopy option controls whether a deep copy of the ModelProto
         is made internally.
         """
         if isinstance(onnx_model_proto, str):
             self._model_proto = onnx.load(onnx_model_proto)
+        elif isinstance(onnx_model_proto, bytes):
+            self._model_proto = onnx.load_from_string(onnx_model_proto)
         else:
             if make_deepcopy:
                 self._model_proto = copy.deepcopy(onnx_model_proto)
@@ -44,6 +48,10 @@ class ModelWrapper:
     def save(self, filename):
         """Save the wrapper ONNX ModelProto into a file with given name."""
         onnx.save(self._model_proto, filename)
+
+    def analysis(self, analysis_fxn):
+        """Run given anaylsis_fxn on this model and return resulting dict."""
+        return analysis_fxn(self)
 
     def transform_repeated(self, transform, make_deepcopy=True):
         """Applies given transform repeatedly until no more changes can be made
@@ -94,6 +102,21 @@ class ModelWrapper:
         except ValueError:
             return None
 
+    def set_tensor_shape(self, tensor_name, tensor_shape):
+        """Assign shape in ValueInfoProto for tensor with given name."""
+        dtype = TensorProto.FLOAT
+        new_vi = oh.make_tensor_value_info(tensor_name, dtype, tensor_shape)
+        # find what container tis tensor's ValueInfo lives in
+        # if not found anywhere, we assume it's a new value_info
+        target_container = self.graph.value_info
+        if util.get_by_name(self.graph.input, tensor_name) is not None:
+            target_container = self.graph.input
+        if util.get_by_name(self.graph.output, tensor_name) is not None:
+            target_container = self.graph.output
+        # remove from target container and add new
+        util.remove_by_name(target_container, tensor_name)
+        target_container.append(new_vi)
+
     def set_initializer(self, tensor_name, tensor_value):
         """Set the initializer value for tensor with given name."""
         graph = self._model_proto.graph
@@ -110,6 +133,35 @@ class ModelWrapper:
             pass
         # create and insert new initializer
         graph.initializer.append(tensor_init_proto)
+        # set shape
+        self.set_tensor_shape(tensor_name, list(tensor_value.shape))
+
+    def rename_tensor(self, old_name, new_name):
+        """Rename a tensor from old_name to new_name."""
+        graph = self.graph
+        # sweep over inputs
+        if util.get_by_name(graph.input, old_name) is not None:
+            util.get_by_name(graph.input, old_name).name = new_name
+        # sweep over outputs
+        if util.get_by_name(graph.output, old_name) is not None:
+            util.get_by_name(graph.output, old_name).name = new_name
+        # sweep over value_info
+        if util.get_by_name(graph.value_info, old_name) is not None:
+            util.get_by_name(graph.value_info, old_name).name = new_name
+        # sweep over quantization annotations
+        if (
+            util.get_by_name(graph.quantization_annotation, old_name, "tensor_name")
+            is not None
+        ):
+            util.get_by_name(
+                graph.quantization_annotation, old_name, "tensor_name"
+            ).tensor_name = new_name
+        # sweep over node i/o
+        for n in graph.node:
+            if old_name in n.input:
+                n.input[list(n.input).index(old_name)] = new_name
+            if old_name in n.output:
+                n.output[list(n.output).index(old_name)] = new_name
 
     def get_initializer(self, tensor_name):
         """Get the initializer value for tensor with given name, if any."""
@@ -187,3 +239,13 @@ class ModelWrapper:
             for o in n.output:
                 ret = ret and (self.get_tensor_shape(o) is not None)
         return ret
+
+    def get_tensor_fanout(self, tensor_name):
+        """Return the number of nodes for which the tensor with given name is
+        as input."""
+        graph = self.graph
+        fanout = 0
+        for n in graph.node:
+            if tensor_name in n.input:
+                fanout += 1
+        return fanout

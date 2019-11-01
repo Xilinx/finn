@@ -1,14 +1,13 @@
 import os
-import shutil
 from functools import reduce
 from operator import mul
+from pkgutil import get_data
 
 import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-import wget
 from models.common import get_act_quant, get_quant_linear, get_quant_type, get_stats_op
 from torch.nn import BatchNorm1d, Dropout, Module, ModuleList
 
@@ -22,9 +21,6 @@ LAST_FC_PER_OUT_CH_SCALING = False
 IN_DROPOUT = 0.2
 HIDDEN_DROPOUT = 0.2
 
-mnist_onnx_url_base = "https://onnxzoo.blob.core.windows.net/models/opset_8/mnist"
-mnist_onnx_filename = "mnist.tar.gz"
-mnist_onnx_local_dir = "/tmp/mnist_onnx"
 export_onnx_path = "test_output_lfc.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
 trained_lfc_checkpoint = (
@@ -124,17 +120,9 @@ def test_brevitas_trained_lfc_pytorch():
     lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1).eval()
     checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
     lfc.load_state_dict(checkpoint["state_dict"])
-    # download some MNIST test data
-    try:
-        os.remove("/tmp/" + mnist_onnx_filename)
-    except OSError:
-        pass
-    dl_ret = wget.download(mnist_onnx_url_base + "/" + mnist_onnx_filename, out="/tmp")
-    shutil.unpack_archive(dl_ret, mnist_onnx_local_dir)
     # load one of the test vectors
-    input_tensor = onnx.TensorProto()
-    with open(mnist_onnx_local_dir + "/mnist/test_data_set_0/input_0.pb", "rb") as f:
-        input_tensor.ParseFromString(f.read())
+    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    input_tensor = onnx.load_tensor_from_string(raw_i)
     input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()
     assert input_tensor.shape == (1, 1, 28, 28)
     # do forward pass in PyTorch/Brevitas
@@ -154,9 +142,6 @@ def test_brevitas_trained_lfc_pytorch():
         ]
     ]
     assert np.isclose(produced, expected, atol=1e-4).all()
-    # remove the downloaded model and extracted files
-    os.remove(dl_ret)
-    shutil.rmtree(mnist_onnx_local_dir)
 
 
 def test_brevitas_to_onnx_export_and_exec():
@@ -166,16 +151,9 @@ def test_brevitas_to_onnx_export_and_exec():
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform_single(si.infer_shapes)
-    try:
-        os.remove("/tmp/" + mnist_onnx_filename)
-    except OSError:
-        pass
-    dl_ret = wget.download(mnist_onnx_url_base + "/" + mnist_onnx_filename, out="/tmp")
-    shutil.unpack_archive(dl_ret, mnist_onnx_local_dir)
     # load one of the test vectors
-    input_tensor = onnx.TensorProto()
-    with open(mnist_onnx_local_dir + "/mnist/test_data_set_0/input_0.pb", "rb") as f:
-        input_tensor.ParseFromString(f.read())
+    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {"0": nph.to_array(input_tensor)}
     output_dict = oxe.execute_onnx(model, input_dict)
@@ -187,6 +165,4 @@ def test_brevitas_to_onnx_export_and_exec():
     expected = lfc.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
     # remove the downloaded model and extracted files
-    os.remove(dl_ret)
-    shutil.rmtree(mnist_onnx_local_dir)
     os.remove(export_onnx_path)

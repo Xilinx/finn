@@ -1,14 +1,13 @@
 import os
-import shutil
 from functools import reduce
 from operator import mul
+from pkgutil import get_data
 
 import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-import wget
 from models.common import get_act_quant, get_quant_linear, get_quant_type, get_stats_op
 from torch.nn import BatchNorm1d, Dropout, Module, ModuleList
 
@@ -23,9 +22,6 @@ LAST_FC_PER_OUT_CH_SCALING = False
 IN_DROPOUT = 0.2
 HIDDEN_DROPOUT = 0.2
 
-mnist_onnx_url_base = "https://onnxzoo.blob.core.windows.net/models/opset_8/mnist"
-mnist_onnx_filename = "mnist.tar.gz"
-mnist_onnx_local_dir = "/tmp/mnist_onnx"
 export_onnx_path = "test_output_lfc.onnx"
 transformed_onnx_path = "test_output_lfc_transformed.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
@@ -98,21 +94,11 @@ def test_batchnorm_to_affine():
     model = ModelWrapper(export_onnx_path)
     model = model.transform_single(si.infer_shapes)
     new_model = model.transform_single(tx.batchnorm_to_affine)
-    try:
-        os.remove("/tmp/" + mnist_onnx_filename)
-    except OSError:
-        pass
-    dl_ret = wget.download(mnist_onnx_url_base + "/" + mnist_onnx_filename, out="/tmp")
-    shutil.unpack_archive(dl_ret, mnist_onnx_local_dir)
     # load one of the test vectors
-    input_tensor = onnx.TensorProto()
-    with open(mnist_onnx_local_dir + "/mnist/test_data_set_0/input_0.pb", "rb") as f:
-        input_tensor.ParseFromString(f.read())
+    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    input_tensor = onnx.load_tensor_from_string(raw_i)
     input_dict = {"0": nph.to_array(input_tensor)}
     output_original = oxe.execute_onnx(model, input_dict)["53"]
     output_transformed = oxe.execute_onnx(new_model, input_dict)["53"]
     assert np.isclose(output_transformed, output_original, atol=1e-3).all()
-    # remove the downloaded model and extracted files
-    os.remove(dl_ret)
-    shutil.rmtree(mnist_onnx_local_dir)
     os.remove(export_onnx_path)

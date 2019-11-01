@@ -8,7 +8,6 @@ import finn.transformation.infer_shapes as si
 def batchnorm_to_affine(model):
     """Replaces any test-time BatchNorm layers with Mul-Add layers."""
     graph = model.graph
-    nodes_to_remove = []
     node_ind = 0
     graph_modified = False
     for n in graph.node:
@@ -27,18 +26,15 @@ def batchnorm_to_affine(model):
             # TODO is a division by moving avg factor needed for variance?
             A = scale / np.sqrt(epsilon + variance)
             B = bias - (A * mean)
-            nodes_to_remove += [n]
             # see if we have surrounding Unsqueeze/Squeeze nodes we can remove
             producer = model.find_producer(bn_input)
             if producer is not None:
                 if producer.op_type == "Unsqueeze":
                     bn_input = producer.input[0]
-                    nodes_to_remove += [producer]
             consumer = model.find_consumer(bn_output)
             if consumer is not None:
                 if consumer.op_type == "Squeeze":
                     bn_output = consumer.output[0]
-                    nodes_to_remove += [consumer]
             data_shape = model.get_tensor_shape(bn_input)
             # create value_info and initializers for Mul and Add constants
             mul_const = oh.make_tensor_value_info(
@@ -65,9 +61,11 @@ def batchnorm_to_affine(model):
             # insert where the batchnorm is to preserve topological ordering
             graph.node.insert(node_ind, mul_node)
             graph.node.insert(node_ind + 1, add_node)
-    # delete marked nodes (batchnorm and (un)squeezing)
-    for n in nodes_to_remove:
-        graph.node.remove(n)
-        graph_modified = True
+            # remove old nodes
+            graph.node.remove(n)
+            if consumer is not None:
+                graph.node.remove(consumer)
+            if producer is not None:
+                graph.node.remove(producer)
     model = model.transform_single(si.infer_shapes)
     return (model, graph_modified)

@@ -9,3 +9,20 @@ def valueinfo_to_tensor(vi):
     return np.zeros(
         dims, dtype=onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[vi.type.tensor_type.elem_type]
     )
+
+
+def get_by_name(container, name, name_field="name"):
+    """Return item from container by .name field if it exists, None otherwise"""
+    names = [getattr(x, name_field) for x in container]
+    try:
+        ind = names.index(name)
+        return container[ind]
+    except ValueError:
+        return None
+
+
+def remove_by_name(container, name, name_field="name"):
+    """Remove item from container by .name field if it exists"""
+    item = get_by_name(container, name, name_field)
+    if item is not None:
+        container.remove(item)
