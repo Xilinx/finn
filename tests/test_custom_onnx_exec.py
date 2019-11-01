@@ -4,7 +4,7 @@ from onnx import TensorProto, helper
 import finn.core.execute_custom_node as ex_cu_node
 
 
-def test_execute_custom_node():
+def test_execute_custom_node_multithreshold():
     inputs = np.ndarray(
         shape=(6, 3, 2, 2),
         buffer=np.array(
