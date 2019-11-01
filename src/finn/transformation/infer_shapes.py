@@ -5,6 +5,9 @@ def infer_shapes(model):
     """Ensure every tensor in the model has a specified shape (ValueInfo)."""
     for node in model.graph.node:
 
+        for output in node.output:
+           model.set_tensor_shape(output, [1])
+
         # create an empty execution context
         execution_context = model.make_empty_exec_context()
 
