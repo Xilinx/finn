@@ -1,4 +1,5 @@
 import finn.core.onnx_exec as oxe
+import finn.transformation.infer_shapes as si
 
 
 def fold_constants(model):
@@ -25,5 +26,6 @@ def fold_constants(model):
             # remove old node
             graph.node.remove(n)
             graph_modified = True
-    # TODO remove unused tensors?
+    if graph_modified:
+        model = model.transform_single(si.infer_shapes)
     return (model, graph_modified)
