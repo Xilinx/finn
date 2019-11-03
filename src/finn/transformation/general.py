@@ -1,9 +1,11 @@
 def give_unique_node_names(model):
     """Give unique names to each node in the graph using enumeration."""
-    node_count = 0
+    optype_count = {}
     for n in model.graph.node:
-        n.name = "%s_%d" % (n.op_type, node_count)
-        node_count += 1
+        if n.op_type not in optype_count.keys():
+            optype_count[n.op_type] = 0
+        n.name = "%s_%d" % (n.op_type, optype_count[n.op_type])
+        optype_count[n.op_type] += 1
     # return model_was_changed = False as single iteration is always enough
     return (model, False)
 
@@ -11,6 +13,7 @@ def give_unique_node_names(model):
 def give_readable_tensor_names(model):
     """Give more human-readable names to all internal tensors. It's recommended
     to apply give_unique_node_names prior to this transform."""
+    assert False  # needs debug, there's an implementation problem here
     graph = model.graph
     for n in graph.node:
         out_num = 0
