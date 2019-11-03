@@ -2,7 +2,6 @@ import os
 from pkgutil import get_data
 
 import brevitas.onnx as bo
-import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
@@ -34,10 +33,6 @@ def test_batchnorm_to_affine():
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
-    out_old = model.graph.output[0].name
-    out_new = new_model.graph.output[0].name
     input_dict = {"0": nph.to_array(input_tensor)}
-    output_original = oxe.execute_onnx(model, input_dict)[out_old]
-    output_transformed = oxe.execute_onnx(new_model, input_dict)[out_new]
-    assert np.isclose(output_transformed, output_original, atol=1e-3).all()
+    assert oxe.compare_execution(model, new_model, input_dict)
     os.remove(export_onnx_path)

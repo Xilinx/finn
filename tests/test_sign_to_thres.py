@@ -26,8 +26,6 @@ def test_sign_to_thres():
     model = model.transform_single(si.infer_shapes)
     input_dict = {}
     input_dict["v"] = np.random.randn(*[6, 3, 2, 2]).astype(np.float32)
-    expected = oxe.execute_onnx(model, input_dict)["out1"]
-    model = model.transform_single(sl.convert_sign_to_thres)
-    assert model.graph.node[0].op_type == "MultiThreshold"
-    produced = oxe.execute_onnx(model, input_dict)["out1"]
-    assert np.isclose(expected, produced, atol=1e-3).all()
+    new_model = model.transform_single(sl.convert_sign_to_thres)
+    assert new_model.graph.node[0].op_type == "MultiThreshold"
+    assert oxe.compare_execution(model, new_model, input_dict)
