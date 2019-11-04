@@ -1,5 +1,4 @@
-import random
-import string
+import finn.core.utils as util
 
 
 def give_unique_node_names(model):
@@ -16,14 +15,9 @@ def give_unique_node_names(model):
 
 def give_random_tensor_names(model):
     """Give random tensor names to all tensors."""
-
-    def randomStringDigits(stringLength=6):
-        lettersAndDigits = string.ascii_letters + string.digits
-        return "".join(random.choice(lettersAndDigits) for i in range(stringLength))
-
     names = model.get_all_tensor_names()
     for name in names:
-        model.rename_tensor(name, randomStringDigits())
+        model.rename_tensor(name, util.random_string())
     # return model_was_changed = False as single iteration is always enough
     return (model, False)
 
