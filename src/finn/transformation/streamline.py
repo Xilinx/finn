@@ -291,3 +291,43 @@ def absorb_mul_into_multi_threshold(model):
                     graph.node.remove(n)
                     graph_modified = True
     return (model, graph_modified)
+
+
+def factor_out_mul_sign_magnitude(model):
+    """Split multiply-by-constant nodes into two multiply-by-constant nodes,
+    where the first node is a bipolar vector (of signs) and the second is a
+    vector of magnitudes."""
+    graph = model.graph
+    node_ind = 0
+    graph_modified = False
+    for n in graph.node:
+        node_ind += 1
+        if n.op_type == "Mul":
+            mul_weight_name = n.input[1]
+            A = model.get_initializer(mul_weight_name)
+            assert A is not None
+            is_scalar = np.prod(A.shape) == 1
+            is_1d = len(A.shape) == 2 and A.shape[0] == 1
+            is_not_bipolar = (
+                model.get_tensor_datatype(mul_weight_name) != DataType.BIPOLAR
+            )
+            is_signed = (A < 0).any()
+            if is_signed and (is_scalar or is_1d) and is_not_bipolar:
+                start_name = n.input[0]
+                in_shape = model.get_tensor_shape(start_name)
+                middle_name = model.make_new_valueinfo_name()
+                model.set_tensor_shape(middle_name, in_shape)
+                sign_mul_param_name = model.make_new_valueinfo_name()
+                # create new mul node with sign(A) as the operand
+                sgn = np.sign(A)
+                model.set_initializer(sign_mul_param_name, sgn)
+                model.set_tensor_datatype(sign_mul_param_name, DataType.BIPOLAR)
+                # replace original mul weight by magnitudes
+                model.set_initializer(mul_weight_name, np.abs(A))
+                new_mul = oh.make_node(
+                    "Mul", [start_name, sign_mul_param_name], [middle_name]
+                )
+                n.input[0] = middle_name
+                graph.node.insert(node_ind + 1, new_mul)
+                graph_modified = True
+    return (model, graph_modified)
