@@ -243,9 +243,9 @@ class ModelWrapper:
     def make_new_valueinfo_name(self):
         """Returns a name that can be used for a new value_info."""
         names = self.get_all_tensor_names()
-        candidate = str(len(names) + 1)
+        candidate = util.random_string()
         while candidate in names:
-            candidate = str(int(candidate) + 1)
+            candidate = util.random_string()
         return candidate
 
     def make_empty_exec_context(self):
