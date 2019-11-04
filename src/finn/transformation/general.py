@@ -1,3 +1,7 @@
+import random
+import string
+
+
 def give_unique_node_names(model):
     """Give unique names to each node in the graph using enumeration."""
     optype_count = {}
@@ -10,13 +14,16 @@ def give_unique_node_names(model):
     return (model, False)
 
 
-def give_enumerated_tensor_names(model):
-    """Give enumerated tensor names to all internal tensors."""
-    tensor_ind = 0
+def give_random_tensor_names(model):
+    """Give random tensor names to all tensors."""
+
+    def randomStringDigits(stringLength=6):
+        lettersAndDigits = string.ascii_letters + string.digits
+        return "".join(random.choice(lettersAndDigits) for i in range(stringLength))
+
     names = model.get_all_tensor_names()
     for name in names:
-        model.rename_tensor(name, "%d" % tensor_ind)
-        tensor_ind += 1
+        model.rename_tensor(name, randomStringDigits())
     # return model_was_changed = False as single iteration is always enough
     return (model, False)
 
@@ -25,8 +32,8 @@ def give_readable_tensor_names(model):
     """Give more human-readable names to all internal tensors. It's recommended
     to apply give_unique_node_names prior to this transform."""
     # to ensure we can use rename_tensor safely (without renaming existing
-    # tensors) we start by giving enumerated names to all tensors
-    model = model.transform_single(give_enumerated_tensor_names)
+    # tensors) we start by giving random names to all tensors
+    model = model.transform_single(give_random_tensor_names)
     graph = model.graph
     for n in graph.node:
         out_num = 0
