@@ -168,6 +168,7 @@ def move_scalar_mul_past_matmul(model):
                 start_name = n.input[0]
                 middle_name = n.output[0]
                 end_name = consumer.output[0]
+                mm_out_shape = model.get_tensor_shape(end_name)
                 if all(x == 1 for x in A.shape):
                     # if the mul is scalar, we can simply swap the order of ops
                     # make and insert new nodes
@@ -179,6 +180,7 @@ def move_scalar_mul_past_matmul(model):
                     )
                     graph.node.insert(node_ind, new_matmul)
                     graph.node.insert(node_ind + 1, new_mul)
+                    model.set_tensor_shape(middle_name, mm_out_shape)
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)
@@ -207,6 +209,7 @@ def move_scalar_add_past_matmul(model):
                 start_name = n.input[0]
                 middle_name = n.output[0]
                 end_name = consumer.output[0]
+                mm_out_shape = model.get_tensor_shape(end_name)
                 if all(x == 1 for x in A.shape):
                     # if the add is scalar, we can move it past the matmul
                     # by taking it past the matmul with a dot product
@@ -221,6 +224,7 @@ def move_scalar_add_past_matmul(model):
                     )
                     graph.node.insert(node_ind, new_matmul)
                     graph.node.insert(node_ind + 1, new_add)
+                    model.set_tensor_shape(middle_name, mm_out_shape)
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)
