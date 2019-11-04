@@ -32,11 +32,12 @@ def test_streamline_lfc_w1a1():
     model = model.transform_single(si.infer_shapes)
     model = model.transform_repeated(fc.fold_constants)
     model = model.transform_single(tg.give_unique_node_names)
+    model = model.transform_single(tg.give_readable_tensor_names)
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
-    input_dict = {"0": nph.to_array(input_tensor)}
+    input_dict = {"global_in": nph.to_array(input_tensor)}
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
     transforms = [
@@ -54,6 +55,7 @@ def test_streamline_lfc_w1a1():
     for trn in transforms:
         model = model.transform_repeated(trn)
         model = model.transform_single(tg.give_unique_node_names)
+        model = model.transform_single(tg.give_readable_tensor_names)
         produced_ctx = oxe.execute_onnx(model, input_dict, True)
         produced = produced_ctx[model.graph.output[0].name]
         assert np.isclose(expected, produced, atol=1e-3).all()
