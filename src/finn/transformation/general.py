@@ -10,10 +10,23 @@ def give_unique_node_names(model):
     return (model, False)
 
 
+def give_enumerated_tensor_names(model):
+    """Give enumerated tensor names to all internal tensors."""
+    tensor_ind = 0
+    names = model.get_all_tensor_names()
+    for name in names:
+        model.rename_tensor(name, "%d" % tensor_ind)
+        tensor_ind += 1
+    # return model_was_changed = False as single iteration is always enough
+    return (model, False)
+
+
 def give_readable_tensor_names(model):
     """Give more human-readable names to all internal tensors. It's recommended
     to apply give_unique_node_names prior to this transform."""
-    assert False  # needs debug, there's an implementation problem here
+    # to ensure we can use rename_tensor safely (without renaming existing
+    # tensors) we start by giving enumerated names to all tensors
+    model = model.transform_single(give_enumerated_tensor_names)
     graph = model.graph
     for n in graph.node:
         out_num = 0
@@ -25,6 +38,9 @@ def give_readable_tensor_names(model):
             if model.get_initializer(i) is not None:
                 model.rename_tensor(i, "%s_param%d" % (n.name, init_in_num))
                 init_in_num += 1
+    # give special names to the main model input and output
+    model.rename_tensor(model.graph.input[0].name, "global_in")
+    model.rename_tensor(model.graph.output[0].name, "global_out")
     # return model_was_changed = False as single iteration is always enough
     return (model, False)
 
