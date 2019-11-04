@@ -231,12 +231,18 @@ class ModelWrapper:
         except ValueError:
             return None
 
-    def make_new_valueinfo_name(self):
-        """Returns a name that can be used for a new value_info."""
-        graph = self._model_proto.graph
+    def get_all_tensor_names(self):
+        """Return a list of all (input, output and value_info) tensor names
+        in the graph."""
+        graph = self.graph
         names = [x.name for x in graph.value_info]
         names += [x.name for x in graph.input]
         names += [x.name for x in graph.output]
+        return names
+
+    def make_new_valueinfo_name(self):
+        """Returns a name that can be used for a new value_info."""
+        names = self.get_all_tensor_names()
         candidate = str(len(names) + 1)
         while candidate in names:
             candidate = str(int(candidate) + 1)
