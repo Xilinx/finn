@@ -328,6 +328,6 @@ def factor_out_mul_sign_magnitude(model):
                     "Mul", [start_name, sign_mul_param_name], [middle_name]
                 )
                 n.input[0] = middle_name
-                graph.node.insert(node_ind + 1, new_mul)
+                graph.node.insert(node_ind - 1, new_mul)
                 graph_modified = True
     return (model, graph_modified)
