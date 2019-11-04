@@ -183,6 +183,9 @@ class ModelWrapper:
         # sweep over value_info
         if util.get_by_name(graph.value_info, old_name) is not None:
             util.get_by_name(graph.value_info, old_name).name = new_name
+        # sweep over initializers
+        if util.get_by_name(graph.initializer, old_name) is not None:
+            util.get_by_name(graph.initializer, old_name).name = new_name
         # sweep over quantization annotations
         if (
             util.get_by_name(graph.quantization_annotation, old_name, "tensor_name")
