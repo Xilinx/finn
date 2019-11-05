@@ -15,7 +15,22 @@ RUN rm requirements.txt
 # co-development.
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
+ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
 
-WORKDIR /workspace/finn
+ARG GID
+ARG GNAME
+ARG UNAME
+ARG UID
+ARG PASSWD
 
-ENTRYPOINT pip install -e /workspace/brevitas && python setup.py test; /bin/bash
+RUN groupadd -g $GID $GNAME
+RUN useradd -M -u $UID $UNAME -g $GNAME
+RUN usermod -aG sudo $UNAME
+RUN echo "$UNAME:$PASSWD" | chpasswd
+RUN echo "root:$PASSWD" | chpasswd
+RUN ln -s /workspace /home/$UNAME
+RUN chown -R $UNAME:$GNAME /home/$UNAME
+USER $UNAME
+
+WORKDIR /home/$UNAME/finn
+ENTRYPOINT python setup.py test; /bin/bash

@@ -1,5 +1,12 @@
 #!/bin/sh
 
+DOCKER_GID=$(id -g)
+DOCKER_GNAME=$(id -gn)
+DOCKER_UNAME=$(id -un)
+DOCKER_UID=$(id -u)
+DOCKER_PASSWD="finn"
+DOCKER_TAG="finn_$DOCKER_UNAME"
+
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
 # Absolute path this script is in, thus /home/user/bin
@@ -15,17 +22,20 @@ EXAMPLES_LOCAL=$SCRIPTPATH/brevitas_cnv_lfc
 git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
 git clone $EXAMPLES_REPO $EXAMPLES_LOCAL ||  git -C "$EXAMPLES_LOCAL" pull
 
-# remove possible temp files created from previous execution
-sudo rm -rf .eggs tests/__pycache__/
-
 echo "Mounting $SCRIPTPATH into /workspace/finn"
 echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
 echo "Mounting $SCRIPTPATH/brevitas_cnv_lfc into /workspace/brevitas_cnv_lfc"
 # Build the FINN Docker image
-docker build --tag=finn .
+docker build --tag=$DOCKER_TAG \
+             --build-arg GID=$DOCKER_GID \
+             --build-arg GNAME=$DOCKER_GNAME \
+             --build-arg UNAME=$DOCKER_UNAME \
+             --build-arg UID=$DOCKER_UID \
+             --build-arg PASSWD=$DOCKER_PASSWD \
+             .
 # Launch container with current directory mounted
 docker run --rm --name finn_dev -it \
 -v $SCRIPTPATH:/workspace/finn \
 -v $SCRIPTPATH/brevitas:/workspace/brevitas \
 -v $SCRIPTPATH/brevitas_cnv_lfc:/workspace/brevitas_cnv_lfc \
-finn bash
+$DOCKER_TAG bash
