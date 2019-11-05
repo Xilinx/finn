@@ -52,6 +52,7 @@ def test_streamline_lfc_w1a1():
         sl.absorb_add_into_multi_threshold,
         sl.factor_out_mul_sign_magnitude,
         sl.absorb_mul_into_multi_threshold,
+        sl.absorb_1bit_mul_into_matmul,
     ]
     trn_ind = 0
     for trn in transforms:
