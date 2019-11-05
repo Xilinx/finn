@@ -1,0 +1,172 @@
+finn-hls-onnx-model:ô
+P
+inpout0"Mem2Stream_Batch*
+	DataWidth@ *
+numBytesh *
+numReps 
+ 
+out0	memInStrm"StreamingNode
+È
+	memInStrm
+weights0
+thresh0out1"StreamingFCLayer_Batch*
+L_MH€ *
+L_MWÀ *
+L_PE  *
+L_SIMD@ *
+numReps *!
+resDataType"Recast<XnorMul> *
+resType"ap_resource_lut() 
+
+out1inter0"StreamingNode
+Å
+inter0
+weights1
+thresh1out2"StreamingFCLayer_Batch*
+L_MH€ *
+L_MW€ *
+L_PE@ *
+L_SIMD  *
+numReps *!
+resDataType"Recast<XnorMul> *
+resType"ap_resource_lut() 
+
+out2inter1"StreamingNode
+Å
+inter1
+weights2
+thresh2out3"StreamingFCLayer_Batch*
+L_MH€ *
+L_MW€ *
+L_PE  *
+L_SIMD@ *
+numReps *!
+resDataType"Recast<XnorMul> *
+resType"ap_resource_lut() 
+
+out3inter2"StreamingNode
+Ä
+inter2
+weights3
+thresh3out4"StreamingFCLayer_Batch*
+L_MH@ *
+L_MW€ *
+L_PE *
+L_SIMD *
+numReps *!
+resDataType"Recast<XnorMul> *
+resType"ap_resource_lut() 
+!
+out4
+memOutStrm"StreamingNode
+W
+
+memOutStrmoutp"Mem2Stream_Batch*
+	DataWidth@ *
+numBytes *
+numReps finn_hls_onnx_graphZ
+inp
+
+
+@b
+outp
+
+
+@j
+out0
+
+
+ 
+ j
+	memInStrm
+
+
+ 
+ j
+weights0
+
+@
+ 
+ j%
+thresh0
+
+ 
+ 
+
+
+j
+out1
+
+
+
+@j
+inter0
+
+
+
+@j
+weights1
+
+ 
+@
+€j%
+thresh1
+
+
+@
+
+
+j
+out2
+
+
+ 
+ j
+inter1
+
+
+ 
+ j
+weights2
+
+@
+ 
+€j%
+thresh2
+
+ 
+ 
+
+
+j
+out3
+
+
+@
+j
+inter2
+
+
+@
+j
+weights3
+
+
+
+€j%
+thresh3
+
+
+
+
+
+j
+out4
+
+
+@j
+
+memOutStrm
+
+
+@B
