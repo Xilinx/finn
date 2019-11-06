@@ -1,6 +1,3 @@
-# def get_num_of_attributes(node):
-#    return len(node.attribute)
-
 
 def extract_layer_attributes(model):
     # Layer attributes
