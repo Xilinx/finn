@@ -1,30 +1,19 @@
-
-def extract_layer_attributes(model):
+def get_layer_attributes(node):
     # Layer attributes
-    j = -1
-    L_PE = {}
-    L_SIMD = {}
-    L_MH = {}
-    L_MW = {}
-    L_resDataType = {}
-    L_resType = {}
-    for node in model.graph.node:
-        num_attr = len(node.attribute)
-        j += 1
-        if node.op_type == "StreamingFCLayer_Batch":
-            for k in range(num_attr):
-                if node.attribute[k].name == "PE":
-                    L_PE[j] = node.attribute[k].i
-                if node.attribute[k].name == "SIMD":
-                    L_SIMD[j] = node.attribute[k].i
-                if node.attribute[k].name == "MH":
-                    L_MH[j] = node.attribute[k].i
-                if node.attribute[k].name == "MW":
-                    L_MW[j] = node.attribute[k].i
-                if node.attribute[k].name == "resDataType":
-                    L_resDataType[j] = node.attribute[k].i
-                if node.attribute[k].name == "resType":
-                    L_resType[j] = node.attribute[k].i
+    num_attr = len(node.attribute)
+    for k in range(num_attr):
+        if node.attribute[k].name == "PE":
+            L_PE = node.attribute[k].i
+        if node.attribute[k].name == "SIMD":
+            L_SIMD = node.attribute[k].i
+        if node.attribute[k].name == "MH":
+            L_MH = node.attribute[k].i
+        if node.attribute[k].name == "MW":
+            L_MW = node.attribute[k].i
+        if node.attribute[k].name == "resDataType":
+            L_resDataType = node.attribute[k].i
+        if node.attribute[k].name == "resType":
+            L_resType = node.attribute[k].i
     return [L_PE, L_SIMD, L_MH, L_MW, L_resDataType, L_resType]
 
 
@@ -55,6 +44,37 @@ def strm_prgm(model, code_gen_dict):
             )
 
 
+def computation_cmds(model, code_gen_dict):
+    code_gen_dict["Computation commands"] = []
+
+    for node in model.graph.node:
+        if node.op_type == "StreamingFCLayer_Batch":
+            inp = node.input[0]
+            weights = node.input[1]
+            thresholds = node.input[2]
+            outp = node.output[0]
+            # get layer attributes
+            [PE, SIMD, MH, MW, resDataType, resType] = get_layer_attributes(node)
+            print(str(resDataType))
+            print(resType)
+
+            code_gen_dict["Computation commands"].append(
+                "{}<{}, {}, {}, {}, {}>({}, {}, {}, {}, numReps, {});".format(
+                    node.op_type,
+                    MW,
+                    MH,
+                    SIMD,
+                    PE,
+                    resDataType,
+                    inp,
+                    outp,
+                    weights,
+                    thresholds,
+                    resType,
+                )
+            )
+
+
 def code_generation(model):
 
     code_gen_dict = {}
@@ -65,8 +85,7 @@ def code_generation(model):
     # stream pragmas
     strm_prgm(model, code_gen_dict)
 
-    # print(code_gen_dict)
+    # computation commands
+    computation_cmds(model, code_gen_dict)
 
-    [L_PE, L_SIMD, L_MH, L_MW, L_resDataType, L_resType] = extract_layer_attributes(
-        model
-    )
+    print(code_gen_dict)
