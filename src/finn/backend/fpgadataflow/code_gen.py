@@ -45,12 +45,30 @@ def strm_decl(model, code_gen_dict):
             )
 
 
+def strm_prgm(model, code_gen_dict):
+    code_gen_dict["stream pragmas"] = ["#pragma HLS DATAFLOW"]
+    for node in model.graph.node:
+        if node.op_type == "FIFO":
+            name = node.name
+            # TO DO: FIFOs have only one attribute, at the moment
+            # if there are more, change here
+            depth = node.attribute[0].i
+            code_gen_dict["stream pragmas"].append(
+                "#pragma HLS stream depth={} variable={}".format(depth, name)
+            )
+
+
 def code_generation(model):
 
     code_gen_dict = {}
 
     # stream declarations
     strm_decl(model, code_gen_dict)
+
+    # stream pragmas
+    strm_prgm(model, code_gen_dict)
+
+    # print(code_gen_dict)
 
     [L_PE, L_SIMD, L_MH, L_MW, L_resDataType, L_resType] = extract_layer_attributes(
         model
