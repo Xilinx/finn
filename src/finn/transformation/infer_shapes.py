@@ -1,17 +1,18 @@
 import onnx.helper as helper
 import onnx.shape_inference as si
 
-import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
+
 
 def _make_shape_compatible_op(node):
     """Return a shape-compatible non-FINN op for a given FINN op. Used for
     shape inference with custom ops."""
-    assert(node.domain == "finn")
+    assert node.domain == "finn"
     if node.op_type == "MultiThreshold":
         return helper.make_node("ReLU", [node.input[0]], [node.output[0]])
     else:
         raise Exception("No known shape-compatible op for %s" % node.op_type)
+
 
 def _hide_finn_ops(model):
     """Replace any FINN ops by shape-compatible ones, and return a dict that
@@ -27,6 +28,7 @@ def _hide_finn_ops(model):
             model.graph.node.insert(node_ind, new_node)
             model.graph.node.remove(node)
     return hidden_ops
+
 
 def _restore_finn_ops(model, hidden_ops):
     """Replace any shape-compatible ops with the FINN ops that originally
