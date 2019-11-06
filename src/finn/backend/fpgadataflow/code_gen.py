@@ -11,10 +11,17 @@ def get_layer_attributes(node):
         if node.attribute[k].name == "MW":
             L_MW = node.attribute[k].i
         if node.attribute[k].name == "resDataType":
-            L_resDataType = node.attribute[k].i
+            L_resDataType = node.attribute[k].s
         if node.attribute[k].name == "resType":
-            L_resType = node.attribute[k].i
-    return [L_PE, L_SIMD, L_MH, L_MW, L_resDataType, L_resType]
+            L_resType = node.attribute[k].s
+    return [
+        L_PE,
+        L_SIMD,
+        L_MH,
+        L_MW,
+        L_resDataType.decode("utf-8"),
+        L_resType.decode("utf-8"),
+    ]
 
 
 def strm_decl(model, code_gen_dict):
@@ -88,4 +95,6 @@ def code_generation(model):
     # computation commands
     computation_cmds(model, code_gen_dict)
 
-    print(code_gen_dict)
+    # print(code_gen_dict)
+
+    return code_gen_dict
