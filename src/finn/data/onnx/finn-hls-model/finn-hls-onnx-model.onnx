@@ -1,0 +1,162 @@
+finn-hls-onnx-model:þ
+0
+inp	memInStrm	memInStrm"FIFO*
+depth€ 
+°
+	memInStrm
+weights0
+thresh0out1"StreamingFCLayer_Batch*
+
+MH€ *
+
+MWÀ *	
+PE  *
+SIMD@ *!
+resDataType"Recast<XnorMul> *
+resType"ap_resource_lut() 
+*
+out1inter0inter0"FIFO*
+depth 
+­
+inter0
+weights1
+thresh1out2"StreamingFCLayer_Batch*
+
+MH€ *
+
+MW€ *	
+PE@ *
+SIMD  *!
+resDataType"Recast<XnorMul> *
+resType"ap_resource_lut() 
+*
+out2inter1inter1"FIFO*
+depth 
+­
+inter1
+weights2
+thresh2out3"StreamingFCLayer_Batch*
+
+MH€ *
+
+MW€ *	
+PE  *
+SIMD@ *!
+resDataType"Recast<XnorMul> *
+resType"ap_resource_lut() 
+*
+out3inter2inter2"FIFO*
+depth 
+¬
+inter2
+weights3
+thresh3out4"StreamingFCLayer_Batch*	
+MH@ *
+
+MW€ *	
+PE *
+SIMD *!
+resDataType"Recast<XnorMul> *
+resType"ap_resource_lut() 
+-
+out4outp
+memOutStrm"FIFO*
+depth€ finn_hls_onnx_graphZ
+inp
+
+
+
+@b
+outp
+
+
+
+@j
+	memInStrm
+
+
+
+@j
+weights0
+
+@
+ 
+ j%
+thresh0
+
+ 
+ 
+
+
+j
+out1
+
+
+ 
+ j
+inter0
+
+
+ 
+ j
+weights1
+
+ 
+@
+€j%
+thresh1
+
+
+@
+
+
+j
+out2
+
+
+
+@j
+inter1
+
+
+
+@j
+weights2
+
+@
+ 
+€j%
+thresh2
+
+ 
+ 
+
+
+j
+out3
+
+
+ 
+ j
+inter2
+
+
+ 
+ j
+weights3
+
+
+
+€j%
+thresh3
+
+
+
+
+
+j
+out4
+
+
+
+@B
