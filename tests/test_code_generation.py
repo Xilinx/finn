@@ -8,4 +8,4 @@ def test_code_generation():
     # load the onnx model
     raw_m = get_data("finn", "data/onnx/finn-hls-model/finn-hls-onnx-model.onnx")
     model = ModelWrapper(raw_m)
-    cg.code_generation(model)
+    code_gen_dict = cg.code_generation(model)
