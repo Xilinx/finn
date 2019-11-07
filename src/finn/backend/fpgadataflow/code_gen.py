@@ -54,8 +54,10 @@ def strm_prgm(model, code_gen_dict):
 def computation_cmds(model, code_gen_dict):
     code_gen_dict["compute"] = []
 
+    i = -1
     for node in model.graph.node:
         if node.op_type == "StreamingFCLayer_Batch":
+            i += 1
             inp = node.input[0]
             weights = node.input[1]
             thresholds = node.input[2]
@@ -64,12 +66,13 @@ def computation_cmds(model, code_gen_dict):
             [PE, SIMD, MH, MW, resDataType, resType] = get_layer_attributes(node)
 
             code_gen_dict["compute"].append(
-                "{}<{}, {}, {}, {}, {}>({}, {}, {}, {}, numReps, {});".format(
+                "{}<L{}_MW, L{}_MH, L{}_SIMD, L{}_PE, {}> "
+                "({}, {}, {}, {}, numReps, {});".format(
                     node.op_type,
-                    MW,
-                    MH,
-                    SIMD,
-                    PE,
+                    i,
+                    i,
+                    i,
+                    i,
                     resDataType,
                     inp,
                     outp,
