@@ -129,9 +129,72 @@ def computation_cmds(model, code_gen_dict):
             )
 
 
+def config_cmds(model, code_gen_dict):
+    code_gen_dict["config"] = []
+
+    # TO DO: Find out values and add them to get_layer_parameters()
+    WPI = 1
+    WPF = 0
+    APF = 0
+
+    i = -1
+    for node in model.graph.node:
+        if node.op_type == "StreamingFCLayer_Batch":
+            i += 1
+            # get layer parameters
+            [
+                PE,
+                SIMD,
+                MH,
+                MW,
+                resDataType,
+                resType,
+                WMEM,
+                TMEM,
+                API,
+            ] = get_layer_parameters(model, node)
+
+            code_gen_dict["config"].append(
+                "#define L{}_SIMD {} \n "
+                "#define L{}_PE {} \n "
+                "#define L{}_WMEM {} \n "
+                "#define L{}_TMEM {} \n "
+                "#define L{}_MW {} \n "
+                "#define L{}_MH {} \n "
+                "#define L{}_WPI {} \n "
+                "#define L{}_API {} \n "
+                "#define L{}_WPF {} \n "
+                "#define L{}_APF {} \n ".format(
+                    i,
+                    SIMD,
+                    i,
+                    PE,
+                    i,
+                    WMEM,
+                    i,
+                    TMEM,
+                    i,
+                    MW,
+                    i,
+                    MH,
+                    i,
+                    WPI,
+                    i,
+                    API,
+                    i,
+                    WPF,
+                    i,
+                    APF,
+                )
+            )
+
+
 def code_generation(model):
 
     code_gen_dict = {}
+
+    # config commands
+    config_cmds(model, code_gen_dict)
 
     # stream declarations
     strm_decl(model, code_gen_dict)
