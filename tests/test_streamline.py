@@ -12,6 +12,7 @@ import finn.core.onnx_exec as oxe
 import finn.transformation.batchnorm_to_affine as ba
 import finn.transformation.fold_constants as fc
 import finn.transformation.general as tg
+import finn.transformation.infer_datatypes as di
 import finn.transformation.infer_shapes as si
 import finn.transformation.streamline as sl
 from finn.core.modelwrapper import ModelWrapper
@@ -59,6 +60,7 @@ def test_streamline_lfc_w1a1():
         model = model.transform_repeated(trn)
         model = model.transform_single(tg.give_unique_node_names)
         model = model.transform_single(tg.give_readable_tensor_names)
+        model = model.transform_repeated(di.infer_datatypes)
         produced_ctx = oxe.execute_onnx(model, input_dict, True)
         produced = produced_ctx[model.graph.output[0].name]
         # model.save("%d-%s.onnx" % (trn_ind, trn.__name__))
