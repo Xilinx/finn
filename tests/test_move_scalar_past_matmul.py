@@ -33,9 +33,7 @@ def test_move_scalar_mul_past_matmul():
     )
     new_model = model.transform_repeated(tx.move_scalar_mul_past_matmul)
     inp_dict = {"top_in": np.asarray([[-1.0, 1.0]], dtype=np.float32)}
-    out_orig = ox.execute_onnx(model, inp_dict)["top_out"]
-    out_transformed = ox.execute_onnx(new_model, inp_dict)["top_out"]
-    assert np.isclose(out_orig, out_transformed).all()
+    assert ox.compare_execution(model, new_model, inp_dict)
     assert new_model.graph.node[0].op_type == "MatMul"
     assert new_model.graph.node[1].op_type == "Mul"
     assert new_model.graph.node[0].output[0] == new_model.graph.node[1].input[0]
@@ -66,9 +64,7 @@ def test_move_scalar_add_past_matmul():
     )
     new_model = model.transform_repeated(tx.move_scalar_add_past_matmul)
     inp_dict = {"top_in": np.asarray([[-1.0, 1.0]], dtype=np.float32)}
-    out_orig = ox.execute_onnx(model, inp_dict)["top_out"]
-    out_transformed = ox.execute_onnx(new_model, inp_dict)["top_out"]
-    assert np.isclose(out_orig, out_transformed).all()
+    assert ox.compare_execution(model, new_model, inp_dict)
     assert new_model.graph.node[0].op_type == "MatMul"
     assert new_model.graph.node[1].op_type == "Add"
     assert new_model.graph.node[0].output[0] == new_model.graph.node[1].input[0]

@@ -8,9 +8,9 @@ import torch
 from models.LFC import LFC
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.batchnorm_to_affine as tx
 import finn.transformation.fold_constants as fc
 import finn.transformation.infer_shapes as si
+import finn.transformation.streamline as sl
 from finn.core.modelwrapper import ModelWrapper
 
 export_onnx_path = "test_output_lfc.onnx"
@@ -21,7 +21,7 @@ trained_lfc_checkpoint = (
 )
 
 
-def test_batchnorm_to_affine():
+def test_sign_to_thres():
     lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
     checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
     lfc.load_state_dict(checkpoint["state_dict"])
@@ -29,7 +29,8 @@ def test_batchnorm_to_affine():
     model = ModelWrapper(export_onnx_path)
     model = model.transform_single(si.infer_shapes)
     model = model.transform_repeated(fc.fold_constants)
-    new_model = model.transform_single(tx.batchnorm_to_affine)
+    new_model = model.transform_single(sl.convert_sign_to_thres)
+    assert new_model.graph.node[3].op_type == "MultiThreshold"
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)

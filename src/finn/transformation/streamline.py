@@ -2,6 +2,59 @@ import numpy as np
 from onnx import helper as oh
 
 import finn.transformation.infer_shapes as si
+from finn.core.datatype import DataType
+
+
+def convert_sign_to_thres(model):
+    """Convert Sign node instances to MultiThreshold with threshold at 0."""
+    graph = model.graph
+    graph_modified = False
+    node_ind = 0
+    for n in graph.node:
+        node_ind += 1
+        if n.op_type == "Sign":
+            sign_out_name = n.output[0]
+            # find consumer
+            consumer = model.find_consumer(sign_out_name)
+            assert consumer is not None
+            # change op type and create threshold
+            n.op_type = "MultiThreshold"
+            thres_param_name = model.make_new_valueinfo_name()
+            thres_param = np.asarray([[0]], dtype=np.float32)
+            n.input.append(thres_param_name)
+            n.domain = "finn"
+            model.set_initializer(thres_param_name, thres_param)
+            # convert 0,1 -> -1,+1 with 2*x-1
+            out_shape = model.get_tensor_shape(sign_out_name)
+            # make a mul node
+            # note how set_initializer or set_tensor_shape is called before
+            # calling make_new_valueinfo_name again
+            mul_param_name = model.make_new_valueinfo_name()
+            model.set_initializer(mul_param_name, np.asarray([[2]], dtype=np.float32))
+            mul_out_name = model.make_new_valueinfo_name()
+            model.set_tensor_shape(mul_out_name, out_shape)
+            mul_node = oh.make_node(
+                "Mul", [sign_out_name, mul_param_name], [mul_out_name]
+            )
+            # make an add node
+            add_param_name = model.make_new_valueinfo_name()
+            model.set_initializer(add_param_name, np.asarray([[-1]], dtype=np.float32))
+            add_out_name = model.make_new_valueinfo_name()
+            model.set_tensor_shape(add_out_name, out_shape)
+            add_node = oh.make_node(
+                "Add", [mul_out_name, add_param_name], [add_out_name]
+            )
+            # add new nodes to graph at correct position
+            graph.node.insert(node_ind, mul_node)
+            graph.node.insert(node_ind + 1, add_node)
+            # rewrite consumer's input
+            consumer.input[0] = add_out_name
+            # add quantization annotations
+            model.set_tensor_datatype(sign_out_name, DataType.BINARY)
+            model.set_tensor_datatype(mul_out_name, DataType.UINT2)
+            model.set_tensor_datatype(add_out_name, DataType.BIPOLAR)
+            graph_modified = True
+    return (model, graph_modified)
 
 
 def collapse_repeated_op(model, op_name, make_collapsed_param_fxn):
@@ -115,6 +168,7 @@ def move_scalar_mul_past_matmul(model):
                 start_name = n.input[0]
                 middle_name = n.output[0]
                 end_name = consumer.output[0]
+                mm_out_shape = model.get_tensor_shape(end_name)
                 if all(x == 1 for x in A.shape):
                     # if the mul is scalar, we can simply swap the order of ops
                     # make and insert new nodes
@@ -126,6 +180,7 @@ def move_scalar_mul_past_matmul(model):
                     )
                     graph.node.insert(node_ind, new_matmul)
                     graph.node.insert(node_ind + 1, new_mul)
+                    model.set_tensor_shape(middle_name, mm_out_shape)
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)
@@ -154,6 +209,7 @@ def move_scalar_add_past_matmul(model):
                 start_name = n.input[0]
                 middle_name = n.output[0]
                 end_name = consumer.output[0]
+                mm_out_shape = model.get_tensor_shape(end_name)
                 if all(x == 1 for x in A.shape):
                     # if the add is scalar, we can move it past the matmul
                     # by taking it past the matmul with a dot product
@@ -168,9 +224,142 @@ def move_scalar_add_past_matmul(model):
                     )
                     graph.node.insert(node_ind, new_matmul)
                     graph.node.insert(node_ind + 1, new_add)
+                    model.set_tensor_shape(middle_name, mm_out_shape)
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)
                     graph_modified = True
     model = model.transform_single(si.infer_shapes)
+    return (model, graph_modified)
+
+
+def absorb_add_into_multi_threshold(model):
+    """Absorb preceding Add ops into MultiThreshold by updating the threshold
+    values."""
+    graph = model.graph
+    node_ind = 0
+    graph_modified = False
+    for n in graph.node:
+        node_ind += 1
+        if n.op_type == "Add":
+            consumer = model.find_consumer(n.output[0])
+            if consumer is not None and consumer.op_type == "MultiThreshold":
+                add_weight_name = n.input[1]
+                threshold_name = consumer.input[1]
+                A = model.get_initializer(add_weight_name)
+                T = model.get_initializer(threshold_name)
+                assert A is not None
+                assert T is not None
+                start_name = n.input[0]
+                # compute new thresholds and set initializer
+                Tnew = T - A.reshape(-1, T.shape[1])
+                model.set_initializer(threshold_name, Tnew)
+                # wire add input directly to MultiThreshold
+                consumer.input[0] = start_name
+                # remove the add node
+                graph.node.remove(n)
+                graph_modified = True
+    return (model, graph_modified)
+
+
+def absorb_mul_into_multi_threshold(model):
+    """Absorb preceding Mul ops into MultiThreshold by updating the threshold
+    values. Only *positive* scalar/1D vectors can be absorbed."""
+    graph = model.graph
+    node_ind = 0
+    graph_modified = False
+    for n in graph.node:
+        node_ind += 1
+        if n.op_type == "Mul":
+            mul_weight_name = n.input[1]
+            A = model.get_initializer(mul_weight_name)
+            assert A is not None
+            is_signed = (A < 0).any()
+            is_scalar = np.prod(A.shape) == 1
+            is_1d = len(A.shape) == 2 and A.shape[0] == 1
+            consumer = model.find_consumer(n.output[0])
+            if consumer is not None and consumer.op_type == "MultiThreshold":
+                if not is_signed and (is_1d or is_scalar):
+                    threshold_name = consumer.input[1]
+                    T = model.get_initializer(threshold_name)
+                    assert T is not None
+                    start_name = n.input[0]
+                    # compute new thresholds and set initializer
+                    Tnew = T / A.reshape(-1, T.shape[1])
+                    # TODO: need to handle negative A values correctly; produce
+                    # mul sign mask and merge into preceding matmul?
+                    model.set_initializer(threshold_name, Tnew)
+                    # wire add input directly to MultiThreshold
+                    consumer.input[0] = start_name
+                    # remove the mul node
+                    graph.node.remove(n)
+                    graph_modified = True
+    return (model, graph_modified)
+
+
+def factor_out_mul_sign_magnitude(model):
+    """Split multiply-by-constant nodes into two multiply-by-constant nodes,
+    where the first node is a bipolar vector (of signs) and the second is a
+    vector of magnitudes."""
+    graph = model.graph
+    node_ind = 0
+    graph_modified = False
+    for n in graph.node:
+        node_ind += 1
+        if n.op_type == "Mul":
+            mul_weight_name = n.input[1]
+            A = model.get_initializer(mul_weight_name)
+            assert A is not None
+            is_scalar = np.prod(A.shape) == 1
+            is_1d = len(A.shape) == 2 and A.shape[0] == 1
+            is_not_bipolar = (
+                model.get_tensor_datatype(mul_weight_name) != DataType.BIPOLAR
+            )
+            is_signed = (A < 0).any()
+            if is_signed and (is_scalar or is_1d) and is_not_bipolar:
+                start_name = n.input[0]
+                in_shape = model.get_tensor_shape(start_name)
+                middle_name = model.make_new_valueinfo_name()
+                model.set_tensor_shape(middle_name, in_shape)
+                sign_mul_param_name = model.make_new_valueinfo_name()
+                # create new mul node with sign(A) as the operand
+                sgn = np.sign(A)
+                model.set_initializer(sign_mul_param_name, sgn)
+                model.set_tensor_datatype(sign_mul_param_name, DataType.BIPOLAR)
+                # replace original mul weight by magnitudes
+                model.set_initializer(mul_weight_name, np.abs(A))
+                new_mul = oh.make_node(
+                    "Mul", [start_name, sign_mul_param_name], [middle_name]
+                )
+                n.input[0] = middle_name
+                graph.node.insert(node_ind - 1, new_mul)
+                graph_modified = True
+    return (model, graph_modified)
+
+
+def absorb_1bit_mul_into_matmul(model):
+    """Absorb bipolar or binary multiplications into the preciding matrix
+    multiply."""
+    graph = model.graph
+    node_ind = 0
+    graph_modified = False
+    for n in graph.node:
+        node_ind += 1
+        if n.op_type == "MatMul":
+            matmul_weight_name = n.input[1]
+            W = model.get_initializer(matmul_weight_name)
+            assert W is not None
+            consumer = model.find_consumer(n.output[0])
+            if consumer is not None and consumer.op_type == "Mul":
+                mul_weight_name = consumer.input[1]
+                A = model.get_initializer(mul_weight_name)
+                assert A is not None
+                is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
+                if is_1bit:
+                    Wnew = A * W
+                    assert Wnew.shape == W.shape
+                    model.set_initializer(matmul_weight_name, Wnew)
+                    n.output[0] = consumer.output[0]
+                    graph.node.remove(consumer)
+                    graph_modified = True
     return (model, graph_modified)
