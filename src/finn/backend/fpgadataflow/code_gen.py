@@ -25,13 +25,13 @@ def get_layer_attributes(node):
 
 
 def strm_decl(model, code_gen_dict):
-    code_gen_dict["stream declarations"] = []
+    code_gen_dict["stream_declarations"] = []
     for node in model.graph.node:
         if node.op_type == "FIFO":
             name = node.name
             # last number in input shape determines the bits per cycle
             bits_per_cycle = (model.get_tensor_shape(node.input[0]))[2]
-            code_gen_dict["stream declarations"].append(
+            code_gen_dict["stream_declarations"].append(
                 'hls::stream<ap_uint<{}>> {}("DoCompute.{}");'.format(
                     bits_per_cycle, name, name
                 )
@@ -39,20 +39,20 @@ def strm_decl(model, code_gen_dict):
 
 
 def strm_prgm(model, code_gen_dict):
-    code_gen_dict["stream pragmas"] = ["#pragma HLS DATAFLOW"]
+    code_gen_dict["stream_pragmas"] = ["#pragma HLS DATAFLOW"]
     for node in model.graph.node:
         if node.op_type == "FIFO":
             name = node.name
             # TO DO: FIFOs have only one attribute, at the moment
             # if there are more, change here
             depth = node.attribute[0].i
-            code_gen_dict["stream pragmas"].append(
+            code_gen_dict["stream_pragmas"].append(
                 "#pragma HLS stream depth={} variable={}".format(depth, name)
             )
 
 
 def computation_cmds(model, code_gen_dict):
-    code_gen_dict["Computation commands"] = []
+    code_gen_dict["compute"] = []
 
     for node in model.graph.node:
         if node.op_type == "StreamingFCLayer_Batch":
@@ -62,10 +62,8 @@ def computation_cmds(model, code_gen_dict):
             outp = node.output[0]
             # get layer attributes
             [PE, SIMD, MH, MW, resDataType, resType] = get_layer_attributes(node)
-            print(str(resDataType))
-            print(resType)
 
-            code_gen_dict["Computation commands"].append(
+            code_gen_dict["compute"].append(
                 "{}<{}, {}, {}, {}, {}>({}, {}, {}, {}, numReps, {});".format(
                     node.op_type,
                     MW,
