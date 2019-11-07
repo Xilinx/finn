@@ -125,3 +125,8 @@ class DataType(Enum):
     def signed(self):
         """Return whether this DataType can represent negative numbers."""
         return self.min() < 0
+
+    def is_integer(self):
+        """Return whether this DataType represents integer values only."""
+        # only FLOAT32 is noninteger for now
+        return self != DataType.FLOAT32
