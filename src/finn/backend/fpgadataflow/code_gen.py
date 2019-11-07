@@ -25,17 +25,42 @@ def get_layer_attributes(node):
 
 
 def strm_decl(model, code_gen_dict):
+    num_FIFOs = get_num_of_FIFOs(model)
     code_gen_dict["stream_declarations"] = []
+    FIFO_ind = 1
     for node in model.graph.node:
         if node.op_type == "FIFO":
             name = node.name
-            # last number in input shape determines the bits per cycle
-            bits_per_cycle = (model.get_tensor_shape(node.input[0]))[2]
-            code_gen_dict["stream_declarations"].append(
-                'hls::stream<ap_uint<{}>> {}("DoCompute.{}");'.format(
-                    bits_per_cycle, name, name
+            if FIFO_ind == 1:
+                code_gen_dict["stream_declarations"].append(
+                    'hls::stream<ap_uint<L{}_SIMD>> {}("DoCompute.{}");'.format(
+                        FIFO_ind - 1, name, name
+                    )
                 )
-            )
+            # TO DO: check if elif and else path can be summarized
+            elif FIFO_ind == num_FIFOs:
+                code_gen_dict["stream_declarations"].append(
+                    'hls::stream<ap_uint<L{}_PE>> {}("DoCompute.{}");'.format(
+                        FIFO_ind - 2, name, name
+                    )
+                )
+            else:
+                code_gen_dict["stream_declarations"].append(
+                    "hls::stream<ap_uint<L{}_PE * (L{}_AP + L{}_APF)>> "
+                    '{}("DoCompute.{}");'.format(
+                        FIFO_ind - 2, FIFO_ind - 2, FIFO_ind - 2, name, name
+                    )
+                )
+
+            FIFO_ind += 1
+
+
+def get_num_of_FIFOs(model):
+    i = 0
+    for node in model.graph.node:
+        if node.op_type == "FIFO":
+            i += 1
+    return i
 
 
 def strm_prgm(model, code_gen_dict):
