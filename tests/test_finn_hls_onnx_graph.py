@@ -1,6 +1,9 @@
 import onnx
 from onnx import TensorProto, helper
 
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
+
 
 def test_manually_construct_onnx_graph():
 
@@ -104,4 +107,14 @@ def test_manually_construct_onnx_graph():
         ],
     )
     model = helper.make_model(graph, producer_name="finn-hls-onnx-model")
-    onnx.save(model, "finn-hls-onnx-model.onnx")
+    model = ModelWrapper(model)
+
+    # set the tensor datatypes (in this case: all to bipolar)
+    for tensor in graph.input:
+        model.set_tensor_datatype(tensor.name, DataType.Bipolar)
+    for tensor in graph.output:
+        model.set_tensor_datatype(tensor.name, DataType.Bipolar)
+    for tensor in graph.value_info:
+        model.set_tensor_datatype(tensor.name, DataType.Bipolar)
+
+    onnx.save(model.model, "finn-hls-onnx-model.onnx")
