@@ -9,5 +9,5 @@ def test_give_unique_node_names():
     model = ModelWrapper(raw_m)
     model = model.transform_single(tg.give_unique_node_names)
     assert model.graph.node[0].name == "Reshape_0"
-    assert model.graph.node[1].name == "Conv_1"
-    assert model.graph.node[11].name == "Add_11"
+    assert model.graph.node[1].name == "Conv_0"
+    assert model.graph.node[11].name == "Add_2"

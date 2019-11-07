@@ -6,6 +6,7 @@ import onnx.numpy_helper as np_helper
 from onnx import TensorProto
 
 import finn.core.utils as util
+from finn.core.datatype import DataType
 
 
 class ModelWrapper:
@@ -88,6 +89,40 @@ class ModelWrapper:
         # TODO check that all constants are initializers
         return True
 
+    def get_tensor_datatype(self, tensor_name):
+        """Returns the FINN DataType of tensor with given name."""
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret = util.get_by_name(
+                ret.quant_parameter_tensor_names, "finn_datatype", "key"
+            )
+            if ret is not None:
+                return DataType[ret.value]
+        # TODO maybe use native ONNX tensor type instead of assuming fp32?
+        return DataType["FLOAT32"]
+
+    def set_tensor_datatype(self, tensor_name, datatype):
+        """Sets the FINN DataType of tensor with given name."""
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret = util.get_by_name(
+                ret.quant_parameter_tensor_names, "finn_datatype", "key"
+            )
+            if ret is not None:
+                ret.value = datatype.name
+        else:
+            qa = onnx.TensorAnnotation()
+            dt = onnx.StringStringEntryProto()
+            dt.key = "finn_datatype"
+            dt.value = datatype.name
+            qa.tensor_name = tensor_name
+            qa.quant_parameter_tensor_names.append(dt)
+            qnt_annotations.append(qa)
+
     def get_tensor_shape(self, tensor_name):
         """Returns the shape of tensor with given name, if it has ValueInfoProto."""
         graph = self._model_proto.graph
@@ -102,9 +137,8 @@ class ModelWrapper:
         except ValueError:
             return None
 
-    def set_tensor_shape(self, tensor_name, tensor_shape):
+    def set_tensor_shape(self, tensor_name, tensor_shape, dtype=TensorProto.FLOAT):
         """Assign shape in ValueInfoProto for tensor with given name."""
-        dtype = TensorProto.FLOAT
         new_vi = oh.make_tensor_value_info(tensor_name, dtype, tensor_shape)
         # find what container tis tensor's ValueInfo lives in
         # if not found anywhere, we assume it's a new value_info
@@ -134,7 +168,8 @@ class ModelWrapper:
         # create and insert new initializer
         graph.initializer.append(tensor_init_proto)
         # set shape
-        self.set_tensor_shape(tensor_name, list(tensor_value.shape))
+        dtype = tensor_init_proto.data_type
+        self.set_tensor_shape(tensor_name, list(tensor_value.shape), dtype)
 
     def rename_tensor(self, old_name, new_name):
         """Rename a tensor from old_name to new_name."""
@@ -148,6 +183,9 @@ class ModelWrapper:
         # sweep over value_info
         if util.get_by_name(graph.value_info, old_name) is not None:
             util.get_by_name(graph.value_info, old_name).name = new_name
+        # sweep over initializers
+        if util.get_by_name(graph.initializer, old_name) is not None:
+            util.get_by_name(graph.initializer, old_name).name = new_name
         # sweep over quantization annotations
         if (
             util.get_by_name(graph.quantization_annotation, old_name, "tensor_name")
@@ -193,15 +231,21 @@ class ModelWrapper:
         except ValueError:
             return None
 
-    def make_new_valueinfo_name(self):
-        """Returns a name that can be used for a new value_info."""
-        graph = self._model_proto.graph
+    def get_all_tensor_names(self):
+        """Return a list of all (input, output and value_info) tensor names
+        in the graph."""
+        graph = self.graph
         names = [x.name for x in graph.value_info]
         names += [x.name for x in graph.input]
         names += [x.name for x in graph.output]
-        candidate = str(len(names) + 1)
+        return names
+
+    def make_new_valueinfo_name(self):
+        """Returns a name that can be used for a new value_info."""
+        names = self.get_all_tensor_names()
+        candidate = util.random_string()
         while candidate in names:
-            candidate = str(int(candidate) + 1)
+            candidate = util.random_string()
         return candidate
 
     def make_empty_exec_context(self):

@@ -26,6 +26,7 @@
 
 import copy
 
+import numpy as np
 import onnx.helper as helper
 import onnxruntime as rt
 
@@ -144,3 +145,17 @@ def execute_onnx_and_make_model(model, input_dict):
         new_model.graph.output.append(vi)
     # import pdb; pdb.set_trace()
     return new_model
+
+
+def compare_execution(
+    model_a,
+    model_b,
+    input_dict,
+    compare_fxn=lambda x, y: np.isclose(x, y, atol=1e-3).all(),
+):
+    """Execute two ONNX models and compare their outputs using given function.
+    compare_fxn should take in two tensors and return a Boolean"""
+    # compare values from first output tensors produced
+    res_a = list(execute_onnx(model_a, input_dict).items())[0][1]
+    res_b = list(execute_onnx(model_b, input_dict).items())[0][1]
+    return compare_fxn(res_a, res_b)

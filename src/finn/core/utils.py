@@ -1,3 +1,6 @@
+import random
+import string
+
 import numpy as np
 import onnx
 
@@ -26,3 +29,9 @@ def remove_by_name(container, name, name_field="name"):
     item = get_by_name(container, name, name_field)
     if item is not None:
         container.remove(item)
+
+
+def random_string(stringLength=6):
+    """Randomly generate a string of letters and digits."""
+    lettersAndDigits = string.ascii_letters + string.digits
+    return "".join(random.choice(lettersAndDigits) for i in range(stringLength))

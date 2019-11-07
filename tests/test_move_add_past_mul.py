@@ -31,9 +31,7 @@ def test_move_add_past_mul_single():
     model.set_initializer("mul_param", np.asarray([2, 4], dtype=np.float32))
     new_model = model.transform_repeated(tx.move_add_past_mul)
     inp_dict = {"top_in": np.asarray([-1.0, 1.0], dtype=np.float32)}
-    out_orig = ox.execute_onnx(model, inp_dict)["top_out"]
-    out_transformed = ox.execute_onnx(new_model, inp_dict)["top_out"]
-    assert np.isclose(out_orig, out_transformed).all()
+    assert ox.compare_execution(model, new_model, inp_dict)
 
 
 def test_move_add_past_mul_multi():
@@ -65,6 +63,4 @@ def test_move_add_past_mul_multi():
     model.set_initializer("mul_param_1", np.asarray([2, -4], dtype=np.float32))
     new_model = model.transform_repeated(tx.move_add_past_mul)
     inp_dict = {"top_in": np.asarray([-1.0, 1.0], dtype=np.float32)}
-    out_orig = ox.execute_onnx(model, inp_dict)["top_out"]
-    out_transformed = ox.execute_onnx(new_model, inp_dict)["top_out"]
-    assert np.isclose(out_orig, out_transformed).all()
+    assert ox.compare_execution(model, new_model, inp_dict)
