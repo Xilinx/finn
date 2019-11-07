@@ -33,6 +33,9 @@ def test_datatypes():
     assert DataType.INT32.allowed(7.77) is False
     assert DataType.INT32.allowed(-5)
     assert DataType.INT32.allowed(5)
+    assert DataType.BINARY.signed() is False
+    assert DataType.FLOAT32.signed()
+    assert DataType.BIPOLAR.signed()
 
 
 def test_smallest_possible():

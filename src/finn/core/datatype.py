@@ -121,3 +121,7 @@ class DataType(Enum):
             dt = DataType[k]
             if (dt.min() <= value) and (value <= dt.max()):
                 return dt
+
+    def signed(self):
+        """Return whether this DataType can represent negative numbers."""
+        return self.min() < 0
