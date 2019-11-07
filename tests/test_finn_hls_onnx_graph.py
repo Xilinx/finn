@@ -111,10 +111,10 @@ def test_manually_construct_onnx_graph():
 
     # set the tensor datatypes (in this case: all to bipolar)
     for tensor in graph.input:
-        model.set_tensor_datatype(tensor.name, DataType.Bipolar)
+        model.set_tensor_datatype(tensor.name, DataType["BIPOLAR"])
     for tensor in graph.output:
-        model.set_tensor_datatype(tensor.name, DataType.Bipolar)
+        model.set_tensor_datatype(tensor.name, DataType["BIPOLAR"])
     for tensor in graph.value_info:
-        model.set_tensor_datatype(tensor.name, DataType.Bipolar)
+        model.set_tensor_datatype(tensor.name, DataType["BIPOLAR"])
 
     onnx.save(model.model, "finn-hls-onnx-model.onnx")

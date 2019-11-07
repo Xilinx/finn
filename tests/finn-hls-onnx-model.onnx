@@ -1,4 +1,4 @@
-finn-hls-onnx-model:þ
+finn-hls-onnx-model:ˆ
 0
 inp	memInStrm	memInStrm"FIFO*
 depth€ 
@@ -159,4 +159,40 @@ memOutStrm"FIFO*
 
 
 
-@B
+@r
+inp
+finn_datatypeBIPOLARr 
+outp
+finn_datatypeBIPOLARr%
+	memInStrm
+finn_datatypeBIPOLARr$
+weights0
+finn_datatypeBIPOLARr#
+thresh0
+finn_datatypeBIPOLARr 
+out1
+finn_datatypeBIPOLARr"
+inter0
+finn_datatypeBIPOLARr$
+weights1
+finn_datatypeBIPOLARr#
+thresh1
+finn_datatypeBIPOLARr 
+out2
+finn_datatypeBIPOLARr"
+inter1
+finn_datatypeBIPOLARr$
+weights2
+finn_datatypeBIPOLARr#
+thresh2
+finn_datatypeBIPOLARr 
+out3
+finn_datatypeBIPOLARr"
+inter2
+finn_datatypeBIPOLARr$
+weights3
+finn_datatypeBIPOLARr#
+thresh3
+finn_datatypeBIPOLARr 
+out4
+finn_datatypeBIPOLARB
