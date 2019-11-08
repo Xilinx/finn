@@ -53,35 +53,48 @@ def strm_prgm(model, code_gen_dict):
             )
 
 
-def computation_cmds(model, code_gen_dict):
+def computation_cmds(all_strmfcl, code_gen_dict):
     code_gen_dict["compute"] = []
-    all_strmfcl = []
-    i = -1
-    for node in model.graph.node:
-        if node.op_type == "StreamingFCLayer_Batch":
-            i += 1
-            layer = ly.StreamingFCLayer_Batch(node, model)
-
+    for i in range(len(all_strmfcl)):
+        if i == (len(all_strmfcl)-1):
             code_gen_dict["compute"].append(
                 "{}<L{}_MW, L{}_MH, L{}_SIMD, L{}_PE, {}> "
                 "({}, {}, {}, {}, numReps, {});".format(
-                    node.op_type,
+                    all_strmfcl[i].op_type,
                     i,
                     i,
                     i,
                     i,
-                    layer.resDataType,
-                    layer.input,
-                    layer.output,
-                    layer.weights,
-                    layer.thresholds,
-                    layer.resType,
+                    all_strmfcl[i].resDataType,
+                    all_strmfcl[i].input,
+                    all_strmfcl[i].output,
+                    all_strmfcl[i].weights,
+                    all_strmfcl[i].thresholds,
+                    all_strmfcl[i].resType,
                 )
             )
-            all_strmfcl.append(layer)
+        else:
+            code_gen_dict["compute"].append(
+                "{}<L{}_MW, L{}_MH, L{}_SIMD, L{}_PE, {}> "
+                "({}, {}, {}, {}, numReps, {});".format(
+                    all_strmfcl[i].op_type,
+                    i,
+                    i,
+                    i,
+                    i,
+                    all_strmfcl[i].resDataType,
+                    all_strmfcl[i].input,
+                    all_strmfcl[i+1].input,
+                    all_strmfcl[i].weights,
+                    all_strmfcl[i].thresholds,
+                    all_strmfcl[i].resType,
+                )
+            )
+
 
 
 def config_cmds(model, code_gen_dict):
+    all_strmfcl = []
     code_gen_dict["config"] = []
 
     # TO DO: Find out values and add them to get_layer_parameters()
@@ -127,14 +140,15 @@ def config_cmds(model, code_gen_dict):
                     APF,
                 )
             )
-
+            all_strmfcl.append(layer)
+    return all_strmfcl
 
 def code_generation(model):
 
     code_gen_dict = {}
 
     # config commands
-    config_cmds(model, code_gen_dict)
+    all_strmfcl = config_cmds(model, code_gen_dict)
 
     # stream declarations
     strm_decl(model, code_gen_dict)
@@ -143,7 +157,7 @@ def code_generation(model):
     strm_prgm(model, code_gen_dict)
 
     # computation commands
-    computation_cmds(model, code_gen_dict)
+    computation_cmds(all_strmfcl, code_gen_dict)
 
     # print(code_gen_dict)
 
