@@ -1,6 +1,6 @@
 class StreamingFCLayer_Batch:
     def __init__(self, node, model):
-        self.op_type = 'StreamingFCLayer_Batch'
+        self.op_type = "StreamingFCLayer_Batch"
         # Layer attributes
         num_attr = len(node.attribute)
         for k in range(num_attr):
