@@ -1,4 +1,4 @@
-class StreamingFCLayer_Batch():
+class StreamingFCLayer_Batch:
     def __init__(self, node, model):
         # Layer attributes
         num_attr = len(node.attribute)
@@ -15,7 +15,7 @@ class StreamingFCLayer_Batch():
                 self.resDataType = node.attribute[k].s.decode("utf-8")
             if node.attribute[k].name == "resType":
                 self.resType = node.attribute[k].s.decode("utf-8")
-        
+
         # get other parameters
         weights_shape = model.get_tensor_shape(node.input[1])
         thresholds_shape = model.get_tensor_shape(node.input[2])
@@ -49,7 +49,3 @@ class StreamingFCLayer_Batch():
 
     def get_API(self):
         return self.API
-
-
-
-

@@ -1,38 +1,4 @@
-def get_layer_parameters(model, node):
-    # Layer attributes
-    num_attr = len(node.attribute)
-    for k in range(num_attr):
-        if node.attribute[k].name == "PE":
-            L_PE = node.attribute[k].i
-        if node.attribute[k].name == "SIMD":
-            L_SIMD = node.attribute[k].i
-        if node.attribute[k].name == "MH":
-            L_MH = node.attribute[k].i
-        if node.attribute[k].name == "MW":
-            L_MW = node.attribute[k].i
-        if node.attribute[k].name == "resDataType":
-            L_resDataType = node.attribute[k].s
-        if node.attribute[k].name == "resType":
-            L_resType = node.attribute[k].s
-
-    # get other parameters
-    weights_shape = model.get_tensor_shape(node.input[1])
-    thresholds_shape = model.get_tensor_shape(node.input[2])
-    L_WMEM = weights_shape[2]
-    L_TMEM = thresholds_shape[0]
-    L_API = thresholds_shape[2]
-
-    return [
-        L_PE,
-        L_SIMD,
-        L_MH,
-        L_MW,
-        L_resDataType.decode("utf-8"),
-        L_resType.decode("utf-8"),
-        L_WMEM,
-        L_TMEM,
-        L_API,
-    ]
+import finn.backend.fpgadataflow.layers as ly
 
 
 def strm_decl(model, code_gen_dict):
@@ -89,27 +55,16 @@ def strm_prgm(model, code_gen_dict):
 
 def computation_cmds(model, code_gen_dict):
     code_gen_dict["compute"] = []
-
+    all_strmfcl = []
     i = -1
     for node in model.graph.node:
         if node.op_type == "StreamingFCLayer_Batch":
             i += 1
+            layer = ly.StreamingFCLayer_Batch(node, model)
             inp = node.input[0]
             weights = node.input[1]
             thresholds = node.input[2]
             outp = node.output[0]
-            # get layer parameters
-            [
-                PE,
-                SIMD,
-                MH,
-                MW,
-                resDataType,
-                resType,
-                WMEM,
-                TMEM,
-                API,
-            ] = get_layer_parameters(model, node)
 
             code_gen_dict["compute"].append(
                 "{}<L{}_MW, L{}_MH, L{}_SIMD, L{}_PE, {}> "
@@ -119,14 +74,15 @@ def computation_cmds(model, code_gen_dict):
                     i,
                     i,
                     i,
-                    resDataType,
+                    layer.resDataType,
                     inp,
                     outp,
                     weights,
                     thresholds,
-                    resType,
+                    layer.resType,
                 )
             )
+            all_strmfcl.append(layer)
 
 
 def config_cmds(model, code_gen_dict):
@@ -141,19 +97,7 @@ def config_cmds(model, code_gen_dict):
     for node in model.graph.node:
         if node.op_type == "StreamingFCLayer_Batch":
             i += 1
-            # get layer parameters
-            [
-                PE,
-                SIMD,
-                MH,
-                MW,
-                resDataType,
-                resType,
-                WMEM,
-                TMEM,
-                API,
-            ] = get_layer_parameters(model, node)
-
+            layer = ly.StreamingFCLayer_Batch(node, model)
             code_gen_dict["config"].append(
                 "#define L{}_SIMD {} \n "
                 "#define L{}_PE {} \n "
@@ -166,21 +110,21 @@ def config_cmds(model, code_gen_dict):
                 "#define L{}_WPF {} \n "
                 "#define L{}_APF {} \n ".format(
                     i,
-                    SIMD,
+                    layer.SIMD,
                     i,
-                    PE,
+                    layer.PE,
                     i,
-                    WMEM,
+                    layer.WMEM,
                     i,
-                    TMEM,
+                    layer.TMEM,
                     i,
-                    MW,
+                    layer.MW,
                     i,
-                    MH,
+                    layer.MH,
                     i,
                     WPI,
                     i,
-                    API,
+                    layer.API,
                     i,
                     WPF,
                     i,
