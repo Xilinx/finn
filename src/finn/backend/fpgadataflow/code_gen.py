@@ -61,10 +61,6 @@ def computation_cmds(model, code_gen_dict):
         if node.op_type == "StreamingFCLayer_Batch":
             i += 1
             layer = ly.StreamingFCLayer_Batch(node, model)
-            inp = node.input[0]
-            weights = node.input[1]
-            thresholds = node.input[2]
-            outp = node.output[0]
 
             code_gen_dict["compute"].append(
                 "{}<L{}_MW, L{}_MH, L{}_SIMD, L{}_PE, {}> "
@@ -75,10 +71,10 @@ def computation_cmds(model, code_gen_dict):
                     i,
                     i,
                     layer.resDataType,
-                    inp,
-                    outp,
-                    weights,
-                    thresholds,
+                    layer.input,
+                    layer.output,
+                    layer.weights,
+                    layer.thresholds,
                     layer.resType,
                 )
             )
