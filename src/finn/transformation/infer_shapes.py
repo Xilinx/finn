@@ -2,6 +2,7 @@ import onnx.helper as helper
 import onnx.shape_inference as si
 
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation import Transformation
 
 
 def _make_shape_compatible_op(node):
@@ -44,12 +45,14 @@ def _restore_finn_ops(model, hidden_ops):
             pass
 
 
-def infer_shapes(model):
+class InferShapes(Transformation):
     """Ensure every tensor in the model has a specified shape (ValueInfo)."""
-    # hide your riches!
-    hidden_ops = _hide_finn_ops(model)
-    # call regular ONNX shape inference
-    model = ModelWrapper(si.infer_shapes(model.model))
-    # bring back hidden ops
-    _restore_finn_ops(model, hidden_ops)
-    return (model, False)
+
+    def apply(self, model):
+        # hide your riches!
+        hidden_ops = _hide_finn_ops(model)
+        # call regular ONNX shape inference
+        model = ModelWrapper(si.infer_shapes(model.model))
+        # bring back hidden ops
+        _restore_finn_ops(model, hidden_ops)
+        return (model, False)

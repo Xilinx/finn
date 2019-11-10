@@ -4,8 +4,8 @@ import onnx.helper as oh
 from onnx import TensorProto
 
 import finn.analysis.topology as ta
-import finn.transformation.infer_shapes as si
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
 
 
 def test_all_tensors_f32():
@@ -26,7 +26,7 @@ def test_all_tensors_f32():
         )
     )
     model = ModelWrapper(modelproto)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     ret = model.analysis(ta.all_tensors_f32)
     assert ret["all_tensors_f32"] is True
 
@@ -47,7 +47,7 @@ def test_all_tensors_f32():
         )
     )
     model = ModelWrapper(modelproto)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     ret = model.analysis(ta.all_tensors_f32)
     assert ret["all_tensors_f32"] is False
 
@@ -55,7 +55,7 @@ def test_all_tensors_f32():
 def test_node_inputs_in_expected_order():
     raw_m = get_data("finn", "data/onnx/mnist-conv/model.onnx")
     model = ModelWrapper(raw_m)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     ret = model.analysis(ta.node_inputs_in_expected_order)
     # this model has an (unnecessary) dynamic reshape for its weight tensor
     # and so it fails the check

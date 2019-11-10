@@ -2,9 +2,9 @@ import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.streamline as sl
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.streamline import RoundThresholds
 
 
 def test_round_thresholds():
@@ -27,7 +27,7 @@ def test_round_thresholds():
     orig_n = oxe.execute_onnx(model, inp_dict_n)["out"]
     orig_c = oxe.execute_onnx(model, inp_dict_c)["out"]
     assert model.get_tensor_datatype("thresholds") == DataType.FLOAT32
-    new_model = model.transform_repeated(sl.round_thresholds)
+    new_model = model.transform(RoundThresholds())
     # rounded up thresholds should have same dtype as input
     assert new_model.get_tensor_datatype("thresholds") == DataType.INT8
     new_f = oxe.execute_onnx(new_model, inp_dict_f)["out"]

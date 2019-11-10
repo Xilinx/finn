@@ -3,9 +3,9 @@ import onnx.helper as oh
 from onnx import TensorProto
 
 import finn.core.onnx_exec as ox
-import finn.transformation.infer_shapes as si
-import finn.transformation.streamline as tx
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.streamline import FactorOutMulSignMagnitude
 
 
 def test_factor_out_mul_sign_magnitude():
@@ -22,8 +22,8 @@ def test_factor_out_mul_sign_magnitude():
         )
     )
     model = ModelWrapper(modelproto)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     model.set_initializer("mul_param", np.asarray([[-1, 4]], dtype=np.float32))
-    new_model = model.transform_repeated(tx.factor_out_mul_sign_magnitude)
+    new_model = model.transform(FactorOutMulSignMagnitude())
     inp_dict = {"top_in": np.asarray([[-1.0, 1.0]], dtype=np.float32)}
     assert ox.compare_execution(model, new_model, inp_dict)

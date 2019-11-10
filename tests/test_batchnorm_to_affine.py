@@ -8,10 +8,10 @@ import torch
 from models.LFC import LFC
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.batchnorm_to_affine as tx
-import finn.transformation.fold_constants as fc
-import finn.transformation.infer_shapes as si
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.batchnorm_to_affine import BatchNormToAffine
+from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.infer_shapes import InferShapes
 
 export_onnx_path = "test_output_lfc.onnx"
 transformed_onnx_path = "test_output_lfc_transformed.onnx"
@@ -27,9 +27,9 @@ def test_batchnorm_to_affine():
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
-    model = model.transform_single(si.infer_shapes)
-    model = model.transform_repeated(fc.fold_constants)
-    new_model = model.transform_single(tx.batchnorm_to_affine)
+    model = model.transform(InferShapes())
+    model = model.transform(FoldConstants())
+    new_model = model.transform(BatchNormToAffine())
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
