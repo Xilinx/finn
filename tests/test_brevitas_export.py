@@ -9,9 +9,9 @@ import torch
 from models.LFC import LFC
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fold_constants as fc
-import finn.transformation.infer_shapes as si
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.infer_shapes import InferShapes
 
 export_onnx_path = "test_output_lfc.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
@@ -88,8 +88,8 @@ def test_brevitas_to_onnx_export_and_exec_lfc_w1a1():
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
-    model = model.transform_single(si.infer_shapes)
-    model = model.transform_repeated(fc.fold_constants)
+    model = model.transform(InferShapes())
+    model = model.transform(FoldConstants())
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
@@ -113,8 +113,8 @@ def test_brevitas_to_onnx_export_and_exec_lfc_w1a2():
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
-    model = model.transform_single(si.infer_shapes)
-    model = model.transform_repeated(fc.fold_constants)
+    model = model.transform(InferShapes())
+    model = model.transform(FoldConstants())
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)

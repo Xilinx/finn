@@ -2,9 +2,10 @@
 Guide to writing FINN transformations
 -------------------------------------
 
-* Your transformation should take in a ModelWrapper, and return a tuple with
- (transformed_model: ModelWrapper, model_was_changed: Bool)
-* The transformations are meant to be applied using the .transform functions
+* Your transformation must inherit the Transformation abstract base class.
+* Your transformation's apply function should take in a ModelWrapper, and return
+  a tuple with (transformed_model: ModelWrapper, model_was_changed: Bool)
+* The transformations are meant to be applied using the .transform function
   in ModelWrapper. This makes a deep copy of the input model by default, so
   you don't have to.
 * model_was_changed indicates whether your transformation made any changes to
@@ -14,6 +15,17 @@ Guide to writing FINN transformations
 * You MUST return model_was_changed=False at some point when your transformation
   is called multiple times, otherwise apply_repeated() will loop infinitely.
 * If you cannot guarantee that the transformation will reach a fixed point,
-  you must declare this and notify the user to use .transform_single() instead
-  of .transform_repeated()
+  you must declare this, return model_was_changed = False and let the user
+  manually re-apply the transform.
 """
+
+from abc import ABC, abstractmethod
+
+
+class Transformation(ABC):
+    def __init__(self):
+        super().__init__()
+
+    @abstractmethod
+    def apply(self, model):
+        pass

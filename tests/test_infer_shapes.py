@@ -4,8 +4,8 @@ import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.utils as util
-import finn.transformation.infer_shapes as si
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
 
 
 def test_infer_shapes():
@@ -49,7 +49,7 @@ def test_infer_shapes():
     ), "All tensors are already specified before the shape inference execution"
 
     # perform shape inference on mixed model
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
 
     # second check routine
     # now all shapes should be specified and mt_node output shape is (1,8,28,28)
