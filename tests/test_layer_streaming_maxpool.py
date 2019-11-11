@@ -1,6 +1,8 @@
 # import onnx
+import numpy as np
 from onnx import TensorProto, helper
 
+import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 
@@ -33,3 +35,44 @@ def test_layer_streaming_maxpool():
         model.set_tensor_datatype(tensor.name, DataType["BIPOLAR"])
 
     # onnx.save(model.model, "max-pool-model.onnx")
+
+    input_tensor = np.asarray(
+        [
+            1,
+            -1,
+            1,
+            -1,
+            -1,
+            1,
+            1,
+            1,
+            1,
+            -1,
+            -1,
+            1,
+            1,
+            -1,
+            1,
+            -1,
+            1,
+            1,
+            -1,
+            1,
+            -1,
+            -1,
+            -1,
+            -1,
+            -1,
+            1,
+            1,
+            -1,
+            1,
+            1,
+            1,
+            -1,
+        ],
+        dtype=np.float32,
+    ).reshape(2, 4, 4)
+
+    input_dict = {"in": input_tensor}
+    output_dict = oxe.execute_onnx(model, input_dict)
