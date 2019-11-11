@@ -14,9 +14,11 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 
 BREVITAS_REPO=https://github.com/Xilinx/brevitas.git
 EXAMPLES_REPO=https://github.com/maltanar/brevitas_cnv_lfc.git
+CNPY_REPO=https://github.com/rogersce/cnpy.git
 
 BREVITAS_LOCAL=$SCRIPTPATH/brevitas
 EXAMPLES_LOCAL=$SCRIPTPATH/brevitas_cnv_lfc
+CNPY_LOCAL=$SCRIPTPATH/cnpy
 
 # clone dependency repos
 git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
@@ -25,6 +27,8 @@ git clone $EXAMPLES_REPO $EXAMPLES_LOCAL ||  git -C "$EXAMPLES_LOCAL" pull
 echo "Mounting $SCRIPTPATH into /workspace/finn"
 echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
 echo "Mounting $SCRIPTPATH/brevitas_cnv_lfc into /workspace/brevitas_cnv_lfc"
+echo "Mounting $SCRIPTPATH/cnpy into /workspace/cnpy"
+
 # Build the FINN Docker image
 docker build --tag=$DOCKER_TAG \
              --build-arg GID=$DOCKER_GID \
@@ -38,4 +42,5 @@ docker run --rm --name finn_dev -it \
 -v $SCRIPTPATH:/workspace/finn \
 -v $SCRIPTPATH/brevitas:/workspace/brevitas \
 -v $SCRIPTPATH/brevitas_cnv_lfc:/workspace/brevitas_cnv_lfc \
+-v $SCRIPTPATH/cnpy:/workspace/cnpy \
 $DOCKER_TAG bash
