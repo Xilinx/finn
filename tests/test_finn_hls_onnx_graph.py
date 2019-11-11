@@ -11,12 +11,14 @@ def test_manually_construct_onnx_graph():
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 64])
 
     memInStrm_node = helper.make_node(
-        "FIFO", ["inp"], ["memInStrm"], "memInStrm", depth=1024
+        "FIFO", ["inp"], ["memInStrm"], "memInStrm", domain='finn', backend='fpgadataflow', depth=1024
     )
     FCLayer0_node = helper.make_node(
         "StreamingFCLayer_Batch",
         ["memInStrm", "weights0", "thresh0"],
         ["out1"],
+        domain='finn',
+        backend='fpgadataflow',
         resType="ap_resource_lut()",
         MW=832,
         MH=1024,
@@ -24,11 +26,13 @@ def test_manually_construct_onnx_graph():
         PE=32,
         resDataType="Recast<XnorMul>",
     )
-    inter0_node = helper.make_node("FIFO", ["out1"], ["inter0"], "inter0", depth=16)
+    inter0_node = helper.make_node("FIFO", ["out1"], ["inter0"], "inter0", domain='finn', backend='fpgadataflow', depth=16)
     FCLayer1_node = helper.make_node(
         "StreamingFCLayer_Batch",
         ["inter0", "weights1", "thresh1"],
         ["out2"],
+        domain='finn',
+        backend='fpgadataflow',
         resType="ap_resource_lut()",
         MW=1024,
         MH=1024,
@@ -36,11 +40,13 @@ def test_manually_construct_onnx_graph():
         PE=64,
         resDataType="Recast<XnorMul>",
     )
-    inter1_node = helper.make_node("FIFO", ["out2"], ["inter1"], "inter1", depth=16)
+    inter1_node = helper.make_node("FIFO", ["out2"], ["inter1"], "inter1", domain='finn', backend='fpgadataflow', depth=16)
     FCLayer2_node = helper.make_node(
         "StreamingFCLayer_Batch",
         ["inter1", "weights2", "thresh2"],
         ["out3"],
+        domain='finn',
+        backend='fpgadataflow',
         resType="ap_resource_lut()",
         MW=1024,
         MH=1024,
@@ -48,11 +54,13 @@ def test_manually_construct_onnx_graph():
         PE=32,
         resDataType="Recast<XnorMul>",
     )
-    inter2_node = helper.make_node("FIFO", ["out3"], ["inter2"], "inter2", depth=8)
+    inter2_node = helper.make_node("FIFO", ["out3"], ["inter2"], "inter2", domain='finn', backend='fpgadataflow', depth=8)
     FCLayer3_node = helper.make_node(
         "StreamingFCLayer_Batch",
         ["inter2", "weights3", "thresh3"],
         ["out4"],
+        domain='finn',
+        backend='fpgadataflow',
         resType="ap_resource_lut()",
         MW=1024,
         MH=64,
@@ -61,7 +69,7 @@ def test_manually_construct_onnx_graph():
         resDataType="Recast<XnorMul>",
     )
     memOutStrm_node = helper.make_node(
-        "FIFO", ["out4"], ["outp"], "memOutStrm", depth=1024
+        "FIFO", ["out4"], ["outp"], "memOutStrm", domain='finn', backend='fpgadataflow', depth=1024
     )
 
     graph = helper.make_graph(

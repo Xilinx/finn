@@ -1,8 +1,9 @@
-finn-hls-onnx-model:ˆ
-0
-inp	memInStrm	memInStrm"FIFO*
-depth€ 
-°
+finn-hls-onnx-model:º
+R
+inp	memInStrm	memInStrm"FIFO*
+backend"fpgadataflow *
+depth€ :finn
+Ò
 	memInStrm
 weights0
 thresh0out1"StreamingFCLayer_Batch*
@@ -11,13 +12,15 @@
 
 MWÀ *	
 PE  *
-SIMD@ *!
+SIMD@ *
+backend"fpgadataflow *!
 resDataType"Recast<XnorMul> *
-resType"ap_resource_lut() 
-*
-out1inter0inter0"FIFO*
-depth 
-­
+resType"ap_resource_lut() :finn
+L
+out1inter0inter0"FIFO*
+backend"fpgadataflow *
+depth :finn
+Ï
 inter0
 weights1
 thresh1out2"StreamingFCLayer_Batch*
@@ -26,13 +29,15 @@
 
 MW€ *	
 PE@ *
-SIMD  *!
+SIMD  *
+backend"fpgadataflow *!
 resDataType"Recast<XnorMul> *
-resType"ap_resource_lut() 
-*
-out2inter1inter1"FIFO*
-depth 
-­
+resType"ap_resource_lut() :finn
+L
+out2inter1inter1"FIFO*
+backend"fpgadataflow *
+depth :finn
+Ï
 inter1
 weights2
 thresh2out3"StreamingFCLayer_Batch*
@@ -41,13 +46,15 @@
 
 MW€ *	
 PE  *
-SIMD@ *!
+SIMD@ *
+backend"fpgadataflow *!
 resDataType"Recast<XnorMul> *
-resType"ap_resource_lut() 
-*
-out3inter2inter2"FIFO*
-depth 
-¬
+resType"ap_resource_lut() :finn
+L
+out3inter2inter2"FIFO*
+backend"fpgadataflow *
+depth :finn
+Î
 inter2
 weights3
 thresh3out4"StreamingFCLayer_Batch*	
@@ -55,13 +62,15 @@
 
 MW€ *	
 PE *
-SIMD *!
+SIMD *
+backend"fpgadataflow *!
 resDataType"Recast<XnorMul> *
-resType"ap_resource_lut() 
--
+resType"ap_resource_lut() :finn
+O
 out4outp
-memOutStrm"FIFO*
-depth€ finn_hls_onnx_graphZ
+memOutStrm"FIFO*
+backend"fpgadataflow *
+depth€ :finnfinn_hls_onnx_graphZ
 inp
 
 
