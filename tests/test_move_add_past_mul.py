@@ -3,9 +3,9 @@ import onnx.helper as oh
 from onnx import TensorProto
 
 import finn.core.onnx_exec as ox
-import finn.transformation.infer_shapes as si
-import finn.transformation.streamline as tx
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.streamline import MoveAddPastMul
 
 
 def test_move_add_past_mul_single():
@@ -26,10 +26,10 @@ def test_move_add_past_mul_single():
         )
     )
     model = ModelWrapper(modelproto)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     model.set_initializer("add_param", np.asarray([1, 3], dtype=np.float32))
     model.set_initializer("mul_param", np.asarray([2, 4], dtype=np.float32))
-    new_model = model.transform_repeated(tx.move_add_past_mul)
+    new_model = model.transform(MoveAddPastMul())
     inp_dict = {"top_in": np.asarray([-1.0, 1.0], dtype=np.float32)}
     assert ox.compare_execution(model, new_model, inp_dict)
 
@@ -56,11 +56,11 @@ def test_move_add_past_mul_multi():
         )
     )
     model = ModelWrapper(modelproto)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     model.set_initializer("add_param_0", np.asarray([1, 3], dtype=np.float32))
     model.set_initializer("mul_param_0", np.asarray([2, 4], dtype=np.float32))
     model.set_initializer("add_param_1", np.asarray([-1, 3], dtype=np.float32))
     model.set_initializer("mul_param_1", np.asarray([2, -4], dtype=np.float32))
-    new_model = model.transform_repeated(tx.move_add_past_mul)
+    new_model = model.transform(MoveAddPastMul())
     inp_dict = {"top_in": np.asarray([-1.0, 1.0], dtype=np.float32)}
     assert ox.compare_execution(model, new_model, inp_dict)

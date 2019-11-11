@@ -2,8 +2,8 @@ import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.infer_shapes as si
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
 
 
 def test_execute_mixed_model():
@@ -30,7 +30,7 @@ def test_execute_mixed_model():
     model_def = helper.make_model(graph_def, producer_name="onnx-example")
 
     model = ModelWrapper(model_def)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
 
     inputs = np.asarray(
         [

@@ -3,9 +3,12 @@ import onnx.helper as oh
 from onnx import TensorProto
 
 import finn.core.onnx_exec as ox
-import finn.transformation.infer_shapes as si
-import finn.transformation.streamline as tx
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.streamline import (
+    MoveScalarAddPastMatMul,
+    MoveScalarMulPastMatMul
+)
 
 
 def test_move_scalar_mul_past_matmul():
@@ -26,12 +29,12 @@ def test_move_scalar_mul_past_matmul():
         )
     )
     model = ModelWrapper(modelproto)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     model.set_initializer("mul_param", np.asarray([[3]], dtype=np.float32))
     model.set_initializer(
         "matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32)
     )
-    new_model = model.transform_repeated(tx.move_scalar_mul_past_matmul)
+    new_model = model.transform(MoveScalarMulPastMatMul())
     inp_dict = {"top_in": np.asarray([[-1.0, 1.0]], dtype=np.float32)}
     assert ox.compare_execution(model, new_model, inp_dict)
     assert new_model.graph.node[0].op_type == "MatMul"
@@ -57,12 +60,12 @@ def test_move_scalar_add_past_matmul():
         )
     )
     model = ModelWrapper(modelproto)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     model.set_initializer("add_param", np.asarray([[3]], dtype=np.float32))
     model.set_initializer(
         "matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32)
     )
-    new_model = model.transform_repeated(tx.move_scalar_add_past_matmul)
+    new_model = model.transform(MoveScalarAddPastMatMul())
     inp_dict = {"top_in": np.asarray([[-1.0, 1.0]], dtype=np.float32)}
     assert ox.compare_execution(model, new_model, inp_dict)
     assert new_model.graph.node[0].op_type == "MatMul"

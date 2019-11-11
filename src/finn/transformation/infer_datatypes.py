@@ -1,4 +1,5 @@
 from finn.core.datatype import DataType
+from finn.transformation import Transformation
 
 
 def _infer_node_datatype(model, node):
@@ -37,11 +38,13 @@ def _infer_node_datatype(model, node):
     return graph_modified
 
 
-def infer_datatypes(model):
+class InferDataTypes(Transformation):
     """Infer FINN DataType info for all intermediate/output tensors based on
-  inputs and node type."""
-    graph = model.graph
-    graph_modified = False
-    for node in graph.node:
-        graph_modified |= _infer_node_datatype(model, node)
-    return (model, graph_modified)
+    inputs and node type."""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for node in graph.node:
+            graph_modified |= _infer_node_datatype(model, node)
+        return (model, graph_modified)

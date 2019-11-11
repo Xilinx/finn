@@ -5,15 +5,15 @@ import onnx
 import onnx.numpy_helper as np_helper
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.infer_shapes as si
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
 
 
 def test_mnist_onnx_download_extract_run():
     # load the onnx model
     raw_m = get_data("finn", "data/onnx/mnist-conv/model.onnx")
     model = ModelWrapper(raw_m)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     raw_o = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/output_0.pb")

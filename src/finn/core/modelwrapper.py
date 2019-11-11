@@ -54,28 +54,19 @@ class ModelWrapper:
         """Run given anaylsis_fxn on this model and return resulting dict."""
         return analysis_fxn(self)
 
-    def transform_repeated(self, transform, make_deepcopy=True):
-        """Applies given transform repeatedly until no more changes can be made
+    def transform(self, transformation, make_deepcopy=True):
+        """Applies given Transformation repeatedly until no more changes can be made
         and returns a transformed ModelWrapper instance.
         If make_deepcopy is specified, operates on a new (deep)copy of model.
-        Transform must return (transformed_model, model_was_changed)."""
+        """
         transformed_model = self
         if make_deepcopy:
             transformed_model = copy.deepcopy(self)
         model_was_changed = True
         while model_was_changed:
-            (transformed_model, model_was_changed) = transform(transformed_model)
-        return transformed_model
-
-    def transform_single(self, transform, make_deepcopy=True):
-        """Applies given transform once and returns transformed ModelWrapper
-        instance. If make_deepcopy is specified, operates on a new (deep)copy of
-        model. Transform must return (transformed_model, model_was_changed),
-        although model_was_changed is ignored (see also apply_repeated)."""
-        transformed_model = self
-        if make_deepcopy:
-            transformed_model = copy.deepcopy(self)
-        (transformed_model, model_was_changed) = transform(transformed_model)
+            (transformed_model, model_was_changed) = transformation.apply(
+                transformed_model
+            )
         return transformed_model
 
     def check_compatibility(self):

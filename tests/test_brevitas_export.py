@@ -9,21 +9,25 @@ import torch
 from models.LFC import LFC
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.fold_constants as fc
-import finn.transformation.infer_shapes as si
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.infer_shapes import InferShapes
 
 export_onnx_path = "test_output_lfc.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_checkpoint = (
+trained_lfc_w1a1_checkpoint = (
     "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
 )
 
+trained_lfc_w1a2_checkpoint = (
+    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W2A/checkpoints/best.tar"
+)
 
-def test_brevitas_trained_lfc_pytorch():
+
+def test_brevitas_trained_lfc_w1a1_pytorch():
     # load pretrained weights into LFC-w1a1
     lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1).eval()
-    checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
+    checkpoint = torch.load(trained_lfc_w1a1_checkpoint, map_location="cpu")
     lfc.load_state_dict(checkpoint["state_dict"])
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
@@ -49,14 +53,68 @@ def test_brevitas_trained_lfc_pytorch():
     assert np.isclose(produced, expected, atol=1e-4).all()
 
 
-def test_brevitas_to_onnx_export_and_exec():
+def test_brevitas_trained_lfc_w1a2_pytorch():
+    # load pretrained weights into LFC-w1a2
+    lfc = LFC(weight_bit_width=1, act_bit_width=2, in_bit_width=2).eval()
+    checkpoint = torch.load(trained_lfc_w1a2_checkpoint, map_location="cpu")
+    lfc.load_state_dict(checkpoint["state_dict"])
+    # load one of the test vectors
+    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    input_tensor = onnx.load_tensor_from_string(raw_i)
+    input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()
+    assert input_tensor.shape == (1, 1, 28, 28)
+    # do forward pass in PyTorch/Brevitas
+    produced = lfc.forward(input_tensor).detach().numpy()
+    expected = [
+        [
+            4.598069,
+            -6.3698025,
+            10.75695,
+            0.3796571,
+            1.4764442,
+            -5.4417515,
+            -1.8982856,
+            -5.610488,
+            6.116698,
+            0.21092065,
+        ]
+    ]
+    assert np.isclose(produced, expected, atol=1e-4).all()
+
+
+def test_brevitas_to_onnx_export_and_exec_lfc_w1a1():
     lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
-    checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
+    checkpoint = torch.load(trained_lfc_w1a1_checkpoint, map_location="cpu")
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
-    model = model.transform_single(si.infer_shapes)
-    model = model.transform_repeated(fc.fold_constants)
+    model = model.transform(InferShapes())
+    model = model.transform(FoldConstants())
+    # load one of the test vectors
+    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    input_tensor = onnx.load_tensor_from_string(raw_i)
+    # run using FINN-based execution
+    input_dict = {"0": nph.to_array(input_tensor)}
+    output_dict = oxe.execute_onnx(model, input_dict)
+    produced = output_dict[list(output_dict.keys())[0]]
+    # run using PyTorch/Brevitas
+    input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()
+    assert input_tensor.shape == (1, 1, 28, 28)
+    # do forward pass in PyTorch/Brevitas
+    expected = lfc.forward(input_tensor).detach().numpy()
+    assert np.isclose(produced, expected, atol=1e-3).all()
+    # remove the downloaded model and extracted files
+    os.remove(export_onnx_path)
+
+
+def test_brevitas_to_onnx_export_and_exec_lfc_w1a2():
+    lfc = LFC(weight_bit_width=1, act_bit_width=2, in_bit_width=2)
+    checkpoint = torch.load(trained_lfc_w1a2_checkpoint, map_location="cpu")
+    lfc.load_state_dict(checkpoint["state_dict"])
+    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
+    model = ModelWrapper(export_onnx_path)
+    model = model.transform(InferShapes())
+    model = model.transform(FoldConstants())
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
