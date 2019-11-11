@@ -2,6 +2,7 @@
 import sys
 import finn.core.multithreshold as multiThresh
 import finn.core.utils as util
+import finn.backend.fpgadataflow.code_gen_for_single_node_execution as code_gen
 
 
 def execute_custom_node(node, context, graph):
@@ -10,6 +11,7 @@ def execute_custom_node(node, context, graph):
 
     if (util.get_by_name(node.attribute, 'backend')) is not None:
         if node.op_type == "StreamingMaxPool":
+            code_gen.execute(node, context, graph)
             sys.exit(0)
         else:
             # exception if op_type is not supported
