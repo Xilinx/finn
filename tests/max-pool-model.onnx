@@ -1,0 +1,21 @@
+finn-hls-onnx-model:ø
+p
+inout"StreamingMaxPool*
+ImgDim *
+NumChannels *
+PoolDim *
+backend"fpgadataflow :finnmax_pool_graphZ
+in
+
+
+
+b
+out
+
+
+
+r
+in
+finn_datatypeBIPOLARr
+out
+finn_datatypeBIPOLARB
