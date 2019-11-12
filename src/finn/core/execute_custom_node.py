@@ -22,9 +22,9 @@ def execute_custom_node(node, context, graph):
                 in_ind += 1
             code_gen.execute(node, context, graph)
             
-            # deleting temporary files
-            for temp_file in temp_files:
-                os.remove(temp_file)
+            ## deleting temporary files
+            #for temp_file in temp_files:
+            #    os.remove(temp_file)
             sys.exit(1)
         else:
             # exception if op_type is not supported
