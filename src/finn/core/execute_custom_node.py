@@ -17,9 +17,12 @@ def execute_custom_node(node, context, graph):
             in_ind = 0
             temp_files = []
             for inputs in node.input:
-                np.save("input_{}.npy".format(in_ind), context[inputs].astype(np.float32))
+                np.save("input_{}.npy".format(in_ind), context[inputs])
                 temp_files.append("input_{}.npy".format(in_ind))
                 in_ind += 1
+
+            output = np.load("output.npy")
+            print(output)
             code_gen.execute(node, context, graph)
             
             ## deleting temporary files
