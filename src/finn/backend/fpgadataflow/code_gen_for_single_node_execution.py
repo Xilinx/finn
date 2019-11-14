@@ -30,8 +30,25 @@ def read_npy_data(node, code_gen_dict):
             code_gen_dict["$READNPDATA$"].append('int num_values = 1; \n for(int i = 0; i < arr.shape.size(); i++){\n num_values *= arr.shape[i]; \n }')
 
             input_ind+=1
-        
 
+def strm_decl(node, code_gen_dict):
+    code_gen_dict["$STREAMDECLARATIONS$"]=[]
+    if node.op_type == 'StreamingMaxPool':
+        NumChannels = utils.get_by_name(node.attribute, 'NumChannels').i
+        input_ind = 0
+        for inputs in node.input:
+            code_gen_dict["$STREAMDECLARATIONS$"].append('hls::stream<ap_uint<{}>> in{} ("in{}");'.format(NumChannels, input_ind, input_ind))
+            input_ind += 1
+        code_gen_dict["$STREAMDECLARATIONS$"].append('hls::stream<ap_uint<{}>> out ("out");'.format(NumChannels))
+
+def strm_pragmas(node, code_gen_dict):
+    code_gen_dict["$STREAMPRAGMAS$"]=[]
+    if node.op_type == 'StreamingMaxPool':
+        input_ind = 0
+        for inputs in node.input:
+            code_gen_dict["$STREAMPRAGMAS$"].append('#pragma HLS stream depth=1024 variable=in{}'.format(input_ind))
+            input_ind += 1
+        code_gen_dict["$STREAMPRAGMAS$"].append('#pragma HLS stream depth=1024 variable=out')
 
 def execute(node, context, graph):
     # template for single node execution
@@ -55,6 +72,8 @@ def execute(node, context, graph):
     output_interface k;
 
     $STREAMDECLARATIONS$
+
+    #pragma HLS DATAFLOW;
     $STREAMPRAGMAS$
     
     $READNPYDATA$
@@ -72,6 +91,8 @@ def execute(node, context, graph):
     global_includes(node, code_gen_dict)
     defines(node, code_gen_dict)
     read_npy_data(node, code_gen_dict)
+    strm_decl(node, code_gen_dict)
+    strm_pragmas(node, code_gen_dict)
     print(code_gen_dict)
 
     print("\n\n Set up for code generation of single not in progress! \n\n") 
