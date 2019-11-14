@@ -28,7 +28,11 @@ def read_npy_data(node, code_gen_dict):
         for input_file in input_file_names:
             code_gen_dict["$READNPDATA$"].append('cnpy::NpyArray arr = cnpy::npy_load("{}");\n float* loaded_data{} = arr.data<float>();'.format(input_file, input_ind))
             code_gen_dict["$READNPDATA$"].append('int num_values = 1; \n for(int i = 0; i < arr.shape.size(); i++){\n num_values *= arr.shape[i]; \n }')
-
+            code_gen_dict["$READNPDATA$"].append('ap_uint<{}> dat;'.format(NumChannels))
+            code_gen_dict["$READNPDATA$"].append('for(int i=0; i < num_values; i+=2){')
+            for channel in range(NumChannels):
+                    code_gen_dict["$READNPDATA$"].append('dat.range({},{}) = loaded_data{}[i+{}];'.format(channel, channel, input_ind, channel))
+            code_gen_dict["$READNPDATA$"].append('in{} << loaded_data[dat];\n }'.format(input_ind))
             input_ind+=1
 
 def strm_decl(node, code_gen_dict):

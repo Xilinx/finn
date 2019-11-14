@@ -22,7 +22,6 @@ int main(){
 
 	hls::stream<ap_uint<2>> in ("in");
 	hls::stream<ap_uint<2>> out ("out");
-	ap_uint<2> in_data;
 	#pragma HLS DATAFLOW
 	#pragma HLS stream depth=1024 variable=in
 	#pragma HLS stream depth=1024 variable=out
