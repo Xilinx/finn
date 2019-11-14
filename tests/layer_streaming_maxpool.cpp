@@ -1,7 +1,4 @@
 #include "cnpy.h"
-#include<complex>
-#include<cstdlib>
-#include<map>
 #include <vector>
 #include "bnn-library.h"
 #include "maxpool.h"
@@ -14,10 +11,8 @@ int main(){
 	typedef struct{
 		ap_uint<2> last_data;
 		std::vector<ap_uint<2>> data;
-		bool valid;
-		bool invert;
-	} input_interface;
-	input_interface i, k;
+	} output_interface;
+	output_interface k;
 	cnpy::NpyArray arr = cnpy::npy_load("input_0.npy");
 	float* loaded_data = arr.data<float>();
 	int Nx = arr.shape[0];
