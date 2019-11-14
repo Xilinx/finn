@@ -8,11 +8,11 @@
 #define NumChannels 2
 
 int main(){
-	typedef struct{
-		ap_uint<2> last_data;
-		std::vector<ap_uint<2>> data;
-	} output_interface;
-	output_interface k;
+	//typedef struct{
+//		ap_uint<2> last_data;
+//		std::vector<ap_uint<2>> data;
+//	} output_interface;
+//	output_interface k;
 	cnpy::NpyArray arr = cnpy::npy_load("input_0.npy");
 	float* loaded_data = arr.data<float>();
 	int num_values = 1;
@@ -31,21 +31,24 @@ int main(){
 		dat.range(1,1) = loaded_data[i+1];
 		in << loaded_data[dat];
 	}
-
-
+	
 	StreamingMaxPool<ImgDim, PoolDim, NumChannels>(in, out);
-	while(out.read_nb(k.last_data)){
-		k.data.push_back(k.last_data);
+	
+	ap_uint<2> out_data;
+        std::vector<ap_uint<2>> out_data_vector;
+	
+	while(out.read_nb(out_data)){
+		out_data_vector.push_back(out_data);
 	}
-	std::vector<float> output_data;
-	for(std::vector<ap_uint<2>>::iterator it = k.data.begin(); it!= k.data.end(); ++it){
-		ap_uint<2> test = *it;
-		output_data.push_back(test.range(0,0));
-		output_data.push_back(test.range(1,1));
+	std::vector<float> output_data_vector;
+	for(std::vector<ap_uint<2>>::iterator it = out_data_vector.begin(); it!= out_data_vector.end(); ++it){
+		ap_uint<2> output_data = *it;
+		output_data_vector.push_back(output_data.range(0,0));
+		output_data_vector.push_back(output_data.range(1,1));
 	}
 
 
-	cnpy::npy_save("output.npy",&output_data[0],{2,2,2},"w");
+	cnpy::npy_save("output.npy",&output_data_vector[0],{2,2,2},"w");
 
 
 }
