@@ -21,9 +21,14 @@ def execute_custom_node(node, context, graph):
                 temp_files.append("input_{}.npy".format(in_ind))
                 in_ind += 1
 
-            output = np.load("output.npy")
-            print(output)
             code_gen.execute(node, context, graph)
+            
+            output = np.load("output.npy")
+            for i in range(output.shape[0]):
+                print(np.transpose(output[i]))
+
+
+
             
             ## deleting temporary files
             #for temp_file in temp_files:

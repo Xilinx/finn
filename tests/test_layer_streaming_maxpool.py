@@ -77,3 +77,4 @@ def test_layer_streaming_maxpool():
 
     input_dict = {"in": input_tensor}
     output_dict = oxe.execute_onnx(model, input_dict)
+    print(output_dict[outp])
