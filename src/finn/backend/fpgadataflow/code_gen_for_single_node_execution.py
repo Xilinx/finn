@@ -32,7 +32,8 @@ def read_npy_data(node, code_gen_dict):
             code_gen_dict["$READNPDATA$"].append('for(int i=0; i < num_values; i+=2){')
             for channel in range(NumChannels):
                     code_gen_dict["$READNPDATA$"].append('dat.range({},{}) = loaded_data{}[i+{}];'.format(channel, channel, input_ind, channel))
-            code_gen_dict["$READNPDATA$"].append('in{} << loaded_data[dat];\n }'.format(input_ind))
+            code_gen_dict["$READNPDATA$"].append('in{} << loaded_data{}[dat];'.format(input_ind, input_ind))
+            code_gen_dict["$READNPDATA$"].append('}')
             input_ind+=1
 
 def strm_decl(node, code_gen_dict):
@@ -53,6 +54,11 @@ def strm_pragmas(node, code_gen_dict):
             code_gen_dict["$STREAMPRAGMAS$"].append('#pragma HLS stream depth=1024 variable=in{}'.format(input_ind))
             input_ind += 1
         code_gen_dict["$STREAMPRAGMAS$"].append('#pragma HLS stream depth=1024 variable=out')
+
+def docompute(node, code_gen_dict):
+    code_gen_dict["$DOCOMPUTE$"]=[]
+    if node.op_type == 'StreamingMaxPool':
+        code_gen_dict["$DOCOMPUTE$"].append('{}<ImgDim, PoolDim, NumChannels>(in0, out);'.format(node.op_type))
 
 def execute(node, context, graph):
     # template for single node execution
@@ -97,6 +103,7 @@ def execute(node, context, graph):
     read_npy_data(node, code_gen_dict)
     strm_decl(node, code_gen_dict)
     strm_pragmas(node, code_gen_dict)
+    docompute(node, code_gen_dict)
     print(code_gen_dict)
 
     print("\n\n Set up for code generation of single not in progress! \n\n") 
