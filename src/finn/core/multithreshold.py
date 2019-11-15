@@ -8,7 +8,7 @@ def compare(x, y):
         return 0.0
 
 
-def execute(v, thresholds, out_scale=1.0, out_bias=0.0):
+def execute(v, thresholds, out_scale=None, out_bias=None):
 
     # the inputs are expected to be in the shape (N,C,H,W)
     # N : Batch size
@@ -56,5 +56,8 @@ def execute(v, thresholds, out_scale=1.0, out_bias=0.0):
                 for a in range(num_act):
                     # apply successive thresholding to every element of one channel
                     ret[b][t][elem] += compare(vr[b][t][elem], channel_thresh[a])
-
+    if out_scale is None:
+        out_scale = 1.0
+    if out_bias is None:
+        out_bias = 0.0
     return out_scale * ret.reshape(v.shape) + out_bias
