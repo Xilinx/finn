@@ -8,7 +8,7 @@ def compare(x, y):
         return 0.0
 
 
-def execute(v, thresholds):
+def execute(v, thresholds, out_scale=None, out_bias=None):
 
     # the inputs are expected to be in the shape (N,C,H,W)
     # N : Batch size
@@ -20,6 +20,8 @@ def execute(v, thresholds):
     # C : Number of channels (must be the same value as C in input tensor or 1
     #     if all channels use the same threshold value)
     # B : Desired activation steps => i.e. for 4-bit activation, B=7 (2^(n)-1 and n=4)
+
+    # the output tensor will be scaled by out_scale and biased by out_bias
 
     # assert threshold shape
     is_global_threshold = thresholds.shape[0] == 1
@@ -54,5 +56,8 @@ def execute(v, thresholds):
                 for a in range(num_act):
                     # apply successive thresholding to every element of one channel
                     ret[b][t][elem] += compare(vr[b][t][elem], channel_thresh[a])
-
-    return ret.reshape(v.shape)
+    if out_scale is None:
+        out_scale = 1.0
+    if out_bias is None:
+        out_bias = 0.0
+    return out_scale * ret.reshape(v.shape) + out_bias

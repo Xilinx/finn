@@ -1,4 +1,5 @@
 from finn.core.datatype import DataType
+from finn.core.utils import get_by_name
 from finn.transformation import Transformation
 
 
@@ -8,10 +9,15 @@ def _infer_node_datatype(model, node):
     idtypes = list(map(lambda x: model.get_tensor_datatype(x), node.input))
     odtypes = list(map(lambda x: model.get_tensor_datatype(x), node.output))
     if node.op_type == "MultiThreshold":
-        # number of thresholds decides # output buts, use get_smallest_possible
-        n_thres = model.get_tensor_shape(node.input[1])[1]
-        odtype = DataType.get_smallest_possible(n_thres)
-        model.set_tensor_datatype(node.output[0], odtype)
+        try:
+            odt = get_by_name(node.attribute, "out_dtype").s.decode("utf-8")
+            model.set_tensor_datatype(node.output[0], DataType[odt])
+        except AttributeError:
+            # number of thresholds decides # output bits
+            # use get_smallest_possible, assuming unsigned
+            n_thres = model.get_tensor_shape(node.input[1])[1]
+            odtype = DataType.get_smallest_possible(n_thres)
+            model.set_tensor_datatype(node.output[0], odtype)
     elif node.op_type == "Sign":
         # always produces bipolar outputs
         model.set_tensor_datatype(node.output[0], DataType.BIPOLAR)
