@@ -211,3 +211,18 @@ def test_execute_custom_node_multithreshold():
     )
 
     assert (execution_context["out"] == outputs).all()
+
+    # test the optional output scaling features on MultiThreshold
+    node_def = helper.make_node(
+        "MultiThreshold",
+        ["v", "thresholds"],
+        ["out"],
+        domain="finn",
+        out_scale=2.0,
+        out_bias=-1.0,
+    )
+
+    graph_def = helper.make_graph([node_def], "test_model", [v, thresholds], [out])
+    ex_cu_node.execute_custom_node(node_def, execution_context, graph_def)
+    outputs_scaled = 2.0 * outputs - 1.0
+    assert (execution_context["out"] == outputs_scaled).all()
