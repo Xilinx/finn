@@ -8,11 +8,6 @@
 #define NumChannels 2
 
 int main(){
-	//typedef struct{
-//		ap_uint<2> last_data;
-//		std::vector<ap_uint<2>> data;
-//	} output_interface;
-//	output_interface k;
 	cnpy::NpyArray arr = cnpy::npy_load("input_0.npy");
 	float* loaded_data = arr.data<float>();
 	int num_values = 1;
@@ -22,13 +17,11 @@ int main(){
 
 	hls::stream<ap_uint<2>> in ("in");
 	hls::stream<ap_uint<2>> out ("out");
-	#pragma HLS DATAFLOW
-	#pragma HLS stream depth=1024 variable=in
-	#pragma HLS stream depth=1024 variable=out
-	ap_uint<2> dat;
-	for(int i=0;i < num_values; i+=2){
+	ap_uint<2> dat;x
+	
+	for(int i=0;i < num_values/2; i++){
 		dat.range(0,0) = loaded_data[i];
-		dat.range(1,1) = loaded_data[i+1];
+		dat.range(1,1) = loaded_data[i+(num_values/2)];
 		in << loaded_data[dat];
 	}
 	
