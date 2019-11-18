@@ -68,7 +68,7 @@ def test_streamline_lfc_w1a1():
         model = model.transform(InferDataTypes())
         produced_ctx = oxe.execute_onnx(model, input_dict, True)
         produced = produced_ctx[model.graph.output[0].name]
-        # model.save("%d-%s.onnx" % (trn_ind, trn.__name__))
+        # model.save("%d-%s.onnx" % (trn_ind, trn.__class__.__name__))
         assert np.isclose(expected, produced, atol=1e-3).all()
         trn_ind += 1
     os.remove(export_onnx_path)
