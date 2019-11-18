@@ -1,10 +1,8 @@
 #!/bin/sh
 
-if [ -z "$1" ];then
-	echo "For correct implementation please enter the path to the Vivado HLS include directory!"
+if [ -z "$VIVADO_PATH" ];then
+	echo "For correct implementation please set an environment variable VIVADO_PATH that contains the path to your vivado installation directory"
 	exit 1
-else
-	VIVADO_HLS_PATH=$1
 fi
 
 DOCKER_GID=$(id -g)
@@ -28,7 +26,7 @@ BREVITAS_LOCAL=$SCRIPTPATH/brevitas
 EXAMPLES_LOCAL=$SCRIPTPATH/brevitas_cnv_lfc
 CNPY_LOCAL=$SCRIPTPATH/cnpy
 FINN_HLS_LOCAL=$SCRIPTPATH/finn-hlslib
-VIVADO_HLS_LOCAL=$VIVADO_HLS_PATH
+VIVADO_HLS_LOCAL=$VIVADO_PATH/include
 
 # clone dependency repos
 git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
@@ -39,7 +37,7 @@ echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
 echo "Mounting $SCRIPTPATH/brevitas_cnv_lfc into /workspace/brevitas_cnv_lfc"
 echo "Mounting $SCRIPTPATH/cnpy into /workspace/cnpy"
 echo "Mounting $SCRIPTPATH/finn-hlslib into /workspace/finn-hlslib"
-echo "Mounting $VIVADO_HLS_PATH into /workspace/vivado-hlslib"
+echo "Mounting $VIVADO_PATH/include into /workspace/vivado-hlslib"
 
 # Build the FINN Docker image
 docker build --tag=$DOCKER_TAG \
@@ -56,5 +54,5 @@ docker run --rm --name finn_dev -it \
 -v $SCRIPTPATH/brevitas_cnv_lfc:/workspace/brevitas_cnv_lfc \
 -v $SCRIPTPATH/cnpy:/workspace/cnpy \
 -v $SCRIPTPATH/finn-hlslib:/workspace/finn-hlslib \
--v $VIVADO_HLS_PATH:/workspace/vivado-hlslib \
+-v $VIVADO_PATH/include:/workspace/vivado-hlslib \
 $DOCKER_TAG bash
