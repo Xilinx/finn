@@ -17,7 +17,7 @@ int main(){
 
 	hls::stream<ap_uint<2>> in ("in");
 	hls::stream<ap_uint<2>> out ("out");
-	ap_uint<2> dat;x
+	ap_uint<2> dat;
 	
 	for(int i=0;i < num_values/2; i++){
 		dat.range(0,0) = loaded_data[i];

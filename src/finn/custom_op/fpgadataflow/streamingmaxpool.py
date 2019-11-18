@@ -1,13 +1,15 @@
 import numpy as np
 import onnx.helper as helper
+import sys
+import os
 
 from finn.core.datatype import DataType
 from finn.core.utils import get_by_name
-from finn.custom_op import CustomOp
+from finn.custom_op.fpgadataflow import HLSCustomOp
 import finn.backend.fpgadataflow.code_gen_for_single_node_execution as code_gen
 
 
-class StreamingMaxPool(CustomOp):
+class StreamingMaxPool(HLSCustomOp):
     def make_shape_compatible_op(self, node):
         pass
 
@@ -28,4 +30,7 @@ class StreamingMaxPool(CustomOp):
         ## deleting temporary files
         #for temp_file in temp_files:
         #    os.remove(temp_file)
-        sys.exit(1)
+        sys.exit(0)
+
+    def code_generation(self, node):
+        pass
