@@ -9,17 +9,11 @@ import torch
 from models.LFC import LFC
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.streamline as sl
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.batchnorm_to_affine import BatchNormToAffine
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import (
-    ConvertSubToAdd,
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames
-)
-from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.streamline import Streamline
 
 export_onnx_path = "test_output_lfc.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
@@ -45,30 +39,8 @@ def test_streamline_lfc_w1a1():
     input_dict = {"global_in": nph.to_array(input_tensor)}
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
-    transforms = [
-        ConvertSubToAdd(),
-        BatchNormToAffine(),
-        sl.ConvertSignToThres(),
-        sl.MoveScalarAddPastMatMul(),
-        sl.MoveScalarMulPastMatMul(),
-        sl.MoveAddPastMul(),
-        sl.CollapseRepeatedAdd(),
-        sl.CollapseRepeatedMul(),
-        sl.AbsorbAddIntoMultiThreshold(),
-        sl.FactorOutMulSignMagnitude(),
-        sl.AbsorbMulIntoMultiThreshold(),
-        sl.Absorb1BitMulIntoMatMul(),
-        sl.RoundThresholds(),
-    ]
-    trn_ind = 0
-    for trn in transforms:
-        model = model.transform(trn)
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(GiveReadableTensorNames())
-        model = model.transform(InferDataTypes())
-        produced_ctx = oxe.execute_onnx(model, input_dict, True)
-        produced = produced_ctx[model.graph.output[0].name]
-        # model.save("%d-%s.onnx" % (trn_ind, trn.__class__.__name__))
-        assert np.isclose(expected, produced, atol=1e-3).all()
-        trn_ind += 1
+    model = model.transform(Streamline())
+    produced_ctx = oxe.execute_onnx(model, input_dict, True)
+    produced = produced_ctx[model.graph.output[0].name]
+    assert np.isclose(expected, produced, atol=1e-3).all()
     os.remove(export_onnx_path)
