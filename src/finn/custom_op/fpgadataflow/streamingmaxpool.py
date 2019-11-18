@@ -29,7 +29,7 @@ class StreamingMaxPool(HLSCustomOp):
         process_compile = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
         process_compile.communicate()
         bash_execute = "./execute_StreamingMaxPool"
-        process_execute = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
+        process_execute = subprocess.Popen(bash_execute.split(), stdout=subprocess.PIPE)
         process_execute.communicate()
         temp_files.append("execute_StreamingMaxPool")
         temp_files.append("output.npy")
@@ -89,7 +89,7 @@ class StreamingMaxPool(HLSCustomOp):
             code_gen_dict["$READNPYDATA$"].append('for(int i=0; i < num_values/{}; i++){{'.format(self.NumChannels))
             for channel in range(self.NumChannels):
                 code_gen_dict["$READNPYDATA$"].append('dat.range({},{}) = loaded_data{}[i+((num_values/{})*{})];'.format(channel, channel, input_ind, self.NumChannels, channel))
-            code_gen_dict["$READNPYDATA$"].append('in{} << loaded_data{}[dat];'.format(input_ind, input_ind))
+            code_gen_dict["$READNPYDATA$"].append('in{} << dat;'.format(input_ind))
             code_gen_dict["$READNPYDATA$"].append('}')
             input_ind+=1
 
