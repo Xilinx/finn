@@ -11,13 +11,14 @@ from models.LFC import LFC
 from onnx import TensorProto
 
 import finn.core.onnx_exec as oxe
-import finn.transformation.streamline as sl
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
 
 export_onnx_path = "test_output_lfc.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
@@ -71,7 +72,7 @@ def test_convert_bipolar_matmul_to_xnorpopcountmatmul():
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
-    model = model.transform(sl.ConvertSignToThres())
+    model = model.transform(ConvertSignToThres())
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
@@ -79,7 +80,7 @@ def test_convert_bipolar_matmul_to_xnorpopcountmatmul():
     input_dict = {"global_in": nph.to_array(input_tensor)}
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
-    model = model.transform(sl.ConvertBipolarMatMulToXnorPopcount())
+    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
     assert np.isclose(expected, produced, atol=1e-3).all()
