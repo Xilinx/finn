@@ -22,7 +22,7 @@ int main(){
 	for(int i=0;i < num_values/2; i++){
 		dat.range(0,0) = loaded_data[i];
 		dat.range(1,1) = loaded_data[i+(num_values/2)];
-		in << loaded_data[dat];
+		in << dat;
 	}
 	
 	StreamingMaxPool<ImgDim, PoolDim, NumChannels>(in, out);
