@@ -24,19 +24,20 @@ class StreamingMaxPool(HLSCustomOp):
             temp_files.append("input_{}.npy".format(in_ind))
             in_ind += 1
         self.code_generation(node)
+        temp_files.append("execute_StreamingMaxPool.cpp")
         bash_compile = """g++ -o execute_StreamingMaxPool execute_StreamingMaxPool.cpp /workspace/finn/cnpy/cnpy.cpp -I/workspace/finn/cnpy/ -I/workspace/finn/finn-hlslib -I/workspace/vivado-hlslib --std=c++11 -lz"""
         process_compile = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
         process_compile.communicate()
         bash_execute = "./execute_StreamingMaxPool"
         process_execute = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
         process_execute.communicate()
+        temp_files.append("execute_StreamingMaxPool")
+        temp_files.append("output.npy")
         output = np.load("output.npy")
-        for i in range(output.shape[0]):
-            print(np.transpose(output[i]))
-        ## deleting temporary files
-        #for temp_file in temp_files:
-        #    os.remove(temp_file)
-        sys.exit(0)
+        context[node.output[0]]=output
+        # deleting temporary files
+        for temp_file in temp_files:
+            os.remove(temp_file)
 
     def get_attributes(self, node):
         self.ImgDim = get_by_name(node.attribute, 'ImgDim').i
