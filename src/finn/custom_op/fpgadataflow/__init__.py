@@ -91,11 +91,11 @@ class HLSCustomOp(CustomOp):
         f.close()
 
     @abstractmethod
-    def global_includes(self, node, code_gen_dict):
+    def global_includes(self, node):
         pass
 
     @abstractmethod
-    def defines(self, node, code_gen_dict):
+    def defines(self, node):
         pass
 
     @abstractmethod
@@ -103,17 +103,17 @@ class HLSCustomOp(CustomOp):
         pass
 
     @abstractmethod
-    def strm_decl(self, node, code_gen_dict):
+    def strm_decl(self, node):
         pass
 
     @abstractmethod
-    def docompute(self, node, code_gen_dict):
+    def docompute(self, node):
         pass
 
     @abstractmethod
-    def dataoutstrm(self, node, code_gen_dict):
+    def dataoutstrm(self, node):
         pass
 
     @abstractmethod
-    def save_as_npy(self, node, code_gen_dict):
+    def save_as_npy(self, node):
         pass
