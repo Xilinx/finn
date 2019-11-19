@@ -125,4 +125,4 @@ def test_manually_construct_onnx_graph():
     for tensor in graph.value_info:
         model.set_tensor_datatype(tensor.name, DataType["BIPOLAR"])
 
-    onnx.save(model.model, "finn-hls-onnx-model.onnx")
+    #onnx.save(model.model, "finn-hls-onnx-model.onnx")
