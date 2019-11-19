@@ -6,7 +6,7 @@ class HLSCustomOp(CustomOp):
     def __init__(self):
         super().__init__()
         # template for single node execution
-        self.docompute_template= """
+        self.docompute_template = """
         #include "cnpy.h"
         #include <vector>
         #include "bnn-library.h"
@@ -20,19 +20,19 @@ class HLSCustomOp(CustomOp):
         int main(){
 
         $STREAMDECLARATIONS$
-    
+
         $READNPYDATA$
 
         $DOCOMPUTE$
-    
+
         $DATAOUTSTREAM$
 
         $SAVEASCNPY$
-    
+
         }
 
         """
-    
+
     @abstractmethod
     def get_attributes(self, node):
         pass
@@ -40,7 +40,7 @@ class HLSCustomOp(CustomOp):
     @abstractmethod
     def code_generation(self, node):
         pass
-    
+
     @abstractmethod
     def global_includes(self, node, code_gen_dict):
         pass
@@ -60,7 +60,7 @@ class HLSCustomOp(CustomOp):
     @abstractmethod
     def docompute(self, node, code_gen_dict):
         pass
-    
+
     @abstractmethod
     def dataoutstrm(self, node, code_gen_dict):
         pass
@@ -68,4 +68,3 @@ class HLSCustomOp(CustomOp):
     @abstractmethod
     def save_as_npy(self, node, code_gen_dict):
         pass
-
