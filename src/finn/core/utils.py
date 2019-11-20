@@ -68,6 +68,8 @@ def array2hexstring(array, dtype, pad_to_nbits):
     lineval = BitArray(length=0)
     bw = dtype.bitwidth()
     for val in array:
+        # ensure that this value is permitted by chosen dtype
+        assert dtype.allowed(val)
         if dtype.is_integer():
             if dtype.signed():
                 lineval.append(BitArray(int=int(val), length=bw))
