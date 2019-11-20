@@ -54,7 +54,8 @@ def array2hexstring(array, dtype, pad_to_nbits):
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = "e"
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = "0e"
     """
-    assert pad_to_nbits >= 4
+    if pad_to_nbits < 4:
+        pad_to_nbits = 4
     # ensure input is a numpy array with float values
     if type(array) != np.ndarray or array.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
