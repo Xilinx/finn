@@ -3,6 +3,9 @@ import string
 
 import numpy as np
 import onnx
+from bitstring import BitArray
+
+from finn.core.datatype import DataType
 
 
 def valueinfo_to_tensor(vi):
@@ -35,3 +38,47 @@ def random_string(stringLength=6):
     """Randomly generate a string of letters and digits."""
     lettersAndDigits = string.ascii_letters + string.digits
     return "".join(random.choice(lettersAndDigits) for i in range(stringLength))
+
+
+def array2hexstring(array, dtype, pad_to_nbits):
+    """
+    Pack given one-dimensional NumPy array with FINN DataType dtype into a hex
+    string.
+    Any BIPOLAR values will be converted to a single bit with a 0 representing
+    -1.
+    pad_to_bits is used to prepend leading zeros to ensure packed strings of
+    fixed width. The minimum value for pad_to_bits is 4, since a single hex
+    digit is four bits.
+
+    Examples:
+    array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = "e"
+    array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = "0e"
+    """
+    assert pad_to_nbits >= 4
+    # ensure input is a numpy array with float values
+    if type(array) != np.ndarray or array.dtype != np.float32:
+        # try to convert to a float numpy array (container dtype is float)
+        array = np.asarray(array, dtype=np.float32)
+    # ensure one-dimensional array to pack
+    assert array.ndim == 1
+    if dtype == DataType.BIPOLAR:
+        # convert bipolar values to binary
+        array = (array + 1) / 2
+        dtype = DataType.BINARY
+    lineval = BitArray(length=0)
+    bw = dtype.bitwidth()
+    for val in array:
+        if dtype.is_integer():
+            if dtype.signed():
+                lineval.append(BitArray(int=int(val), length=bw))
+            else:
+                lineval.append(BitArray(uint=int(val), length=bw))
+        else:
+            lineval.append(BitArray(float=val, length=bw))
+    if pad_to_nbits >= lineval.len:
+        # extend to the desired output width (a minimum of 4 bits)
+        lineval.prepend(BitArray(length=pad_to_nbits - lineval.len))
+    else:
+        raise Exception("Number of bits is greater than pad_to_nbits")
+    # represent as hex
+    return lineval.hex
