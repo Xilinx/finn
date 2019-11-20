@@ -47,8 +47,8 @@ class HLSCustomOp(CustomOp):
         self.code_generation(node)
         temp_files.append("execute_{}.cpp".format(node.op_type))
         bash_compile = """g++ -o execute_{} execute_{}.cpp
-        /workspace/finn/cnpy/cnpy.cpp -I/workspace/finn/cnpy/
-        -I/workspace/finn/finn-hlslib -I/workspace/vivado-hlslib
+        /workspace/cnpy/cnpy.cpp -I/workspace/cnpy/
+        -I/workspace/finn-hlslib -I/workspace/vivado-hlslib
         --std=c++11 -lz""".format(
             node.op_type, node.op_type
         )
