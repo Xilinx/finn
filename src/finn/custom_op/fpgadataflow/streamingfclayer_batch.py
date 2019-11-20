@@ -18,20 +18,26 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.resDataType = get_by_name(node.attribute, "resDataType").s.decode("utf-8")
 
     def global_includes(self, node):
-        pass
+        self.code_gen_dict["$GLOBALS$"] = [""]
 
     def defines(self, node):
-        pass
+        numReps = 2
+        self.code_gen_dict["$DEFINES$"] = [
+            """#define MW {}\n #define MH {}\n
+            #define SIMD {}\n #define PE {}\n #define numReps {}""".format(
+                self.MW, self.MH, self.SIMD, self.PE, numReps
+            )
+        ]
 
     def read_npy_data(self, node):
         pass
-    
+
     def strm_decl(self, node):
         pass
 
     def docompute(self, node):
         pass
-    
+
     def dataoutstrm(self, node):
         pass
 
