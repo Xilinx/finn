@@ -35,9 +35,9 @@ class InferBinaryStreamingFCLayer(Transformation):
                         # create node with no parallelization first
                         pe = 1
                         simd = 1
-                        wmem = mw * mh
+                        wmem = int(mw * mh)
                         # extract threshold shape
-                        tmem = mh / pe
+                        tmem = int(mh / pe)
                         n_thres = T.shape[1]
                         assert T.shape[0] == 1 or T.shape[0] == mh
                         assert n_thres == 1
@@ -52,14 +52,17 @@ class InferBinaryStreamingFCLayer(Transformation):
                         # reshape input and output tensors to expected shape
                         # input is expected to be (1, mw/simd, simd)
                         # output is expected to be (1, mh/pe, pe)
-                        model.set_tensor_shape(mm_input, [1, mw / simd, simd])
-                        model.set_tensor_shape(mt_output, [1, mh / pe, pe])
+                        in_shape = [1, int(mw / simd), simd]
+                        out_shape = [1, int(mh / pe), pe]
+                        model.set_tensor_shape(mm_input, in_shape)
+                        model.set_tensor_shape(mt_output, out_shape)
                         # create and insert new StreamingFCLayer node
                         new_node = oh.make_node(
                             "StreamingFCLayer_Batch",
-                            [mm_input, mm_weight],
+                            [mm_input, mm_weight, mt_thres],
                             [mt_output],
                             domain="finn",
+                            backend="fpgadataflow",
                             MH=mh,
                             MW=mw,
                             PE=1,
