@@ -31,6 +31,8 @@ VIVADO_HLS_LOCAL=$VIVADO_PATH/include
 # clone dependency repos
 git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
 git clone $EXAMPLES_REPO $EXAMPLES_LOCAL ||  git -C "$EXAMPLES_LOCAL" pull
+git clone $CNPY_REPO $CNPY_LOCAL ||  git -C "$CNPY_LOCAL" pull
+git clone $FINN_HLS_REPO $FINN_HLS_LOCAL ||  git -C "$FINN_HLS_LOCAL" pull
 
 echo "Mounting $SCRIPTPATH into /workspace/finn"
 echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"

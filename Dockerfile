@@ -16,8 +16,6 @@ RUN rm requirements.txt
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/cnpy"
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn-hlslib"
 
 
 ARG GID
