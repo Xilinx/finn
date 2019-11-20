@@ -45,5 +45,19 @@ def test_fclayer_batch():
     # generate input data
     input_tensor = np.random.randint(2, size=832)
     input_tensor = (np.asarray(input_tensor, dtype=np.float32)).reshape(1,13,64)
-    print(input_tensor)
+    input_dict = {"inp" : input_tensor}
+
+    # generate weights
+    weights_tensor = np.random.randint(2, size=851968)
+    weights_tensor = (np.asarray(weights_tensor, dtype=np.float32)).reshape(64,32,416)
+    input_dict["weights"] = weights_tensor
+
+    # generate threshold activation
+    thresh_tensor = np.random.randint(2, size=16384)
+    thresh_tensor = (np.asarray(thresh_tensor, dtype=np.float32)).reshape(32,32,1,16,1)
+    input_dict["thresh"] = thresh_tensor
+
+    output_dict = oxe.execute_onnx(model, input_dict) 
+
+
 
