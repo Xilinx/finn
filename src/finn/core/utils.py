@@ -46,8 +46,8 @@ def array2hexstring(array, dtype, pad_to_nbits):
     string.
     Any BIPOLAR values will be converted to a single bit with a 0 representing
     -1.
-    pad_to_bits is used to prepend leading zeros to ensure packed strings of
-    fixed width. The minimum value for pad_to_bits is 4, since a single hex
+    pad_to_nbits is used to prepend leading zeros to ensure packed strings of
+    fixed width. The minimum value for pad_to_nbits is 4, since a single hex
     digit is four bits.
 
     Examples:
@@ -84,3 +84,25 @@ def array2hexstring(array, dtype, pad_to_nbits):
         raise Exception("Number of bits is greater than pad_to_nbits")
     # represent as hex
     return lineval.hex
+
+
+def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
+    """Pack the innermost dimension of the given numpy ndarray into hex
+    strings using array2hexstring. Examples:
+
+    A = [[1, 1, 1, 0], [0, 1, 1, 0]]
+    eA = ["0e", "06"]
+    pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA
+    B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
+    eB = [[ "0f", "0f"], ["07", "0d"]]
+    pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB
+    """
+
+    if type(ndarray) != np.ndarray or ndarray.dtype != np.float32:
+        # try to convert to a float numpy array (container dtype is float)
+        ndarray = np.asarray(ndarray, dtype=np.float32)
+
+    def fun(x):
+        return array2hexstring(x, dtype, pad_to_nbits)
+
+    return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
