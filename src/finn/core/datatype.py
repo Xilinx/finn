@@ -130,3 +130,13 @@ class DataType(Enum):
         """Return whether this DataType represents integer values only."""
         # only FLOAT32 is noninteger for now
         return self != DataType.FLOAT32
+
+    def get_hls_datatype_str(self):
+        """Return the corresponding Vivado HLS datatype name."""
+        if self.is_integer():
+            if self.signed():
+                return "ap_int<%d>" % self.bitwidth()
+            else:
+                return "ap_uint<%d>" % self.bitwidth()
+        else:
+            return "float"
