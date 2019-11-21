@@ -41,3 +41,7 @@ def test_numpy_to_hls_code():
     {{ap_uint<4>("f", 16), ap_uint<4>("f", 16)},
      {ap_uint<4>("7", 16), ap_uint<4>("d", 16)}};"""
     assert remove_all_whitespace(ret) == remove_all_whitespace(eB)
+    ret = numpy_to_hls_code(B, DataType.UINT2, "test", True, True)
+    eB = """{{ap_uint<4>("f", 16), ap_uint<4>("f", 16)},
+     {ap_uint<4>("7", 16), ap_uint<4>("d", 16)}};"""
+    assert remove_all_whitespace(ret) == remove_all_whitespace(eB)

@@ -6,11 +6,15 @@ from finn.core.datatype import DataType
 from finn.core.utils import pack_innermost_dim_as_hex_string
 
 
-def numpy_to_hls_code(ndarray, dtype, hls_var_name, pack_innermost_dim=True):
+def numpy_to_hls_code(
+    ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_decl=False
+):
     """Return C++ code representation of a numpy ndarray with FINN DataType
     dtype, using hls_var_name as the resulting C++ variable name. If
     pack_innermost_dim is specified, the innermost dimension of the ndarray
-    will be packed into a hex string using array2hexstring.
+    will be packed into a hex string using array2hexstring. If no_decl is
+    set to True, no variable name and type will be generated as part of the
+    emitted string.
     """
     hls_dtype = dtype.get_hls_datatype_str()
     if type(ndarray) != np.ndarray or ndarray.dtype != np.float32:
@@ -47,5 +51,8 @@ def numpy_to_hls_code(ndarray, dtype, hls_var_name, pack_innermost_dim=True):
     strarr = np.array2string(ndarray, separator=", ", formatter={"all": elem2str})
     np.set_printoptions(**orig_printops)
     strarr = strarr.replace("[", "{").replace("]", "}")
-    ret = ret + " = \n" + strarr + ";"
+    if no_decl:
+        ret = strarr + ";"
+    else:
+        ret = ret + " = \n" + strarr + ";"
     return ret
