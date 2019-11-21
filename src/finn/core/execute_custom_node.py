@@ -1,5 +1,3 @@
-# import onnx.helper as helper
-
 import finn.custom_op.registry as registry
 
 

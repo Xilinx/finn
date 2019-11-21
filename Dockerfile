@@ -17,6 +17,7 @@ ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
 
+
 ARG GID
 ARG GNAME
 ARG UNAME

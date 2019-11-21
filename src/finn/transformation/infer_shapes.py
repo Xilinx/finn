@@ -5,6 +5,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation import Transformation
 
 
+
 def _make_shape_compatible_op(node):
     """Return a shape-compatible non-FINN op for a given FINN op. Used for
     shape inference with custom ops."""
