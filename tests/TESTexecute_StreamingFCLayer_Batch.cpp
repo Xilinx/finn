@@ -12,7 +12,6 @@
 #define MH 1024
 #define SIMD 64
 #define PE 32
-#define numReps 2
 #define WMEM 416
 #define TMEM 32
 
@@ -114,18 +113,35 @@ in0 << dat0;
 		for(int k; k < WMEM; k++){
 			ap_uint<64> dat1;
 			for(int j; j < SIMD; j++){
-				if i == 0:
-					dat1.range(j,j) = loaded_data1[j+(k-1)*64]
-				else:
-					dat1.range(j,j) = loaded_data1[j+i*(k-1)*64]
+				if(i == 0){
+					dat1.range(j,j) = loaded_data1[j+(k-1)*64];
+				}
+				else{
+					dat1.range(j,j) = loaded_data1[j+i*(k-1)*64];
+				}
 
 			}
 			weights.m_weights[i][k] = dat1;
 		}
 	}
-	threshs = loaded_data2;
 
-        StreamingFCLayer_Batch<MW, MH, SIMD, PE, Recast<XnorMul>>(in0, weights, threshs, out, numReps, ap_resource_lut());
+	for(int i=0; i < PE; i++){
+		for(int k; k < TMEM; k++){
+			ap_uint<64> dat2;
+			for(int j; j < 64; j++){
+                                if(i == 0){
+                                        dat2.range(j,j) = loaded_data1[j+(k-1)*64];
+				}
+                                else{
+                                        dat2.range(j,j) = loaded_data1[j+i*(k-1)*64];
+				}		
+			}	
+			threshs.m_thresholds[i][k][0] = dat2;
+		}
+	}
+	int numReps = 2;
+
+        StreamingFCLayer_Batch<MW, MH, SIMD, PE, Recast<XnorMul>>(in0, out, weights, threshs, numReps, ap_resource_lut());
 
         ap_uint<32> out_data;
  std::vector<ap_uint<32>> out_data_vector;
