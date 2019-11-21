@@ -24,27 +24,29 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from enum import Enum
+from enum import Enum, auto
 
 import numpy as np
 
 
 class DataType(Enum):
-    FLOAT32 = 0
-    BINARY = 1
-    BIPOLAR = 2
-    UINT2 = 3
-    UINT3 = 4
-    UINT4 = 5
-    UINT8 = 6
-    UINT16 = 7
-    UINT32 = 8
-    INT2 = 9
-    INT3 = 10
-    INT4 = 11
-    INT8 = 12
-    INT16 = 13
-    INT32 = 14
+    # important to maintain ordering here: unsigned to signed, fewer to more
+    # bits. The get_smallest_possible() member function is dependent on this.
+    BINARY = auto()
+    UINT2 = auto()
+    UINT3 = auto()
+    UINT4 = auto()
+    UINT8 = auto()
+    UINT16 = auto()
+    UINT32 = auto()
+    BIPOLAR = auto()
+    INT2 = auto()
+    INT3 = auto()
+    INT4 = auto()
+    INT8 = auto()
+    INT16 = auto()
+    INT32 = auto()
+    FLOAT32 = auto()
 
     def bitwidth(self):
         """Returns the number of bits required for this DataType."""
@@ -109,3 +111,32 @@ class DataType(Enum):
             return value in [-1, +1]
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
+
+    def get_smallest_possible(value):
+        """Return smallest (fewest bits) possible DataType that can represent
+      value. Prefers unsigned integers where possible."""
+        if not int(value) == value:
+            return DataType["FLOAT32"]
+        for k in DataType.__members__:
+            dt = DataType[k]
+            if (dt.min() <= value) and (value <= dt.max()):
+                return dt
+
+    def signed(self):
+        """Return whether this DataType can represent negative numbers."""
+        return self.min() < 0
+
+    def is_integer(self):
+        """Return whether this DataType represents integer values only."""
+        # only FLOAT32 is noninteger for now
+        return self != DataType.FLOAT32
+
+    def get_hls_datatype_str(self):
+        """Return the corresponding Vivado HLS datatype name."""
+        if self.is_integer():
+            if self.signed():
+                return "ap_int<%d>" % self.bitwidth()
+            else:
+                return "ap_uint<%d>" % self.bitwidth()
+        else:
+            return "float"

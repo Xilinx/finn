@@ -2,8 +2,8 @@ import onnx.helper as oh
 from onnx import TensorProto
 
 import finn.analysis.topology as ta
-import finn.transformation.infer_shapes as si
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
 
 
 def test_is_linear_linear():
@@ -24,7 +24,7 @@ def test_is_linear_linear():
         )
     )
     model = ModelWrapper(modelproto)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     ret = model.analysis(ta.is_linear)
     assert ret["is_linear"] is True
 
@@ -52,6 +52,6 @@ def test_is_linear_forked_node_output():
         )
     )
     model = ModelWrapper(modelproto)
-    model = model.transform_single(si.infer_shapes)
+    model = model.transform(InferShapes())
     ret = model.analysis(ta.is_linear)
     assert ret["is_linear"] is False
