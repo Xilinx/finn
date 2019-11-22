@@ -1,5 +1,6 @@
 import os
 import subprocess
+import tempfile as tmp
 
 import numpy as np
 
@@ -22,13 +23,18 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         pass
 
     def execute_node(self, node, context, graph):
+        tmp_dir = tmp.mkdtemp(prefix=str(node.op_type) + "_")
+        print(tmp_dir)
         self.get_attributes(node)
         in_ind = 0
         temp_files = []
         for inputs in node.input:
             if in_ind == 0:
-                np.save("input_{}.npy".format(in_ind), context[inputs])
-                temp_files.append("input_{}.npy".format(in_ind))
+                np.save(
+                    os.path.join(tmp_dir, "input_{}.npy".format(in_ind)),
+                    context[inputs],
+                )
+                temp_files.append("{}/input_{}.npy".format(tmp_dir, in_ind))
             elif in_ind == 1:
                 weights = context[inputs]
                 self.WMEM = weights.shape[2]
@@ -38,7 +44,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     weights, DataType.BINARY, "weights", True, True
                 )
 
-                f_weights = open("params.h", "w")
+                f_weights = open("{}/params.h".format(tmp_dir), "w")
                 f_weights.write(
                     "static BinaryWeights<{},{},{}> weights = ".format(
                         self.SIMD, self.PE, self.WMEM
@@ -46,7 +52,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
                 f_weights.write(weights)
                 f_weights.close()
-                temp_files.append("params.h")
+                temp_files.append("{}/params.h".format(tmp_dir))
 
             else:
                 thresholds = context[inputs]
@@ -56,7 +62,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 thresholds = numpy_to_hls_code(
                     thresholds, DataType.BINARY, "thresholds", True, True
                 )
-                f_thresh = open("thresh.h", "w")
+                f_thresh = open("{}/thresh.h".format(tmp_dir), "w")
                 f_thresh.write(
                     """static ThresholdsActivation<{},{},1,ap_uint<16>,
                     ap_uint<1>> threshs = """.format(
@@ -65,30 +71,30 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
                 f_thresh.write(thresholds)
                 f_thresh.close()
-                temp_files.append("thresh.h")
+                temp_files.append("{}/thresh.h".format(tmp_dir))
 
             in_ind += 1
 
-        self.code_generation(node)
-        temp_files.append("execute_{}.cpp".format(node.op_type))
-        bash_compile = """g++ -o execute_{} execute_{}.cpp
+        self.code_generation(node, tmp_dir)
+        temp_files.append("{}/execute_{}.cpp".format(tmp_dir, node.op_type))
+        bash_compile = """g++ -o {}/execute_{} {}/execute_{}.cpp
         /workspace/cnpy/cnpy.cpp -I/workspace/cnpy/
         -I/workspace/finn-hlslib -I/workspace/vivado-hlslib
         --std=c++11 -lz""".format(
-            node.op_type, node.op_type
+            tmp_dir, node.op_type, tmp_dir, node.op_type
         )
         process_compile = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
         process_compile.communicate()
-        bash_execute = "./execute_{}".format(node.op_type)
+        bash_execute = "{}/execute_{}".format(tmp_dir, node.op_type)
         process_execute = subprocess.Popen(bash_execute.split(), stdout=subprocess.PIPE)
         process_execute.communicate()
-        temp_files.append("execute_{}".format(node.op_type))
-        temp_files.append("output.npy")
-        output = np.load("output.npy")
+        temp_files.append("{}/execute_{}".format(tmp_dir, node.op_type))
+        temp_files.append("{}/output.npy".format(tmp_dir))
+        output = np.load("{}/output.npy".format(tmp_dir))
         context[node.output[0]] = output
         # deleting temporary files
-        for temp_file in temp_files:
-            os.remove(temp_file)
+        # for temp_file in temp_files:
+        #    os.remove(temp_file)
 
     def get_attributes(self, node):
         self.resType = utils.get_by_name(node.attribute, "resType").s.decode("utf-8")
@@ -116,11 +122,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
         ]
 
-    def read_npy_data(self, node):
+    def read_npy_data(self, node, tmp_dir):
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            """cnpy::NpyArray arr0 = cnpy::npy_load("input_0.npy");\n
-                float* loaded_data0 = arr0.data<float>();"""
+            """cnpy::NpyArray arr0 = cnpy::npy_load("{}/input_0.npy");\n
+                float* loaded_data0 = arr0.data<float>();""".format(
+                tmp_dir
+            )
         )
 
         self.code_gen_dict["$READNPYDATA$"].append(
@@ -190,10 +198,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
         self.code_gen_dict["$DATAOUTSTREAM$"].append("}")
 
-    def save_as_npy(self, node):
+    def save_as_npy(self, node, tmp_dir):
         self.code_gen_dict["$SAVEASCNPY$"] = [
-            """cnpy::npy_save("output.npy",&output_data_vector[0],
+            """cnpy::npy_save("{}/output.npy",&output_data_vector[0],
             {{1,{},{}}},"w");""".format(
-                int(self.MH / self.PE), int(self.PE),
+                tmp_dir, int(self.MH / self.PE), int(self.PE),
             )
         ]
