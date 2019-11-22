@@ -4,6 +4,7 @@ from onnx import TensorProto, helper
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.multithreshold import MultiThreshold
 
 
 def test_fpgadataflow_fclayer_all_bipolar():
@@ -78,8 +79,6 @@ def test_fpgadataflow_fclayer_all_bipolar():
     Wb = 2 * W - 1
     xb = 2 * x - 1
     yb = np.dot(Wb, xb)
-    yb_t = np.sign(yb)
-    # convert expected output to binary
-    expected = (yb_t + 1) // 2
-
+    thres = MultiThreshold()
+    expected = thres._execute(yb.reshape(1, mh), T.reshape((mh, 1)))
     assert (output_dict["outp"] == expected).all()
