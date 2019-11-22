@@ -47,10 +47,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 temp_files.append("{}/input_{}.npy".format(self.tmp_dir, in_ind))
             elif in_ind == 1:
                 weights = context[inputs]
-                self.WMEM = weights.shape[2]
                 # transpose and expand the weights to get the right shape
                 # for the code generation
-                weights = np.transpose(weights, (1, 2, 0))
+                self.WMEM = weights.shape[1]
                 weights = np.expand_dims(weights, 0)
                 weights = numpy_to_hls_code(
                     weights, DataType.BINARY, "weights", True, True
@@ -69,10 +68,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
             else:
                 thresholds = context[inputs]
-                self.TMEM = thresholds.shape[0]
-                # transpose and expand the thresholds to get the right shape
-                # for the code generation
-                thresholds = np.transpose(thresholds, (1, 0, 2))
+                self.TMEM = thresholds.shape[1]
                 thresholds = np.expand_dims(thresholds, 0)
                 thresholds = numpy_to_hls_code(
                     thresholds, DataType.BINARY, "thresholds", True, True
