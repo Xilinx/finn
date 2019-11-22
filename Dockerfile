@@ -34,4 +34,4 @@ RUN chown -R $UNAME:$GNAME /home/$UNAME
 USER $UNAME
 
 WORKDIR /home/$UNAME/finn
-ENTRYPOINT python setup.py test; /bin/bash
+ENTRYPOINT /bin/bash
