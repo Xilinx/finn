@@ -17,14 +17,14 @@ from finn.transformation.streamline import Streamline
 
 export_onnx_path = "test_output_lfc.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_checkpoint = (
+trained_lfc_w1a1_checkpoint = (
     "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
 )
 
 
 def test_streamline_lfc_w1a1():
     lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
-    checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
+    checkpoint = torch.load(trained_lfc_w1a1_checkpoint, map_location="cpu")
     lfc.load_state_dict(checkpoint["state_dict"])
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
