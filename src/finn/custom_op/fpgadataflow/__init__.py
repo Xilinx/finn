@@ -35,19 +35,21 @@ class HLSCustomOp(CustomOp):
         """
         self.code_gen_dict = {}
 
+        self.tmp_dir = " "  
+
     @abstractmethod
     def get_attributes(self, node):
         pass
 
-    def code_generation(self, node, tmp_dir):
+    def code_generation(self, node):
         self.get_attributes(node)
         self.global_includes(node)
         self.defines(node)
-        self.read_npy_data(node, tmp_dir)
+        self.read_npy_data(node)
         self.strm_decl(node)
         self.docompute(node)
         self.dataoutstrm(node)
-        self.save_as_npy(node, tmp_dir)
+        self.save_as_npy(node)
 
         template = self.docompute_template
 
@@ -56,7 +58,7 @@ class HLSCustomOp(CustomOp):
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
 
-        f = open(os.path.join(tmp_dir, "execute_{}.cpp".format(node.op_type)), "w")
+        f = open(os.path.join(self.tmp_dir, "execute_{}.cpp".format(node.op_type)), "w")
         f.write(template)
         f.close()
 
@@ -69,7 +71,7 @@ class HLSCustomOp(CustomOp):
         pass
 
     @abstractmethod
-    def read_npy_data(self, node, tmp_dir):
+    def read_npy_data(self, node):
         pass
 
     @abstractmethod
@@ -85,5 +87,5 @@ class HLSCustomOp(CustomOp):
         pass
 
     @abstractmethod
-    def save_as_npy(self, node, tmp_dir):
+    def save_as_npy(self, node):
         pass
