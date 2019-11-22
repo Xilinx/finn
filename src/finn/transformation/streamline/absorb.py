@@ -7,7 +7,7 @@ from finn.transformation import Transformation
 
 class AbsorbAddIntoMultiThreshold(Transformation):
     """Absorb preceding Add ops into MultiThreshold by updating the threshold
-    values."""
+    values. Only scalar/1D add vectors can be absorbed."""
 
     def apply(self, model):
         graph = model.graph
@@ -25,20 +25,25 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     assert A is not None
                     assert T is not None
                     start_name = n.input[0]
-                    # compute new thresholds and set initializer
-                    Tnew = T - A.reshape(-1, T.shape[1])
-                    model.set_initializer(threshold_name, Tnew)
-                    # wire add input directly to MultiThreshold
-                    consumer.input[0] = start_name
-                    # remove the add node
-                    graph.node.remove(n)
-                    graph_modified = True
+                    # we can only absorb 0d or 1d adds
+                    is_scalar = all(x == 1 for x in A.shape)
+                    is_1d = np.prod(A.shape) == A.shape[-1]
+                    if is_scalar or is_1d:
+                        Tnew = T - A.reshape(-1, 1)
+                        # Tnew = T - A.reshape(-1, T.shape[1])
+                        # compute new thresholds and set initializer
+                        model.set_initializer(threshold_name, Tnew)
+                        # wire add input directly to MultiThreshold
+                        consumer.input[0] = start_name
+                        # remove the add node
+                        graph.node.remove(n)
+                        graph_modified = True
         return (model, graph_modified)
 
 
 class AbsorbMulIntoMultiThreshold(Transformation):
     """Absorb preceding Mul ops into MultiThreshold by updating the threshold
-    values. Only *positive* scalar/1D vectors can be absorbed."""
+    values. Only *positive* scalar/1D mul vectors can be absorbed."""
 
     def apply(self, model):
         graph = model.graph
