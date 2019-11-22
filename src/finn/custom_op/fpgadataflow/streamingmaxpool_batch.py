@@ -1,8 +1,8 @@
 import os
-import numpy as np
 import subprocess
 import tempfile as tmp
 
+import numpy as np
 
 from finn.core.utils import get_by_name
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -14,24 +14,36 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, node, model):
         pass
-    
+
     def execute_node(self, node, context, graph):
+        # make temporary directory for generated files
         self.tmp_dir = tmp.mkdtemp(prefix=str(node.op_type) + "_")
-        in_ind = 0
+
+        # create empty list for temporary files to enable the option
+        # to delete the files after the execution
         temp_files = []
+
+        # create a npy file fore each input of the node (in_ind is input index)
+        in_ind = 0
         for inputs in node.input:
-            np.save(os.path.join(self.tmp_dir, "input_{}.npy".format(in_ind)),
-                    context[inputs],)
+            np.save(
+                os.path.join(self.tmp_dir, "input_{}.npy".format(in_ind)),
+                context[inputs],
+            )
             temp_files.append("{}/input_{}.npy".format(self.tmp_dir, in_ind))
             in_ind += 1
+
+        # code generation
         self.code_generation(node)
+
+        # c++ compilation and execution flow
         temp_files.append("{}/execute_{}.cpp".format(self.tmp_dir, node.op_type))
         bash_compile = """g++ -o {}/execute_{} {}/execute_{}.cpp
         /workspace/cnpy/cnpy.cpp -I/workspace/cnpy/
         -I/workspace/finn-hlslib -I/workspace/vivado-hlslib
         --std=c++11 -lz""".format(
             self.tmp_dir, node.op_type, self.tmp_dir, node.op_type
-        )       
+        )
         process_compile = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
         process_compile.communicate()
         bash_execute = "{}/execute_{}".format(self.tmp_dir, node.op_type)
@@ -39,10 +51,12 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         process_execute.communicate()
         temp_files.append("{}/execute_{}".format(self.tmp_dir, node.op_type))
         temp_files.append("{}/output.npy".format(self.tmp_dir))
-        output = np.load("{}/output.npy".format(self.tmp_dir))        
+
+        # load output npy file
+        output = np.load("{}/output.npy".format(self.tmp_dir))
         context[node.output[0]] = output
         # deleting temporary files
-        #for temp_file in temp_files:
+        # for temp_file in temp_files:
         #    os.remove(temp_file)
 
     def get_attributes(self, node):
@@ -63,6 +77,8 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ]
 
     def read_npy_data(self, node):
+        # c++ code to read out an npy file
+        # and put it in hls::stream in the correct order
         self.code_gen_dict["$READNPYDATA$"] = []
         input_ind = 0
         input_file_names = []
@@ -153,7 +169,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = [
             """cnpy::npy_save("{}/output.npy",&output_data_vector[0],
             {{{},{},{}}},"w");""".format(
-                self.tmp_dir,        
+                self.tmp_dir,
                 numReps,
                 self.NumChannels,
                 int(self.ImgDim / self.PoolDim),

@@ -1,7 +1,8 @@
 import os
 import subprocess
-import numpy as np
 import tempfile as tmp
+
+import numpy as np
 
 import finn.core.utils as utils
 from finn.backend.fpgadataflow.utils import numpy_to_hls_code
@@ -22,11 +23,22 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         pass
 
     def execute_node(self, node, context, graph):
+        # make temporary directory for generated files
         self.tmp_dir = tmp.mkdtemp(prefix=str(node.op_type) + "_")
-        self.get_attributes(node)
-        in_ind = 0
+
+        # create empty list for temporary files to enable the option
+        # to delete the files after the execution
         temp_files = []
+
+        # get attributes for correct packing of weights and thresholds
+        self.get_attributes(node)
+
+        # create a npy file fore each input of the node (in_ind is input index)
+        in_ind = 0
         for inputs in node.input:
+            # it is assumed that the first input of the node is the data input
+            # the second input are the weights
+            # the third input are the thresholds
             if in_ind == 0:
                 np.save(
                     os.path.join(self.tmp_dir, "input_{}.npy".format(in_ind)),
@@ -36,12 +48,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             elif in_ind == 1:
                 weights = context[inputs]
                 self.WMEM = weights.shape[2]
+                # transpose and expand the weights to get the right shape
+                # for the code generation
                 weights = np.transpose(weights, (1, 2, 0))
                 weights = np.expand_dims(weights, 0)
                 weights = numpy_to_hls_code(
                     weights, DataType.BINARY, "weights", True, True
                 )
 
+                # write weights into params.h
                 f_weights = open("{}/params.h".format(self.tmp_dir), "w")
                 f_weights.write(
                     "static BinaryWeights<{},{},{}> weights = ".format(
@@ -55,11 +70,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             else:
                 thresholds = context[inputs]
                 self.TMEM = thresholds.shape[0]
+                # transpose and expand the thresholds to get the right shape
+                # for the code generation
                 thresholds = np.transpose(thresholds, (1, 0, 2))
                 thresholds = np.expand_dims(thresholds, 0)
                 thresholds = numpy_to_hls_code(
                     thresholds, DataType.BINARY, "thresholds", True, True
                 )
+
+                # write weights into thresh.h
                 f_thresh = open("{}/thresh.h".format(self.tmp_dir), "w")
                 f_thresh.write(
                     """static ThresholdsActivation<{},{},1,ap_uint<16>,
@@ -73,7 +92,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
             in_ind += 1
 
+        # code generation
         self.code_generation(node)
+
+        # c++ compilation and execution flow
         temp_files.append("{}/execute_{}.cpp".format(self.tmp_dir, node.op_type))
         bash_compile = """g++ -o {}/execute_{} {}/execute_{}.cpp
         /workspace/cnpy/cnpy.cpp -I/workspace/cnpy/
@@ -88,6 +110,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         process_execute.communicate()
         temp_files.append("{}/execute_{}".format(self.tmp_dir, node.op_type))
         temp_files.append("{}/output.npy".format(self.tmp_dir))
+
+        # load output npy file
         output = np.load("{}/output.npy".format(self.tmp_dir))
         context[node.output[0]] = output
         # deleting temporary files
@@ -121,6 +145,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ]
 
     def read_npy_data(self, node):
+        # c++ code to read out an npy file
+        # and put it in hls::stream in the correct order
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
             """cnpy::NpyArray arr0 = cnpy::npy_load("{}/input_0.npy");\n
