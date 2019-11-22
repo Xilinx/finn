@@ -1,17 +1,20 @@
-import sys
 import os
-import numpy as np
 import subprocess
 
+import numpy as np
+
 import finn.core.utils as utils
-from finn.custom_op.fpgadataflow import HLSCustomOp
-from finn.core.datatype import DataType
 from finn.backend.fpgadataflow.utils import numpy_to_hls_code
-
-
+from finn.core.datatype import DataType
+from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class StreamingFCLayer_Batch(HLSCustomOp):
+    def __init__(self):
+        super().__init__()
+        self.WMEM = 0
+        self.TMEM = 0
+
     def make_shape_compatible_op(self, node):
         pass
 
@@ -28,34 +31,44 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 temp_files.append("input_{}.npy".format(in_ind))
             elif in_ind == 1:
                 weights = context[inputs]
-                WMEM = weights.shape[2]
-                weights = np.transpose(weights, (1,2,0))
-                weights = numpy_to_hls_code(weights, DataType.BINARY, "weights", True)
+                self.WMEM = weights.shape[2]
+                weights = np.transpose(weights, (1, 2, 0))
+                weights = np.expand_dims(weights, 0)
+                weights = numpy_to_hls_code(
+                    weights, DataType.BINARY, "weights", True, True
+                )
 
-                f_weights = open("params.h","w")
-                f_weights.write("static BinaryWeights<{},{},{}> weights = {{{{\n".format(self.SIMD, self.PE, WMEM))
-                for i in range(weights.shape[0]):
-                    f_weights.write("{")
-                    for j in range(weights.shape[1]):
-                        f_weights.write(weights[i][j])
-                        if j < weights.shape[1]-1:
-                            f_weights.write(", ")
-                    if i < weights.shape[0]-1:
-                        f_weights.write("}, ")
-                    else:
-                        f_weights.write("}")
-                f_weights.write("}}")
+                f_weights = open("params.h", "w")
+                f_weights.write(
+                    "static BinaryWeights<{},{},{}> weights = ".format(
+                        self.SIMD, self.PE, self.WMEM
+                    )
+                )
+                f_weights.write(weights)
                 f_weights.close()
-            
+                temp_files.append("params.h")
+
             else:
                 thresholds = context[inputs]
-                TMEM = thresholds.shape[0]
-                
-                #print(thresholds.shape)
+                self.TMEM = thresholds.shape[0]
+                thresholds = np.transpose(thresholds, (1, 0, 2))
+                thresholds = np.expand_dims(thresholds, 0)
+                thresholds = numpy_to_hls_code(
+                    thresholds, DataType.BINARY, "thresholds", True, True
+                )
+                f_thresh = open("thresh.h", "w")
+                f_thresh.write(
+                    """static ThresholdsActivation<{},{},1,ap_uint<16>,
+                    ap_uint<1>> threshs = """.format(
+                        self.TMEM, self.PE
+                    )
+                )
+                f_thresh.write(thresholds)
+                f_thresh.close()
+                temp_files.append("thresh.h")
 
             in_ind += 1
 
-        sys.exit(0)
         self.code_generation(node)
         temp_files.append("execute_{}.cpp".format(node.op_type))
         bash_compile = """g++ -o execute_{} execute_{}.cpp
@@ -77,86 +90,74 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         for temp_file in temp_files:
             os.remove(temp_file)
 
-
     def get_attributes(self, node):
         self.resType = utils.get_by_name(node.attribute, "resType").s.decode("utf-8")
         self.MW = utils.get_by_name(node.attribute, "MW").i
         self.MH = utils.get_by_name(node.attribute, "MH").i
         self.SIMD = utils.get_by_name(node.attribute, "SIMD").i
         self.PE = utils.get_by_name(node.attribute, "PE").i
-        self.resDataType = utils.get_by_name(node.attribute, "resDataType").s.decode("utf-8")
+        self.resDataType = utils.get_by_name(node.attribute, "resDataType").s.decode(
+            "utf-8"
+        )
 
     def global_includes(self, node):
-        self.code_gen_dict["$GLOBALS$"] = ['// no additional includes necessary']
+        self.code_gen_dict["$GLOBALS$"] = [
+            """#include "weights.hpp" \n#include "activations.hpp" \n
+            #include "params.h" \n#include "thresh.h" """
+        ]
 
     def defines(self, node):
         numReps = 2
         self.code_gen_dict["$DEFINES$"] = [
-            """#define MW {}\n #define MH {}\n
-            #define SIMD {}\n #define PE {}\n #define numReps {}""".format(
-                self.MW, self.MH, self.SIMD, self.PE, numReps
+            """#define MW1 {}\n #define MH1 {}\n #define SIMD1 {}\n
+            #define PE1 {}\n #define WMEM1 {}\n #define TMEM1 {}\n
+            #define numReps {}""".format(
+                self.MW, self.MH, self.SIMD, self.PE, self.WMEM, self.TMEM, numReps
             )
         ]
 
     def read_npy_data(self, node):
         self.code_gen_dict["$READNPYDATA$"] = []
-        input_ind = 0
-        input_file_names = []
-        for inputs in node.input:
-            input_file_names.append("input_{}.npy".format(input_ind))
-            input_ind += 1
+        self.code_gen_dict["$READNPYDATA$"].append(
+            """cnpy::NpyArray arr0 = cnpy::npy_load("input_0.npy");\n
+                float* loaded_data0 = arr0.data<float>();"""
+        )
 
-        input_ind = 0
-        for input_file in input_file_names:
+        self.code_gen_dict["$READNPYDATA$"].append(
+            """int num_values0 = 1; \n
+                for(int i = 0; i < arr0.shape.size(); i++){{\n
+                    num_values0 *= arr0.shape[i]; \n }}"""
+        )
+        self.code_gen_dict["$READNPYDATA$"].append(
+            "ap_uint<{}> dat0;".format(self.SIMD)
+        )
+        self.code_gen_dict["$READNPYDATA$"].append(
+            "for(int i=0; i < num_values0/{}; i++){{".format(self.SIMD)
+        )
+        for line in range(self.SIMD):
             self.code_gen_dict["$READNPYDATA$"].append(
-                """cnpy::NpyArray arr{} = cnpy::npy_load("{}");\n
-                float* loaded_data{} = arr{}.data<float>();""".format(
-                    input_ind, input_file, input_ind, input_ind
+                "dat0.range({},{}) = loaded_data0[i+((num_values0/{})*{})];".format(
+                    line, line, self.SIMD, line
                 )
             )
-            if input_ind == 0:
-                self.code_gen_dict["$READNPYDATA$"].append(
-                    """int num_values{} = 1; \n
-                    for(int i = 0; i < arr{}.shape.size(); i++){{\n
-                    num_values{} *= arr{}.shape[i]; \n }}""".format(
-                        input_ind, input_ind, input_ind, input_ind
-                    )
-                )
-                self.code_gen_dict["$READNPYDATA$"].append(
-                    "ap_uint<{}> dat{};".format(self.SIMD, input_ind)
-                )
-                self.code_gen_dict["$READNPYDATA$"].append(
-                    "for(int i=0; i < num_values{}/{}; i++){{".format(input_ind, self.SIMD)
-                )
-                for line in range(self.SIMD):
-                    self.code_gen_dict["$READNPYDATA$"].append(
-                        "dat{}.range({},{}) = loaded_data{}[i+((num_values{}/{})*{})];".format(
-                            input_ind, line, line, input_ind, input_ind, self.SIMD, line
-                        )
-                    )
-                self.code_gen_dict["$READNPYDATA$"].append("in{} << dat{};".format(input_ind, input_ind))
-                self.code_gen_dict["$READNPYDATA$"].append("}")
-            input_ind += 1
- 
+        self.code_gen_dict["$READNPYDATA$"].append("in0 << dat0;")
+        self.code_gen_dict["$READNPYDATA$"].append("}")
 
     def strm_decl(self, node):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        input_ind = 0
-        for inputs in node.input:
-            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> in{} ("in{}");'.format(
-                    self.SIMD, input_ind, input_ind
-                )
-            )
-            input_ind += 1
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.SIMD)
+        )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out ("out");'.format(self.PE)
         )
- 
 
     def docompute(self, node):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            "{}<MW, MH, SIMD, PE, {}>(in0, loaded_data1, loaded_data2, out, numReps, {});".format(node.op_type, self.resDataType, self.resType)
+            """{}<MW1, MH1, SIMD1, PE1, {}>
+            (in0, out, weights, threshs, numReps, {});""".format(
+                node.op_type, self.resDataType, self.resType
+            )
         ]
 
     def dataoutstrm(self, node):
@@ -189,14 +190,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
         self.code_gen_dict["$DATAOUTSTREAM$"].append("}")
 
-
     def save_as_npy(self, node):
-        numReps = 2
         self.code_gen_dict["$SAVEASCNPY$"] = [
             """cnpy::npy_save("output.npy",&output_data_vector[0],
             {{1,{},{}}},"w");""".format(
-                self.PE,
-                self.PE,
+                int(self.MH / self.PE), int(self.PE),
             )
         ]
-
