@@ -6,19 +6,25 @@
 // includes for network parameters
 #include "weights.hpp"
 #include "activations.hpp"
-
+#include "interpret.hpp"
+#include "mvau.hpp"
+#include "utils.hpp"
+#include "params.h"
 // defines for network parameters
-#define MW 832
-#define MH 1024
-#define SIMD 64
-#define PE 32
-#define WMEM 416
-#define TMEM 32
+#define MW1 832
+#define MH1 1024
+#define SIMD1 64
+#define PE1 32
+#define WMEM1 416
+#define TMEM1 32
+
+//static BinaryWeights<SIMD1, PE1, WMEM1> weights;
+static ThresholdsActivation<TMEM1,PE1,1,ap_int<16>,ap_uint<1>> threshs;
 
 int main(){
 
-	hls::stream<ap_uint<64>> in0 ("in0");
-	hls::stream<ap_uint<32>> out ("out");
+	hls::stream<ap_uint<64> > in0 ("in0");
+	hls::stream<ap_uint<32> > out ("out");
 
         cnpy::NpyArray arr0 = cnpy::npy_load("input_0.npy");
         float* loaded_data0 = arr0.data<float>();
@@ -99,41 +105,39 @@ dat0.range(63,63) = loaded_data0[i+((num_values0/64)*63)];
 in0 << dat0;
 }
 
-	cnpy::NpyArray arr1 = cnpy::npy_load("input_1.npy");
-        float* loaded_data1 = arr1.data<float>();
+	//cnpy::NpyArray arr1 = cnpy::npy_load("input_1.npy");
+        //float* loaded_data1 = arr1.data<float>();
 
-	cnpy::NpyArray arr2 = cnpy::npy_load("input_2.npy");
-	float* loaded_data2 = arr2.data<float>();
+	//cnpy::NpyArray arr2 = cnpy::npy_load("input_2.npy");
+	//float* loaded_data2 = arr2.data<float>();
 
-	static BinaryWeights<SIMD, PE, WMEM> weights;
 
-	static ThresholdsActivation<TMEM,PE,1,ap_int<16>,ap_uint<1>> threshs;
 	
-	for(int i=0; i < PE; i++){
-		for(int k; k < WMEM; k++){
-			ap_uint<64> dat1;
-			for(int j; j < SIMD; j++){
-				if(i == 0){
-					dat1.range(j,j) = loaded_data1[j+(k-1)*64];
-				}
-				else{
-					dat1.range(j,j) = loaded_data1[j+i*(k-1)*64];
-				}
+	//for(int i=0; i < PE1; i++){
+	//	for(int k; k < WMEM1; k++){
+	//		ap_uint<64> dat1;
+	//		for(int j; j < SIMD1; j++){
+	//			if(i == 0){
+	//				dat1.range(j,j) = loaded_data1[j+(k-1)*64];
+	//			}
+	//			else{
+	//				dat1.range(j,j) = loaded_data1[j+i*(k-1)*64];
+	//			}
+//
+//			}
+//			weights.m_weights[i][k] = dat1;
+//		}
+//	}
 
-			}
-			weights.m_weights[i][k] = dat1;
-		}
-	}
-
-	for(int i=0; i < PE; i++){
-		for(int k; k < TMEM; k++){
+	for(int i=0; i < PE1; i++){
+		for(int k; k < TMEM1; k++){
 			ap_uint<64> dat2;
 			for(int j; j < 64; j++){
                                 if(i == 0){
-                                        dat2.range(j,j) = loaded_data1[j+(k-1)*64];
+                                        dat2.range(j,j) = loaded_data2[j+(k-1)*64];
 				}
                                 else{
-                                        dat2.range(j,j) = loaded_data1[j+i*(k-1)*64];
+                                        dat2.range(j,j) = loaded_data2[j+i*(k-1)*64];
 				}		
 			}	
 			threshs.m_thresholds[i][k][0] = dat2;
@@ -141,7 +145,7 @@ in0 << dat0;
 	}
 	int numReps = 2;
 
-        StreamingFCLayer_Batch<MW, MH, SIMD, PE, Recast<XnorMul>>(in0, out, weights, threshs, numReps, ap_resource_lut());
+        StreamingFCLayer_Batch<MW1, MH1, SIMD1, PE1, Recast<XnorMul>>(in0, out, weights, threshs, numReps, ap_resource_lut());
 
         ap_uint<32> out_data;
  std::vector<ap_uint<32>> out_data_vector;

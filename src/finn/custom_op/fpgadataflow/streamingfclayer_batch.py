@@ -1,5 +1,14 @@
-from finn.core.utils import get_by_name
+import sys
+import os
+import numpy as np
+import subprocess
+
+import finn.core.utils as utils
 from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.core.datatype import DataType
+from finn.backend.fpgadataflow.utils import numpy_to_hls_code
+
+
 
 
 class StreamingFCLayer_Batch(HLSCustomOp):
@@ -9,13 +18,73 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def infer_node_datatype(self, node, model):
         pass
 
+    def execute_node(self, node, context, graph):
+        self.get_attributes(node)
+        in_ind = 0
+        temp_files = []
+        for inputs in node.input:
+            if in_ind == 0:
+                np.save("input_{}.npy".format(in_ind), context[inputs])
+                temp_files.append("input_{}.npy".format(in_ind))
+            elif in_ind == 1:
+                weights = context[inputs]
+                WMEM = weights.shape[2]
+                weights = np.transpose(weights, (1,2,0))
+                weights = numpy_to_hls_code(weights, DataType.BINARY, "weights", True)
+
+                f_weights = open("params.h","w")
+                f_weights.write("static BinaryWeights<{},{},{}> weights = {{{{\n".format(self.SIMD, self.PE, WMEM))
+                for i in range(weights.shape[0]):
+                    f_weights.write("{")
+                    for j in range(weights.shape[1]):
+                        f_weights.write(weights[i][j])
+                        if j < weights.shape[1]-1:
+                            f_weights.write(", ")
+                    if i < weights.shape[0]-1:
+                        f_weights.write("}, ")
+                    else:
+                        f_weights.write("}")
+                f_weights.write("}}")
+                f_weights.close()
+            
+            else:
+                thresholds = context[inputs]
+                TMEM = thresholds.shape[0]
+                
+                #print(thresholds.shape)
+
+            in_ind += 1
+
+        sys.exit(0)
+        self.code_generation(node)
+        temp_files.append("execute_{}.cpp".format(node.op_type))
+        bash_compile = """g++ -o execute_{} execute_{}.cpp
+        /workspace/cnpy/cnpy.cpp -I/workspace/cnpy/
+        -I/workspace/finn-hlslib -I/workspace/vivado-hlslib
+        --std=c++11 -lz""".format(
+            node.op_type, node.op_type
+        )
+        process_compile = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
+        process_compile.communicate()
+        bash_execute = "./execute_{}".format(node.op_type)
+        process_execute = subprocess.Popen(bash_execute.split(), stdout=subprocess.PIPE)
+        process_execute.communicate()
+        temp_files.append("execute_{}".format(node.op_type))
+        temp_files.append("output.npy")
+        output = np.load("output.npy")
+        context[node.output[0]] = output
+        # deleting temporary files
+        for temp_file in temp_files:
+            os.remove(temp_file)
+
+
     def get_attributes(self, node):
-        self.resType = get_by_name(node.attribute, "resType").s.decode("utf-8")
-        self.MW = get_by_name(node.attribute, "MW").i
-        self.MH = get_by_name(node.attribute, "MH").i
-        self.SIMD = get_by_name(node.attribute, "SIMD").i
-        self.PE = get_by_name(node.attribute, "PE").i
-        self.resDataType = get_by_name(node.attribute, "resDataType").s.decode("utf-8")
+        self.resType = utils.get_by_name(node.attribute, "resType").s.decode("utf-8")
+        self.MW = utils.get_by_name(node.attribute, "MW").i
+        self.MH = utils.get_by_name(node.attribute, "MH").i
+        self.SIMD = utils.get_by_name(node.attribute, "SIMD").i
+        self.PE = utils.get_by_name(node.attribute, "PE").i
+        self.resDataType = utils.get_by_name(node.attribute, "resDataType").s.decode("utf-8")
 
     def global_includes(self, node):
         self.code_gen_dict["$GLOBALS$"] = ['// no additional includes necessary']

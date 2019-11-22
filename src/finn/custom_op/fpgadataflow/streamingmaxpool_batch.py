@@ -1,3 +1,7 @@
+import os
+import numpy as np
+import subprocess
+
 from finn.core.utils import get_by_name
 from finn.custom_op.fpgadataflow import HLSCustomOp
 
@@ -8,6 +12,35 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, node, model):
         pass
+    
+    def execute_node(self, node, context, graph):
+        in_ind = 0
+        temp_files = []
+        for inputs in node.input:
+            np.save("input_{}.npy".format(in_ind), context[inputs])
+            temp_files.append("input_{}.npy".format(in_ind))
+            in_ind += 1
+        self.code_generation(node)
+        temp_files.append("execute_{}.cpp".format(node.op_type))
+        bash_compile = """g++ -o execute_{} execute_{}.cpp
+        /workspace/cnpy/cnpy.cpp -I/workspace/cnpy/
+        -I/workspace/finn-hlslib -I/workspace/vivado-hlslib
+        --std=c++11 -lz""".format(
+            node.op_type, node.op_type
+        )
+        process_compile = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
+        process_compile.communicate()
+        bash_execute = "./execute_{}".format(node.op_type)
+        process_execute = subprocess.Popen(bash_execute.split(), stdout=subprocess.PIPE)
+        process_execute.communicate()
+        temp_files.append("execute_{}".format(node.op_type))
+        temp_files.append("output.npy")
+        output = np.load("output.npy")
+        context[node.output[0]] = output
+        # deleting temporary files
+        for temp_file in temp_files:
+            os.remove(temp_file)
+
 
     def get_attributes(self, node):
         self.ImgDim = get_by_name(node.attribute, "ImgDim").i
