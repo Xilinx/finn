@@ -31,6 +31,9 @@ def xnorpopcountmatmul(inp0, inp1):
 
 
 class XnorPopcountMatMul(CustomOp):
+    def get_nodeattr_types(self):
+        return {}
+
     def make_shape_compatible_op(self):
         node = self.onnx_node
         return helper.make_node(

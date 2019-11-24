@@ -9,6 +9,13 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class StreamingMaxPool_Batch(HLSCustomOp):
+    def get_nodeattr_types(self):
+        return {
+            "ImgDim": ("i", True, 0),
+            "PoolDim": ("i", True, 0),
+            "NumChannels": ("i", True, 0),
+        }
+
     def make_shape_compatible_op(self):
         pass
 

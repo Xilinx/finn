@@ -16,6 +16,18 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.WMEM = 0
         self.TMEM = 0
 
+    def get_nodeattr_types(self):
+        return {
+            "WMEM": ("i", True, 0),
+            "TMEM": ("i", True, 0),
+            "PE": ("i", True, 0),
+            "SIMD": ("i", True, 0),
+            "MW": ("i", True, 0),
+            "MH": ("i", True, 0),
+            "resType": ("s", True, ""),
+            "resDataType": ("s", True, ""),
+        }
+
     def make_shape_compatible_op(self):
         pass
 

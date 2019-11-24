@@ -58,6 +58,13 @@ def multithreshold(v, thresholds, out_scale=None, out_bias=None):
 
 
 class MultiThreshold(CustomOp):
+    def get_nodeattr_types(self):
+        return {
+            "out_dtype": ("s", True, ""),
+            "out_scale": ("f", False, 1.0),
+            "out_bias": ("f", False, 0.0),
+        }
+
     def make_shape_compatible_op(self):
         node = self.onnx_node
         return helper.make_node("Relu", [node.input[0]], [node.output[0]])
