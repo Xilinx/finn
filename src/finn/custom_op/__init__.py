@@ -18,7 +18,7 @@ class CustomOp(ABC):
             if attr is not None:
                 # dtype indicates which ONNX Attribute member to use
                 # (such as i, f, s...)
-                ret = attr.__getattr__(dtype)
+                ret = attr.__getattribute__(dtype)
                 if dtype == "s":
                     # decode string attributes
                     ret = ret.decode("utf-8")
