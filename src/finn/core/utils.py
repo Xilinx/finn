@@ -123,3 +123,54 @@ def interleave_matrix_outer_dim_from_partitions(matrix, n_partitions):
     matrix_r = matrix.reshape(-1, n_partitions, shp[1]).transpose((1, 0, 2))
     matrix_r = matrix_r.reshape(n_partitions, -1, shp[1])
     return matrix_r
+
+
+def roundup_to_integer_multiple(x, factor):
+    """Round up integer x to the nearest integer multiple of integer factor.
+    Returns x if factor is set to -1. Both x and factor must otherwise be
+    positive."""
+    # ensure integers
+    assert int(x) == x
+    assert int(factor) == factor
+    # use -1 to indicate no padding needed
+    if factor == -1:
+        return x
+    # ensure positive values
+    assert factor > 0 and x > 0
+    if x < factor:
+        return factor
+    else:
+        if x % factor == 0:
+            return x
+        else:
+            return x + (factor - (x % factor))
+
+
+def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
+    """Pad each dimension of given NumPy ndarray using val, so that each
+    dimension is a multiple of the respective value in pad_to_dims. -1 means
+    do not pad that particular dimension. If distr_pad is False, all padding
+    will be inserted after the existing values; otherwise it will be split
+    evenly between before and after the existing values, with one extra value
+    inserted after if the padding amount is not divisible by two."""
+    if type(ndarray) != np.ndarray or ndarray.dtype != np.float32:
+        # try to convert to a float numpy array (container dtype is float)
+        ndarray = np.asarray(ndarray, dtype=np.float32)
+    assert ndarray.ndim == len(pad_to_dims)
+    # compute the desired shape
+    desired = zip(list(ndarray.shape), list(pad_to_dims))
+    desired = map(lambda x: roundup_to_integer_multiple(x[0], x[1]), desired)
+    desired = np.asarray(list(desired), dtype=np.int32)
+    current = np.asarray(ndarray.shape, dtype=np.int32)
+    pad_amt = desired - current
+    # add padding to get to the desired shape
+    if distr_pad:
+        pad_before = (pad_amt // 2).astype(np.int32)
+        pad_after = pad_amt - pad_before
+        pad_amt = list(zip(pad_before, pad_after))
+    else:
+        # all padding is added after the existing values
+        pad_amt = list(map(lambda x: (0, x), pad_amt))
+    ret = np.pad(ndarray, pad_amt, mode="constant", constant_values=val)
+    assert (np.asarray(ret.shape, dtype=np.int32) == desired).all()
+    return ret
