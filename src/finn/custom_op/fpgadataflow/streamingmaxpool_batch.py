@@ -4,7 +4,6 @@ import tempfile as tmp
 
 import numpy as np
 
-from finn.core.utils import get_by_name
 from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
@@ -67,12 +66,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         # for temp_file in temp_files:
         #    os.remove(temp_file)
 
-    def get_attributes(self):
-        node = self.onnx_node
-        self.ImgDim = get_by_name(node.attribute, "ImgDim").i
-        self.PoolDim = get_by_name(node.attribute, "PoolDim").i
-        self.NumChannels = get_by_name(node.attribute, "NumChannels").i
-
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
 
@@ -81,7 +74,10 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         self.code_gen_dict["$DEFINES$"] = [
             """#define ImgDim {}\n #define PoolDim {}\n
             #define NumChannels {}\n #define numReps {}""".format(
-                self.ImgDim, self.PoolDim, self.NumChannels, numReps
+                self.get_nodeattr("ImgDim"),
+                self.get_nodeattr("PoolDim"),
+                self.get_nodeattr("NumChannels"),
+                numReps,
             )
         ]
 
@@ -110,15 +106,21 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 num_values *= arr.shape[i]; \n }"""
             )
             self.code_gen_dict["$READNPYDATA$"].append(
-                "ap_uint<{}> dat;".format(self.NumChannels)
+                "ap_uint<{}> dat;".format(self.get_nodeattr("NumChannels"))
             )
             self.code_gen_dict["$READNPYDATA$"].append(
-                "for(int i=0; i < num_values/{}; i++){{".format(self.NumChannels)
+                "for(int i=0; i < num_values/{}; i++){{".format(
+                    self.get_nodeattr("NumChannels")
+                )
             )
-            for channel in range(self.NumChannels):
+            for channel in range(self.get_nodeattr("NumChannels")):
                 self.code_gen_dict["$READNPYDATA$"].append(
                     "dat.range({},{}) = loaded_data{}[i+((num_values/{})*{})];".format(
-                        channel, channel, input_ind, self.NumChannels, channel
+                        channel,
+                        channel,
+                        input_ind,
+                        self.get_nodeattr("NumChannels"),
+                        channel,
                     )
                 )
             self.code_gen_dict["$READNPYDATA$"].append("in{} << dat;".format(input_ind))
@@ -132,12 +134,14 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         for inputs in node.input:
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<ap_uint<{}>> in{} ("in{}");'.format(
-                    self.NumChannels, input_ind, input_ind
+                    self.get_nodeattr("NumChannels"), input_ind, input_ind
                 )
             )
             input_ind += 1
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.NumChannels)
+            'hls::stream<ap_uint<{}>> out ("out");'.format(
+                self.get_nodeattr("NumChannels")
+            )
         )
 
     def docompute(self):
@@ -149,7 +153,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def dataoutstrm(self):
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             "ap_uint<{}> out_data;\n std::vector<ap_uint<{}>> out_data_vector;".format(
-                self.NumChannels, self.NumChannels
+                self.get_nodeattr("NumChannels"), self.get_nodeattr("NumChannels")
             )
         ]
         self.code_gen_dict["$DATAOUTSTREAM$"].append("while(out.read_nb(out_data)){")
@@ -162,13 +166,13 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         self.code_gen_dict["$DATAOUTSTREAM$"].append(
             """for(std::vector<ap_uint<{}>>::iterator it = out_data_vector.begin();
             it != out_data_vector.end(); ++it){{""".format(
-                self.NumChannels
+                self.get_nodeattr("NumChannels")
             )
         )
         self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            "ap_uint<{}> output_data = *it;".format(self.NumChannels)
+            "ap_uint<{}> output_data = *it;".format(self.get_nodeattr("NumChannels"))
         )
-        for channel in range(self.NumChannels):
+        for channel in range(self.get_nodeattr("NumChannels")):
             self.code_gen_dict["$DATAOUTSTREAM$"].append(
                 "output_data_vector.push_back(output_data.range({},{}));".format(
                     channel, channel
@@ -183,8 +187,8 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             {{{},{},{}}},"w");""".format(
                 self.tmp_dir,
                 numReps,
-                self.NumChannels,
-                int(self.ImgDim / self.PoolDim),
-                int(self.ImgDim / self.PoolDim),
+                self.get_nodeattr("NumChannels"),
+                int(self.get_nodeattr("ImgDim") / self.get_nodeattr("PoolDim")),
+                int(self.get_nodeattr("ImgDim") / self.get_nodeattr("PoolDim")),
             )
         ]

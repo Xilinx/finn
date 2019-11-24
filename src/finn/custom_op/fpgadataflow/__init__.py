@@ -37,13 +37,8 @@ class HLSCustomOp(CustomOp):
 
         self.tmp_dir = " "
 
-    @abstractmethod
-    def get_attributes(self):
-        pass
-
     def code_generation(self):
         node = self.onnx_node
-        self.get_attributes()
         self.global_includes()
         self.defines()
         self.read_npy_data()

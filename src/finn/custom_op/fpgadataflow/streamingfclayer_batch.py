@@ -4,7 +4,6 @@ import tempfile as tmp
 
 import numpy as np
 
-import finn.core.utils as utils
 from finn.backend.fpgadataflow.utils import numpy_to_hls_code
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -13,8 +12,6 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 class StreamingFCLayer_Batch(HLSCustomOp):
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
-        self.WMEM = 0
-        self.TMEM = 0
 
     def get_nodeattr_types(self):
         return {
@@ -43,9 +40,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # to delete the files after the execution
         temp_files = []
 
-        # get attributes for correct packing of weights and thresholds
-        self.get_attributes()
-
         # create a npy file fore each input of the node (in_ind is input index)
         in_ind = 0
         for inputs in node.input:
@@ -62,7 +56,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 weights = context[inputs]
                 # transpose and expand the weights to get the right shape
                 # for the code generation
-                self.WMEM = weights.shape[1]
+                self.set_nodeattr("WMEM", weights.shape[1])
                 weights = np.expand_dims(weights, 0)
                 weights = numpy_to_hls_code(
                     weights, DataType.BINARY, "weights", True, True
@@ -72,7 +66,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 f_weights = open("{}/params.h".format(self.tmp_dir), "w")
                 f_weights.write(
                     "static BinaryWeights<{},{},{}> weights = ".format(
-                        self.SIMD, self.PE, self.WMEM
+                        self.get_nodeattr("SIMD"),
+                        self.get_nodeattr("PE"),
+                        self.get_nodeattr("WMEM"),
                     )
                 )
                 f_weights.write(weights)
@@ -81,7 +77,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
             else:
                 thresholds = context[inputs]
-                self.TMEM = thresholds.shape[1]
+                self.set_nodeattr("TMEM", thresholds.shape[1])
                 thresholds = np.expand_dims(thresholds, 0)
                 thresholds = numpy_to_hls_code(
                     thresholds, DataType.BINARY, "thresholds", True, True
@@ -92,7 +88,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 f_thresh.write(
                     """static ThresholdsActivation<{},{},1,ap_uint<16>,
                     ap_uint<1>> threshs = """.format(
-                        self.TMEM, self.PE
+                        self.get_nodeattr("TMEM"), self.get_nodeattr("PE")
                     )
                 )
                 f_thresh.write(thresholds)
@@ -127,24 +123,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # for temp_file in temp_files:
         #    os.remove(temp_file)
 
-    def get_attributes(self):
-        node = self.onnx_node
-        self.resType = utils.get_by_name(node.attribute, "resType").s.decode("utf-8")
-        self.MW = utils.get_by_name(node.attribute, "MW").i
-        self.MH = utils.get_by_name(node.attribute, "MH").i
-        self.SIMD = utils.get_by_name(node.attribute, "SIMD").i
-        self.PE = utils.get_by_name(node.attribute, "PE").i
-        self.resDataType = utils.get_by_name(node.attribute, "resDataType").s.decode(
-            "utf-8"
-        )
-
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = '#include "weights.hpp" \n'
         self.code_gen_dict["$GLOBALS$"] += '#include "activations.hpp" \n'
-        if self.WMEM != 0:
+        if self.get_nodeattr("WMEM") != 0:
             # TODO find a better way of checking for no pregenerated weights
             self.code_gen_dict["$GLOBALS$"] += '#include "params.h" \n'
-        if self.TMEM != 0:
+        if self.get_nodeattr("TMEM") != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += '#include "thresh.h" \n'
 
@@ -154,7 +139,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             """#define MW1 {}\n #define MH1 {}\n #define SIMD1 {}\n
             #define PE1 {}\n #define WMEM1 {}\n #define TMEM1 {}\n
             #define numReps {}""".format(
-                self.MW, self.MH, self.SIMD, self.PE, self.WMEM, self.TMEM, numReps
+                self.get_nodeattr("MW"),
+                self.get_nodeattr("MH"),
+                self.get_nodeattr("SIMD"),
+                self.get_nodeattr("PE"),
+                self.get_nodeattr("WMEM"),
+                self.get_nodeattr("TMEM"),
+                numReps,
             )
         ]
 
@@ -175,15 +166,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     num_values0 *= arr0.shape[i]; \n }}"""
         )
         self.code_gen_dict["$READNPYDATA$"].append(
-            "ap_uint<{}> dat0;".format(self.SIMD)
+            "ap_uint<{}> dat0;".format(self.get_nodeattr("SIMD"))
         )
         self.code_gen_dict["$READNPYDATA$"].append(
-            "for(int i=0; i < num_values0/{}; i++){{".format(self.SIMD)
+            "for(int i=0; i < num_values0/{}; i++){{".format(self.get_nodeattr("SIMD"))
         )
-        for line in range(self.SIMD):
+        for line in range(self.get_nodeattr("SIMD")):
             self.code_gen_dict["$READNPYDATA$"].append(
                 "dat0.range({},{}) = loaded_data0[i+((num_values0/{})*{})];".format(
-                    line, line, self.SIMD, line
+                    line, line, self.get_nodeattr("SIMD"), line
                 )
             )
         self.code_gen_dict["$READNPYDATA$"].append("in0 << dat0;")
@@ -192,10 +183,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.SIMD)
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_nodeattr("SIMD"))
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.PE)
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_nodeattr("PE"))
         )
 
     def docompute(self):
@@ -203,14 +194,16 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<MW1, MH1, SIMD1, PE1, {}>
             (in0, out, weights, threshs, numReps, {});""".format(
-                node.op_type, self.resDataType, self.resType
+                node.op_type,
+                self.get_nodeattr("resDataType"),
+                self.get_nodeattr("resType"),
             )
         ]
 
     def dataoutstrm(self):
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             "ap_uint<{}> out_data;\n std::vector<ap_uint<{}>> out_data_vector;".format(
-                self.PE, self.PE
+                self.get_nodeattr("PE"), self.get_nodeattr("PE")
             )
         ]
         self.code_gen_dict["$DATAOUTSTREAM$"].append("while(out.read_nb(out_data)){")
@@ -223,13 +216,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$DATAOUTSTREAM$"].append(
             """for(std::vector<ap_uint<{}>>::iterator it = out_data_vector.begin();
             it != out_data_vector.end(); ++it){{""".format(
-                self.PE
+                self.get_nodeattr("PE")
             )
         )
         self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            "ap_uint<{}> output_data = *it;".format(self.PE)
+            "ap_uint<{}> output_data = *it;".format(self.get_nodeattr("PE"))
         )
-        for element in range(self.PE):
+        for element in range(self.get_nodeattr("PE")):
             self.code_gen_dict["$DATAOUTSTREAM$"].append(
                 "output_data_vector.push_back(output_data.range({},{}));".format(
                     element, element
@@ -241,6 +234,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = [
             """cnpy::npy_save("{}/output.npy",&output_data_vector[0],
             {{1,{},{}}},"w");""".format(
-                self.tmp_dir, int(self.MH / self.PE), int(self.PE),
+                self.tmp_dir,
+                int(self.get_nodeattr("MH") / self.get_nodeattr("PE")),
+                int(self.get_nodeattr("PE")),
             )
         ]
