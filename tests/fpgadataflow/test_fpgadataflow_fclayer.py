@@ -8,7 +8,7 @@ from finn.core.utils import interleave_matrix_outer_dim_from_partitions
 from finn.custom_op.multithreshold import MultiThreshold
 
 
-def make_single_fclayer_modelwrapper(W, T, pe, simd, wdt, idt, tdt, odt):
+def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
     mh = W.shape[0]
     mw = W.shape[1]
     assert mh % pe == 0
@@ -42,9 +42,14 @@ def make_single_fclayer_modelwrapper(W, T, pe, simd, wdt, idt, tdt, odt):
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
+    if T is not None:
+        node_inp_list = ["inp", "weights", "thresh"]
+    else:
+        # no thresholds
+        node_inp_list = ["inp", "weights"]
     FCLayer_node = helper.make_node(
         "StreamingFCLayer_Batch",
-        ["inp", "weights", "thresh"],
+        node_inp_list,
         ["outp"],
         domain="finn",
         backend="fpgadataflow",
@@ -56,18 +61,7 @@ def make_single_fclayer_modelwrapper(W, T, pe, simd, wdt, idt, tdt, odt):
         resDataType=rdt,
     )
     graph = helper.make_graph(
-        nodes=[FCLayer_node],
-        name="fclayer_graph",
-        inputs=[inp],
-        outputs=[outp],
-        value_info=[
-            helper.make_tensor_value_info(
-                "weights", TensorProto.FLOAT, [pe, wmem, simd]
-            ),
-            helper.make_tensor_value_info(
-                "thresh", TensorProto.FLOAT, [pe, tmem, n_thres_steps]
-            ),
-        ],
+        nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp],
     )
 
     model = helper.make_model(graph, producer_name="fclayer-model")
@@ -83,6 +77,32 @@ def make_single_fclayer_modelwrapper(W, T, pe, simd, wdt, idt, tdt, odt):
     return model
 
 
+def test_fpgadataflow_fclayer_ibp_wbp_noact():
+    mh = 4
+    mw = 4
+    pe = 4
+    simd = 4
+    wdt = idt = DataType.BIPOLAR
+    odt = DataType.UINT32
+    # generate weights
+    W = np.random.randint(2, size=(mh, mw))
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
+    # generate input data
+    x = np.random.randint(2, size=mw)
+    ishape = model.get_tensor_shape("inp")
+    oshape = model.get_tensor_shape("outp")
+    input_tensor = (np.asarray(x, dtype=np.float32)).reshape(*ishape)
+    input_dict = {"inp": input_tensor}
+    produced = oxe.execute_onnx(model, input_dict)["outp"]
+    # convert to bipolar values
+    Wb = 2 * W - 1
+    xb = 2 * x - 1
+    yb = np.dot(Wb, xb).reshape(oshape.shape)
+    # XnorMul produces positive outputs only, adjust expectation accordingly
+    expected = 2 * yb - mw
+    assert (produced == expected).all()
+
+
 def test_fpgadataflow_fclayer_all_bipolar():
     mh = 4
     mw = 4
@@ -94,7 +114,7 @@ def test_fpgadataflow_fclayer_all_bipolar():
     W = np.random.randint(2, size=(mh, mw))
     # single global threshold at zero
     T = np.zeros((1, 1))
-    model = make_single_fclayer_modelwrapper(W, T, pe, simd, wdt, idt, tdt, odt)
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
     # generate input data
     x = np.random.randint(2, size=mw)
     ishape = model.get_tensor_shape("inp")
