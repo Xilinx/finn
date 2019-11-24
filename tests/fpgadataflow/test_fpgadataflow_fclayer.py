@@ -5,7 +5,7 @@ import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import interleave_matrix_outer_dim_from_partitions
-from finn.custom_op.multithreshold import MultiThreshold
+from finn.custom_op.multithreshold import multithreshold
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -125,6 +125,5 @@ def test_fpgadataflow_fclayer_all_bipolar():
     Wb = 2 * W - 1
     xb = 2 * x - 1
     yb = np.dot(Wb, xb)
-    thres = MultiThreshold()
-    expected = thres._execute(yb.reshape(1, mh), T)
+    expected = multithreshold(yb.reshape(1, mh), T)
     assert (produced == expected).all()
