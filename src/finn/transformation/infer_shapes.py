@@ -5,7 +5,6 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation import Transformation
 
 
-
 def _make_shape_compatible_op(node):
     """Return a shape-compatible non-FINN op for a given FINN op. Used for
     shape inference with custom ops."""
@@ -13,7 +12,7 @@ def _make_shape_compatible_op(node):
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
-        inst = registry.custom_op[op_type]()
+        inst = registry.custom_op[op_type](node)
         return inst.make_shape_compatible_op(node)
     except KeyError:
         # exception if op_type is not supported

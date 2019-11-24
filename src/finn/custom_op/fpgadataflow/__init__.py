@@ -4,8 +4,8 @@ from finn.custom_op import CustomOp
 
 
 class HLSCustomOp(CustomOp):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, onnx_node):
+        super().__init__(onnx_node)
         # template for single node execution
         self.docompute_template = """
         #include "cnpy.h"
@@ -35,7 +35,7 @@ class HLSCustomOp(CustomOp):
         """
         self.code_gen_dict = {}
 
-        self.tmp_dir = " "  
+        self.tmp_dir = " "
 
     @abstractmethod
     def get_attributes(self, node):

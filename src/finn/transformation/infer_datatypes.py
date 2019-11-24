@@ -13,7 +13,7 @@ def _infer_node_datatype(model, node):
         # handle DataType inference for CustomOp
         try:
             # lookup op_type in registry of CustomOps
-            inst = registry.custom_op[op_type]()
+            inst = registry.custom_op[op_type](node)
             inst.infer_node_datatype(node, model)
         except KeyError:
             # exception if op_type is not supported

@@ -11,8 +11,8 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class StreamingFCLayer_Batch(HLSCustomOp):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, onnx_node):
+        super().__init__(onnx_node)
         self.WMEM = 0
         self.TMEM = 0
 
