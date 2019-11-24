@@ -38,18 +38,19 @@ class HLSCustomOp(CustomOp):
         self.tmp_dir = " "
 
     @abstractmethod
-    def get_attributes(self, node):
+    def get_attributes(self):
         pass
 
-    def code_generation(self, node):
-        self.get_attributes(node)
-        self.global_includes(node)
-        self.defines(node)
-        self.read_npy_data(node)
-        self.strm_decl(node)
-        self.docompute(node)
-        self.dataoutstrm(node)
-        self.save_as_npy(node)
+    def code_generation(self):
+        node = self.onnx_node
+        self.get_attributes()
+        self.global_includes()
+        self.defines()
+        self.read_npy_data()
+        self.strm_decl()
+        self.docompute()
+        self.dataoutstrm()
+        self.save_as_npy()
 
         template = self.docompute_template
 
@@ -63,29 +64,29 @@ class HLSCustomOp(CustomOp):
         f.close()
 
     @abstractmethod
-    def global_includes(self, node):
+    def global_includes(self):
         pass
 
     @abstractmethod
-    def defines(self, node):
+    def defines(self):
         pass
 
     @abstractmethod
-    def read_npy_data(self, node):
+    def read_npy_data(self):
         pass
 
     @abstractmethod
-    def strm_decl(self, node):
+    def strm_decl(self):
         pass
 
     @abstractmethod
-    def docompute(self, node):
+    def docompute(self):
         pass
 
     @abstractmethod
-    def dataoutstrm(self, node):
+    def dataoutstrm(self):
         pass
 
     @abstractmethod
-    def save_as_npy(self, node):
+    def save_as_npy(self):
         pass

@@ -8,13 +8,13 @@ class CustomOp(ABC):
         # TODO consider specifying a list of allowed attributes
 
     @abstractmethod
-    def make_shape_compatible_op(self, node):
+    def make_shape_compatible_op(self):
         pass
 
     @abstractmethod
-    def infer_node_datatype(self, node, model):
+    def infer_node_datatype(self, model):
         pass
 
     @abstractmethod
-    def execute_node(self, node, context, graph):
+    def execute_node(self, context, graph):
         pass

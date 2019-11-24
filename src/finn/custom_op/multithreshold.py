@@ -58,10 +58,12 @@ def multithreshold(v, thresholds, out_scale=None, out_bias=None):
 
 
 class MultiThreshold(CustomOp):
-    def make_shape_compatible_op(self, node):
+    def make_shape_compatible_op(self):
+        node = self.onnx_node
         return helper.make_node("Relu", [node.input[0]], [node.output[0]])
 
-    def infer_node_datatype(self, node, model):
+    def infer_node_datatype(self, model):
+        node = self.onnx_node
         try:
             odt = get_by_name(node.attribute, "out_dtype").s.decode("utf-8")
             model.set_tensor_datatype(node.output[0], DataType[odt])
@@ -72,7 +74,8 @@ class MultiThreshold(CustomOp):
             odtype = DataType.get_smallest_possible(n_thres)
             model.set_tensor_datatype(node.output[0], odtype)
 
-    def execute_node(self, node, context, graph):
+    def execute_node(self, context, graph):
+        node = self.onnx_node
         # save inputs
         v = context[node.input[0]]
         thresholds = context[node.input[1]]

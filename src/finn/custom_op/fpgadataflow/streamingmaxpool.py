@@ -9,13 +9,14 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class StreamingMaxPool(HLSCustomOp):
-    def make_shape_compatible_op(self, node):
+    def make_shape_compatible_op(self):
         pass
 
-    def infer_node_datatype(self, node, model):
+    def infer_node_datatype(self, model):
         pass
 
-    def execute_node(self, node, context, graph):
+    def execute_node(self, context, graph):
+        node = self.onnx_node
         # make temporary directory for generated files
         self.tmp_dir = tmp.mkdtemp(prefix=str(node.op_type) + "_")
 
@@ -34,7 +35,7 @@ class StreamingMaxPool(HLSCustomOp):
             in_ind += 1
 
         # code generation
-        self.code_generation(node)
+        self.code_generation()
 
         # c++ compilation and execution flow
         temp_files.append("{}/execute_{}.cpp".format(self.tmp_dir, node.op_type))
@@ -59,22 +60,24 @@ class StreamingMaxPool(HLSCustomOp):
         # for temp_file in temp_files:
         #    os.remove(temp_file)
 
-    def get_attributes(self, node):
+    def get_attributes(self):
+        node = self.onnx_node
         self.ImgDim = get_by_name(node.attribute, "ImgDim").i
         self.PoolDim = get_by_name(node.attribute, "PoolDim").i
         self.NumChannels = get_by_name(node.attribute, "NumChannels").i
 
-    def global_includes(self, node):
+    def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
 
-    def defines(self, node):
+    def defines(self):
         self.code_gen_dict["$DEFINES$"] = [
             "#define ImgDim {}\n #define PoolDim {}\n #define NumChannels {}".format(
                 self.ImgDim, self.PoolDim, self.NumChannels
             )
         ]
 
-    def read_npy_data(self, node):
+    def read_npy_data(self):
+        node = self.onnx_node
         # c++ code to read out an npy file
         # and put it in hls::stream in the correct order
         self.code_gen_dict["$READNPYDATA$"] = []
@@ -113,7 +116,8 @@ class StreamingMaxPool(HLSCustomOp):
             self.code_gen_dict["$READNPYDATA$"].append("}")
             input_ind += 1
 
-    def strm_decl(self, node):
+    def strm_decl(self):
+        node = self.onnx_node
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         input_ind = 0
         for inputs in node.input:
@@ -127,12 +131,13 @@ class StreamingMaxPool(HLSCustomOp):
             'hls::stream<ap_uint<{}>> out ("out");'.format(self.NumChannels)
         )
 
-    def docompute(self, node):
+    def docompute(self):
+        node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
             "{}<ImgDim, PoolDim, NumChannels>(in0, out);".format(node.op_type)
         ]
 
-    def dataoutstrm(self, node):
+    def dataoutstrm(self):
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             "ap_uint<{}> out_data;\n std::vector<ap_uint<{}>> out_data_vector;".format(
                 self.NumChannels, self.NumChannels
@@ -162,7 +167,7 @@ class StreamingMaxPool(HLSCustomOp):
             )
         self.code_gen_dict["$DATAOUTSTREAM$"].append("}")
 
-    def save_as_npy(self, node):
+    def save_as_npy(self):
         self.code_gen_dict["$SAVEASCNPY$"] = [
             """cnpy::npy_save("{}/output.npy",&output_data_vector[0],
             {{{},{},{}}},"w");""".format(

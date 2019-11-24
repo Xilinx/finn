@@ -8,7 +8,7 @@ def execute_custom_node(node, context, graph):
     try:
         # lookup op_type in registry of CustomOps
         inst = registry.custom_op[op_type](node)
-        inst.execute_node(node, context, graph)
+        inst.execute_node(context, graph)
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)

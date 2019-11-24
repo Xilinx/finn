@@ -16,13 +16,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.WMEM = 0
         self.TMEM = 0
 
-    def make_shape_compatible_op(self, node):
+    def make_shape_compatible_op(self):
         pass
 
-    def infer_node_datatype(self, node, model):
+    def infer_node_datatype(self, model):
         pass
 
-    def execute_node(self, node, context, graph):
+    def execute_node(self, context, graph):
+        node = self.onnx_node
         # make temporary directory for generated files
         self.tmp_dir = tmp.mkdtemp(prefix=str(node.op_type) + "_")
 
@@ -31,7 +32,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         temp_files = []
 
         # get attributes for correct packing of weights and thresholds
-        self.get_attributes(node)
+        self.get_attributes()
 
         # create a npy file fore each input of the node (in_ind is input index)
         in_ind = 0
@@ -89,7 +90,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             in_ind += 1
 
         # code generation
-        self.code_generation(node)
+        self.code_generation()
 
         # c++ compilation and execution flow
         temp_files.append("{}/execute_{}.cpp".format(self.tmp_dir, node.op_type))
@@ -114,7 +115,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # for temp_file in temp_files:
         #    os.remove(temp_file)
 
-    def get_attributes(self, node):
+    def get_attributes(self):
+        node = self.onnx_node
         self.resType = utils.get_by_name(node.attribute, "resType").s.decode("utf-8")
         self.MW = utils.get_by_name(node.attribute, "MW").i
         self.MH = utils.get_by_name(node.attribute, "MH").i
@@ -124,7 +126,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "utf-8"
         )
 
-    def global_includes(self, node):
+    def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = '#include "weights.hpp" \n'
         self.code_gen_dict["$GLOBALS$"] += '#include "activations.hpp" \n'
         if self.WMEM != 0:
@@ -134,7 +136,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += '#include "thresh.h" \n'
 
-    def defines(self, node):
+    def defines(self):
         numReps = 2
         self.code_gen_dict["$DEFINES$"] = [
             """#define MW1 {}\n #define MH1 {}\n #define SIMD1 {}\n
@@ -144,7 +146,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
         ]
 
-    def read_npy_data(self, node):
+    def read_npy_data(self):
         # c++ code to read out an npy file
         # and put it in hls::stream in the correct order
         self.code_gen_dict["$READNPYDATA$"] = []
@@ -175,7 +177,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"].append("in0 << dat0;")
         self.code_gen_dict["$READNPYDATA$"].append("}")
 
-    def strm_decl(self, node):
+    def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.SIMD)
@@ -184,7 +186,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             'hls::stream<ap_uint<{}>> out ("out");'.format(self.PE)
         )
 
-    def docompute(self, node):
+    def docompute(self):
+        node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<MW1, MH1, SIMD1, PE1, {}>
             (in0, out, weights, threshs, numReps, {});""".format(
@@ -192,7 +195,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
         ]
 
-    def dataoutstrm(self, node):
+    def dataoutstrm(self):
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             "ap_uint<{}> out_data;\n std::vector<ap_uint<{}>> out_data_vector;".format(
                 self.PE, self.PE
@@ -222,7 +225,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
         self.code_gen_dict["$DATAOUTSTREAM$"].append("}")
 
-    def save_as_npy(self, node):
+    def save_as_npy(self):
         self.code_gen_dict["$SAVEASCNPY$"] = [
             """cnpy::npy_save("{}/output.npy",&output_data_vector[0],
             {{1,{},{}}},"w");""".format(

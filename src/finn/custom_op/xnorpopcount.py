@@ -31,19 +31,22 @@ def xnorpopcountmatmul(inp0, inp1):
 
 
 class XnorPopcountMatMul(CustomOp):
-    def make_shape_compatible_op(self, node):
+    def make_shape_compatible_op(self):
+        node = self.onnx_node
         return helper.make_node(
             "MatMul", [node.input[0], node.input[1]], [node.output[0]]
         )
 
-    def infer_node_datatype(self, node, model):
+    def infer_node_datatype(self, model):
+        node = self.onnx_node
         # ensure inputs are binary
         assert model.get_tensor_datatype(node.input[0]) == DataType["BINARY"]
         assert model.get_tensor_datatype(node.input[1]) == DataType["BINARY"]
         # XNOR-popcount produces unsigned integers, assume uint32
         model.set_tensor_datatype(node.output[0], DataType["UINT32"])
 
-    def execute_node(self, node, context, graph):
+    def execute_node(self, context, graph):
+        node = self.onnx_node
         # save inputs
         inp0 = context[node.input[0]]
         inp1 = context[node.input[1]]

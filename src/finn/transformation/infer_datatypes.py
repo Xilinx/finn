@@ -14,7 +14,7 @@ def _infer_node_datatype(model, node):
         try:
             # lookup op_type in registry of CustomOps
             inst = registry.custom_op[op_type](node)
-            inst.infer_node_datatype(node, model)
+            inst.infer_node_datatype(model)
         except KeyError:
             # exception if op_type is not supported
             raise Exception("Custom op_type %s is currently not supported." % op_type)
