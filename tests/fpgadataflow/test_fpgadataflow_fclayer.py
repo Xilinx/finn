@@ -58,7 +58,12 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         MH=mh,
         SIMD=simd,
         PE=pe,
+        WMEM=wmem,
+        TMEM=tmem,
         resDataType=rdt,
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
+        outputDataType=odt.name,
     )
     graph = helper.make_graph(
         nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp],
