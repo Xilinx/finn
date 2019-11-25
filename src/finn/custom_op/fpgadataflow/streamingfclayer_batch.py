@@ -124,14 +124,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         #    os.remove(temp_file)
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = '#include "weights.hpp" \n'
-        self.code_gen_dict["$GLOBALS$"] += '#include "activations.hpp" \n'
+        self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
+        self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
         if self.get_nodeattr("WMEM") != 0:
             # TODO find a better way of checking for no pregenerated weights
-            self.code_gen_dict["$GLOBALS$"] += '#include "params.h" \n'
+            self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
         if self.get_nodeattr("TMEM") != 0:
             # TODO find a better way of checking for no pregenerated thresholds
-            self.code_gen_dict["$GLOBALS$"] += '#include "thresh.h" \n'
+            self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     def defines(self):
         numReps = 2
