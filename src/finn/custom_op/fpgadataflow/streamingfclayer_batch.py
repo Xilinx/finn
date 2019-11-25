@@ -43,6 +43,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def get_output_datatype(self):
         return DataType[self.get_nodeattr("outputDataType")]
 
+    def get_instream_width(self):
+        i_bits = self.get_input_datatype().bitwidth()
+        return i_bits * self.get_nodeattr("SIMD")
+
+    def get_outstream_width(self):
+        o_bits = self.get_output_datatype().bitwidth()
+        return o_bits * self.get_nodeattr("PE")
+
     def get_template_param_values(self):
         ret = dict()
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
@@ -226,10 +234,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_nodeattr("SIMD"))
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_nodeattr("PE"))
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
