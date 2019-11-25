@@ -16,13 +16,13 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     wmem = mw * mh // (pe * simd)
     assert mw * mh == wmem * pe * simd
     nf = mh // pe
-    tmem = nf
     sf = mw // simd
     # distribute rows between PEs
     W_reshaped = interleave_matrix_outer_dim_from_partitions(W, pe)
     # create SIMD as innermost dimension
     W_reshaped = W_reshaped.reshape(pe, wmem, simd)
     if T is not None:
+        tmem = nf
         assert T.shape[0] == 1 or T.shape[0] == mh
         n_thres_steps = T.shape[1]
         # if single global threshold specified, repeat along channels
@@ -34,11 +34,8 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         assert T_reshaped.shape[1] == tmem
         assert T_reshaped.shape[2] == n_thres_steps
     else:
+        tmem = 0
         n_thres_steps = 0
-    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
-        rdt = "Recast<XnorMul>"
-    else:
-        assert "Weight & input datatype combo not yet supported"
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
@@ -60,7 +57,6 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         PE=pe,
         WMEM=wmem,
         TMEM=tmem,
-        resDataType=rdt,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,

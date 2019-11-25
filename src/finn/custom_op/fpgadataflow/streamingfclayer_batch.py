@@ -22,7 +22,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
             "resType": ("s", True, ""),
-            "resDataType": ("s", True, ""),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
@@ -235,11 +234,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def docompute(self):
         node = self.onnx_node
+        tmpl_args = self.get_template_param_values()
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<MW1, MH1, SIMD1, PE1, {}>
+            """{}<MW1, MH1, SIMD1, PE1, {}, {}, {}>
             (in0, out, weights, threshs, numReps, {});""".format(
                 node.op_type,
-                self.get_nodeattr("resDataType"),
+                tmpl_args["TSrcI"],
+                tmpl_args["TDstI"],
+                tmpl_args["TWeightI"],
                 self.get_nodeattr("resType"),
             )
         ]
