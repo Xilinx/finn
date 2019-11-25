@@ -243,13 +243,19 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def docompute(self):
         node = self.onnx_node
         tmpl_args = self.get_template_param_values()
+        if self.get_nodeattr("TMEM") == 0:
+            odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
+            threshs = "PassThroughActivation<%s>()" % odtype_hls_str
+        else:
+            threshs = "threshs"
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<MW1, MH1, SIMD1, PE1, {}, {}, {}>
-            (in0, out, weights, threshs, numReps, {});""".format(
+            (in0, out, weights, {}, numReps, {});""".format(
                 node.op_type,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
                 tmpl_args["TWeightI"],
+                threshs,
                 self.get_nodeattr("resType"),
             )
         ]
