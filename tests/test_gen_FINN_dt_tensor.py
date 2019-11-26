@@ -53,7 +53,7 @@ def test_FINN_tensor_generator():
             does not match the desired shape"""
     # test if elements are FINN datatype
     for value in tensor_int2.flatten():
-        assert dt_int2.allowed(value), """Data type of generated tensor
+        assert value in [-2, -1, 0, 1], """Data type of generated tensor
             does not match the desired Data type"""
 
 
