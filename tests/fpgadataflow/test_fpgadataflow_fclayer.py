@@ -6,6 +6,7 @@ from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import interleave_matrix_outer_dim_from_partitions
 from finn.custom_op.multithreshold import multithreshold
+import finn.custom_op.xnorpopcount as xp
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -115,16 +116,20 @@ def test_fpgadataflow_fclayer_all_bipolar():
     W = np.random.randint(2, size=(mh, mw))
     # single global threshold at zero
     T = np.zeros((1, 1))
-    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
     # generate input data
     x = np.random.randint(2, size=mw)
-    ishape = model.get_tensor_shape("inp")
-    input_tensor = (np.asarray(x, dtype=np.float32)).reshape(*ishape)
-    input_dict = {"inp": input_tensor}
-    produced = oxe.execute_onnx(model, input_dict)["outp"]
-    # convert to bipolar values
-    Wb = 2 * W - 1
-    xb = 2 * x - 1
-    yb = np.dot(Wb, xb)
-    expected = multithreshold(yb.reshape(1, mh), T)
-    assert (produced == expected).all()
+
+    # set up layers with different pe and simd
+    pe_values = [1, int(mh/2), mh]
+    simd_values = [1, int(mw/2), mw]
+    for pe in pe_values:
+        for simd in simd_values:
+            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+            ishape = model.get_tensor_shape("inp")
+            input_tensor = (np.asarray(x, dtype=np.float32)).reshape(*ishape)
+            input_dict = {"inp": input_tensor}
+            produced = oxe.execute_onnx(model, input_dict)["outp"]
+            y = xp.xnorpopcountmatmul(W, x.reshape(-1,1))
+            expected = multithreshold(y.reshape(1, mh), T)
+            assert (produced.reshape(expected.shape) == expected).all()
+
