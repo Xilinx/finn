@@ -180,7 +180,9 @@ def gen_FINN_dt_tensor(FINN_dt, tensor_shape):
     if FINN_dt == DataType.BIPOLAR:
         tensor_values = np.random.randint(2, size=tensor_shape)
         tensor_values = 2 * tensor_values - 1
+    elif FINN_dt == DataType.BINARY:
+        tensor_values = np.random.randint(2, size=tensor_shape)
     else:
         raise ValueError("Datatype {} is not supported, no tensor could be generated".format(FINN_dt))
     
-    return[tensor_values]
+    return tensor_values
