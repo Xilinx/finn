@@ -43,6 +43,19 @@ def test_FINN_tensor_generator():
         assert dt_t.allowed(value), """Data type of generated tensor
             does not match the desired Data type"""
 
+    # int2 
+    shape_int2 = [7,4]
+    dt_int2 = DataType.INT2
+    tensor_int2 = util.gen_FINN_dt_tensor(dt_int2, shape_int2)
+    # test shape
+    for i in range(len(shape_int2)):
+        assert shape_int2[i] == tensor_int2.shape[i], """Shape of generated tensor
+            does not match the desired shape"""
+    # test if elements are FINN datatype
+    for value in tensor_int2.flatten():
+        assert dt_int2.allowed(value), """Data type of generated tensor
+            does not match the desired Data type"""
+
 
     #import pdb; pdb.set_trace()
     

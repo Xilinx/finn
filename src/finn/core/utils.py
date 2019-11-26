@@ -184,6 +184,8 @@ def gen_FINN_dt_tensor(FINN_dt, tensor_shape):
         tensor_values = np.random.randint(2, size=tensor_shape)
     elif FINN_dt == DataType.TERNARY:
         tensor_values = np.random.randint(-1, high=1, size=tensor_shape)
+    elif FINN_dt == DataType.INT2:
+        tensor_values = np.random.randint(-2, high=1, size=tensor_shape)
     else:
         raise ValueError("Datatype {} is not supported, no tensor could be generated".format(FINN_dt))
     
