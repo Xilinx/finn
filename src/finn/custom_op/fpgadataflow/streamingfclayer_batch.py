@@ -22,6 +22,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
             "resType": ("s", True, ""),
+            "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
