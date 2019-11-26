@@ -40,6 +40,7 @@ class DataType(Enum):
     UINT16 = auto()
     UINT32 = auto()
     BIPOLAR = auto()
+    TERNARY = auto()
     INT2 = auto()
     INT3 = auto()
     INT4 = auto()
@@ -59,6 +60,8 @@ class DataType(Enum):
             return int(self.name.strip("FLOAT"))
         elif self.name in ["BINARY", "BIPOLAR"]:
             return 1
+        elif self.name == "TERNARY":
+            return 2
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
 
@@ -72,6 +75,8 @@ class DataType(Enum):
         elif self.name == "FLOAT32":
             return np.finfo(np.float32).min
         elif self.name == "BIPOLAR":
+            return -1
+        elif self.name == "TERNARY":
             return -1
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
@@ -88,6 +93,8 @@ class DataType(Enum):
         elif self.name == "FLOAT32":
             return np.finfo(np.float32).max
         elif self.name == "BIPOLAR":
+            return +1
+        elif self.name == "TERNARY":
             return +1
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
@@ -109,6 +116,8 @@ class DataType(Enum):
             return value in [0, 1]
         elif self.name == "BIPOLAR":
             return value in [-1, +1]
+        elif self.name == "TERNARY":
+            return value in [-1, 0, +1]
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
 
