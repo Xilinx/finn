@@ -2,11 +2,14 @@ import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
+import finn.custom_op.xnorpopcount as xp
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.core.utils import interleave_matrix_outer_dim_from_partitions, gen_FINN_dt_tensor
+from finn.core.utils import (
+    gen_finn_dt_tensor,
+    interleave_matrix_outer_dim_from_partitions
+)
 from finn.custom_op.multithreshold import multithreshold
-import finn.custom_op.xnorpopcount as xp
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -78,31 +81,32 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         model.set_initializer("thresh", T_reshaped)
     return model
 
+
 def prepare_inputs(model, input_tensor, idt):
     ishape = model.get_tensor_shape("inp")
     input_tensor = (np.asarray(input_tensor, dtype=np.float32)).reshape(*ishape)
-    return {"inp": input_tensor} 
+    return {"inp": input_tensor}
 
 
 def create_noativation_testcases(idt, wdt, odt):
     mh = 8
     mw = 8
     # generate weights
-    W = gen_FINN_dt_tensor(wdt, [mh, mw])
+    W = gen_finn_dt_tensor(wdt, [mh, mw])
     # generate input data
-    x = gen_FINN_dt_tensor(idt, mw)
+    x = gen_finn_dt_tensor(idt, mw)
 
     # set up layers with different pe and simd
-    pe_values = [1, int(mh/2), mh]
-    simd_values = [1, int(mw/2), mw]
+    pe_values = [1, int(mh / 2), mh]
+    simd_values = [1, int(mw / 2), mw]
     for pe in pe_values:
         for simd in simd_values:
             model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
             # prepare input data
             input_dict = prepare_inputs(model, x, idt)
 
-        #    # execute model
-          #  produced = oxe.execute_onnx(model, input_dict)["outp"]
+            #    # execute model
+            #  produced = oxe.execute_onnx(model, input_dict)["outp"]
 
             # expected output
             if wdt == DataType.BIPOLAR:
@@ -134,13 +138,16 @@ def test_fpgadataflow_fclayer_ibp_wbp_noact():
 
     create_noativation_testcases(idt, wdt, odt)
 
+
 # no act - all signed
 def test_fpgadataflow_fclayer_ibint2_wbint2_noact():
     wdt = idt = DataType.INT2
     odt = DataType.INT32
     create_noativation_testcases(idt, wdt, odt)
 
+
 # no act - all ternary
+
 
 def test_fpgadataflow_fclayer_ibt_wbt_noact():
     wdt = idt = DataType.TERNARY
@@ -148,29 +155,26 @@ def test_fpgadataflow_fclayer_ibt_wbt_noact():
     create_noativation_testcases(idt, wdt, odt)
 
 
-
-
-
 def test_fpgadataflow_fclayer_all_bipolar():
-    mh = 8 
+    mh = 8
     mw = 8
     wdt = idt = odt = DataType.BIPOLAR
     tdt = DataType.UINT32
     # generate weights
-    W = gen_FINN_dt_tensor(wdt, [mh, mw])
+    W = gen_finn_dt_tensor(wdt, [mh, mw])
     # single global threshold at zero
     T = np.zeros((1, 1))
 
     # generate input data
-    x = gen_FINN_dt_tensor(idt, mw)
+    x = gen_finn_dt_tensor(idt, mw)
 
     # set up layers with different pe and simd
-    pe_values = [1, int(mh/2), mh]
-    simd_values = [1, int(mw/2), mw]
+    pe_values = [1, int(mh / 2), mh]
+    simd_values = [1, int(mw / 2), mw]
     for pe in pe_values:
         for simd in simd_values:
             model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-            
+
             # prepare input data
             input_dict = prepare_inputs(model, x, idt)
 
@@ -181,10 +185,11 @@ def test_fpgadataflow_fclayer_all_bipolar():
             # correction of bipolar values to enable xnorpopcountmutmal
             Wb = (W + 1) * 0.5
             xb = (x + 1) * 0.5
-            y = xp.xnorpopcountmatmul(Wb, xb.reshape(-1,1))
+            y = xp.xnorpopcountmatmul(Wb, xb.reshape(-1, 1))
             expected = multithreshold(y.reshape(1, mh), T)
 
             assert (produced.reshape(expected.shape) == expected).all()
+
 
 def test_fpgadataflow_fclayer_all_signed():
     mh = 8
@@ -192,16 +197,16 @@ def test_fpgadataflow_fclayer_all_signed():
     wdt = idt = odt = DataType.INT2
     tdt = DataType.INT32
     # generate weights
-    W = gen_FINN_dt_tensor(wdt, [mh, mw])
+    W = gen_finn_dt_tensor(wdt, [mh, mw])
     # single global threshold at zero
     T = np.zeros((1, 1))
 
     # generate input data
-    x = gen_FINN_dt_tensor(idt, mw)
+    x = gen_finn_dt_tensor(idt, mw)
 
     # set up layers with different pe and simd
-    pe_values = [1, int(mh/2), mh]
-    simd_values = [1, int(mw/2), mw]
+    pe_values = [1, int(mh / 2), mh]
+    simd_values = [1, int(mw / 2), mw]
     for pe in pe_values:
         for simd in simd_values:
             model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
@@ -218,22 +223,23 @@ def test_fpgadataflow_fclayer_all_signed():
 
             assert (produced.reshape(expected.shape) == expected).all()
 
+
 def test_fpgadataflow_fclayer_all_ternary():
     mh = 8
     mw = 8
     wdt = idt = odt = DataType.TERNARY
     tdt = DataType.INT32
     # generate weights
-    W = gen_FINN_dt_tensor(wdt, [mh, mw])
+    W = gen_finn_dt_tensor(wdt, [mh, mw])
     # single global threshold at zero
     T = np.zeros((1, 1))
 
     # generate input data
-    x = gen_FINN_dt_tensor(idt, mw)
+    x = gen_finn_dt_tensor(idt, mw)
 
     # set up layers with different pe and simd
-    pe_values = [1, int(mh/2), mh]
-    simd_values = [1, int(mw/2), mw]
+    pe_values = [1, int(mh / 2), mh]
+    simd_values = [1, int(mw / 2), mw]
     for pe in pe_values:
         for simd in simd_values:
             model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)

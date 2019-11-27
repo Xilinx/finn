@@ -176,20 +176,20 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
     return ret
 
 
-def gen_FINN_dt_tensor(FINN_dt, tensor_shape):
+def gen_finn_dt_tensor(finn_dt, tensor_shape):
     # generates random tensor in given shape and with given FINN data type
-    if FINN_dt == DataType.BIPOLAR:
+    if finn_dt == DataType.BIPOLAR:
         tensor_values = np.random.randint(2, size=tensor_shape)
         tensor_values = 2 * tensor_values - 1
-    elif FINN_dt == DataType.BINARY:
+    elif finn_dt == DataType.BINARY:
         tensor_values = np.random.randint(2, size=tensor_shape)
-    elif FINN_dt == DataType.TERNARY:
+    elif finn_dt == DataType.TERNARY:
         tensor_values = np.random.randint(-1, high=1, size=tensor_shape)
-    elif FINN_dt == DataType.INT2:
+    elif finn_dt == DataType.INT2:
         tensor_values = np.random.randint(-2, high=1, size=tensor_shape)
     else:
         raise ValueError(
-            "Datatype {} is not supported, no tensor could be generated".format(FINN_dt)
+            "Datatype {} is not supported, no tensor could be generated".format(finn_dt)
         )
     # always use float type as container
     return tensor_values.astype(np.float32)
