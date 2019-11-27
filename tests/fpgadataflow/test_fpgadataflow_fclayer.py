@@ -87,6 +87,57 @@ def prepare_inputs(model, input_tensor, idt):
     input_tensor = (np.asarray(input_tensor, dtype=np.float32)).reshape(*ishape)
     return {"inp": input_tensor}
 
+def create_testcases(idt, wdt, odt):
+    mh = 8
+    mw = 8
+
+    if idt == wdt == DataType.BIPOLAR:
+        tdt = DataType.UINT32
+    else:
+        tdt = DataType.INT32
+    # generate weights
+    W = gen_finn_dt_tensor(wdt, [mh, mw])
+    # single global threshold at zero
+    T = np.zeros((1, 1))
+
+    # generate input data
+    x = gen_finn_dt_tensor(idt, mw)
+
+    # set up layers with different pe and simd
+    pe_values = [1, int(mh / 2), mh]
+    simd_values = [1, int(mw / 2), mw]
+    for pe in pe_values:
+        for simd in simd_values:
+            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+
+            # prepare input data
+            input_dict = prepare_inputs(model, x, idt)
+
+            # execute model
+            produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+            # expected output
+            if wdt == DataType.BIPOLAR:
+                W_expected = (W + 1) * 0.5 
+            else:
+                W_expected = W
+
+            if idt == DataType.BIPOLAR:
+                x_expected = (x + 1) * 0.5
+            else:
+                x_expected = x
+
+            if idt == wdt == DataType.BIPOLAR:
+                y = xp.xnorpopcountmatmul(W_expected, x_expected.reshape(-1, 1))
+                expected = multithreshold(y.reshape(1, mh), T)
+
+            else:
+                oshape = model.get_tensor_shape("outp")
+                y = np.dot(W_expected, x_expected).reshape(oshape.shape)
+                expected = multithreshold(y.reshape(1, mh), T)
+
+            assert (produced.reshape(expected.shape) == expected).all()
+
 
 def create_noativation_testcases(idt, wdt, odt):
     mh = 8
@@ -105,19 +156,7 @@ def create_noativation_testcases(idt, wdt, odt):
             # prepare input data
             input_dict = prepare_inputs(model, x, idt)
 
-            #    # execute model
-            #  produced = oxe.execute_onnx(model, input_dict)["outp"]
-
             # expected output
-            if wdt == DataType.BIPOLAR:
-                W_expected = 2 * W - 1
-            else:
-                W_expected = W
-
-            if idt == DataType.BIPOLAR:
-                x_expected = 2 * x - 1
-            else:
-                x_expected = x
             oshape = model.get_tensor_shape("outp")
             y = np.dot(W, x).reshape(oshape)
             # XnorMul produces positive outputs only, adjust expectation accordingly
@@ -206,40 +245,9 @@ def test_fpgadataflow_fclayer_it_wbp_noact():
 
 
 def test_fpgadataflow_fclayer_all_bipolar():
-    mh = 8
-    mw = 8
+
     wdt = idt = odt = DataType.BIPOLAR
-    tdt = DataType.UINT32
-    # generate weights
-    W = gen_finn_dt_tensor(wdt, [mh, mw])
-    # single global threshold at zero
-    T = np.zeros((1, 1))
-
-    # generate input data
-    x = gen_finn_dt_tensor(idt, mw)
-
-    # set up layers with different pe and simd
-    pe_values = [1, int(mh / 2), mh]
-    simd_values = [1, int(mw / 2), mw]
-    for pe in pe_values:
-        for simd in simd_values:
-            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-
-            # prepare input data
-            input_dict = prepare_inputs(model, x, idt)
-
-            # execute model
-            produced = oxe.execute_onnx(model, input_dict)["outp"]
-
-            # expected output
-            # correction of bipolar values to enable xnorpopcountmutmal
-            Wb = (W + 1) * 0.5
-            xb = (x + 1) * 0.5
-            y = xp.xnorpopcountmatmul(Wb, xb.reshape(-1, 1))
-            expected = multithreshold(y.reshape(1, mh), T)
-
-            assert (produced.reshape(expected.shape) == expected).all()
-
+    create_testcases(idt, wdt, odt)
 
 def test_fpgadataflow_fclayer_all_signed():
     mh = 8
