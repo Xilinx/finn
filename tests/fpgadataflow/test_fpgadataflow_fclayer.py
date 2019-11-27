@@ -83,19 +83,15 @@ def prepare_inputs(model, input_tensor, idt):
     input_tensor = (np.asarray(input_tensor, dtype=np.float32)).reshape(*ishape)
     return {"inp": input_tensor} 
 
-# no activation cases
 
-# no act -all bipolar
-def test_fpgadataflow_fclayer_ibp_wbp_noact():
-    mh = 8 
+def create_noativation_testcases(idt, wdt, odt):
+    mh = 8
     mw = 8
-    wdt = idt = DataType.BIPOLAR
-    odt = DataType.UINT32
     # generate weights
     W = gen_FINN_dt_tensor(wdt, [mh, mw])
     # generate input data
     x = gen_FINN_dt_tensor(idt, mw)
-    
+
     # set up layers with different pe and simd
     pe_values = [1, int(mh/2), mh]
     simd_values = [1, int(mw/2), mw]
@@ -105,19 +101,38 @@ def test_fpgadataflow_fclayer_ibp_wbp_noact():
             # prepare input data
             input_dict = prepare_inputs(model, x, idt)
 
-            # execute model
-            produced = oxe.execute_onnx(model, input_dict)["outp"]
+        #    # execute model
+          #  produced = oxe.execute_onnx(model, input_dict)["outp"]
 
             # expected output
-            # convert to bipolar values
-            Wb = 2 * W - 1
-            xb = 2 * x - 1
+            if wdt == DataType.BIPOLAR:
+                W_expected = 2 * W - 1
+            else:
+                W_expected = W
+
+            if idt == DataType.BIPOLAR:
+                x_expected = 2 * x - 1
+            else:
+                x_expected = x
             oshape = model.get_tensor_shape("outp")
-            y = np.dot(Wb, xb).reshape(oshape.shape)
+            y = np.dot(W, x).reshape(oshape)
             # XnorMul produces positive outputs only, adjust expectation accordingly
             expected = 2 * y - mw
 
+            # execute model
+            produced = oxe.execute_onnx(model, input_dict)["outp"]
+
             assert (produced.reshape(expected.shape) == expected).all()
+
+
+# no activation cases
+
+# no act -all bipolar
+def test_fpgadataflow_fclayer_ibp_wbp_noact():
+    wdt = idt = DataType.BIPOLAR
+    odt = DataType.UINT32
+
+    create_noativation_testcases(idt, wdt, odt)
 
 # no act - all signed
 def test_fpgadataflow_fclayer_ibint2_wbint2_noact():
