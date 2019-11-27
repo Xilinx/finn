@@ -75,16 +75,21 @@ g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
     assert success
 
 
+test_shapes = [(1, 2, 4), (1, 1, 64), (2, 64)]
+
+
 def test_npy2apintstream_binary():
-    dt = DataType.BINARY
-    W = cutil.gen_finn_dt_tensor(dt, (1, 2, 4))
-    make_npy2apintstream_testcase(W, dt)
+    for test_shape in test_shapes:
+        dt = DataType.BINARY
+        W = cutil.gen_finn_dt_tensor(dt, test_shape)
+        make_npy2apintstream_testcase(W, dt)
 
 
 def test_npy2apintstream_int2():
-    dt = DataType.INT2
-    W = cutil.gen_finn_dt_tensor(dt, (1, 2, 4))
-    make_npy2apintstream_testcase(W, dt)
+    for test_shape in test_shapes:
+        dt = DataType.INT2
+        W = cutil.gen_finn_dt_tensor(dt, test_shape)
+        make_npy2apintstream_testcase(W, dt)
 
 
 def test_array2hexstring():
