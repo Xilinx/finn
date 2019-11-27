@@ -136,34 +136,16 @@ def test_fpgadataflow_fclayer_ibp_wbp_noact():
 
 # no act - all signed
 def test_fpgadataflow_fclayer_ibint2_wbint2_noact():
-    mh = 8
-    mw = 8
     wdt = idt = DataType.INT2
     odt = DataType.INT32
-    # generate weights
-    W = gen_FINN_dt_tensor(wdt, [mh, mw])
-    # generate input data
-    x = gen_FINN_dt_tensor(idt, mw)
+    create_noativation_testcases(idt, wdt, odt)
 
-    # set up layers with different pe and simd
-    pe_values = [1, int(mh/2), mh]
-    simd_values = [1, int(mw/2), mw]
-    for pe in pe_values:
-        for simd in simd_values:
-            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
-            # prepare input data
-            input_dict = prepare_inputs(model, x, idt)
+# no act - all ternary
 
-            # execute model
-            produced = oxe.execute_onnx(model, input_dict)["outp"]
-
-            # expected output
-            oshape = model.get_tensor_shape("outp")
-            y = np.dot(Wb, xb).reshape(oshape.shape)
-            # XnorMul produces positive outputs only, adjust expectation accordingly
-            expected = 2 * y - mw
-
-            assert (produced.reshape(expected.shape) == expected).all()
+def test_fpgadataflow_fclayer_ibt_wbt_noact():
+    wdt = idt = DataType.TERNARY
+    odt = DataType.INT32
+    create_noativation_testcases(idt, wdt, odt)
 
 
 
