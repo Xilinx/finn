@@ -2,7 +2,7 @@
 #include <vector>
 
 template <typename PackedT, typename ElemT, int ElemBits>
-npy2apintstream(const char * npy_path, hls::stream<PackedT> & out_stream) {
+void npy2apintstream(const char * npy_path, hls::stream<PackedT> & out_stream) {
   cnpy::NpyArray arr = cnpy::npy_load(npy_path);
   float* loaded_data = arr.data<float>();
   size_t outer_dim_elems = 1;
@@ -21,7 +21,7 @@ npy2apintstream(const char * npy_path, hls::stream<PackedT> & out_stream) {
 }
 
 template <typename PackedT, typename ElemT, int ElemBits>
-apintstream2npy(hls::stream<PackedT> & in_stream, const std::vector<size_t> & shape, const char * npy_path) {
+void apintstream2npy(hls::stream<PackedT> & in_stream, const std::vector<size_t> & shape, const char * npy_path) {
   std::vector<float> data_to_save;
   size_t outer_dim_elems = 1;
   for(size_t dim = 0; dim < shape.size()-1; dim++) {
