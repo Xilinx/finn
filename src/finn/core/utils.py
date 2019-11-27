@@ -175,6 +175,7 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
     assert (np.asarray(ret.shape, dtype=np.int32) == desired).all()
     return ret
 
+
 def gen_FINN_dt_tensor(FINN_dt, tensor_shape):
     # generates random tensor in given shape and with given FINN data type
     if FINN_dt == DataType.BIPOLAR:
@@ -187,6 +188,8 @@ def gen_FINN_dt_tensor(FINN_dt, tensor_shape):
     elif FINN_dt == DataType.INT2:
         tensor_values = np.random.randint(-2, high=1, size=tensor_shape)
     else:
-        raise ValueError("Datatype {} is not supported, no tensor could be generated".format(FINN_dt))
-    
-    return tensor_values
+        raise ValueError(
+            "Datatype {} is not supported, no tensor could be generated".format(FINN_dt)
+        )
+    # always use float type as container
+    return tensor_values.astype(np.float32)
