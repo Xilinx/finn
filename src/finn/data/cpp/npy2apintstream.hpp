@@ -1,5 +1,7 @@
 #include <iostream>
 #include "cnpy.h"
+#include "hls_stream.h"
+#include "ap_int.h"
 #include <vector>
 
 #ifdef DEBUG
