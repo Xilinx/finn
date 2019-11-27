@@ -4,9 +4,9 @@ import tempfile as tmp
 
 import numpy as np
 
+import finn.core.utils as cutil
 from finn.backend.fpgadataflow.utils import numpy_to_hls_code
 from finn.core.datatype import DataType
-from finn.core.utils import array2hexstring, pack_innermost_dim_as_hex_string
 
 
 def make_npy2apintstream_testcase(ndarray, dtype):
@@ -77,29 +77,30 @@ g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
 
 
 def test_npy2apintstream_binary():
-    W = np.random.randint(2, size=(1, 2, 4)).astype(np.float32)
-    make_npy2apintstream_testcase(W, DataType.BINARY)
+    dt = DataType.BINARY
+    W = cutil.gen_finn_dt_tensor(dt, (1, 2, 4))
+    make_npy2apintstream_testcase(W, dt)
 
 
 def test_array2hexstring():
-    assert array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) == "e"
-    assert array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) == "0e"
-    assert array2hexstring([1, 1, 1, -1], DataType.BIPOLAR, 8) == "0e"
-    assert array2hexstring([3, 3, 3, 3], DataType.UINT2, 8) == "ff"
-    assert array2hexstring([1, 3, 3, 1], DataType.UINT2, 8) == "7d"
-    assert array2hexstring([1, -1, 1, -1], DataType.INT2, 8) == "77"
-    assert array2hexstring([1, 1, 1, -1], DataType.INT4, 16) == "111f"
-    assert array2hexstring([-1], DataType.FLOAT32, 32) == "bf800000"
-    assert array2hexstring([17.125], DataType.FLOAT32, 32) == "41890000"
+    assert cutil.array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) == "e"
+    assert cutil.array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) == "0e"
+    assert cutil.array2hexstring([1, 1, 1, -1], DataType.BIPOLAR, 8) == "0e"
+    assert cutil.array2hexstring([3, 3, 3, 3], DataType.UINT2, 8) == "ff"
+    assert cutil.array2hexstring([1, 3, 3, 1], DataType.UINT2, 8) == "7d"
+    assert cutil.array2hexstring([1, -1, 1, -1], DataType.INT2, 8) == "77"
+    assert cutil.array2hexstring([1, 1, 1, -1], DataType.INT4, 16) == "111f"
+    assert cutil.array2hexstring([-1], DataType.FLOAT32, 32) == "bf800000"
+    assert cutil.array2hexstring([17.125], DataType.FLOAT32, 32) == "41890000"
 
 
 def test_pack_innermost_dim_as_hex_string():
     A = [[1, 1, 1, 0], [0, 1, 1, 0]]
     eA = np.asarray(["0e", "06"])
-    assert (pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA).all()
+    assert (cutil.pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA).all()
     B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
     eB = np.asarray([["0f", "0f"], ["07", "0d"]])
-    assert (pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB).all()
+    assert (cutil.pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB).all()
 
 
 def test_numpy_to_hls_code():
