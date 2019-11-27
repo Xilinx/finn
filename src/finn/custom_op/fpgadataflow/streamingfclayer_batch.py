@@ -6,6 +6,7 @@ import numpy as np
 
 from finn.backend.fpgadataflow.utils import numpy_to_hls_code
 from finn.core.datatype import DataType
+from finn.core.utils import interleave_matrix_outer_dim_from_partitions
 from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
@@ -85,6 +86,63 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ret["TDstI"] = "Slice<%s>" % out_hls_str
         return ret
 
+    def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
+        """Convert the original numpy weight matrix orig_weight_matrix into
+        a form suitable for passing to the hlslib call:
+        * ensure MH % PE == 0 and MW % SIMD == 0
+        * for bipolar {-1,+1} weights, convert to binary {0, 1}
+        * interleave rows between PEs
+        * reshape into (1, PE, WMEM, SIMD) and return
+        """
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        wmem = mw * mh // (pe * simd)
+        assert orig_weight_matrix.shape == (mw, mh)
+        assert mw % simd == 0
+        assert mh % pe == 0
+        ret = orig_weight_matrix
+        if self.get_weight_datatype() == DataType.BIPOLAR:
+            # convert bipolar to binary
+            ret = (ret + 1) / 2
+        # interleave rows between PEs and reshape
+        # distribute rows between PEs
+        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
+        # create SIMD as innermost dimension and add a dummy outer dim
+        ret = ret.reshape(1, pe, wmem, simd)
+        return ret
+
+    def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
+        """Convert the original numpy weight matrix orig_weight_matrix into
+        a form suitable for passing to the hlslib call:
+        * ensure MH % PE == 0
+        * for bipolar weights&inputs, ensure thresholds are positive
+        * interleave rows between PEs
+        * reshape into (PE, TMEM, n_thres_steps) and return
+        """
+        mh = self.get_nodeattr("MH")
+        pe = self.get_nodeattr("PE")
+        tmem = mh // pe
+        assert mh % pe == 0
+        assert orig_thres_matrix.ndim == 2
+        n_thres_steps = orig_thres_matrix.shape[1]
+        inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
+        wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+        if inp_is_bipolar and wt_is_bipolar:
+            assert (orig_thres_matrix >= 0).all()
+        ret = orig_thres_matrix
+        # ensure channels = mh , duplicating if necessary
+        if ret.shape[0] == 1:
+            ret = np.tile(ret, (mh, 1))
+        assert ret.shape[0] == mh
+        # distribute rows between PEs
+        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
+        assert ret.shape[0] == pe
+        assert ret.shape[1] == tmem
+        assert ret.shape[2] == n_thres_steps
+        return ret
+
     def execute_node(self, context, graph):
         node = self.onnx_node
         # make temporary directory for generated files
@@ -101,22 +159,38 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # the second input are the weights
             # the third input are the thresholds
             if in_ind == 0:
-                np.save(
-                    os.path.join(self.tmp_dir, "input_{}.npy".format(in_ind)),
-                    context[inputs],
-                )
+                simd = self.get_nodeattr("SIMD")
+                sf = int(self.get_nodeattr("MW") / simd)
+                assert context[inputs].shape == (1, sf, simd)
+                assert str(context[inputs].dtype) == "float32"
+                if self.get_input_datatype() == DataType.BIPOLAR:
+                    # store bipolar activations as binary
+                    np.save(
+                        os.path.join(self.tmp_dir, "input_{}.npy".format(in_ind)),
+                        (context[inputs] + 1) / 2,
+                    )
+                else:
+                    np.save(
+                        os.path.join(self.tmp_dir, "input_{}.npy".format(in_ind)),
+                        context[inputs],
+                    )
                 temp_files.append("{}/input_{}.npy".format(self.tmp_dir, in_ind))
             elif in_ind == 1:
                 weights = context[inputs]
-                # transpose and expand the weights to get the right shape
-                # for the code generation
-                weights = np.expand_dims(weights, 0)
-                weights = numpy_to_hls_code(
-                    weights, self.get_weight_datatype(), "weights", True, True
+                # convert weights into hlslib-compatible format
+                weight_tensor = self.get_hls_compatible_weight_tensor(weights)
+                export_wdt = self.get_weight_datatype()
+                # we have converted bipolar weights to binary for export,
+                # so use it as such for weight generation
+                if self.get_weight_datatype() == DataType.BIPOLAR:
+                    export_wdt = DataType.BINARY
+                weight_hls_code = numpy_to_hls_code(
+                    weight_tensor, export_wdt, "weights", True, True
                 )
-
                 # write weights into params.h
                 f_weights = open("{}/params.h".format(self.tmp_dir), "w")
+                # TODO fix this for non-1-bit weights, needs FixedPointWeights
+                assert export_wdt.bitwidth() == 1
                 f_weights.write(
                     "static BinaryWeights<{},{},{}> weights = ".format(
                         self.get_nodeattr("SIMD"),
@@ -124,28 +198,41 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                         self.get_nodeattr("WMEM"),
                     )
                 )
-                f_weights.write(weights)
+                f_weights.write(weight_hls_code)
                 f_weights.close()
                 temp_files.append("{}/params.h".format(self.tmp_dir))
 
-            else:
+            elif in_ind == 2:
                 thresholds = context[inputs]
-                thresholds = np.expand_dims(thresholds, 0)
-                thresholds = numpy_to_hls_code(
-                    thresholds, DataType.UINT32, "thresholds", True, True
+                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                tdt = DataType.INT32
+                # use UINT32 threshold export for bipolar times bipolar
+                inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
+                wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+                if inp_is_bipolar and wt_is_bipolar:
+                    tdt = DataType.UINT32
+                thresholds_hls_code = numpy_to_hls_code(
+                    threshold_tensor, tdt, "thresholds", False, True
                 )
-
                 # write weights into thresh.h
                 f_thresh = open("{}/thresh.h".format(self.tmp_dir), "w")
+                tdt_hls = tdt.get_hls_datatype_str()
+                odt_hls = self.get_output_datatype().get_hls_datatype_str()
                 f_thresh.write(
-                    """static ThresholdsActivation<{},{},1,ap_uint<16>,
-                    ap_uint<1>> threshs = """.format(
-                        self.get_nodeattr("TMEM"), self.get_nodeattr("PE")
+                    "static ThresholdsActivation<{},{},{},{},{},{}> threshs = ".format(
+                        self.get_nodeattr("TMEM"),
+                        self.get_nodeattr("PE"),
+                        threshold_tensor.shape[-1],
+                        tdt_hls,
+                        odt_hls,
+                        self.get_nodeattr("ActVal"),
                     )
                 )
-                f_thresh.write(thresholds)
+                f_thresh.write(thresholds_hls_code)
                 f_thresh.close()
                 temp_files.append("{}/thresh.h".format(self.tmp_dir))
+            else:
+                raise Exception("Unexpected input found for StreamingFCLayer")
 
             in_ind += 1
 
