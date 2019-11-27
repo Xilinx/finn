@@ -155,7 +155,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # c++ compilation and execution flow
         temp_files.append("{}/execute_{}.cpp".format(self.tmp_dir, node.op_type))
         bash_compile = """g++ -o {}/execute_{} {}/execute_{}.cpp
-        /workspace/cnpy/cnpy.cpp -I/workspace/cnpy/
+        /workspace/cnpy/cnpy.cpp -I/workspace/finn/src/finn/data/cpp -I/workspace/cnpy/
         -I/workspace/finn-hlslib -I/workspace/vivado-hlslib
         --std=c++11 -lz""".format(
             self.tmp_dir, node.op_type, self.tmp_dir, node.op_type
@@ -202,35 +202,18 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ]
 
     def read_npy_data(self):
-        # c++ code to read out an npy file
-        # and put it in hls::stream in the correct order
+        dtype = self.get_input_datatype()
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_instream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_in = "%s/input_0.npy" % self.tmp_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            """cnpy::NpyArray arr0 = cnpy::npy_load("{}/input_0.npy");\n
-                float* loaded_data0 = arr0.data<float>();""".format(
-                self.tmp_dir
-            )
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
+            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
         )
-
-        self.code_gen_dict["$READNPYDATA$"].append(
-            """int num_values0 = 1; \n
-                for(int i = 0; i < arr0.shape.size(); i++){{\n
-                    num_values0 *= arr0.shape[i]; \n }}"""
-        )
-        self.code_gen_dict["$READNPYDATA$"].append(
-            "ap_uint<{}> dat0;".format(self.get_nodeattr("SIMD"))
-        )
-        self.code_gen_dict["$READNPYDATA$"].append(
-            "for(int i=0; i < num_values0/{}; i++){{".format(self.get_nodeattr("SIMD"))
-        )
-        for line in range(self.get_nodeattr("SIMD")):
-            self.code_gen_dict["$READNPYDATA$"].append(
-                "dat0.range({},{}) = loaded_data0[i+((num_values0/{})*{})];".format(
-                    line, line, self.get_nodeattr("SIMD"), line
-                )
-            )
-        self.code_gen_dict["$READNPYDATA$"].append("in0 << dat0;")
-        self.code_gen_dict["$READNPYDATA$"].append("}")
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
@@ -262,41 +245,28 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ]
 
     def dataoutstrm(self):
+        dtype = self.get_output_datatype()
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_outstream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_out = "%s/output.npy" % self.tmp_dir
+        nf = int(self.get_nodeattr("MH") / self.get_nodeattr("PE"))
+        shape = (1, nf, self.get_nodeattr("PE"))
+        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
+
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            "ap_uint<{}> out_data;\n std::vector<ap_uint<{}>> out_data_vector;".format(
-                self.get_nodeattr("PE"), self.get_nodeattr("PE")
+            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                shape_cpp_str,
+                npy_out,
             )
         ]
-        self.code_gen_dict["$DATAOUTSTREAM$"].append("while(out.read_nb(out_data)){")
-        self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            "out_data_vector.push_back(out_data);\n}"
-        )
-        self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            "std::vector<float> output_data_vector;"
-        )
-        self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            """for(std::vector<ap_uint<{}>>::iterator it = out_data_vector.begin();
-            it != out_data_vector.end(); ++it){{""".format(
-                self.get_nodeattr("PE")
-            )
-        )
-        self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            "ap_uint<{}> output_data = *it;".format(self.get_nodeattr("PE"))
-        )
-        for element in range(self.get_nodeattr("PE")):
-            self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                "output_data_vector.push_back(output_data.range({},{}));".format(
-                    element, element
-                )
-            )
-        self.code_gen_dict["$DATAOUTSTREAM$"].append("}")
 
     def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = [
-            """cnpy::npy_save("{}/output.npy",&output_data_vector[0],
-            {{1,{},{}}},"w");""".format(
-                self.tmp_dir,
-                int(self.get_nodeattr("MH") / self.get_nodeattr("PE")),
-                int(self.get_nodeattr("PE")),
-            )
-        ]
+        self.code_gen_dict["$SAVEASCNPY$"] = []
