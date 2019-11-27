@@ -135,17 +135,67 @@ def test_fpgadataflow_fclayer_ibp_wbp_noact():
     create_noativation_testcases(idt, wdt, odt)
 
 # no act - all signed
-def test_fpgadataflow_fclayer_ibint2_wbint2_noact():
+def test_fpgadataflow_fclayer_iint2_wint2_noact():
     wdt = idt = DataType.INT2
     odt = DataType.INT32
     create_noativation_testcases(idt, wdt, odt)
 
 # no act - all ternary
 
-def test_fpgadataflow_fclayer_ibt_wbt_noact():
+def test_fpgadataflow_fclayer_it_wt_noact():
     wdt = idt = DataType.TERNARY
     odt = DataType.INT32
     create_noativation_testcases(idt, wdt, odt)
+
+# no act - idt: bipolar wdt: signed
+
+def test_fpgadataflow_fclayer_ibp_wint2_noact():
+    wdt = DataType.INT2
+    idt = DataType.BIPOLAR
+    odt = DataType.INT32
+    create_noativation_testcases(idt, wdt, odt)
+
+# no act - idt: bipolar wdt: ternary
+
+def test_fpgadataflow_fclayer_ibp_wt_noact():
+    wdt = DataType.INT2
+    idt = DataType.TERNARY
+    odt = DataType.INT32
+    create_noativation_testcases(idt, wdt, odt)
+
+# no act - idt: signed wdt: bipolar
+
+def test_fpgadataflow_fclayer_it_wbp_noact():
+    wdt = DataType.BIPOLAR
+    idt = DataType.INT2
+    odt = DataType.INT32
+    create_noativation_testcases(idt, wdt, odt)
+
+# no act - idt: signed wdt: ternary
+
+def test_fpgadataflow_fclayer_it_wbp_noact():
+    wdt = DataType.TERNARY
+    idt = DataType.INT2
+    odt = DataType.INT32
+    create_noativation_testcases(idt, wdt, odt)
+
+# no act - idt: ternary wdt: bipolar
+
+def test_fpgadataflow_fclayer_it_wbp_noact():
+    wdt = DataType.BIPOLAR
+    idt = DataType.TERNARY
+    odt = DataType.INT32
+    create_noativation_testcases(idt, wdt, odt)
+    
+# no act - idt: ternary wdt: signed
+
+def test_fpgadataflow_fclayer_it_wbp_noact():
+    wdt = DataType.INT2
+    idt = DataType.TERNARY
+    odt = DataType.INT32
+    create_noativation_testcases(idt, wdt, odt)
+
+
 
 
 
