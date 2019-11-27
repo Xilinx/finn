@@ -31,7 +31,6 @@ def make_npy2apintstream_testcase(ndarray, dtype):
     }
     npy_type = npyt_to_ct[str(ndarray.dtype)]
     shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
-    assert dtype.signed() is False
     test_app_string = []
     test_app_string += ['#include "ap_int.h"']
     test_app_string += ['#include "stdint.h"']
@@ -78,6 +77,12 @@ g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
 
 def test_npy2apintstream_binary():
     dt = DataType.BINARY
+    W = cutil.gen_finn_dt_tensor(dt, (1, 2, 4))
+    make_npy2apintstream_testcase(W, dt)
+
+
+def test_npy2apintstream_int2():
+    dt = DataType.INT2
     W = cutil.gen_finn_dt_tensor(dt, (1, 2, 4))
     make_npy2apintstream_testcase(W, dt)
 
