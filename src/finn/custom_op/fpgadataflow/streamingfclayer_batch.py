@@ -112,7 +112,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 # for the code generation
                 weights = np.expand_dims(weights, 0)
                 weights = numpy_to_hls_code(
-                    weights, DataType.BINARY, "weights", True, True
+                    weights, self.get_weight_datatype(), "weights", True, True
                 )
 
                 # write weights into params.h
@@ -132,7 +132,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 thresholds = context[inputs]
                 thresholds = np.expand_dims(thresholds, 0)
                 thresholds = numpy_to_hls_code(
-                    thresholds, DataType.BINARY, "thresholds", True, True
+                    thresholds, DataType.UINT32, "thresholds", True, True
                 )
 
                 # write weights into thresh.h
