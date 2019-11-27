@@ -149,5 +149,36 @@ def test_fpgadataflow_fclayer_all_bipolar():
 
             assert (produced.reshape(expected.shape) == expected).all()
 
+def test_fpgadataflow_fclayer_all_signed():
+    mh = 8
+    mw = 8
+    wdt = idt = odt = DataType.INT2
+    tdt = DataType.INT32
+    # generate weights
+    W = gen_FINN_dt_tensor(wdt, [mh, mw])
+    # single global threshold at zero
+    T = np.zeros((1, 1))
+
+    # generate input data
+    x = gen_FINN_dt_tensor(idt, mw)
+
+    # set up layers with different pe and simd
+    pe_values = [1, int(mh/2), mh]
+    simd_values = [1, int(mw/2), mw]
+    for pe in pe_values:
+        for simd in simd_values:
+            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+            # prepare input data
+            input_dict = prepare_inputs(model, x, idt)
+
+            # execute model
+            produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+            # expected output
+            oshape = model.get_tensor_shape("outp")
+            y = np.dot(W, x).reshape(oshape.shape)
+            expected = multithreshold(y.reshape(1, mh), T)
+
+            assert (produced.reshape(expected.shape) == expected).all()
 
 
