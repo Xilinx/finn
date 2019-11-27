@@ -83,8 +83,9 @@ def prepare_inputs(model, input_tensor, idt):
     input_tensor = (np.asarray(input_tensor, dtype=np.float32)).reshape(*ishape)
     return {"inp": input_tensor} 
 
+# no activation cases
 
-
+# no act -all bipolar
 def test_fpgadataflow_fclayer_ibp_wbp_noact():
     mh = 8 
     mw = 8
@@ -113,9 +114,45 @@ def test_fpgadataflow_fclayer_ibp_wbp_noact():
             xb = 2 * x - 1
             oshape = model.get_tensor_shape("outp")
             y = np.dot(Wb, xb).reshape(oshape.shape)
+            # XnorMul produces positive outputs only, adjust expectation accordingly
             expected = 2 * y - mw
 
             assert (produced.reshape(expected.shape) == expected).all()
+
+# no act - all signed
+def test_fpgadataflow_fclayer_ibint2_wbint2_noact():
+    mh = 8
+    mw = 8
+    wdt = idt = DataType.INT2
+    odt = DataType.INT32
+    # generate weights
+    W = gen_FINN_dt_tensor(wdt, [mh, mw])
+    # generate input data
+    x = gen_FINN_dt_tensor(idt, mw)
+
+    # set up layers with different pe and simd
+    pe_values = [1, int(mh/2), mh]
+    simd_values = [1, int(mw/2), mw]
+    for pe in pe_values:
+        for simd in simd_values:
+            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
+            # prepare input data
+            input_dict = prepare_inputs(model, x, idt)
+
+            # execute model
+            produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+            # expected output
+            oshape = model.get_tensor_shape("outp")
+            y = np.dot(Wb, xb).reshape(oshape.shape)
+            # XnorMul produces positive outputs only, adjust expectation accordingly
+            expected = 2 * y - mw
+
+            assert (produced.reshape(expected.shape) == expected).all()
+
+
+
+
 
 def test_fpgadataflow_fclayer_all_bipolar():
     mh = 8 
