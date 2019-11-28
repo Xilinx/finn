@@ -78,10 +78,6 @@ def create_noactivation_testcases(idt, wdt, odt):
     mh = 8
     mw = 8
 
-    if idt == wdt == DataType.BIPOLAR:
-        tdt = DataType.UINT32
-    else:
-        tdt = DataType.INT32
     # generate weights
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # generate input data
