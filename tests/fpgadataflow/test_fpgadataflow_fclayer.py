@@ -75,9 +75,9 @@ def prepare_inputs(model, input_tensor, idt):
 
 
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType.INT2])
+@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.INT2])
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
 # neuron folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 1])
 # synapse folding, -1 is maximum possible
