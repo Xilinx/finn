@@ -189,15 +189,24 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
                 # write weights into params.h
                 f_weights = open("{}/params.h".format(self.tmp_dir), "w")
-                # TODO fix this for non-1-bit weights, needs FixedPointWeights
-                assert export_wdt.bitwidth() == 1
-                f_weights.write(
-                    "static BinaryWeights<{},{},{}> weights = ".format(
-                        self.get_nodeattr("SIMD"),
-                        self.get_nodeattr("PE"),
-                        self.get_nodeattr("WMEM"),
+
+                if export_wdt.bitwidth() != 1:
+                    f_weights.write(
+                        "static FixedPointWeights<{},{},{},{}> weights = ".format(
+                            self.get_nodeattr("SIMD"),
+                            export_wdt.get_hls_datatype_str(),
+                            self.get_nodeattr("PE"),
+                            self.get_nodeattr("WMEM"),
+                        )
                     )
-                )
+                else:
+                    f_weights.write(
+                        "static BinaryWeights<{},{},{}> weights = ".format(
+                            self.get_nodeattr("SIMD"),
+                            self.get_nodeattr("PE"),
+                            self.get_nodeattr("WMEM"),
+                        )
+                    )
                 f_weights.write(weight_hls_code)
                 f_weights.close()
                 temp_files.append("{}/params.h".format(self.tmp_dir))
