@@ -284,7 +284,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     def defines(self):
-        numReps = 2
+        numReps = 1
         self.code_gen_dict["$DEFINES$"] = [
             """#define MW1 {}\n #define MH1 {}\n #define SIMD1 {}\n
             #define PE1 {}\n #define WMEM1 {}\n #define TMEM1 {}\n
