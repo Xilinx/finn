@@ -71,7 +71,13 @@ def prepare_inputs(model, input_tensor, idt):
     return {"inp": input_tensor}
 
 
-def create_noactivation_testcases(idt, wdt, mh=8, mw=8):
+@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("pe", [1, 2, 4])
+@pytest.mark.parametrize("simd", [1, 2, 4])
+def test_fpgadataflow_fclayer_noact(idt, wdt, pe, simd):
+    mh = 4
+    mw = 4
     if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
         odt = DataType.UINT32
     else:
@@ -81,28 +87,17 @@ def create_noactivation_testcases(idt, wdt, mh=8, mw=8):
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, mw))
 
-    # set up layers with different pe and simd
-    pe_values = [1, int(mh / 2), mh]
-    simd_values = [1, int(mw / 2), mw]
-    for pe in pe_values:
-        for simd in simd_values:
-            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
 
-            # prepare input data
-            input_dict = prepare_inputs(model, x, idt)
-            if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
-                # convert inputs to binary and use xnorpopcountmatmul
-                y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
-            else:
-                y = np.matmul(x, W)
-            oshape = model.get_tensor_shape("outp")
-            y_expected = y.reshape(oshape)
-            # execute model
-            y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-            assert (y_produced.reshape(y_expected.shape) == y_expected).all()
-
-
-@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
-@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
-def test_fpgadataflow_fclayer_noact(wdt, idt):
-    create_noactivation_testcases(idt, wdt)
+    # prepare input data
+    input_dict = prepare_inputs(model, x, idt)
+    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+        # convert inputs to binary and use xnorpopcountmatmul
+        y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
+    else:
+        y = np.matmul(x, W)
+    oshape = model.get_tensor_shape("outp")
+    y_expected = y.reshape(oshape)
+    # execute model
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced.reshape(y_expected.shape) == y_expected).all()
