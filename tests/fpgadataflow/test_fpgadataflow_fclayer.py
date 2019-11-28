@@ -71,13 +71,27 @@ def prepare_inputs(model, input_tensor, idt):
     return {"inp": input_tensor}
 
 
-@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
-@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
-@pytest.mark.parametrize("pe", [1, 2, 4])
-@pytest.mark.parametrize("simd", [1, 2, 4])
-def test_fpgadataflow_fclayer_noact(idt, wdt, pe, simd):
-    mh = 4
-    mw = 4
+# weight datatype
+@pytest.mark.parametrize("wdt", [DataType.INT2])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType.INT2])
+# neuron folding, -1 is maximum possible
+@pytest.mark.parametrize("nf", [-1])
+# synapse folding, -1 is maximum possible
+@pytest.mark.parametrize("sf", [-1])
+# HLS matrix width (input features)
+@pytest.mark.parametrize("mw", [4])
+# HLS matrix height (output features)
+@pytest.mark.parametrize("mh", [4])
+def test_fpgadataflow_fclayer_noact(idt, wdt, nf, sf, mw, mh):
+    if nf == -1:
+        nf = mh
+    if sf == -1:
+        sf = mw
+    pe = mh // nf
+    simd = mw // sf
+    assert mh % pe == 0
+    assert mw % sf == 0
     if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
         odt = DataType.UINT32
     else:
@@ -86,9 +100,7 @@ def test_fpgadataflow_fclayer_noact(idt, wdt, pe, simd):
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, mw))
-
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
-
     # prepare input data
     input_dict = prepare_inputs(model, x, idt)
     if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
