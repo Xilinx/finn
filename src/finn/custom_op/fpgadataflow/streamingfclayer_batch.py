@@ -67,6 +67,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
         # fill in TSrcI and TWeightI
+        # TODO check these with Giulio
+        # TODO handle non-bipolar binary inputs
         if inp_is_bipolar and wt_is_bipolar:
             ret["TSrcI"] = "Recast<XnorMul>"
             ret["TWeightI"] = "Identity"
@@ -78,7 +80,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ret["TWeightI"] = "Slice<%s>" % wt_hls_str
         elif (not inp_is_bipolar) and (not wt_is_bipolar):
             ret["TSrcI"] = "Slice<%s>" % inp_hls_str
-            ret["TWeightI"] = "Slice<%s>" % wt_hls_str
+            ret["TWeightI"] = "Identity"
         # fill in TDstI
         if out_is_bipolar:
             ret["TDstI"] = "Identity"
