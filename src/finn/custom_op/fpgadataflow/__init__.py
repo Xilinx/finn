@@ -9,6 +9,7 @@ class HLSCustomOp(CustomOp):
         # template for single node execution
         self.docompute_template = """
         #include "cnpy.h"
+        #include "npy2apintstream.hpp"
         #include <vector>
         #include "bnn-library.h"
 
