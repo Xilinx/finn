@@ -56,7 +56,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def get_template_param_values(self):
         ret = dict()
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
-        wt_hls_str = self.get_weight_datatype().get_hls_datatype_str()
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
         inp_is_binary = self.get_input_datatype() == DataType.BINARY
         out_is_binary = self.get_output_datatype() == DataType.BINARY
@@ -77,7 +76,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ret["TWeightI"] = "Recast<Binary>"
         elif inp_is_bipolar and (not wt_is_bipolar):
             ret["TSrcI"] = "Recast<Binary>"
-            ret["TWeightI"] = "Slice<%s>" % wt_hls_str
+            ret["TWeightI"] = "Identity"
         elif (not inp_is_bipolar) and (not wt_is_bipolar):
             ret["TSrcI"] = "Slice<%s>" % inp_hls_str
             ret["TWeightI"] = "Identity"
