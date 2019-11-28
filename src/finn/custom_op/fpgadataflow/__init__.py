@@ -37,6 +37,8 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict = {}
 
         self.tmp_dir = " "
+        self.code_gen_dir = " "
+        self.executable_path = " "
 
     def code_generation(self):
         node = self.onnx_node
