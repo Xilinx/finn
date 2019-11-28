@@ -68,6 +68,9 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
 def prepare_inputs(model, input_tensor, idt):
     ishape = model.get_tensor_shape("inp")
     input_tensor = (np.asarray(input_tensor, dtype=np.float32)).reshape(*ishape)
+    # flip SIMD (innermost) dimension of input tensor, there's some reversal
+    # going on somewhere with a mistmatch between npy and hls...
+    input_tensor = np.flip(input_tensor, -1)
     return {"inp": input_tensor}
 
 
@@ -76,9 +79,9 @@ def prepare_inputs(model, input_tensor, idt):
 # input datatype
 @pytest.mark.parametrize("idt", [DataType.INT2])
 # neuron folding, -1 is maximum possible
-@pytest.mark.parametrize("nf", [-1])
+@pytest.mark.parametrize("nf", [-1, 1])
 # synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [-1])
+@pytest.mark.parametrize("sf", [-1, 1])
 # HLS matrix width (input features)
 @pytest.mark.parametrize("mw", [4])
 # HLS matrix height (output features)
