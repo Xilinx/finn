@@ -7,6 +7,7 @@ WORKDIR /workspace
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
+RUN apt update; apt install nano
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
