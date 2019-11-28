@@ -104,7 +104,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         assert orig_weight_matrix.shape == (mw, mh)
         assert mw % simd == 0
         assert mh % pe == 0
-        ret = orig_weight_matrix
+        # start by transposing the original weight matrix, since ONNX and
+        # finn-hlslib use different assumptions
+        # ONNX uses (in_features, out_features) and matmul(x, W)
+        # finn-hlslib uses (out_features, in_features) and matmul(W, x)
+        ret = orig_weight_matrix.T
         if self.get_weight_datatype() == DataType.BIPOLAR:
             # convert bipolar to binary
             ret = (ret + 1) / 2
