@@ -25,6 +25,7 @@ void npy2apintstream(const char * npy_path, hls::stream<PackedT> & out_stream) {
     outer_dim_elems *= arr.shape[dim];
   }
   size_t inner_dim_elems = arr.shape[arr.shape.size()-1];
+  DEBUG_NPY2APINTSTREAM("n_outer " << outer_dim_elems << " n_inner " << inner_dim_elems)
   for(size_t outer_elem = 0; outer_elem < outer_dim_elems; outer_elem++) {
     PackedT packed_elem = 0;
     for(size_t i = 0; i < inner_dim_elems; i++) {
@@ -47,7 +48,7 @@ void apintstream2npy(hls::stream<PackedT> & in_stream, const std::vector<size_t>
     outer_dim_elems *= shape[dim];
   }
   size_t inner_dim_elems = shape[shape.size()-1];
-
+  DEBUG_NPY2APINTSTREAM("n_outer " << outer_dim_elems << " n_inner " << inner_dim_elems)
   for(size_t outer_elem = 0; outer_elem < outer_dim_elems; outer_elem++) {
     PackedT packed_elem;
     in_stream >> packed_elem;
