@@ -183,11 +183,9 @@ def gen_finn_dt_tensor(finn_dt, tensor_shape):
         tensor_values = 2 * tensor_values - 1
     elif finn_dt == DataType.BINARY:
         tensor_values = np.random.randint(2, size=tensor_shape)
-    elif finn_dt == DataType.TERNARY:
-        tensor_values = np.random.randint(-1, high=1, size=tensor_shape)
-    elif "INT" in finn_dt.name:
+    elif "INT" in finn_dt.name or finn_dt == DataType.TERNARY:
         tensor_values = np.random.randint(
-            finn_dt.min(), high=finn_dt.max(), size=tensor_shape
+            finn_dt.min(), high=finn_dt.max() + 1, size=tensor_shape
         )
     else:
         raise ValueError(
