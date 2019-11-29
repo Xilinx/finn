@@ -29,7 +29,7 @@ def test_code_gen_trafo():
         ["outp"],
         domain="finn",
         backend="fpgadataflow",
-        code_gen_dir="dummy_directory",
+        code_gen_dir="",
         executable_path="",
         resType="ap_resource_lut()",
         MW=mw,
@@ -58,5 +58,8 @@ def test_code_gen_trafo():
     T = np.zeros((1, 1))
     model.set_initializer("thresh", T)
 
-    for nodes in model.graph.node:
-        cg_trafo.code_gen_transformation(nodes)
+    context = {}
+    context["weights"] = W
+    context["threshs"] = T
+    for node in model.graph.node:
+        cg_trafo.code_gen_transformation(node, context)
