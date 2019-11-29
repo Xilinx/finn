@@ -1,6 +1,7 @@
 from abc import abstractmethod
 import os
 from finn.custom_op import CustomOp
+import finn.core.utils as util
 
 
 class HLSCustomOp(CustomOp):
@@ -36,9 +37,9 @@ class HLSCustomOp(CustomOp):
         """
         self.code_gen_dict = {}
 
-        self.tmp_dir = " "
-        self.code_gen_dir = " "
-        self.executable_path = " "
+        self.tmp_dir = ""
+        self.code_gen_dir = (util.get_by_name(onnx_node.attribute, "code_gen_dir")).s
+        self.executable_path = ""
 
     def code_generation(self):
         node = self.onnx_node

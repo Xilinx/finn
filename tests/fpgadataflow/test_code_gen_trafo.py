@@ -16,7 +16,7 @@ def test_code_gen_trafo():
         ["out"],
         domain="finn",
         backend="fpgadataflow",
-        code_gen_dir="",
+        code_gen_dir="hifch",
         executable_path="",
         ImgDim=4,
         PoolDim=2,
@@ -109,4 +109,5 @@ def test_code_gen_trafo():
     ).reshape(2, 2, 4, 4)
 
     input_dict = {"in": input_tensor}
-    # cg_trafo.
+    for nodes in model.graph.node:
+        cg_trafo.code_gen_transformation(nodes)
