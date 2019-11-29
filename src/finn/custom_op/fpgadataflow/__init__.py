@@ -38,11 +38,15 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict = {}
 
         self.tmp_dir = ""
-        self.code_gen_dir = (util.get_by_name(onnx_node.attribute, "code_gen_dir")).s
+        self.code_gen_dir = util.get_by_name(onnx_node.attribute, "code_gen_dir")
         self.executable_path = ""
 
-    def code_generation(self):
+    def code_generation(self, context):
         node = self.onnx_node
+        if "weights" in context:
+            self.generate_weights(context)
+        if "thresh" in context:
+            self.generate_thresholds(context)
         self.global_includes()
         self.defines()
         self.read_npy_data()
@@ -61,6 +65,14 @@ class HLSCustomOp(CustomOp):
         f = open(os.path.join(self.tmp_dir, "execute_{}.cpp".format(node.op_type)), "w")
         f.write(template)
         f.close()
+
+    @abstractmethod
+    def generate_weights(self, context):
+        pass
+
+    @abstractmethod
+    def generate_thresholds(self, context):
+        pass
 
     @abstractmethod
     def global_includes(self):

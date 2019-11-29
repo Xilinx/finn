@@ -148,6 +148,71 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         assert ret.shape[2] == n_thres_steps
         return ret
 
+    def generate_weights(self, context):
+
+        weights = context["weights"]
+        # convert weights into hlslib-compatible format
+        weight_tensor = self.get_hls_compatible_weight_tensor(weights)
+        export_wdt = self.get_weight_datatype()
+        # we have converted bipolar weights to binary for export,
+        # so use it as such for weight generation
+        if self.get_weight_datatype() == DataType.BIPOLAR:
+            export_wdt = DataType.BINARY
+        weight_hls_code = numpy_to_hls_code(
+            weight_tensor, export_wdt, "weights", True, True
+        )
+        # write weights into params.h
+        f_weights = open("{}/params.h".format(self.tmp_dir), "w")
+
+        if export_wdt.bitwidth() != 1:
+            f_weights.write(
+                "static FixedPointWeights<{},{},{},{}> weights = ".format(
+                    self.get_nodeattr("SIMD"),
+                    export_wdt.get_hls_datatype_str(),
+                    self.get_nodeattr("PE"),
+                    self.get_nodeattr("WMEM"),
+                )
+            )
+        else:
+            f_weights.write(
+                "static BinaryWeights<{},{},{}> weights = ".format(
+                    self.get_nodeattr("SIMD"),
+                    self.get_nodeattr("PE"),
+                    self.get_nodeattr("WMEM"),
+                )
+            )
+        f_weights.write(weight_hls_code)
+        f_weights.close()
+
+    def generate_thresholds(self, context):
+        thresholds = context["thresh"]
+        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+        tdt = DataType.INT32
+        # use UINT32 threshold export for bipolar times bipolar
+        inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
+        wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+        if inp_is_bipolar and wt_is_bipolar:
+            tdt = DataType.UINT32
+        thresholds_hls_code = numpy_to_hls_code(
+            threshold_tensor, tdt, "thresholds", False, True
+        )
+        # write thresholds into thresh.h
+        f_thresh = open("{}/thresh.h".format(self.tmp_dir), "w")
+        tdt_hls = tdt.get_hls_datatype_str()
+        odt_hls = self.get_output_datatype().get_hls_datatype_str()
+        f_thresh.write(
+            "static ThresholdsActivation<{},{},{},{},{},{}> threshs = ".format(
+                self.get_nodeattr("TMEM"),
+                self.get_nodeattr("PE"),
+                threshold_tensor.shape[-1],
+                tdt_hls,
+                odt_hls,
+                self.get_nodeattr("ActVal"),
+            )
+        )
+        f_thresh.write(thresholds_hls_code)
+        f_thresh.close()
+
     def execute_node(self, context, graph):
         node = self.onnx_node
         # make temporary directory for generated files
@@ -180,78 +245,16 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                         context[inputs],
                     )
                 temp_files.append("{}/input_{}.npy".format(self.tmp_dir, in_ind))
-            elif in_ind == 1:
-                weights = context[inputs]
-                # convert weights into hlslib-compatible format
-                weight_tensor = self.get_hls_compatible_weight_tensor(weights)
-                export_wdt = self.get_weight_datatype()
-                # we have converted bipolar weights to binary for export,
-                # so use it as such for weight generation
-                if self.get_weight_datatype() == DataType.BIPOLAR:
-                    export_wdt = DataType.BINARY
-                weight_hls_code = numpy_to_hls_code(
-                    weight_tensor, export_wdt, "weights", True, True
-                )
-                # write weights into params.h
-                f_weights = open("{}/params.h".format(self.tmp_dir), "w")
-
-                if export_wdt.bitwidth() != 1:
-                    f_weights.write(
-                        "static FixedPointWeights<{},{},{},{}> weights = ".format(
-                            self.get_nodeattr("SIMD"),
-                            export_wdt.get_hls_datatype_str(),
-                            self.get_nodeattr("PE"),
-                            self.get_nodeattr("WMEM"),
-                        )
-                    )
-                else:
-                    f_weights.write(
-                        "static BinaryWeights<{},{},{}> weights = ".format(
-                            self.get_nodeattr("SIMD"),
-                            self.get_nodeattr("PE"),
-                            self.get_nodeattr("WMEM"),
-                        )
-                    )
-                f_weights.write(weight_hls_code)
-                f_weights.close()
-                temp_files.append("{}/params.h".format(self.tmp_dir))
-
-            elif in_ind == 2:
-                thresholds = context[inputs]
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-                tdt = DataType.INT32
-                # use UINT32 threshold export for bipolar times bipolar
-                inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-                wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
-                if inp_is_bipolar and wt_is_bipolar:
-                    tdt = DataType.UINT32
-                thresholds_hls_code = numpy_to_hls_code(
-                    threshold_tensor, tdt, "thresholds", False, True
-                )
-                # write weights into thresh.h
-                f_thresh = open("{}/thresh.h".format(self.tmp_dir), "w")
-                tdt_hls = tdt.get_hls_datatype_str()
-                odt_hls = self.get_output_datatype().get_hls_datatype_str()
-                f_thresh.write(
-                    "static ThresholdsActivation<{},{},{},{},{},{}> threshs = ".format(
-                        self.get_nodeattr("TMEM"),
-                        self.get_nodeattr("PE"),
-                        threshold_tensor.shape[-1],
-                        tdt_hls,
-                        odt_hls,
-                        self.get_nodeattr("ActVal"),
-                    )
-                )
-                f_thresh.write(thresholds_hls_code)
-                f_thresh.close()
-                temp_files.append("{}/thresh.h".format(self.tmp_dir))
-            else:
+            elif in_ind > 2:
                 raise Exception("Unexpected input found for StreamingFCLayer")
 
             in_ind += 1
 
+        temp_files.append("{}/params.h".format(self.tmp_dir))
+        temp_files.append("{}/thresh.h".format(self.tmp_dir))
+
         # code generation
-        self.code_generation()
+        self.code_generation(context)
 
         # c++ compilation and execution flow
         temp_files.append("{}/execute_{}.cpp".format(self.tmp_dir, node.op_type))

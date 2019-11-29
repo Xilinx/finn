@@ -12,7 +12,7 @@ def code_gen_transformation(node):
         # get the path of the code generation directory if already set
         # check instance and check node attributes for value
         code_gen_dir = inst.code_gen_dir
-
+        print(code_gen_dir)
         # parameter is empty
         if not code_gen_dir:
             print("parameter is empty")

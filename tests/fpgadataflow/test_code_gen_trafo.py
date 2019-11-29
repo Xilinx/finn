@@ -1,113 +1,62 @@
 import numpy as np
 from onnx import TensorProto, helper
 
+import finn.core.utils as util
 import finn.transformation.code_gen_transformation as cg_trafo
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 
 
 def test_code_gen_trafo():
-    inp = helper.make_tensor_value_info("in", TensorProto.FLOAT, [2, 2, 4, 4])
-    outp = helper.make_tensor_value_info("out", TensorProto.FLOAT, [2, 2, 2, 2])
+    idt = wdt = odt = DataType.BIPOLAR
+    tdt = DataType.UINT32
+    mw = 8
+    mh = 8
+    pe = 4
+    simd = 4
+    wmem = mw * mh // (pe * simd)
+    assert mw * mh == wmem * pe * simd
+    nf = mh // pe
+    sf = mw // simd
+    tmem = nf
 
-    MaxPool_batch_node = helper.make_node(
-        "StreamingMaxPool_Batch",
-        ["in"],
-        ["out"],
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
+    node_inp_list = ["inp", "weights", "thresh"]
+    FCLayer_node = helper.make_node(
+        "StreamingFCLayer_Batch",
+        node_inp_list,
+        ["outp"],
         domain="finn",
         backend="fpgadataflow",
-        code_gen_dir="hifch",
+        code_gen_dir="dummy_directory",
         executable_path="",
-        ImgDim=4,
-        PoolDim=2,
-        NumChannels=2,
+        resType="ap_resource_lut()",
+        MW=mw,
+        MH=mh,
+        SIMD=simd,
+        PE=pe,
+        WMEM=wmem,
+        TMEM=tmem,
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
+        outputDataType=odt.name,
+    )
+    graph = helper.make_graph(
+        nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]
     )
 
-    graph = helper.make_graph(
-        nodes=[MaxPool_batch_node],
-        name="max_pool_batch_graph",
-        inputs=[inp],
-        outputs=[outp],
-    )
-    model = helper.make_model(graph, producer_name="finn-hls-onnx-model")
+    model = helper.make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
 
-    # set the tensor datatypes (in this case: all to bipolar)
-    for tensor in graph.input:
-        model.set_tensor_datatype(tensor.name, DataType["BIPOLAR"])
-    for tensor in graph.output:
-        model.set_tensor_datatype(tensor.name, DataType["BIPOLAR"])
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", odt)
+    model.set_tensor_datatype("weights", wdt)
+    W = util.gen_finn_dt_tensor(wdt, (mh, mw))
+    model.set_initializer("weights", W)
+    model.set_tensor_datatype("thresh", tdt)
+    T = np.zeros((1, 1))
+    model.set_initializer("thresh", T)
 
-    input_tensor = np.asarray(
-        [
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-        ],
-        dtype=np.float32,
-    ).reshape(2, 2, 4, 4)
-
-    input_dict = {"in": input_tensor}
     for nodes in model.graph.node:
         cg_trafo.code_gen_transformation(nodes)
