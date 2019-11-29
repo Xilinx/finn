@@ -1,3 +1,5 @@
+import pytest
+
 import numpy as np
 from onnx import TensorProto, helper
 
@@ -5,11 +7,7 @@ import finn.core.onnx_exec as oxe
 import finn.custom_op.xnorpopcount as xp
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.core.utils import (
-    gen_finn_dt_tensor,
-    interleave_matrix_outer_dim_from_partitions
-)
-from finn.custom_op.multithreshold import multithreshold
+from finn.core.utils import gen_finn_dt_tensor
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -23,10 +21,8 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     sf = mw // simd
     if T is not None:
         tmem = nf
-        n_thres_steps = T.shape[1]
     else:
         tmem = 0
-        n_thres_steps = 0
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
@@ -53,7 +49,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         outputDataType=odt.name,
     )
     graph = helper.make_graph(
-        nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp],
+        nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]
     )
 
     model = helper.make_model(graph, producer_name="fclayer-model")
@@ -72,223 +68,51 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
 def prepare_inputs(model, input_tensor, idt):
     ishape = model.get_tensor_shape("inp")
     input_tensor = (np.asarray(input_tensor, dtype=np.float32)).reshape(*ishape)
+    # flip SIMD (innermost) dimension of input tensor, there's some reversal
+    # going on somewhere with a mistmatch between npy and hls...
+    input_tensor = np.flip(input_tensor, -1)
     return {"inp": input_tensor}
 
-def create_noactivation_testcases(idt, wdt, odt):
-    mh = 8
-    mw = 8
 
+# weight datatype
+@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
+# neuron folding, -1 is maximum possible
+@pytest.mark.parametrize("nf", [-1, 1])
+# synapse folding, -1 is maximum possible
+@pytest.mark.parametrize("sf", [-1, 1])
+# HLS matrix width (input features)
+@pytest.mark.parametrize("mw", [4])
+# HLS matrix height (output features)
+@pytest.mark.parametrize("mh", [4])
+def test_fpgadataflow_fclayer_noact(idt, wdt, nf, sf, mw, mh):
+    if nf == -1:
+        nf = mh
+    if sf == -1:
+        sf = mw
+    pe = mh // nf
+    simd = mw // sf
+    assert mh % pe == 0
+    assert mw % sf == 0
+    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+        odt = DataType.UINT32
+    else:
+        odt = DataType.INT32
     # generate weights
     W = gen_finn_dt_tensor(wdt, (mw, mh))
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, mw))
-
-    # set up layers with different pe and simd
-    pe_values = [1, int(mh / 2), mh]
-    simd_values = [1, int(mw / 2), mw]
-    for pe in pe_values:
-        for simd in simd_values:
-            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-
-            # prepare input data
-            input_dict = prepare_inputs(model, x, idt)
-            if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
-                # convert inputs to binary and use xnorpopcountmatmul
-                y = xp.xnorpopcountmatmul((x+1)/2, (W+1)/2)
-            else:
-                y = np.matmul(x, W)
-            oshape = model.get_tensor_shape("outp")
-            y_expected = y.reshape(oshape)
-            # execute model
-            y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-            assert (y_produced.reshape(y_expected.shape) == y_expected).all()
-
-
-# no activation cases
-
-# no act -all bipolar
-def test_fpgadataflow_fclayer_ibp_wbp_noact():
-    wdt = idt = DataType.BIPOLAR
-    odt = DataType.UINT32
-
-    create_noativation_testcases(idt, wdt, odt)
-
-
-# no act - all signed
-def test_fpgadataflow_fclayer_iint2_wint2_noact():
-    wdt = idt = DataType.INT2
-    odt = DataType.INT32
-    create_noativation_testcases(idt, wdt, odt)
-
-
-# no act - all ternary
-
-
-def test_fpgadataflow_fclayer_it_wt_noact():
-    wdt = idt = DataType.TERNARY
-    odt = DataType.INT32
-    create_noativation_testcases(idt, wdt, odt)
-
-
-# no act - idt: bipolar wdt: signed
-
-
-def test_fpgadataflow_fclayer_ibp_wint2_noact():
-    wdt = DataType.INT2
-    idt = DataType.BIPOLAR
-    odt = DataType.INT32
-    create_noativation_testcases(idt, wdt, odt)
-
-
-# no act - idt: bipolar wdt: ternary
-
-
-def test_fpgadataflow_fclayer_ibp_wt_noact():
-    wdt = DataType.INT2
-    idt = DataType.TERNARY
-    odt = DataType.INT32
-    create_noativation_testcases(idt, wdt, odt)
-
-
-# no act - idt: signed wdt: bipolar
-
-
-def test_fpgadataflow_fclayer_it_wbp_noact():
-    wdt = DataType.BIPOLAR
-    idt = DataType.INT2
-    odt = DataType.INT32
-    create_noativation_testcases(idt, wdt, odt)
-
-
-# no act - idt: signed wdt: ternary
-
-
-def test_fpgadataflow_fclayer_it_wbp_noact():
-    wdt = DataType.TERNARY
-    idt = DataType.INT2
-    odt = DataType.INT32
-    create_noativation_testcases(idt, wdt, odt)
-
-
-# no act - idt: ternary wdt: bipolar
-
-
-def test_fpgadataflow_fclayer_it_wbp_noact():
-    wdt = DataType.BIPOLAR
-    idt = DataType.TERNARY
-    odt = DataType.INT32
-    create_noativation_testcases(idt, wdt, odt)
-
-
-# no act - idt: ternary wdt: signed
-
-
-def test_fpgadataflow_fclayer_it_wbp_noact():
-    wdt = DataType.INT2
-    idt = DataType.TERNARY
-    odt = DataType.INT32
-    create_noativation_testcases(idt, wdt, odt)
-
-
-def test_fpgadataflow_fclayer_all_bipolar():
-    mh = 8
-    mw = 8
-    wdt = idt = odt = DataType.BIPOLAR
-    tdt = DataType.UINT32
-    # generate weights
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
-    # single global threshold at zero
-    T = np.zeros((1, 1))
-
-    # generate input data
-    x = gen_finn_dt_tensor(idt, (1, mw))
-
-    # set up layers with different pe and simd
-    pe_values = [1, int(mh / 2), mh]
-    simd_values = [1, int(mw / 2), mw]
-    for pe in pe_values:
-        for simd in simd_values:
-            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-
-            # prepare input data
-            input_dict = prepare_inputs(model, x, idt)
-
-            # execute model
-            produced = oxe.execute_onnx(model, input_dict)["outp"]
-            # TODO fix this to resemble the noact tester above
-            # expected output
-            # correction of bipolar values to enable xnorpopcountmutmal
-            Wb = (W + 1) * 0.5
-            xb = (x + 1) * 0.5
-            y = xp.xnorpopcountmatmul(Wb, xb.reshape(-1, 1))
-            expected = multithreshold(y.reshape(1, mh), T)
-
-            assert (produced.reshape(expected.shape) == expected).all()
-
-    wdt = idt = odt = DataType.BIPOLAR
-    create_testcases(idt, wdt, odt)
-
-def test_fpgadataflow_fclayer_all_signed():
-    mh = 8
-    mw = 8
-    wdt = idt = odt = DataType.INT2
-    tdt = DataType.INT32
-    # generate weights
-    W = gen_finn_dt_tensor(wdt, [mh, mw])
-    # single global threshold at zero
-    T = np.zeros((1, 1))
-
-    # generate input data
-    x = gen_finn_dt_tensor(idt, mw)
-
-    # set up layers with different pe and simd
-    pe_values = [1, int(mh / 2), mh]
-    simd_values = [1, int(mw / 2), mw]
-    for pe in pe_values:
-        for simd in simd_values:
-            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-            # prepare input data
-            input_dict = prepare_inputs(model, x, idt)
-
-            # execute model
-            produced = oxe.execute_onnx(model, input_dict)["outp"]
-
-            # expected output
-            oshape = model.get_tensor_shape("outp")
-            y = np.dot(W, x).reshape(oshape.shape)
-            expected = multithreshold(y.reshape(1, mh), T)
-
-            assert (produced.reshape(expected.shape) == expected).all()
-
-
-def test_fpgadataflow_fclayer_all_ternary():
-    mh = 8
-    mw = 8
-    wdt = idt = odt = DataType.TERNARY
-    tdt = DataType.INT32
-    # generate weights
-    W = gen_finn_dt_tensor(wdt, [mh, mw])
-    # single global threshold at zero
-    T = np.zeros((1, 1))
-
-    # generate input data
-    x = gen_finn_dt_tensor(idt, mw)
-
-    # set up layers with different pe and simd
-    pe_values = [1, int(mh / 2), mh]
-    simd_values = [1, int(mw / 2), mw]
-    for pe in pe_values:
-        for simd in simd_values:
-            model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-            # prepare input data
-            input_dict = prepare_inputs(model, x, idt)
-
-            # execute model
-            produced = oxe.execute_onnx(model, input_dict)["outp"]
-
-            # expected output
-            oshape = model.get_tensor_shape("outp")
-            y = np.dot(W, x).reshape(oshape.shape)
-            expected = multithreshold(y.reshape(1, mh), T)
-
-            assert (produced.reshape(expected.shape) == expected).all()
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
+    # prepare input data
+    input_dict = prepare_inputs(model, x, idt)
+    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+        # convert inputs to binary and use xnorpopcountmatmul
+        y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
+    else:
+        y = np.matmul(x, W)
+    oshape = model.get_tensor_shape("outp")
+    y_expected = y.reshape(oshape)
+    # execute model
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced.reshape(y_expected.shape) == y_expected).all()

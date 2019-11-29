@@ -56,7 +56,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def get_template_param_values(self):
         ret = dict()
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
-        wt_hls_str = self.get_weight_datatype().get_hls_datatype_str()
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
         inp_is_binary = self.get_input_datatype() == DataType.BINARY
         out_is_binary = self.get_output_datatype() == DataType.BINARY
@@ -67,6 +66,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
         # fill in TSrcI and TWeightI
+        # TODO check these with Giulio
+        # TODO handle non-bipolar binary inputs
         if inp_is_bipolar and wt_is_bipolar:
             ret["TSrcI"] = "Recast<XnorMul>"
             ret["TWeightI"] = "Identity"
@@ -75,10 +76,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ret["TWeightI"] = "Recast<Binary>"
         elif inp_is_bipolar and (not wt_is_bipolar):
             ret["TSrcI"] = "Recast<Binary>"
-            ret["TWeightI"] = "Slice<%s>" % wt_hls_str
+            ret["TWeightI"] = "Identity"
         elif (not inp_is_bipolar) and (not wt_is_bipolar):
             ret["TSrcI"] = "Slice<%s>" % inp_hls_str
-            ret["TWeightI"] = "Slice<%s>" % wt_hls_str
+            ret["TWeightI"] = "Identity"
         # fill in TDstI
         if out_is_bipolar:
             ret["TDstI"] = "Identity"
@@ -102,7 +103,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         assert orig_weight_matrix.shape == (mw, mh)
         assert mw % simd == 0
         assert mh % pe == 0
-        ret = orig_weight_matrix
+        # start by transposing the original weight matrix, since ONNX and
+        # finn-hlslib use different assumptions
+        # ONNX uses (in_features, out_features) and matmul(x, W)
+        # finn-hlslib uses (out_features, in_features) and matmul(W, x)
+        ret = orig_weight_matrix.T
         if self.get_weight_datatype() == DataType.BIPOLAR:
             # convert bipolar to binary
             ret = (ret + 1) / 2
@@ -282,7 +287,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     def defines(self):
-        numReps = 2
+        numReps = 1
         self.code_gen_dict["$DEFINES$"] = [
             """#define MW1 {}\n #define MH1 {}\n #define SIMD1 {}\n
             #define PE1 {}\n #define WMEM1 {}\n #define TMEM1 {}\n
