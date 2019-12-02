@@ -33,13 +33,17 @@ class Compilation(Transformation):
     def apply(self, model):
 
         for node in model.graph.node:
-            self.prepare_bash_command(node)
-            bash_command = self.compiler_call.compile_script
-            process_compile = subprocess.Popen(
-                bash_command.split(), stdout=subprocess.PIPE
-            )
-            process_compile.communicate()
+            if node.domain == "finn":
+                backend_attribute = util.get_by_name(node.attribute, "backend")
+                backend_value = backend_attribute.s.decode('UTF-8')
+                if backend_value == "fpgadataflow":
+                    self.prepare_bash_command(node)
+                    bash_command = self.compiler_call.compile_script
+                    process_compile = subprocess.Popen(
+                        bash_command.split(), stdout=subprocess.PIPE
+                    )
+                    process_compile.communicate()
 
-            model.set_attribute(node, "executable_path", self.compiler_call.executable_path)
+                    model.set_attribute(node, "executable_path", self.compiler_call.executable_path)
 
         return (model, False)
