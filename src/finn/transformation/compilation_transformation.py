@@ -2,65 +2,44 @@ import subprocess
 
 import finn.core.utils as util
 from finn.transformation import Transformation
+from finn.core.utils import CallCppCompiler
 
 
 class Compilation(Transformation):
     """Compilation for all nodes in model"""
+    def __init__(self):
+        super().__init__()
+        self.compiler_call = CallCppCompiler()
 
-    def get_includes(self, node):
+    def get_includes(self):
         # step by step addition of include paths to ensure easy extension
-        include_paths = []
-        include_paths.append("-I/workspace/finn/src/finn/data/cpp")
-        include_paths.append("-I/workspace/cnpy/")
-        include_paths.append("-I/workspace/finn-hlslib")
-        include_paths.append("-I/workspace/vivado-hlslib")
-        include_paths.append("--std=c++11")
+        self.compiler_call.append_includes("-I/workspace/finn/src/finn/data/cpp")
+        self.compiler_call.append_includes("-I/workspace/cnpy/")
+        self.compiler_call.append_includes("-I/workspace/finn-hlslib")
+        self.compiler_call.append_includes("-I/workspace/vivado-hlslib")
+        self.compiler_call.append_includes("--std=c++11")
 
-        return include_paths
-
-    def prepare_bash_command(self, node, code_gen_dir):
-        cpp_files = []
-        cpp_files.append(str(code_gen_dir) + "/execute_" + str(node.op_type) + ".cpp")
-        includes = self.get_includes(node)
-        for lib in includes:
-            if "cnpy" in lib:
-                cpp_files.append("/workspace/cnpy/cnpy.cpp")
-                includes.append("-lz")
-        executable_path = str(code_gen_dir) + "/execute_" + str(node.op_type)
-
-        compile_components = []
-        compile_components.append("g++ -o " + str(executable_path))
-        for cpp_file in cpp_files:
-            compile_components.append(cpp_file)
-        for lib in includes:
-            compile_components.append(lib)
-
-        bash_compile = ""
-        for component in compile_components:
-            bash_compile += str(component) + " "
-
-        return bash_compile
+        
+    def prepare_bash_command(self, node):
+        self.get_includes()
+        self.compiler_call.build(node)
+        bash_command = "chmod +x " + str(self.compiler_call.compile_script)
+        process_compile = subprocess.Popen( 
+                bash_command.split(), stdout=subprocess.PIPE
+            )   
+        process_compile.communicate()
+        print(self.compiler_call.code_gen_dir)
 
     def apply(self, model):
 
         for node in model.graph.node:
-            code_gen_dir = util.get_by_name(node.attribute, "code_gen_dir")
-            code_gen_dir = code_gen_dir.s.decode("UTF-8")
-            if not code_gen_dir:
-                raise ValueError(
-                    """There is no generated code to compile
-                        for node of op type {}""".format(
-                        node.op_type
-                    )
-                )
-            else:
-                bash_command = self.prepare_bash_command(node, code_gen_dir)
-                process_compile = subprocess.Popen(
-                    bash_command.split(), stdout=subprocess.PIPE
-                )
-                process_compile.communicate()
+            self.prepare_bash_command(node)
+            bash_command = self.compiler_call.compile_script
+            process_compile = subprocess.Popen(
+                bash_command.split(), stdout=subprocess.PIPE
+            )
+            process_compile.communicate()
 
-                executable_path = str(code_gen_dir) + "/execute_" + str(node.op_type)
-                model.set_attribute(node, "executable_path", executable_path)
+            model.set_attribute(node, "executable_path", self.compiler_call.executable_path)
 
         return (model, False)
