@@ -13,8 +13,7 @@ def code_gen_transformation(node, context, model):
         # lookup op_type in registry of CustomOps
         inst = registry.custom_op[op_type](node)
 
-        # get the path of the code generation directory if already set
-        # check instance and check node attributes for value
+        # get the path of the code generation directory
         code_gen_dir = inst.code_gen_dir
         code_gen_dir = code_gen_dir.s.decode("UTF-8")
 
@@ -50,6 +49,7 @@ def code_gen_transformation(node, context, model):
                             model.set_attribute(node, "code_gen_dir", tmp_dir)
                     else:
                         raise Exception("Code was not generated!")
+                # else: attribute is correctly set
             else:
                 inst.code_gen_dir = tmp_dir
                 model.set_attribute(node, "code_gen_dir", tmp_dir)

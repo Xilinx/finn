@@ -1,3 +1,5 @@
+import os
+
 import numpy as np
 from onnx import TensorProto, helper
 
@@ -59,3 +61,18 @@ def test_code_gen_trafo():
     model.set_initializer("thresh", T)
 
     model = model.transform(CodeGen())
+    for node in model.graph.node:
+        code_gen_attribute = util.get_by_name(node.attribute, "code_gen_dir")
+        tmp_dir = code_gen_attribute.s.decode("UTF-8")
+        assert os.path.isdir(
+            tmp_dir
+        ), """Code generation directory of node with
+            op type {} does not exist!""".format(
+            node.op_type
+        )
+        assert (
+            len(os.listdir(tmp_dir)) != 0
+        ), """Code generation directory of node with
+            op type {} is empty!""".format(
+            node.op_type
+        )
