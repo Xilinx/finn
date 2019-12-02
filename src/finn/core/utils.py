@@ -194,8 +194,8 @@ def gen_finn_dt_tensor(finn_dt, tensor_shape):
     # always use float type as container
     return tensor_values.astype(np.float32)
 
-class CallCppCompiler():
-    
+
+class CallCppCompiler:
     def __init__(self):
         self.include_paths = []
         self.cpp_files = []
@@ -212,11 +212,13 @@ class CallCppCompiler():
             raise ValueError(
                 """There is no generated code to compile
                     for node of op type {}""".format(
-                        node.op_type
-                    )
+                    node.op_type
                 )
+            )
         else:
-            self.cpp_files.append(str(self.code_gen_dir) + "/execute_" + str(node.op_type) + ".cpp")
+            self.cpp_files.append(
+                str(self.code_gen_dir) + "/execute_" + str(node.op_type) + ".cpp"
+            )
             for lib in self.include_paths:
                 if "cnpy" in lib:
                     self.cpp_files.append("/workspace/cnpy/cnpy.cpp")
@@ -227,15 +229,19 @@ class CallCppCompiler():
             raise ValueError(
                 """There is no generated code to compile
                     for node of op type {}""".format(
-                        node.op_type
-                    )
+                    node.op_type
                 )
+            )
         else:
-            self.executable_path = str(self.code_gen_dir) + "/execute_" + str(node.op_type)
+            self.executable_path = (
+                str(self.code_gen_dir) + "/execute_" + str(node.op_type)
+            )
 
     def build(self, node):
         # raise error if includes are empty
-        self.code_gen_dir = (get_by_name(node.attribute, "code_gen_dir")).s.decode("UTF-8")
+        self.code_gen_dir = (get_by_name(node.attribute, "code_gen_dir")).s.decode(
+            "UTF-8"
+        )
         self.prepare_cpp_files(node)
         self.set_executable_path(node)
         self.compile_components.append("g++ -o " + str(self.executable_path))
@@ -249,10 +255,8 @@ class CallCppCompiler():
         for component in self.compile_components:
             bash_compile += str(component) + " "
 
-        self.compile_script = str(self.code_gen_dir)+"/compile.sh"
-        f = open(self.compile_script,"w")
+        self.compile_script = str(self.code_gen_dir) + "/compile.sh"
+        f = open(self.compile_script, "w")
         f.write("#!/bin/sh \n")
         f.write(bash_compile)
         f.close()
-
-
