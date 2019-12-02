@@ -2,9 +2,9 @@ import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.utils as util
-import finn.transformation.code_gen_transformation as cg_trafo
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.code_gen_transformation import CodeGen
 
 
 def test_code_gen_trafo():
@@ -58,8 +58,4 @@ def test_code_gen_trafo():
     T = np.zeros((1, 1))
     model.set_initializer("thresh", T)
 
-    context = {}
-    context["weights"] = W
-    context["threshs"] = T
-    for node in model.graph.node:
-        cg_trafo.code_gen_transformation(node, context)
+    model = model.transform(CodeGen())

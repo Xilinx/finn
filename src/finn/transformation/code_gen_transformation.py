@@ -2,9 +2,10 @@ import os
 import tempfile as tmp
 
 import finn.custom_op.registry as registry
+from finn.transformation import Transformation
 
 
-def code_gen_transformation(node, context):
+def code_gen_transformation(node, context, model):
     """Call custom implementation to generate code for single custom node
     and create folder that contains all the generated files"""
     op_type = node.op_type
@@ -28,9 +29,7 @@ def code_gen_transformation(node, context):
                     raise Exception("Code was not generated!")
                 else:
                     inst.code_gen_dir = tmp_dir
-                    for attribute in node.attribute:
-                        if attribute.name == "code_gen_dir":
-                            attribute.s = tmp_dir.encode("UTF-8")
+                    model.set_attribute(node, "code_gen_dir", tmp_dir)
             else:
                 raise Exception("Code was not generated!")
 
@@ -48,17 +47,27 @@ def code_gen_transformation(node, context):
                             raise Exception("Code was not generated!")
                         else:
                             inst.code_gen_dir = tmp_dir
-                            for attribute in node.attribute:
-                                if attribute.name == "code_gen_dir":
-                                    attribute.s = tmp_dir.encode("UTF-8")
+                            model.set_attribute(node, "code_gen_dir", tmp_dir)
                     else:
                         raise Exception("Code was not generated!")
             else:
                 inst.code_gen_dir = tmp_dir
-                for attribute in node.attribute:
-                    if attribute.name == "code_gen_dir":
-                        attribute.s = tmp_dir.encode("UTF-8")
+                model.set_attribute(node, "code_gen_dir", tmp_dir)
 
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)
+
+
+class CodeGen(Transformation):
+    """Code generation for all nodes in model"""
+
+    def apply(self, model):
+        W = model.get_initializer("weights")
+        T = model.get_initializer("thresh")
+        context = {}
+        context["weights"] = W
+        context["thresh"] = T
+        for node in model.graph.node:
+            code_gen_transformation(node, context, model)
+        return (model, False)
