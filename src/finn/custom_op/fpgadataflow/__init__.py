@@ -41,14 +41,13 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dir = util.get_by_name(onnx_node.attribute, "code_gen_dir")
         self.executable_path = ""
 
+    def get_nodeattr_types(self):
+        return {"code_gen_dir": ("s", False, ""), "executable_path": ("s", False, "")}
+
     def code_generation(self, model):
         node = self.onnx_node
-        if node.op_type == "StreamingFCLayer_Batch":
-            self.generate_weights(model)
-            try:
-                self.generate_thresholds(model)
-            except:
-                pass
+        self.generate_weights(model)
+        self.generate_thresholds(model)
         self.global_includes()
         self.defines()
         self.read_npy_data()

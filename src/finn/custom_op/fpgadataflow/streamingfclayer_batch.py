@@ -15,7 +15,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         super().__init__(onnx_node)
 
     def get_nodeattr_types(self):
-        return {
+        my_attrs = {
             "WMEM": ("i", True, 0),
             "TMEM": ("i", True, 0),
             "PE": ("i", True, 0),
@@ -29,6 +29,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
         }
+        my_attrs.update(super().get_nodeattr_types())
+        return my_attrs
 
     def make_shape_compatible_op(self):
         pass
@@ -186,32 +188,33 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def generate_thresholds(self, model):
         thresholds = model.get_initializer(self.onnx_node.input[2])
-        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-        tdt = DataType.INT32
-        # use UINT32 threshold export for bipolar times bipolar
-        inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
-        if inp_is_bipolar and wt_is_bipolar:
-            tdt = DataType.UINT32
-        thresholds_hls_code = numpy_to_hls_code(
-            threshold_tensor, tdt, "thresholds", False, True
-        )
-        # write thresholds into thresh.h
-        f_thresh = open("{}/thresh.h".format(self.tmp_dir), "w")
-        tdt_hls = tdt.get_hls_datatype_str()
-        odt_hls = self.get_output_datatype().get_hls_datatype_str()
-        f_thresh.write(
-            "static ThresholdsActivation<{},{},{},{},{},{}> threshs = ".format(
-                self.get_nodeattr("TMEM"),
-                self.get_nodeattr("PE"),
-                threshold_tensor.shape[-1],
-                tdt_hls,
-                odt_hls,
-                self.get_nodeattr("ActVal"),
+        if thresholds is not None:
+            threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+            tdt = DataType.INT32
+            # use UINT32 threshold export for bipolar times bipolar
+            inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
+            wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+            if inp_is_bipolar and wt_is_bipolar:
+                tdt = DataType.UINT32
+            thresholds_hls_code = numpy_to_hls_code(
+                threshold_tensor, tdt, "thresholds", False, True
             )
-        )
-        f_thresh.write(thresholds_hls_code)
-        f_thresh.close()
+            # write thresholds into thresh.h
+            f_thresh = open("{}/thresh.h".format(self.tmp_dir), "w")
+            tdt_hls = tdt.get_hls_datatype_str()
+            odt_hls = self.get_output_datatype().get_hls_datatype_str()
+            f_thresh.write(
+                "static ThresholdsActivation<{},{},{},{},{},{}> threshs = ".format(
+                    self.get_nodeattr("TMEM"),
+                    self.get_nodeattr("PE"),
+                    threshold_tensor.shape[-1],
+                    tdt_hls,
+                    odt_hls,
+                    self.get_nodeattr("ActVal"),
+                )
+            )
+            f_thresh.write(thresholds_hls_code)
+            f_thresh.close()
 
     def execute_node(self, context, graph):
         node = self.onnx_node
