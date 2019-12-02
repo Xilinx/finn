@@ -290,7 +290,7 @@ class ModelWrapper:
         """Data types of attributes in onnx are encoded:
             2 : integer
             3 : string
-            so in the beginning a dictionary is introduced with the keys 
+            so in the beginning a dictionary is introduced with the keys
             to this encryption"""
         # TO DO: Add additional encryption (i.e. float)
         data_type_dict = {}
@@ -298,20 +298,27 @@ class ModelWrapper:
         data_type_dict["int"] = 2
 
         attribute = util.get_by_name(node.attribute, attribute_name)
-        # check if attribute is integer 
+        # check if attribute is integer
         # For encryption see data_type_dict
         if attribute.type == data_type_dict["int"]:
             if type(value) is int:
                 attribute.i = value
             else:
-                raise ValueError("Attribute expects integer! {} is of type {}!".format(value, type(value)))
+                raise ValueError(
+                    "Attribute expects integer! {} is of type {}!".format(
+                        value, type(value)
+                    )
+                )
         elif attribute.type == data_type_dict["string"]:
             if type(value) is str:
-                attribute.s = value.encode('UTF-8')
+                attribute.s = value.encode("UTF-8")
             else:
-                raise ValueError("Attribute expects string! {} is of type {}!".format(value, type(value)))
+                raise ValueError(
+                    "Attribute expects string! {} is of type {}!".format(
+                        value, type(value)
+                    )
+                )
         else:
             raise Exception("This datatype is not supported, please add to encryption")
 
         return attribute
-        
