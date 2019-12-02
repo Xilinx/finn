@@ -6,21 +6,18 @@ from onnx import TensorProto, helper
 import finn.core.utils as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.code_gen_transformation import CodeGen
+from finn.transformation.fpgadataflow.code_gen_transformation import CodeGen
 
 
 def test_code_gen_trafo():
     idt = wdt = odt = DataType.BIPOLAR
-    tdt = DataType.UINT32
     mw = 8
     mh = 8
     pe = 4
     simd = 4
     wmem = mw * mh // (pe * simd)
-    assert mw * mh == wmem * pe * simd
     nf = mh // pe
     sf = mw // simd
-    tmem = nf
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
@@ -39,7 +36,7 @@ def test_code_gen_trafo():
         SIMD=simd,
         PE=pe,
         WMEM=wmem,
-        TMEM=tmem,
+        TMEM=0,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
@@ -54,11 +51,8 @@ def test_code_gen_trafo():
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", odt)
     model.set_tensor_datatype("weights", wdt)
-    W = util.gen_finn_dt_tensor(wdt, (mh, mw))
+    W = util.gen_finn_dt_tensor(wdt, (mw, mh))
     model.set_initializer("weights", W)
-    model.set_tensor_datatype("thresh", tdt)
-    T = np.zeros((1, 1))
-    model.set_initializer("thresh", T)
 
     model = model.transform(CodeGen())
     for node in model.graph.node:

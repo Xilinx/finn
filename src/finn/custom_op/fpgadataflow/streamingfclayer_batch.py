@@ -148,9 +148,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         assert ret.shape[2] == n_thres_steps
         return ret
 
-    def generate_weights(self, context):
+    def generate_weights(self, model):
 
-        weights = context["weights"]
+        weights = model.get_initializer(self.onnx_node.input[1])
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hls_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
@@ -184,8 +184,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         f_weights.write(weight_hls_code)
         f_weights.close()
 
-    def generate_thresholds(self, context):
-        thresholds = context["thresh"]
+    def generate_thresholds(self, model):
+        thresholds = model.get_initializer(self.onnx_node.input[2])
         threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
         tdt = DataType.INT32
         # use UINT32 threshold export for bipolar times bipolar

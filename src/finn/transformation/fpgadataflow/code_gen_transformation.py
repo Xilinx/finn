@@ -5,7 +5,7 @@ import finn.custom_op.registry as registry
 from finn.transformation import Transformation
 
 
-def code_gen_transformation(node, context, model):
+def code_gen_transformation(node, model):
     """Call custom implementation to generate code for single custom node
     and create folder that contains all the generated files"""
     op_type = node.op_type
@@ -21,7 +21,7 @@ def code_gen_transformation(node, context, model):
         if not code_gen_dir:
             tmp_dir = tmp.mkdtemp(prefix="code_gen_" + str(node.op_type) + "_")
             inst.tmp_dir = tmp_dir
-            inst.code_generation(context)
+            inst.code_generation(model)
             # check if directory exists
             if os.path.isdir(tmp_dir):
                 if len(os.listdir(tmp_dir)) == 0:
@@ -40,7 +40,7 @@ def code_gen_transformation(node, context, model):
                     os.rmdir(code_gen_dir)
                     tmp_dir = tmp.mkdtemp(prefix="code_gen_" + str(node.op_type) + "_")
                     inst.tmp_dir = tmp_dir
-                    inst.code_generation(context)
+                    inst.code_generation(model)
                     if os.path.isdir(tmp_dir):
                         if len(os.listdir(tmp_dir)) == 0:
                             raise Exception("Code was not generated!")
@@ -63,11 +63,6 @@ class CodeGen(Transformation):
     """Code generation for all nodes in model"""
 
     def apply(self, model):
-        W = model.get_initializer("weights")
-        T = model.get_initializer("thresh")
-        context = {}
-        context["weights"] = W
-        context["thresh"] = T
         for node in model.graph.node:
-            code_gen_transformation(node, context, model)
+            code_gen_transformation(node, model)
         return (model, False)
