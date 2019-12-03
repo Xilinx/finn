@@ -1,13 +1,12 @@
 import os
 
-import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.utils as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.code_gen_transformation import CodeGen
-from finn.transformation.fpgadataflow.compilation_transformation import Compilation
+from finn.transformation.fpgadataflow.codegen import CodeGen
+from finn.transformation.fpgadataflow.compile import Compile
 
 
 def test_compilation_trafo():
@@ -19,7 +18,6 @@ def test_compilation_trafo():
     wmem = mw * mh // (pe * simd)
     nf = mh // pe
     sf = mw // simd
-    tmem = nf
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
@@ -57,7 +55,7 @@ def test_compilation_trafo():
     model.set_initializer("weights", W)
 
     model = model.transform(CodeGen())
-    model = model.transform(Compilation())
+    model = model.transform(Compile())
     for node in model.graph.node:
         compilation_attribute = util.get_by_name(node.attribute, "executable_path")
         executable = compilation_attribute.s.decode("UTF-8")

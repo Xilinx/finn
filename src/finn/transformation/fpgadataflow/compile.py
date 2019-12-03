@@ -3,8 +3,8 @@ import finn.custom_op.registry as registry
 from finn.transformation import Transformation
 
 
-class Compilation(Transformation):
-    """Compilation for all nodes in model"""
+class Compile(Transformation):
+    """Compile for all nodes in model"""
 
     def __init__(self):
         super().__init__()
