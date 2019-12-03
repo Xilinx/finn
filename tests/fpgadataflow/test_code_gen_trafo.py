@@ -5,6 +5,7 @@ from onnx import TensorProto, helper
 import finn.core.utils as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen import CodeGen
 
 
@@ -69,3 +70,4 @@ def test_code_gen_trafo():
             op type {} is empty!""".format(
             node.op_type
         )
+    model = model.transform(CleanUp())

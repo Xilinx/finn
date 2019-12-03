@@ -5,6 +5,7 @@ from onnx import TensorProto, helper
 import finn.core.utils as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen import CodeGen
 from finn.transformation.fpgadataflow.compile import Compile
 
@@ -66,3 +67,4 @@ def test_compilation_trafo():
             op type {} does not exist!""".format(
             node.op_type
         )
+    model = model.transform(CleanUp())

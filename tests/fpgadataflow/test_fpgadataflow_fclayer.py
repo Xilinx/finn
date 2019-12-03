@@ -8,6 +8,7 @@ import finn.custom_op.xnorpopcount as xp
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import gen_finn_dt_tensor
+from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen import CodeGen
 from finn.transformation.fpgadataflow.compile import Compile
 
@@ -120,3 +121,4 @@ def test_fpgadataflow_fclayer_noact(idt, wdt, nf, sf, mw, mh):
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all()
+    model = model.transform(CleanUp())
