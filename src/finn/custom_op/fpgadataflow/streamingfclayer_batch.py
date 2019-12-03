@@ -247,7 +247,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             in_ind += 1
         # execute precompiled executable
         executable_path = self.get_nodeattr("executable_path")
-        # TODO sanity check executable
+        assert executable_path != ""
         process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
         process_execute.communicate()
         # load output npy file

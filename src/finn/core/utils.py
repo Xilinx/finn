@@ -1,5 +1,6 @@
 import random
 import string
+import subprocess
 
 import numpy as np
 import onnx
@@ -195,7 +196,7 @@ def gen_finn_dt_tensor(finn_dt, tensor_shape):
     return tensor_values.astype(np.float32)
 
 
-class CallCppCompiler:
+class CppBuilder:
     def __init__(self):
         self.include_paths = []
         self.cpp_files = []
@@ -207,56 +208,27 @@ class CallCppCompiler:
     def append_includes(self, library_path):
         self.include_paths.append(library_path)
 
-    def prepare_cpp_files(self, node):
-        if not self.code_gen_dir:
-            raise ValueError(
-                """There is no generated code to compile
-                    for node of op type {}""".format(
-                    node.op_type
-                )
-            )
-        else:
-            self.cpp_files.append(
-                str(self.code_gen_dir) + "/execute_" + str(node.op_type) + ".cpp"
-            )
-            for lib in self.include_paths:
-                if "cnpy" in lib:
-                    self.cpp_files.append("/workspace/cnpy/cnpy.cpp")
-                    self.append_includes("-lz")
+    def append_sources(self, cpp_file):
+        self.cpp_files.append(cpp_file)
 
-    def set_executable_path(self, node):
-        if not self.code_gen_dir:
-            raise ValueError(
-                """There is no generated code to compile
-                    for node of op type {}""".format(
-                    node.op_type
-                )
-            )
-        else:
-            self.executable_path = (
-                str(self.code_gen_dir) + "/execute_" + str(node.op_type)
-            )
+    def set_executable_path(self, path):
+        self.executable_path = path
 
-    def build(self, node):
+    def build(self, code_gen_dir):
         # raise error if includes are empty
-        self.code_gen_dir = (get_by_name(node.attribute, "code_gen_dir")).s.decode(
-            "UTF-8"
-        )
-        self.prepare_cpp_files(node)
-        self.set_executable_path(node)
+        self.code_gen_dir = code_gen_dir
         self.compile_components.append("g++ -o " + str(self.executable_path))
         for cpp_file in self.cpp_files:
             self.compile_components.append(cpp_file)
         for lib in self.include_paths:
             self.compile_components.append(lib)
-
         bash_compile = ""
-
         for component in self.compile_components:
             bash_compile += str(component) + " "
-
         self.compile_script = str(self.code_gen_dir) + "/compile.sh"
-        f = open(self.compile_script, "w")
-        f.write("#!/bin/sh \n")
-        f.write(bash_compile)
-        f.close()
+        with open(self.compile_script, "w") as f:
+            f.write("#!/bin/bash \n")
+            f.write(bash_compile + "\n")
+        bash_command = ["bash", self.compile_script]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()

@@ -1,6 +1,7 @@
 from abc import abstractmethod
 import os
 from finn.custom_op import CustomOp
+from finn.core.utils import CppBuilder
 
 
 class HLSCustomOp(CustomOp):
@@ -61,6 +62,21 @@ class HLSCustomOp(CustomOp):
         f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
         f.write(template)
         f.close()
+
+    def compile_singlenode_code(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        builder = CppBuilder()
+        builder.append_includes("-I/workspace/finn/src/finn/data/cpp")
+        builder.append_includes("-I/workspace/cnpy/")
+        builder.append_includes("-I/workspace/finn-hlslib")
+        builder.append_includes("-I/workspace/vivado-hlslib")
+        builder.append_includes("--std=c++11")
+        builder.append_sources(code_gen_dir + "/*.cpp")
+        builder.append_sources("/workspace/cnpy/cnpy.cpp")
+        builder.append_includes("-lz")
+        builder.set_executable_path(code_gen_dir + "/node_model")
+        builder.build(code_gen_dir)
+        self.set_nodeattr("executable_path", builder.executable_path)
 
     @abstractmethod
     def generate_weights(self, context):
