@@ -146,7 +146,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         assert ret.shape[0] == pe
         assert ret.shape[1] == tmem
         assert ret.shape[2] == n_thres_steps
-        return ret
+        return ret.reshape(1, pe, tmem, n_thres_steps)
 
     def generate_params(self, model):
         # weights
