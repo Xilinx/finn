@@ -1,7 +1,6 @@
 from abc import abstractmethod
 import os
 from finn.custom_op import CustomOp
-import finn.core.utils as util
 
 
 class HLSCustomOp(CustomOp):
@@ -37,10 +36,6 @@ class HLSCustomOp(CustomOp):
         """
         self.code_gen_dict = {}
 
-        self.tmp_dir = ""
-        self.code_gen_dir = util.get_by_name(onnx_node.attribute, "code_gen_dir")
-        self.executable_path = ""
-
     def get_nodeattr_types(self):
         return {"code_gen_dir": ("s", False, ""), "executable_path": ("s", False, "")}
 
@@ -62,8 +57,8 @@ class HLSCustomOp(CustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-
-        f = open(os.path.join(self.tmp_dir, "execute_{}.cpp".format(node.op_type)), "w")
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
         f.write(template)
         f.close()
 

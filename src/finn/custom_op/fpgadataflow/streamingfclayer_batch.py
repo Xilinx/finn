@@ -1,6 +1,5 @@
 import os
 import subprocess
-import tempfile as tmp
 
 import numpy as np
 
@@ -151,7 +150,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return ret
 
     def generate_weights(self, model):
-
         weights = model.get_initializer(self.onnx_node.input[1])
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hls_compatible_weight_tensor(weights)
@@ -164,7 +162,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             weight_tensor, export_wdt, "weights", True, True
         )
         # write weights into params.h
-        f_weights = open("{}/params.h".format(self.tmp_dir), "w")
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        f_weights = open("{}/params.h".format(code_gen_dir), "w")
 
         if export_wdt.bitwidth() != 1:
             f_weights.write(
@@ -200,7 +199,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 threshold_tensor, tdt, "thresholds", False, True
             )
             # write thresholds into thresh.h
-            f_thresh = open("{}/thresh.h".format(self.tmp_dir), "w")
+            code_gen_dir = self.get_nodeattr("code_gen_dir")
+            f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
             tdt_hls = tdt.get_hls_datatype_str()
             odt_hls = self.get_output_datatype().get_hls_datatype_str()
             f_thresh.write(
@@ -218,13 +218,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def execute_node(self, context, graph):
         node = self.onnx_node
-        # make temporary directory for generated files
-        self.tmp_dir = tmp.mkdtemp(prefix=str(node.op_type) + "_")
-
-        # create empty list for temporary files to enable the option
-        # to delete the files after the execution
-        temp_files = []
-
+        # TODO ensure codegen dir exists
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
         # create a npy file fore each input of the node (in_ind is input index)
         in_ind = 0
         for inputs in node.input:
@@ -239,48 +234,25 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 if self.get_input_datatype() == DataType.BIPOLAR:
                     # store bipolar activations as binary
                     np.save(
-                        os.path.join(self.tmp_dir, "input_{}.npy".format(in_ind)),
+                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
                         (context[inputs] + 1) / 2,
                     )
                 else:
                     np.save(
-                        os.path.join(self.tmp_dir, "input_{}.npy".format(in_ind)),
+                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
                         context[inputs],
                     )
-                temp_files.append("{}/input_{}.npy".format(self.tmp_dir, in_ind))
             elif in_ind > 2:
                 raise Exception("Unexpected input found for StreamingFCLayer")
-
             in_ind += 1
-
-        temp_files.append("{}/params.h".format(self.tmp_dir))
-        temp_files.append("{}/thresh.h".format(self.tmp_dir))
-
-        # code generation
-        self.code_generation(context)
-
-        # c++ compilation and execution flow
-        temp_files.append("{}/execute_{}.cpp".format(self.tmp_dir, node.op_type))
-        bash_compile = """g++ -o {}/execute_{} {}/execute_{}.cpp
-        /workspace/cnpy/cnpy.cpp -I/workspace/finn/src/finn/data/cpp -I/workspace/cnpy/
-        -I/workspace/finn-hlslib -I/workspace/vivado-hlslib
-        --std=c++11 -lz""".format(
-            self.tmp_dir, node.op_type, self.tmp_dir, node.op_type
-        )
-        process_compile = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
-        process_compile.communicate()
-        bash_execute = "{}/execute_{}".format(self.tmp_dir, node.op_type)
-        process_execute = subprocess.Popen(bash_execute.split(), stdout=subprocess.PIPE)
+        # execute precompiled executable
+        executable_path = self.get_nodeattr("executable_path")
+        # TODO sanity check executable
+        process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
         process_execute.communicate()
-        temp_files.append("{}/execute_{}".format(self.tmp_dir, node.op_type))
-        temp_files.append("{}/output.npy".format(self.tmp_dir))
-
         # load output npy file
-        output = np.load("{}/output.npy".format(self.tmp_dir))
+        output = np.load("{}/output.npy".format(code_gen_dir))
         context[node.output[0]] = output
-        # deleting temporary files
-        # for temp_file in temp_files:
-        #    os.remove(temp_file)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
@@ -309,13 +281,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ]
 
     def read_npy_data(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
         dtype = self.get_input_datatype()
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
-        npy_in = "%s/input_0.npy" % self.tmp_dir
+        npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
             'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
@@ -352,13 +325,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ]
 
     def dataoutstrm(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
         dtype = self.get_output_datatype()
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
-        npy_out = "%s/output.npy" % self.tmp_dir
+        npy_out = "%s/output.npy" % code_gen_dir
         nf = int(self.get_nodeattr("MH") / self.get_nodeattr("PE"))
         shape = (1, nf, self.get_nodeattr("PE"))
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")

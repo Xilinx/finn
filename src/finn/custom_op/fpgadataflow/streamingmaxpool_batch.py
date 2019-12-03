@@ -1,6 +1,5 @@
 import os
 import subprocess
-import tempfile as tmp
 
 import numpy as np
 
@@ -25,48 +24,26 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def execute_node(self, context, graph):
         node = self.onnx_node
-        # make temporary directory for generated files
-        self.tmp_dir = tmp.mkdtemp(prefix=str(node.op_type) + "_")
-
-        # create empty list for temporary files to enable the option
-        # to delete the files after the execution
-        temp_files = []
-
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
         # create a npy file fore each input of the node (in_ind is input index)
         in_ind = 0
         for inputs in node.input:
-            np.save(
-                os.path.join(self.tmp_dir, "input_{}.npy".format(in_ind)),
-                context[inputs],
-            )
-            temp_files.append("{}/input_{}.npy".format(self.tmp_dir, in_ind))
+            if in_ind == 0:
+                np.save(
+                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                    context[inputs],
+                )
+            else:
+                raise Exception("Unexpected input found for StreamingMaxPool_Batch")
             in_ind += 1
-
-        # code generation
-        self.code_generation()
-
-        # c++ compilation and execution flow
-        temp_files.append("{}/execute_{}.cpp".format(self.tmp_dir, node.op_type))
-        bash_compile = """g++ -o {}/execute_{} {}/execute_{}.cpp
-        /workspace/cnpy/cnpy.cpp -I/workspace/cnpy/
-        -I/workspace/finn-hlslib -I/workspace/vivado-hlslib
-        --std=c++11 -lz""".format(
-            self.tmp_dir, node.op_type, self.tmp_dir, node.op_type
-        )
-        process_compile = subprocess.Popen(bash_compile.split(), stdout=subprocess.PIPE)
-        process_compile.communicate()
-        bash_execute = "{}/execute_{}".format(self.tmp_dir, node.op_type)
-        process_execute = subprocess.Popen(bash_execute.split(), stdout=subprocess.PIPE)
+        # execute precompiled executable
+        executable_path = self.get_nodeattr("executable_path")
+        # TODO sanity check executable
+        process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
         process_execute.communicate()
-        temp_files.append("{}/execute_{}".format(self.tmp_dir, node.op_type))
-        temp_files.append("{}/output.npy".format(self.tmp_dir))
-
         # load output npy file
-        output = np.load("{}/output.npy".format(self.tmp_dir))
+        output = np.load("{}/output.npy".format(code_gen_dir))
         context[node.output[0]] = output
-        # deleting temporary files
-        # for temp_file in temp_files:
-        #    os.remove(temp_file)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
@@ -85,13 +62,14 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def read_npy_data(self):
         node = self.onnx_node
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
         # c++ code to read out an npy file
         # and put it in hls::stream in the correct order
         self.code_gen_dict["$READNPYDATA$"] = []
         input_ind = 0
         input_file_names = []
         for inputs in node.input:
-            input_file_names.append("{}/input_{}.npy".format(self.tmp_dir, input_ind))
+            input_file_names.append("{}/input_{}.npy".format(code_gen_dir, input_ind))
             input_ind += 1
 
         input_ind = 0
@@ -183,11 +161,12 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         self.code_gen_dict["$DATAOUTSTREAM$"].append("}")
 
     def save_as_npy(self):
-        numReps = 2
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        numReps = 1
         self.code_gen_dict["$SAVEASCNPY$"] = [
             """cnpy::npy_save("{}/output.npy",&output_data_vector[0],
             {{{},{},{}}},"w");""".format(
-                self.tmp_dir,
+                code_gen_dir,
                 numReps,
                 self.get_nodeattr("NumChannels"),
                 int(self.get_nodeattr("ImgDim") / self.get_nodeattr("PoolDim")),
