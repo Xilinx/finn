@@ -42,8 +42,7 @@ class HLSCustomOp(CustomOp):
 
     def code_generation(self, model):
         node = self.onnx_node
-        self.generate_weights(model)
-        self.generate_thresholds(model)
+        self.generate_params(model)
         self.global_includes()
         self.defines()
         self.read_npy_data()
@@ -78,12 +77,7 @@ class HLSCustomOp(CustomOp):
         builder.build(code_gen_dir)
         self.set_nodeattr("executable_path", builder.executable_path)
 
-    @abstractmethod
-    def generate_weights(self, context):
-        pass
-
-    @abstractmethod
-    def generate_thresholds(self, context):
+    def generate_params(self, model):
         pass
 
     @abstractmethod
