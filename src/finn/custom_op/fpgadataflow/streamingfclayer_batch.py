@@ -202,7 +202,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 code_gen_dir = self.get_nodeattr("code_gen_dir")
                 f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
                 tdt_hls = tdt.get_hls_datatype_str()
-                odt_hls = self.get_output_datatype().get_hls_datatype_str()
+                # use binary to export bipolar activations
+                export_odt = self.get_output_datatype()
+                if self.get_output_datatype() == DataType.BIPOLAR:
+                    export_odt = DataType.BINARY
+                odt_hls = export_odt.get_hls_datatype_str()
                 f_thresh.write(
                     "static ThresholdsActivation<{},{},{},{},{},{}> threshs = ".format(
                         self.get_nodeattr("TMEM"),
@@ -249,6 +253,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         super().exec_precompiled_singlenode_model()
         # load output npy file
         super().npy_to_dynamic_output(context)
+        # reinterpret binary output as bipolar where needed
+        if self.get_output_datatype() == DataType.BIPOLAR:
+            out = context[node.output[0]]
+            out = 2 * out - 1
+            context[node.output[0]] = out
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
@@ -279,6 +288,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir")
         dtype = self.get_input_datatype()
+        if dtype == DataType.BIPOLAR:
+            # use binary for bipolar storage
+            dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -323,6 +335,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir")
         dtype = self.get_output_datatype()
+        if dtype == DataType.BIPOLAR:
+            # use binary for bipolar storage
+            dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
