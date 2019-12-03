@@ -121,6 +121,17 @@ class DataType(Enum):
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
 
+    def get_num_possible_values(self):
+        """Return the number of possible values this DataType can take. Only
+        implemented for integer types for now."""
+        assert self.is_integer()
+        if "INT" in self.name:
+            return abs(self.min()) + abs(self.max()) + 1
+        elif self.name == "BINARY" or self.name == "BIPOLAR":
+            return 2
+        elif self.name == "TERNARY":
+            return 3
+
     def get_smallest_possible(value):
         """Return smallest (fewest bits) possible DataType that can represent
       value. Prefers unsigned integers where possible."""
