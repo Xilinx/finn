@@ -8,6 +8,8 @@ import finn.custom_op.xnorpopcount as xp
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import gen_finn_dt_tensor
+from finn.transformation.fpgadataflow.code_gen_transformation import CodeGen
+from finn.transformation.fpgadataflow.compilation_transformation import Compilation
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -104,6 +106,8 @@ def test_fpgadataflow_fclayer_noact(idt, wdt, nf, sf, mw, mh):
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, mw))
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt)
+    model = model.transform(CodeGen())
+    model = model.transform(Compilation())
     # prepare input data
     input_dict = prepare_inputs(model, x, idt)
     if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:

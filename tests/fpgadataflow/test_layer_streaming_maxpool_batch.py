@@ -4,6 +4,8 @@ from onnx import TensorProto, helper
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.fpgadataflow.code_gen_transformation import CodeGen
+from finn.transformation.fpgadataflow.compilation_transformation import Compilation
 
 
 def test_layer_streaming_maxpool_batch():
@@ -108,6 +110,9 @@ def test_layer_streaming_maxpool_batch():
         dtype=np.float32,
     ).reshape(2, 2, 4, 4)
     print(input_tensor)
+
+    model = model.transform(CodeGen())
+    model = model.transform(Compilation())
 
     input_dict = {"in": input_tensor}
     output_dict = oxe.execute_onnx(model, input_dict)
