@@ -1,5 +1,4 @@
 import os
-import subprocess
 
 import numpy as np
 
@@ -245,14 +244,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             elif in_ind > 2:
                 raise Exception("Unexpected input found for StreamingFCLayer")
             in_ind += 1
-        # execute precompiled executable
-        executable_path = self.get_nodeattr("executable_path")
-        assert executable_path != ""
-        process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
-        process_execute.communicate()
+        # execute the precompiled model
+        super().exec_precompiled_singlenode_model()
         # load output npy file
-        output = np.load("{}/output.npy".format(code_gen_dir))
-        context[node.output[0]] = output
+        super().npy_to_dynamic_output()
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']

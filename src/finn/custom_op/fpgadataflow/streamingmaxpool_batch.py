@@ -1,8 +1,3 @@
-import os
-import subprocess
-
-import numpy as np
-
 from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
@@ -21,29 +16,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         pass
-
-    def execute_node(self, context, graph):
-        node = self.onnx_node
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
-        # create a npy file fore each input of the node (in_ind is input index)
-        in_ind = 0
-        for inputs in node.input:
-            if in_ind == 0:
-                np.save(
-                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                    context[inputs],
-                )
-            else:
-                raise Exception("Unexpected input found for StreamingMaxPool_Batch")
-            in_ind += 1
-        # execute precompiled executable
-        executable_path = self.get_nodeattr("executable_path")
-        assert executable_path != ""
-        process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
-        process_execute.communicate()
-        # load output npy file
-        output = np.load("{}/output.npy".format(code_gen_dir))
-        context[node.output[0]] = output
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
