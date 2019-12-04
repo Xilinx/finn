@@ -85,7 +85,7 @@ def prepare_inputs(model, input_tensor, idt):
 
 
 # activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType.BIPOLAR])
+@pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT2])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
 # input datatype
@@ -124,6 +124,8 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
         (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
         n_steps = act.get_num_possible_values() - 1
         T = np.random.randint(min, max - 1, (mh, n_steps)).astype(np.float32)
+        # provide non-decreasing thresholds
+        T = np.sort(T, axis=1)
         # generate thresholds for activation
         if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
             tdt = DataType.UINT32
@@ -149,7 +151,7 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
             y = 2 * y - 1
         else:
             # signed offset
-            y -= act.min()
+            y += act.min()
     oshape = model.get_tensor_shape("outp")
     y_expected = y.reshape(oshape)
     # execute model
