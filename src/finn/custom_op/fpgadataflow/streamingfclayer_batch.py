@@ -208,13 +208,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     export_odt = DataType.BINARY
                 odt_hls = export_odt.get_hls_datatype_str()
                 f_thresh.write(
-                    "static ThresholdsActivation<{},{},{},{},{},{}> threshs = ".format(
+                    "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
+                     = ".format(
                         self.get_nodeattr("TMEM"),
                         self.get_nodeattr("PE"),
                         threshold_tensor.shape[-1],
                         tdt_hls,
                         odt_hls,
                         self.get_nodeattr("ActVal"),
+                        "std::less_equal<%s>" % tdt_hls,
                     )
                 )
                 f_thresh.write(thresholds_hls_code)
