@@ -178,7 +178,7 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
 
 
 def gen_finn_dt_tensor(finn_dt, tensor_shape):
-    # generates random tensor in given shape and with given FINN data type
+    """Generates random tensor in given shape and with given FINN DataType"""
     if finn_dt == DataType.BIPOLAR:
         tensor_values = np.random.randint(2, size=tensor_shape)
         tensor_values = 2 * tensor_values - 1
@@ -194,6 +194,22 @@ def gen_finn_dt_tensor(finn_dt, tensor_shape):
         )
     # always use float type as container
     return tensor_values.astype(np.float32)
+
+
+def calculate_signed_dot_prod_range(dt_a, dt_b, len):
+    """Returns the (min,max) values a dot product between two signed vectors of
+    types dt_a and dt_b of len elements can take."""
+    assert dt_a.signed() and dt_b.signed()
+    min_prod = 2 ** 30
+    max_prod = -2 ** 30
+    for a_val in [dt_a.min(), dt_a.max()]:
+        for b_val in [dt_b.min(), dt_b.max()]:
+            prod = a_val * b_val * len
+            if prod < min_prod:
+                min_prod = prod
+            if prod > max_prod:
+                max_prod = prod
+    return (min_prod, max_prod)
 
 
 class CppBuilder:

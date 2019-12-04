@@ -7,7 +7,7 @@ from finn.transformation import Transformation
 
 class AbsorbAddIntoMultiThreshold(Transformation):
     """Absorb preceding Add ops into MultiThreshold by updating the threshold
-    values."""
+    values. Only scalar/1D add vectors can be absorbed."""
 
     def apply(self, model):
         graph = model.graph
@@ -25,20 +25,25 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     assert A is not None
                     assert T is not None
                     start_name = n.input[0]
-                    # compute new thresholds and set initializer
-                    Tnew = T - A.reshape(-1, T.shape[1])
-                    model.set_initializer(threshold_name, Tnew)
-                    # wire add input directly to MultiThreshold
-                    consumer.input[0] = start_name
-                    # remove the add node
-                    graph.node.remove(n)
-                    graph_modified = True
+                    # we can only absorb 0d or 1d adds
+                    is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
+                    is_1d = A.ndim > 0 and np.prod(A.shape) == A.shape[-1]
+                    if is_scalar or is_1d:
+                        Tnew = T - A.reshape(-1, 1)
+                        # Tnew = T - A.reshape(-1, T.shape[1])
+                        # compute new thresholds and set initializer
+                        model.set_initializer(threshold_name, Tnew)
+                        # wire add input directly to MultiThreshold
+                        consumer.input[0] = start_name
+                        # remove the add node
+                        graph.node.remove(n)
+                        graph_modified = True
         return (model, graph_modified)
 
 
 class AbsorbMulIntoMultiThreshold(Transformation):
     """Absorb preceding Mul ops into MultiThreshold by updating the threshold
-    values. Only *positive* scalar/1D vectors can be absorbed."""
+    values. Only *positive* scalar/1D mul vectors can be absorbed."""
 
     def apply(self, model):
         graph = model.graph
@@ -51,8 +56,8 @@ class AbsorbMulIntoMultiThreshold(Transformation):
                 A = model.get_initializer(mul_weight_name)
                 assert A is not None
                 is_signed = (A < 0).any()
-                is_scalar = np.prod(A.shape) == 1
-                is_1d = len(A.shape) == 2 and A.shape[0] == 1
+                is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
+                is_1d = A.ndim > 0 and np.prod(A.shape) == A.shape[-1]
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MultiThreshold":
                     if not is_signed and (is_1d or is_scalar):
@@ -61,7 +66,7 @@ class AbsorbMulIntoMultiThreshold(Transformation):
                         assert T is not None
                         start_name = n.input[0]
                         # compute new thresholds and set initializer
-                        Tnew = T / A.reshape(-1, T.shape[1])
+                        Tnew = T / A.reshape(-1, 1)
                         # TODO: need to handle negative A values correctly; produce
                         # mul sign mask and merge into preceding matmul?
                         model.set_initializer(threshold_name, Tnew)

@@ -68,5 +68,5 @@ docker run --rm --name finn_dev -it \
 -v $SCRIPTPATH/cnpy:/workspace/cnpy \
 -v $SCRIPTPATH/finn-hlslib:/workspace/finn-hlslib \
 -v $VIVADO_PATH/include:/workspace/vivado-hlslib \
--p 8888:8888 \
+-p 8888:8888 -p 8081:8081 \
 $DOCKER_TAG $DOCKER_CMD
