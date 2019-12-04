@@ -7,6 +7,7 @@ WORKDIR /workspace
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
+RUN apt update; apt install nano
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
@@ -16,6 +17,7 @@ RUN rm requirements.txt
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
+
 
 ARG GID
 ARG GNAME

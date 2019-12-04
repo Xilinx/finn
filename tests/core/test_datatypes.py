@@ -8,6 +8,8 @@ def test_datatypes():
     assert DataType.BIPOLAR.allowed(0) is False
     assert DataType.BINARY.allowed(-1) is False
     assert DataType.BINARY.allowed(1)
+    assert DataType.TERNARY.allowed(2) is False
+    assert DataType.TERNARY.allowed(-1)
     assert DataType.UINT2.allowed(2)
     assert DataType.UINT2.allowed(10) is False
     assert DataType.UINT3.allowed(5)
@@ -36,6 +38,7 @@ def test_datatypes():
     assert DataType.BINARY.signed() is False
     assert DataType.FLOAT32.signed()
     assert DataType.BIPOLAR.signed()
+    assert DataType.TERNARY.signed()
 
 
 def test_smallest_possible():
