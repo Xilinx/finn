@@ -32,6 +32,7 @@ def make_npy2apintstream_testcase(ndarray, dtype):
     npy_type = npyt_to_ct[str(ndarray.dtype)]
     shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
     test_app_string = []
+    test_app_string += ["#include <cstddef>"]
     test_app_string += ['#include "ap_int.h"']
     test_app_string += ['#include "stdint.h"']
     test_app_string += ['#include "hls_stream.h"']
