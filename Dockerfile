@@ -36,4 +36,3 @@ RUN chown -R $UNAME:$GNAME /home/$UNAME
 USER $UNAME
 
 WORKDIR /home/$UNAME/finn
-ENTRYPOINT /bin/bash
