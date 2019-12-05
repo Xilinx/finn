@@ -51,3 +51,5 @@ MANIFEST
 # Cloned dependencies for Docker
 brevitas/
 brevitas_cnv_lfc/
+cnpy/
+finn-hlslib/

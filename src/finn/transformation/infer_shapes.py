@@ -12,8 +12,8 @@ def _make_shape_compatible_op(node):
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
-        inst = registry.custom_op[op_type]()
-        return inst.make_shape_compatible_op(node)
+        inst = registry.custom_op[op_type](node)
+        return inst.make_shape_compatible_op()
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)

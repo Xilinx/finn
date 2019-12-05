@@ -1,6 +1,6 @@
 import numpy as np
 
-from finn.custom_op.multithreshold import MultiThreshold
+from finn.custom_op.multithreshold import multithreshold
 
 
 def test_execute_multi_thresholding():
@@ -194,11 +194,10 @@ def test_execute_multi_thresholding():
         ),
     )
 
-    multi_thresh = MultiThreshold()
-    results = multi_thresh._execute(inputs, thresholds)
+    results = multithreshold(inputs, thresholds)
 
     assert (results == outputs).all()
 
-    results_scaled = multi_thresh._execute(inputs, thresholds, 2.0, -1.0)
+    results_scaled = multithreshold(inputs, thresholds, 2.0, -1.0)
     outputs_scaled = 2.0 * outputs - 1.0
     assert (results_scaled == outputs_scaled).all()

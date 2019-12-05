@@ -7,6 +7,10 @@ WORKDIR /workspace
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
+RUN apt update; apt install nano
+RUN pip install jupyter
+RUN pip install netron
+RUN pip install matplotlib
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
@@ -16,6 +20,7 @@ RUN rm requirements.txt
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
+
 
 ARG GID
 ARG GNAME
@@ -33,4 +38,3 @@ RUN chown -R $UNAME:$GNAME /home/$UNAME
 USER $UNAME
 
 WORKDIR /home/$UNAME/finn
-ENTRYPOINT python setup.py test; /bin/bash

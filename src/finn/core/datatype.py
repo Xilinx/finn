@@ -40,6 +40,7 @@ class DataType(Enum):
     UINT16 = auto()
     UINT32 = auto()
     BIPOLAR = auto()
+    TERNARY = auto()
     INT2 = auto()
     INT3 = auto()
     INT4 = auto()
@@ -59,6 +60,8 @@ class DataType(Enum):
             return int(self.name.strip("FLOAT"))
         elif self.name in ["BINARY", "BIPOLAR"]:
             return 1
+        elif self.name == "TERNARY":
+            return 2
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
 
@@ -72,6 +75,8 @@ class DataType(Enum):
         elif self.name == "FLOAT32":
             return np.finfo(np.float32).min
         elif self.name == "BIPOLAR":
+            return -1
+        elif self.name == "TERNARY":
             return -1
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
@@ -88,6 +93,8 @@ class DataType(Enum):
         elif self.name == "FLOAT32":
             return np.finfo(np.float32).max
         elif self.name == "BIPOLAR":
+            return +1
+        elif self.name == "TERNARY":
             return +1
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
@@ -109,8 +116,21 @@ class DataType(Enum):
             return value in [0, 1]
         elif self.name == "BIPOLAR":
             return value in [-1, +1]
+        elif self.name == "TERNARY":
+            return value in [-1, 0, +1]
         else:
             raise Exception("Unrecognized data type: %s" % self.name)
+
+    def get_num_possible_values(self):
+        """Return the number of possible values this DataType can take. Only
+        implemented for integer types for now."""
+        assert self.is_integer()
+        if "INT" in self.name:
+            return abs(self.min()) + abs(self.max()) + 1
+        elif self.name == "BINARY" or self.name == "BIPOLAR":
+            return 2
+        elif self.name == "TERNARY":
+            return 3
 
     def get_smallest_possible(value):
         """Return smallest (fewest bits) possible DataType that can represent
@@ -130,3 +150,13 @@ class DataType(Enum):
         """Return whether this DataType represents integer values only."""
         # only FLOAT32 is noninteger for now
         return self != DataType.FLOAT32
+
+    def get_hls_datatype_str(self):
+        """Return the corresponding Vivado HLS datatype name."""
+        if self.is_integer():
+            if self.signed():
+                return "ap_int<%d>" % self.bitwidth()
+            else:
+                return "ap_uint<%d>" % self.bitwidth()
+        else:
+            return "float"
