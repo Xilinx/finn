@@ -22,14 +22,13 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     wmem = mw * mh // (pe * simd)
     assert mw * mh == wmem * pe * simd
     nf = mh // pe
-    sf = mw // simd
     if T is not None:
         tmem = nf
     else:
         tmem = 0
 
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
     if T is not None:
         node_inp_list = ["inp", "weights", "thresh"]
         if odt == DataType.BIPOLAR:
@@ -76,11 +75,6 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
 
 
 def prepare_inputs(model, input_tensor, idt):
-    ishape = model.get_tensor_shape("inp")
-    input_tensor = (np.asarray(input_tensor, dtype=np.float32)).reshape(*ishape)
-    # flip SIMD (innermost) dimension of input tensor, there's some reversal
-    # going on somewhere with a mistmatch between npy and hls...
-    input_tensor = np.flip(input_tensor, -1)
     return {"inp": input_tensor}
 
 

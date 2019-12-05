@@ -224,6 +224,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def execute_node(self, context, graph):
         node = self.onnx_node
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        simd = self.get_nodeattr("SIMD")
+        pe = self.get_nodeattr("PE")
+        sf = mw // simd
+        nf = mh // pe
+
         # TODO ensure codegen dir exists
         code_gen_dir = self.get_nodeattr("code_gen_dir")
         # create a npy file fore each input of the node (in_ind is input index)
@@ -233,21 +240,19 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # the second input are the weights
             # the third input are the thresholds
             if in_ind == 0:
-                simd = self.get_nodeattr("SIMD")
-                sf = int(self.get_nodeattr("MW") / simd)
-                assert context[inputs].shape == (1, sf, simd)
                 assert str(context[inputs].dtype) == "float32"
+                expected_inp_shape = (1, sf, simd)
+                reshaped_input = context[inputs].reshape(expected_inp_shape)
+                # flip SIMD (innermost) dimension of input tensor, there's some reversal
+                # going on somewhere with a mistmatch between npy and hls...
+                reshaped_input = np.flip(reshaped_input, -1)
                 if self.get_input_datatype() == DataType.BIPOLAR:
                     # store bipolar activations as binary
-                    np.save(
-                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                        (context[inputs] + 1) / 2,
-                    )
-                else:
-                    np.save(
-                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                        context[inputs],
-                    )
+                    reshaped_input = (reshaped_input + 1) / 2
+                np.save(
+                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                    reshaped_input,
+                )
             elif in_ind > 2:
                 raise Exception("Unexpected input found for StreamingFCLayer")
             in_ind += 1
@@ -260,6 +265,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             out = context[node.output[0]]
             out = 2 * out - 1
             context[node.output[0]] = out
+        assert context[node.output[0]].shape == (1, nf, pe)
+        # reshape output to have expected shape
+        context[node.output[0]] = context[node.output[0]].reshape(1, mh)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
