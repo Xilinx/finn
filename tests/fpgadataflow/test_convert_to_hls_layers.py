@@ -50,4 +50,8 @@ def test_convert_to_hls_layers_lfc_w1a1():
     assert model.get_tensor_shape(fc2.input[0]) == [1, 1024]
     assert model.get_tensor_shape(fc2.input[1]) == [1024, 1024]
     assert model.get_tensor_shape(fc2.input[2]) == [1024, 1]
+    fc3 = model.graph.node[5]
+    assert fc3.op_type == "StreamingFCLayer_Batch"
+    assert model.get_tensor_shape(fc3.input[0]) == [1, 1024]
+    assert model.get_tensor_shape(fc3.input[1]) == [1024, 10]
     os.remove(export_onnx_path)
