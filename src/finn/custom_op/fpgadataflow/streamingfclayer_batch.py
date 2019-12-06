@@ -14,8 +14,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            "WMEM": ("i", True, 0),
-            "TMEM": ("i", True, 0),
             "PE": ("i", True, 0),
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
@@ -29,9 +27,29 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
             "binaryXnorMode": ("i", False, 0),
+            # no-activation mode (produce accumulators)
+            "noActivation": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def calc_wmem(self):
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        assert mh % pe == 0
+        assert mw % simd == 0
+        wmem = mw * mh // (pe * simd)
+        return wmem
+
+    def calc_tmem(self):
+        if self.get_nodeattr("noActivation") == 1:
+            return 0
+        else:
+            mh = self.get_nodeattr("MH")
+            pe = self.get_nodeattr("PE")
+            return mh // pe
 
     def make_shape_compatible_op(self):
         pass
@@ -106,7 +124,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
-        wmem = mw * mh // (pe * simd)
+        wmem = self.calc_wmem()
         assert orig_weight_matrix.shape == (mw, mh)
         assert mw % simd == 0
         assert mh % pe == 0
@@ -184,15 +202,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     self.get_nodeattr("SIMD"),
                     export_wdt.get_hls_datatype_str(),
                     self.get_nodeattr("PE"),
-                    self.get_nodeattr("WMEM"),
+                    self.calc_wmem(),
                 )
             )
         else:
             f_weights.write(
                 "static BinaryWeights<{},{},{}> weights = ".format(
-                    self.get_nodeattr("SIMD"),
-                    self.get_nodeattr("PE"),
-                    self.get_nodeattr("WMEM"),
+                    self.get_nodeattr("SIMD"), self.get_nodeattr("PE"), self.calc_wmem()
                 )
             )
         f_weights.write(weight_hls_code)
@@ -229,7 +245,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 f_thresh.write(
                     "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
                      = ".format(
-                        self.get_nodeattr("TMEM"),
+                        self.calc_tmem(),
                         self.get_nodeattr("PE"),
                         threshold_tensor.shape[-1],
                         tdt_hls,
@@ -291,10 +307,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
-        if self.get_nodeattr("WMEM") != 0:
-            # TODO find a better way of checking for no pregenerated weights
-            self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
-        if self.get_nodeattr("TMEM") != 0:
+        self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
+        if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
@@ -308,8 +322,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 self.get_nodeattr("MH"),
                 self.get_nodeattr("SIMD"),
                 self.get_nodeattr("PE"),
-                self.get_nodeattr("WMEM"),
-                self.get_nodeattr("TMEM"),
+                self.calc_wmem(),
+                self.calc_tmem(),
                 numReps,
             )
         ]
@@ -344,7 +358,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def docompute(self):
         node = self.onnx_node
         tmpl_args = self.get_template_param_values()
-        if self.get_nodeattr("TMEM") == 0:
+        if self.calc_tmem() == 0:
             odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
             threshs = "PassThroughActivation<%s>()" % odtype_hls_str
         else:
