@@ -14,6 +14,8 @@ class Compile(Transformation):
             op_type = node.op_type
             if node.domain == "finn":
                 backend_attribute = util.get_by_name(node.attribute, "backend")
+                if backend_attribute is None:
+                    continue
                 backend_value = backend_attribute.s.decode("UTF-8")
                 if backend_value == "fpgadataflow":
                     try:
