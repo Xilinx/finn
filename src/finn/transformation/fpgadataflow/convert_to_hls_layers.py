@@ -76,6 +76,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                         weightDataType=wdt.name,
                         outputDataType=odt.name,
                         ActVal=actval,
+                        binaryXnorMode=1,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
@@ -107,6 +108,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                         weightDataType=wdt.name,
                         outputDataType=odt.name,
                         ActVal=0,
+                        binaryXnorMode=1,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old node
