@@ -37,7 +37,6 @@ class InferBinaryStreamingFCLayer(Transformation):
                 assert mw % simd == 0
                 wmem = mw * mh // (pe * simd)
                 assert mw * mh == wmem * pe * simd
-                nf = mh // pe
                 # see if we have any following thresholds
                 consumer = model.find_consumer(mm_output)
                 if consumer is not None and consumer.op_type == "MultiThreshold":
@@ -46,7 +45,6 @@ class InferBinaryStreamingFCLayer(Transformation):
                     mt_output = consumer.output[0]
                     mt_thres = consumer.input[1]
                     T = model.get_initializer(mt_thres)
-                    tmem = nf
                     assert T.shape[0] == 1 or T.shape[0] == mh
                     odt = model.get_tensor_datatype(mt_output)
                     if odt.bitwidth() == 1:
@@ -70,13 +68,12 @@ class InferBinaryStreamingFCLayer(Transformation):
                         MH=mh,
                         SIMD=simd,
                         PE=pe,
-                        WMEM=wmem,
-                        TMEM=tmem,
                         inputDataType=idt.name,
                         weightDataType=wdt.name,
                         outputDataType=odt.name,
                         ActVal=actval,
                         binaryXnorMode=1,
+                        noActivation=0,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
@@ -102,13 +99,12 @@ class InferBinaryStreamingFCLayer(Transformation):
                         MH=mh,
                         SIMD=simd,
                         PE=pe,
-                        WMEM=wmem,
-                        TMEM=0,
                         inputDataType=idt.name,
                         weightDataType=wdt.name,
                         outputDataType=odt.name,
                         ActVal=0,
                         binaryXnorMode=1,
+                        noActivation=1,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old node
