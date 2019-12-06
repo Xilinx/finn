@@ -10,13 +10,10 @@ def test_set_attribute():
     mh = 8
     pe = 4
     simd = 4
-    wmem = mw * mh // (pe * simd)
-    nf = mh // pe
-    sf = mw // simd
     idt = odt = wdt = DataType.BIPOLAR
 
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
     node_inp_list = ["inp", "weights"]
 
     FCLayer_node = helper.make_node(
@@ -32,7 +29,6 @@ def test_set_attribute():
         MH=mh,
         SIMD=simd,
         PE=pe,
-        WMEM=wmem,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,

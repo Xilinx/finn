@@ -33,6 +33,8 @@ class CodeGen(Transformation):
         for node in model.graph.node:
             if node.domain == "finn":
                 backend_attribute = get_by_name(node.attribute, "backend")
+                if backend_attribute is None:
+                    continue
                 backend_value = backend_attribute.s.decode("UTF-8")
                 if backend_value == "fpgadataflow":
                     _codegen_single_node(node, model)

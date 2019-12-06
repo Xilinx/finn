@@ -24,7 +24,7 @@ from finn.transformation.streamline.reorder import (
     MoveScalarAddPastMatMul,
 )
 
-from finn.transformation.streamline.round_thresholds import RoundThresholds
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
 from finn.transformation.batchnorm_to_affine import BatchNormToAffine
 
@@ -46,7 +46,7 @@ class Streamline(Transformation):
             FactorOutMulSignMagnitude(),
             AbsorbMulIntoMultiThreshold(),
             Absorb1BitMulIntoMatMul(),
-            RoundThresholds(),
+            RoundAndClipThresholds(),
         ]
         for trn in streamline_transformations:
             model = model.transform(trn)

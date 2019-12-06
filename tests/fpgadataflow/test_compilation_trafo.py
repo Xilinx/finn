@@ -16,12 +16,9 @@ def test_compilation_trafo():
     mh = 8
     pe = 4
     simd = 4
-    wmem = mw * mh // (pe * simd)
-    nf = mh // pe
-    sf = mw // simd
 
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
     node_inp_list = ["inp", "weights", "thresh"]
     FCLayer_node = helper.make_node(
         "StreamingFCLayer_Batch",
@@ -36,11 +33,10 @@ def test_compilation_trafo():
         MH=mh,
         SIMD=simd,
         PE=pe,
-        WMEM=wmem,
-        TMEM=0,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
+        noActivation=1,
     )
     graph = helper.make_graph(
         nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]

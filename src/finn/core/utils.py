@@ -41,7 +41,7 @@ def random_string(stringLength=6):
     return "".join(random.choice(lettersAndDigits) for i in range(stringLength))
 
 
-def array2hexstring(array, dtype, pad_to_nbits):
+def array2hexstring(array, dtype, pad_to_nbits, prefix="0x"):
     """
     Pack given one-dimensional NumPy array with FINN DataType dtype into a hex
     string.
@@ -85,7 +85,7 @@ def array2hexstring(array, dtype, pad_to_nbits):
     else:
         raise Exception("Number of bits is greater than pad_to_nbits")
     # represent as hex
-    return lineval.hex
+    return prefix + lineval.hex
 
 
 def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):

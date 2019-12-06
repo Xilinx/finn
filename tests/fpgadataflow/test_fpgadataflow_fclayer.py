@@ -19,18 +19,26 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     mh = W.shape[1]
     assert mh % pe == 0
     assert mw % simd == 0
-    wmem = mw * mh // (pe * simd)
-    assert mw * mh == wmem * pe * simd
-    nf = mh // pe
-    sf = mw // simd
-    if T is not None:
-        tmem = nf
-    else:
-        tmem = 0
 
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, sf, simd])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, nf, pe])
+    # there are two ways to implement bipolar weights and inputs for
+    # StreamingFC:
+    # - specify their datatypes as such
+    # - specify their datatypes as BINARY as use binaryXnorMode
+    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+        # we'll internally convert weights/inputs to binary and specify the
+        # datatypes as such, and also set the binaryXnorMode attribute to 1
+        export_wdt = DataType.BINARY
+        export_idt = DataType.BINARY
+        binary_xnor_mode = 1
+    else:
+        export_wdt = wdt
+        export_idt = idt
+        binary_xnor_mode = 0
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
     if T is not None:
+        no_act = 0
         node_inp_list = ["inp", "weights", "thresh"]
         if odt == DataType.BIPOLAR:
             actval = 0
@@ -40,6 +48,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         # no thresholds
         node_inp_list = ["inp", "weights"]
         actval = 0
+        no_act = 1
     FCLayer_node = helper.make_node(
         "StreamingFCLayer_Batch",
         node_inp_list,
@@ -51,12 +60,12 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         MH=mh,
         SIMD=simd,
         PE=pe,
-        WMEM=wmem,
-        TMEM=tmem,
-        inputDataType=idt.name,
-        weightDataType=wdt.name,
+        inputDataType=export_idt.name,
+        weightDataType=export_wdt.name,
         outputDataType=odt.name,
         ActVal=actval,
+        binaryXnorMode=binary_xnor_mode,
+        noActivation=no_act,
     )
     graph = helper.make_graph(
         nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]
@@ -68,20 +77,23 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", odt)
     model.set_tensor_datatype("weights", wdt)
-    model.set_initializer("weights", W)
+    if binary_xnor_mode:
+        # convert bipolar to binary
+        model.set_initializer("weights", (W + 1) / 2)
+    else:
+        model.set_initializer("weights", W)
     if T is not None:
         model.set_tensor_datatype("thresh", tdt)
         model.set_initializer("thresh", T)
     return model
 
 
-def prepare_inputs(model, input_tensor, idt):
-    ishape = model.get_tensor_shape("inp")
-    input_tensor = (np.asarray(input_tensor, dtype=np.float32)).reshape(*ishape)
-    # flip SIMD (innermost) dimension of input tensor, there's some reversal
-    # going on somewhere with a mistmatch between npy and hls...
-    input_tensor = np.flip(input_tensor, -1)
-    return {"inp": input_tensor}
+def prepare_inputs(input_tensor, idt, wdt):
+    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+        # convert bipolar to binary
+        return {"inp": (input_tensor + 1) / 2}
+    else:
+        return {"inp": input_tensor}
 
 
 # activation: None or DataType
@@ -138,7 +150,7 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
     model = model.transform(CodeGen())
     model = model.transform(Compile())
     # prepare input data
-    input_dict = prepare_inputs(model, x, idt)
+    input_dict = prepare_inputs(x, idt, wdt)
     if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
         # convert inputs to binary and use xnorpopcountmatmul
         y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)

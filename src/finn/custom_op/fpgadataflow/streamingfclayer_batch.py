@@ -14,8 +14,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            "WMEM": ("i", True, 0),
-            "TMEM": ("i", True, 0),
             "PE": ("i", True, 0),
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
@@ -26,9 +24,32 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
+            # use xnor-popcount for binary weights/inputs, thus treating them
+            # as bipolar
+            "binaryXnorMode": ("i", False, 0),
+            # no-activation mode (produce accumulators)
+            "noActivation": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def calc_wmem(self):
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        assert mh % pe == 0
+        assert mw % simd == 0
+        wmem = mw * mh // (pe * simd)
+        return wmem
+
+    def calc_tmem(self):
+        if self.get_nodeattr("noActivation") == 1:
+            return 0
+        else:
+            mh = self.get_nodeattr("MH")
+            pe = self.get_nodeattr("PE")
+            return mh // pe
 
     def make_shape_compatible_op(self):
         pass
@@ -60,11 +81,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         inp_is_binary = self.get_input_datatype() == DataType.BINARY
         out_is_binary = self.get_output_datatype() == DataType.BINARY
         wt_is_binary = self.get_weight_datatype() == DataType.BINARY
-        if inp_is_binary or wt_is_binary or out_is_binary:
+        bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
+        if (inp_is_binary or wt_is_binary) and (not bin_xnor_mode):
             raise Exception("True binary (non-bipolar) inputs not yet supported")
         inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
         out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+        # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
+        inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
+        wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
         # fill in TSrcI and TWeightI
         # TODO check these with Giulio
         # TODO handle non-bipolar binary inputs
@@ -81,7 +106,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ret["TSrcI"] = "Slice<%s>" % inp_hls_str
             ret["TWeightI"] = "Identity"
         # fill in TDstI
-        if out_is_bipolar:
+        if out_is_bipolar or out_is_binary:
             ret["TDstI"] = "Identity"
         else:
             ret["TDstI"] = "Slice<%s>" % out_hls_str
@@ -99,7 +124,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
-        wmem = mw * mh // (pe * simd)
+        wmem = self.calc_wmem()
         assert orig_weight_matrix.shape == (mw, mh)
         assert mw % simd == 0
         assert mh % pe == 0
@@ -134,8 +159,17 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         n_thres_steps = orig_thres_matrix.shape[1]
         inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+        # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
+        inp_is_binary = self.get_input_datatype() == DataType.BINARY
+        wt_is_binary = self.get_weight_datatype() == DataType.BINARY
+        bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
+        inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
+        wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
         if inp_is_bipolar and wt_is_bipolar:
+            # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
+            # ensure all thresholds are integer
+            assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
@@ -171,15 +205,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     self.get_nodeattr("SIMD"),
                     export_wdt.get_hls_datatype_str(),
                     self.get_nodeattr("PE"),
-                    self.get_nodeattr("WMEM"),
+                    self.calc_wmem(),
                 )
             )
         else:
             f_weights.write(
                 "static BinaryWeights<{},{},{}> weights = ".format(
-                    self.get_nodeattr("SIMD"),
-                    self.get_nodeattr("PE"),
-                    self.get_nodeattr("WMEM"),
+                    self.get_nodeattr("SIMD"), self.get_nodeattr("PE"), self.calc_wmem()
                 )
             )
         f_weights.write(weight_hls_code)
@@ -193,6 +225,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 # use UINT32 threshold export for bipolar times bipolar
                 inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
                 wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+                # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
+                inp_is_binary = self.get_input_datatype() == DataType.BINARY
+                wt_is_binary = self.get_weight_datatype() == DataType.BINARY
+                bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
+                inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
+                wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
                 if inp_is_bipolar and wt_is_bipolar:
                     tdt = DataType.UINT32
                 thresholds_hls_code = numpy_to_hls_code(
@@ -210,7 +248,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 f_thresh.write(
                     "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
                      = ".format(
-                        self.get_nodeattr("TMEM"),
+                        self.calc_tmem(),
                         self.get_nodeattr("PE"),
                         threshold_tensor.shape[-1],
                         tdt_hls,
@@ -224,6 +262,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def execute_node(self, context, graph):
         node = self.onnx_node
+        mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
+        simd = self.get_nodeattr("SIMD")
+        pe = self.get_nodeattr("PE")
+        sf = mw // simd
+        nf = mh // pe
+
         # TODO ensure codegen dir exists
         code_gen_dir = self.get_nodeattr("code_gen_dir")
         # create a npy file fore each input of the node (in_ind is input index)
@@ -233,21 +278,19 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # the second input are the weights
             # the third input are the thresholds
             if in_ind == 0:
-                simd = self.get_nodeattr("SIMD")
-                sf = int(self.get_nodeattr("MW") / simd)
-                assert context[inputs].shape == (1, sf, simd)
                 assert str(context[inputs].dtype) == "float32"
+                expected_inp_shape = (1, sf, simd)
+                reshaped_input = context[inputs].reshape(expected_inp_shape)
+                # flip SIMD (innermost) dimension of input tensor, there's some reversal
+                # going on somewhere with a mistmatch between npy and hls...
+                reshaped_input = np.flip(reshaped_input, -1)
                 if self.get_input_datatype() == DataType.BIPOLAR:
                     # store bipolar activations as binary
-                    np.save(
-                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                        (context[inputs] + 1) / 2,
-                    )
-                else:
-                    np.save(
-                        os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                        context[inputs],
-                    )
+                    reshaped_input = (reshaped_input + 1) / 2
+                np.save(
+                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                    reshaped_input,
+                )
             elif in_ind > 2:
                 raise Exception("Unexpected input found for StreamingFCLayer")
             in_ind += 1
@@ -260,14 +303,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             out = context[node.output[0]]
             out = 2 * out - 1
             context[node.output[0]] = out
+        assert context[node.output[0]].shape == (1, nf, pe)
+        # reshape output to have expected shape
+        context[node.output[0]] = context[node.output[0]].reshape(1, mh)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
-        if self.get_nodeattr("WMEM") != 0:
-            # TODO find a better way of checking for no pregenerated weights
-            self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
-        if self.get_nodeattr("TMEM") != 0:
+        self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
+        if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
@@ -281,8 +325,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 self.get_nodeattr("MH"),
                 self.get_nodeattr("SIMD"),
                 self.get_nodeattr("PE"),
-                self.get_nodeattr("WMEM"),
-                self.get_nodeattr("TMEM"),
+                self.calc_wmem(),
+                self.calc_tmem(),
                 numReps,
             )
         ]
@@ -317,7 +361,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def docompute(self):
         node = self.onnx_node
         tmpl_args = self.get_template_param_values()
-        if self.get_nodeattr("TMEM") == 0:
+        if self.calc_tmem() == 0:
             odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
             threshs = "PassThroughActivation<%s>()" % odtype_hls_str
         else:
