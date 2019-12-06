@@ -166,7 +166,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
         wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
         if inp_is_bipolar and wt_is_bipolar:
+            # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
+            # ensure all thresholds are integer
+            assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
