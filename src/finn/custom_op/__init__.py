@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from finn.core.utils import get_by_name
 import onnx.helper as helper
+from finn.custom_op.verify_custom_op_construct import CustomOp_Construct
 
 
 class CustomOp(ABC):
@@ -78,3 +79,7 @@ class CustomOp(ABC):
         """Execute this CustomOp instance, given the execution context and
         ONNX graph."""
         pass
+
+    def verify_node(self):
+        inst = CustomOp_Construct[self.onnx_node.op_type] 
+        inst.verify_construct(self.onnx_node) 
