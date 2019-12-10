@@ -13,6 +13,7 @@ class CustomOp_Construct(Enum):
         if self.name in ["StreamingMaxPool_Batch", "StreamingFCLayer_Batch"]:
             assert self.verify_backend_is_fpgadataflow(node) == True, 'Attribute backend has to be set to "fpgadataflow"'
         assert self.verify_all_attr(node) == True, 'The attributes are not correct'
+        assert self.verify_num_of_inputs(node) == True, 'The number of inputs is wrong'
           
     def verify_num_of_attr(self, node):
         if self.name == "MultiThreshold":
@@ -54,7 +55,12 @@ class CustomOp_Construct(Enum):
             except:
                 return False
         
-        
+    def verify_num_of_inputs(self, node):
+        if self.name == "MultiThreshold":
+            if len(node.input) == 2:
+                return True
+            else:
+                return False
     
 
 
