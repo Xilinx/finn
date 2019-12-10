@@ -1,5 +1,7 @@
 from enum import Enum, auto
+
 from finn.core.utils import get_by_name
+
 
 class CustomOp_Construct(Enum):
     MultiThreshold = auto()
@@ -8,12 +10,14 @@ class CustomOp_Construct(Enum):
     StreamingFCLayer_Batch = auto()
 
     def verify_construct(self, node):
-        assert self.verify_num_of_attr(node) == True, 'Number of attributes is not correct'
-        assert self.verify_domain_is_finn(node) == True, 'Domain name is not "finn"'
+        self.verify_num_of_attr(node)
+        assert self.verify_domain_is_finn(node) is True, 'Domain name is not "finn"'
         if self.name in ["StreamingMaxPool_Batch", "StreamingFCLayer_Batch"]:
-            assert self.verify_backend_is_fpgadataflow(node) == True, 'Attribute backend has to be set to "fpgadataflow"'
-        assert self.verify_all_attr(node) == True, 'The attributes are not correct'
-        assert self.verify_num_of_inputs(node) == True, 'The number of inputs is wrong'
+            assert (
+                self.verify_backend_is_fpgadataflow(node) is True
+            ), 'Attribute backend has to be set to "fpgadataflow"'
+        self.verify_all_attr(node)
+        self.verify_num_of_inputs(node)
 
     def verify_num_of_attr(self, node):
         if self.name == "MultiThreshold":
@@ -30,7 +34,11 @@ class CustomOp_Construct(Enum):
         if len(node.attribute) == num_of_attr:
             return True
         else:
-            return False
+            Exception(
+                "Your {} nod has {} attributes, need {} attributes!".format(
+                    node.op_type, len(node.attribute), num_of_attr
+                )
+            )
 
     def verify_domain_is_finn(self, node):
         domain_value = node.domain
@@ -41,7 +49,7 @@ class CustomOp_Construct(Enum):
             return False
 
     def verify_backend_is_fpgadataflow(self, node):
-        #only for HLS CustomOp
+        # only for HLS CustomOp
         backend_value = get_by_name(node.attribute, "backend")
         if backend_value.s.decode("UTF-8") == "fpgadataflow":
             return True
@@ -55,8 +63,11 @@ class CustomOp_Construct(Enum):
                 get_by_name(node.attribute, "out_bias")
                 get_by_name(node.attribute, "out_dtype")
                 return True
-            except:
-                return False
+            except AttributeError:
+                Exception(
+                    """MultiThreshold needs the following attributes:
+                    out_scale, out_bias, out_dtype"""
+                )
 
         elif self.name == "XnorPopcountMatMul":
             return True
@@ -68,8 +79,11 @@ class CustomOp_Construct(Enum):
                 get_by_name(node.attribute, "PoolDim")
                 get_by_name(node.attribute, "NumChannels")
                 return True
-            except:
-                return False
+            except AttributeError:
+                Exception(
+                    """StreamingMaxPool_Batch needs the following attributes:
+                    code_gen_dir, executable_path, ImgDim, PoolDim, NumChannels"""
+                )
 
         elif self.name == "StreamingFCLayer_Batch":
             try:
@@ -87,45 +101,57 @@ class CustomOp_Construct(Enum):
                 get_by_name(node.attribute, "binaryXnorMode")
                 get_by_name(node.attribute, "noActivation")
                 return True
-            except:
-                return False
+            except AttributeError:
+                Exception(
+                    """StreamingFCLayer_Batch needs the following attributes:
+                    code_gen_dir, executable_path, resType, MW, MH, SIMD, PE,
+                    inputDataType, weightDataType, outputDataType, ActVal,
+                    binaryXnorMode, noActivation"""
+                )
 
-        
     def verify_num_of_inputs(self, node):
         if self.name == "MultiThreshold":
             if len(node.input) == 2:
                 return True
             else:
-                return False
+                Exception(
+                    """MultiThreshold needs 2 inputs
+                    (data input and threshold values)"""
+                )
         elif self.name == "XnorPopcountMatMul":
             if len(node.input) == 2:
                 return True
             else:
-                return False
+                Exception("XnorPopcountMatMul needs 2 data inputs")
         elif self.name == "StreamingMaxPool_Batch":
             if len(node.input) == 1:
                 return True
             else:
-                return False
+                Exception("StreamingMaxPool_Batch needs 1 data input")
         elif self.name == "StreamingFCLayer_Batch":
             # check noActivation value to determine the number of inputs
             no_act = get_by_name(node.attribute, "noActivation")
             no_act = no_act.i
-           
+
             if no_act == 1:
                 if len(node.input) == 2:
                     return True
                 else:
-                    return False
+                    Exception(
+                        """StreamingFCLayer_Batch needs in no
+                            activation mode 2 inputs (data input and weights)"""
+                    )
             elif no_act == 0:
                 if len(node.input) == 3:
                     return True
                 else:
-                    return False
+                    Exception(
+                        """StreamingFCLayer_Batch needs 3 inputs
+                            (data input and weights and threshold values)"""
+                    )
             else:
-                Exception("noActivation attribute contains {} should be 0 or 1".format(no_act))
+                Exception(
+                    "noActivation attribute contains {} should be 0 or 1".format(no_act)
+                )
         else:
             Exception("CustomOp {} is not supported".format(node.op_type))
-    
-
-

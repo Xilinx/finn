@@ -81,5 +81,5 @@ class CustomOp(ABC):
         pass
 
     def verify_node(self):
-        inst = CustomOp_Construct[self.onnx_node.op_type] 
-        inst.verify_construct(self.onnx_node) 
+        inst = CustomOp_Construct[self.onnx_node.op_type]
+        inst.verify_construct(self.onnx_node)
