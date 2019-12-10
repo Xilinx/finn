@@ -1,5 +1,5 @@
 import onnx
-from finn.custom_op.layout_custom_ops import CustomOp_Layout
+from finn.custom_op.verify_custom_op_construct import CustomOp_Construct
 
 def test_verify_layout_custom_ops():
     m_node = onnx.helper.make_node(
@@ -12,6 +12,6 @@ def test_verify_layout_custom_ops():
         out_dtype="",
     ) 
 
-    inst = CustomOp_Layout[m_node.op_type] 
+    inst = CustomOp_Construct[m_node.op_type] 
     inst.verify_layout(m_node) 
 

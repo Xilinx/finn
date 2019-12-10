@@ -1,7 +1,7 @@
 from enum import Enum, auto
 from finn.core.utils import get_by_name
 
-class CustomOp_Layout(Enum):
+class CustomOp_Construct(Enum):
     MultiThreshold = auto()
     #XnorPopcountMatMul = auto()
     #StreamingMaxPool_Batch = auto()
