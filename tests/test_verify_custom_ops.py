@@ -24,6 +24,25 @@ def test_verify_layout_custom_ops():
     inst = CustomOp_Construct[xnor_node.op_type]
     inst.verify_construct(xnor_node)
 
+    # StreamingMaxPool_Batch
+    MaxPool_batch_node = helper.make_node(
+        "StreamingMaxPool_Batch",
+        ["in"],
+        ["out"],
+        domain="finn",
+        backend="fpgadataflow",
+        code_gen_dir="",
+        executable_path="",
+        ImgDim=4,
+        PoolDim=2,
+        NumChannels=2,
+    )
+
+    inst = CustomOp_Construct[MaxPool_batch_node.op_type]
+    inst.verify_construct(MaxPool_batch_node)
+    
+    
+    
     # StreamingFCLayer_Batch - no activation
     FCLayer_node = helper.make_node(
         "StreamingFCLayer_Batch",
@@ -43,7 +62,8 @@ def test_verify_layout_custom_ops():
         outputDataType="<FINN DataType>",
         ActVal=0,
         binaryXnorMode=1,
-        noActivation=1
+        noActivation=1,
+    )
     
     inst = CustomOp_Construct[FCLayer_node.op_type]
     inst.verify_construct(FCLayer_node)

@@ -4,7 +4,7 @@ from finn.core.utils import get_by_name
 class CustomOp_Construct(Enum):
     MultiThreshold = auto()
     XnorPopcountMatMul = auto()
-    #StreamingMaxPool_Batch = auto()
+    StreamingMaxPool_Batch = auto()
     StreamingFCLayer_Batch = auto()
 
     def verify_construct(self, node):
@@ -20,10 +20,13 @@ class CustomOp_Construct(Enum):
             num_of_attr = 3
         elif self.name == "XnorPopcountMatMul":
             num_of_attr = 0
-        #elif self.name == "StreamingMaxPool_Batch":
-            #num_of_attr =
+        elif self.name == "StreamingMaxPool_Batch":
+            num_of_attr = 6
         elif self.name == "StreamingFCLayer_Batch":
             num_of_attr = 14
+        else:
+            Exception("CustomOp {} is not yet in the verification".format(node.op_type))
+
         if len(node.attribute) == num_of_attr:
             return True
         else:
@@ -57,7 +60,17 @@ class CustomOp_Construct(Enum):
 
         elif self.name == "XnorPopcountMatMul":
             return True
-        #elif self.name == "StreamingMaxPool_Batch":
+        elif self.name == "StreamingMaxPool_Batch":
+            try:
+                get_by_name(node.attribute, "code_gen_dir")
+                get_by_name(node.attribute, "executable_path")
+                get_by_name(node.attribute, "ImgDim")
+                get_by_name(node.attribute, "PoolDim")
+                get_by_name(node.attribute, "NumChannels")
+                return True
+            except:
+                return False
+
         elif self.name == "StreamingFCLayer_Batch":
             try:
                 get_by_name(node.attribute, "code_gen_dir")
@@ -89,7 +102,11 @@ class CustomOp_Construct(Enum):
                 return True
             else:
                 return False
-        #elif self.name == "StreamingMaxPool_Batch":
+        elif self.name == "StreamingMaxPool_Batch":
+            if len(node.input) == 1:
+                return True
+            else:
+                return False
         elif self.name == "StreamingFCLayer_Batch":
             # check noActivation value to determine the number of inputs
             no_act = get_by_name(node.attribute, "noActivation")
