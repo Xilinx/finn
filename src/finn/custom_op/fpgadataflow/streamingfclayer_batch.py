@@ -14,6 +14,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
+            "backend": ("s", True, "fpgadataflow"),
+            "code_gen_dir": ("s", True, ""),
+            "executable_path": ("s", True, ""),
             "PE": ("i", True, 0),
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
@@ -56,6 +59,90 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         pass
+
+    def verify_node(self):
+        info_messages = []
+
+        # verify number of attributes
+        num_of_attr = 14
+        if len(self.onnx_node.attribute) == num_of_attr:
+            info_messages.append("The number of attributes is correct")
+        else:
+            info_messages.append(
+                """The number of attributes is incorrect,
+            {} should have {} attributes""".format(
+                    self.onnx_node.op_type, num_of_attr
+                )
+            )
+
+        # verify that "domain" is set to "finn"
+        domain_value = self.onnx_node.domain
+        if domain_value == "finn":
+            info_messages.append("Attribute domain is set correctly")
+        else:
+            info_messages.append('Attribute domain should be set to "finn"')
+
+        # verify that "backend" is set to "fpgadataflow"
+        backend_value = self.get_nodeattr("backend")
+        if backend_value == "fpgadataflow":
+            info_messages.append("Attribute backend is set correctly")
+        else:
+            info_messages.append('Attribute backend should be set to "fpgadataflow"')
+
+        # verify that all necessary attributes exist
+        try:
+            self.get_nodeattr("code_gen_dir")
+            self.get_nodeattr("executable_path")
+            self.get_nodeattr("resType")
+            self.get_nodeattr("MW")
+            self.get_nodeattr("MH")
+            self.get_nodeattr("SIMD")
+            self.get_nodeattr("PE")
+            self.get_nodeattr("inputDataType")
+            self.get_nodeattr("weightDataType")
+            self.get_nodeattr("outputDataType")
+            self.get_nodeattr("ActVal")
+            self.get_nodeattr("binaryXnorMode")
+            self.get_nodeattr("noActivation")
+            info_messages.append("All necessary attributes exist")
+        except Exception:
+            info_messages.append(
+                """The necessary attributes do not exist.
+                StreamingFCLayer_Batch needs the following attributes:
+                code_gen_dir, executable_path, resType, MW, MH, SIMD, PE,
+                inputDataType, weightDataType, outputDataType, ActVal,
+                binaryXnorMode, noActivation"""
+            )
+
+        # verify the number of inputs depending on noActivation value
+        # check noActivation value to determine the number of inputs
+        no_act = self.get_nodeattr("noActivation")
+
+        if no_act == 1:
+            if len(self.onnx_node.input) == 2:
+                info_messages.append("The number of inputs is correct")
+            else:
+                info_messages.append(
+                    """StreamingFCLayer_Batch needs in no
+                            activation mode 2 inputs (data input and weights)"""
+                )
+        elif no_act == 0:
+            if len(self.onnx_node.input) == 3:
+                info_messages.append("The number of inputs is correct")
+            else:
+                info_messages.append(
+                    """StreamingFCLayer_Batch needs 3 inputs
+                            (data input and weights and threshold values)"""
+                )
+        else:
+            info_messages.append(
+                """noActivation attribute contains {} should
+                be 0 or 1""".format(
+                    no_act
+                )
+            )
+
+        return info_messages
 
     def get_input_datatype(self):
         return DataType[self.get_nodeattr("inputDataType")]
