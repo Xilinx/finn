@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 from finn.core.utils import get_by_name
 import onnx.helper as helper
-from finn.custom_op.verify_custom_op_construct import CustomOp_Construct
 
 
 class CustomOp(ABC):
@@ -80,6 +79,9 @@ class CustomOp(ABC):
         ONNX graph."""
         pass
 
+    @abstractmethod
     def verify_node(self):
-        inst = CustomOp_Construct[self.onnx_node.op_type]
-        inst.verify_construct(self.onnx_node)
+        """Verifies that all attributes the node needs are there and
+        that particular attributes are set correctly. Also checks if
+        the number of inputs is equal to the expected number"""
+        pass
