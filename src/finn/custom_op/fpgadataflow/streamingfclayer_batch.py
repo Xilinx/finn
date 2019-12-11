@@ -14,9 +14,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            "backend": ("s", True, "fpgadataflow"),
-            "code_gen_dir": ("s", True, ""),
-            "executable_path": ("s", True, ""),
+            # "backend": ("s", True, "fpgadataflow"),
+            # "code_gen_dir": ("s", True, ""),
+            # "executable_path": ("s", True, ""),
             "PE": ("i", True, 0),
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),

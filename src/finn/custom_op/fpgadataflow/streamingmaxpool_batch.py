@@ -4,9 +4,9 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 class StreamingMaxPool_Batch(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
-            "backend": ("s", True, "fpgadataflow"),
-            "code_gen_dir": ("s", True, ""),
-            "executable_path": ("s", True, ""),
+            # "backend": ("s", True, "fpgadataflow"),
+            # "code_gen_dir": ("s", True, ""),
+            # "executable_path": ("s", True, ""),
             "ImgDim": ("i", True, 0),
             "PoolDim": ("i", True, 0),
             "NumChannels": ("i", True, 0),
