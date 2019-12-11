@@ -68,7 +68,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         if len(self.onnx_node.input) == 1:
             info_messages.append("The number of inputs is correct")
         else:
-            info_messages.append("""MultiThreshold needs 1 data input""")
+            info_messages.append("""StreamingMaxPool_Batch needs 1 data input""")
 
         return info_messages
 
