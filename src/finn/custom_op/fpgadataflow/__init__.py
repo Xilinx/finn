@@ -40,7 +40,11 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict = {}
 
     def get_nodeattr_types(self):
-        return {"code_gen_dir": ("s", False, ""), "executable_path": ("s", False, "")}
+        return {
+            "backend": ("s", True, "fpgadataflow"),
+            "code_gen_dir": ("s", False, ""),
+            "executable_path": ("s", False, ""),
+        }
 
     def code_generation(self, model):
         node = self.onnx_node

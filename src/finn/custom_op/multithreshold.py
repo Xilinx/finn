@@ -85,3 +85,49 @@ class MultiThreshold(CustomOp):
         output = multithreshold(v, thresholds, out_scale, out_bias)
         # setting context according to output
         context[node.output[0]] = output
+
+    def verify_node(self):
+        info_messages = []
+
+        # verify number of attributes
+        num_of_attr = 3
+        if len(self.onnx_node.attribute) == num_of_attr:
+            info_messages.append("The number of attributes is correct")
+        else:
+            info_messages.append(
+                """The number of attributes is incorrect,
+            {} should have {} attributes""".format(
+                    self.onnx_node.op_type, num_of_attr
+                )
+            )
+
+        # verify that "domain" is set to "finn"
+        domain_value = self.onnx_node.domain
+        if domain_value == "finn":
+            info_messages.append("Attribute domain is set correctly")
+        else:
+            info_messages.append('Attribute domain should be set to "finn"')
+
+        # verify that all necessary attributes exist
+        try:
+            self.get_nodeattr("out_scale")
+            self.get_nodeattr("out_bias")
+            self.get_nodeattr("out_dtype")
+            info_messages.append("All necessary attributes exist")
+        except Exception:
+            info_messages.append(
+                """The necessary attributes do not exist.
+                MultiThreshold needs the following attributes:
+                out_scale, out_bias, out_dtype"""
+            )
+
+        # verify the number of inputs
+        if len(self.onnx_node.input) == 2:
+            info_messages.append("The number of inputs is correct")
+        else:
+            info_messages.append(
+                """MultiThreshold needs 2 inputs
+                    (data input and threshold values)"""
+            )
+
+        return info_messages

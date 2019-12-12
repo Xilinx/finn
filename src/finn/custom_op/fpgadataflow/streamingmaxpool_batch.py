@@ -4,6 +4,9 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 class StreamingMaxPool_Batch(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
+            # "backend": ("s", True, "fpgadataflow"),
+            # "code_gen_dir": ("s", True, ""),
+            # "executable_path": ("s", True, ""),
             "ImgDim": ("i", True, 0),
             "PoolDim": ("i", True, 0),
             "NumChannels": ("i", True, 0),
@@ -16,6 +19,58 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         pass
+
+    def verify_node(self):
+        info_messages = []
+
+        # verify number of attributes
+        num_of_attr = 6
+        if len(self.onnx_node.attribute) == num_of_attr:
+            info_messages.append("The number of attributes is correct")
+        else:
+            info_messages.append(
+                """The number of attributes is incorrect,
+            {} should have {} attributes""".format(
+                    self.onnx_node.op_type, num_of_attr
+                )
+            )
+
+        # verify that "domain" is set to "finn"
+        domain_value = self.onnx_node.domain
+        if domain_value == "finn":
+            info_messages.append("Attribute domain is set correctly")
+        else:
+            info_messages.append('Attribute domain should be set to "finn"')
+
+        # verify that "backend" is set to "fpgadataflow"
+        backend_value = self.get_nodeattr("backend")
+        if backend_value == "fpgadataflow":
+            info_messages.append("Attribute backend is set correctly")
+        else:
+            info_messages.append('Attribute backend should be set to "fpgadataflow"')
+
+        # verify that all necessary attributes exist
+        try:
+            self.get_nodeattr("code_gen_dir")
+            self.get_nodeattr("executable_path")
+            self.get_nodeattr("ImgDim")
+            self.get_nodeattr("PoolDim")
+            self.get_nodeattr("NumChannels")
+            info_messages.append("All necessary attributes exist")
+        except Exception:
+            info_messages.append(
+                """The necessary attributes do not exist.
+                StreamingMaxPool_Batch  needs the following attributes:
+                code_gen_dir, executable_path, ImgDim, PoolDim, NumChannels"""
+            )
+
+        # verify the number of inputs
+        if len(self.onnx_node.input) == 1:
+            info_messages.append("The number of inputs is correct")
+        else:
+            info_messages.append("""StreamingMaxPool_Batch needs 1 data input""")
+
+        return info_messages
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
