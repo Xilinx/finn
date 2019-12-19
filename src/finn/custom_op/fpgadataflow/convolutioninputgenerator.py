@@ -1,10 +1,8 @@
-# import os
+import os
 
-# import numpy as np
+import numpy as np
 
-# from finn.backend.fpgadataflow.utils import numpy_to_hls_code
 from finn.core.datatype import DataType
-# from finn.core.utils import interleave_matrix_outer_dim_from_partitions
 from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
@@ -43,15 +41,43 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def get_output_datatype(self):
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
-        return self.get_nodeattr("IFMDim") * self.get_nodeattr("Input_precision")
-
-    def get_outstream_width(self):
-        o_bits = self.get_output_datatype().bitwidth()
-        return self.get_nodeattr("OFMDim")
+    def get_stream_width(self):
+        return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
 
     def execute_node(self, context, graph):
-        pass
+        node = self.onnx_node
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ofm_dim = self.get_nodeattr("OFMDim")
+        out_pix = ofm_dim * ofm_dim
+        idt = self.get_input_datatype()
+        if idt == DataType.BIPOLAR:
+            # use binary for bipolar storage
+            idt = DataType.BINARY
+
+        # TODO ensure codegen dir exists
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        # create a npy file for input of the node
+
+        inp = context[node.input[0]]
+        assert str(inp.dtype) == "float32"
+        assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim)
+        reshaped_inp = inp.transpose(0, 2, 3, 1)
+        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
+        # execute the precompiled model
+        super().exec_precompiled_singlenode_model()
+        # load output npy file
+        super().npy_to_dynamic_output(context)
+        if self.get_output_datatype() == DataType.BIPOLAR:
+            out = context[node.output[0]]
+            out = 2 * out - 1
+            context[node.output[0]] = out
+        assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch)
+        # reshape output to have expected shape
+        context[node.output[0]] = context[node.output[0]].reshape(
+            1, out_pix, k * k * ifm_ch
+        )
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
@@ -76,8 +102,11 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir")
         dtype = self.get_input_datatype()
+        if dtype == DataType.BIPOLAR:
+            # use binary for bipolar storage
+            dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
+        packed_bits = self.get_stream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
@@ -91,10 +120,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_stream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_stream_width())
         )
 
     def docompute(self):
@@ -107,7 +136,35 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ]
 
     def dataoutstrm(self):
-        pass
+        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        dtype = self.get_output_datatype()
+        if dtype == DataType.BIPOLAR:
+            # use binary for bipolar storage
+            dtype = DataType.BINARY
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_stream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_out = "%s/output.npy" % code_gen_dir
+        ofm_dim = self.get_nodeattr("OFMDim")
+        out_pix = ofm_dim * ofm_dim
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        shape = (1, out_pix, k * k, ifm_ch)
+        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
+
+        self.code_gen_dict["$DATAOUTSTREAM$"] = [
+            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                shape_cpp_str,
+                npy_out,
+            )
+        ]
 
     def save_as_npy(self):
         self.code_gen_dict["$SAVEASCNPY$"] = []
