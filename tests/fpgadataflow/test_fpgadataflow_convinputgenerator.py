@@ -5,7 +5,7 @@ import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import gen_finn_dt_tensor
-# from finn.transformation.fpgadataflow.cleanup import CleanUp
+from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen import CodeGen
 from finn.transformation.fpgadataflow.compile import Compile
 
@@ -89,3 +89,5 @@ def test_fpgadataflow_slidingwindow():
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     print(x)
     print(y_produced)
+
+    model = model.transform(CleanUp())
