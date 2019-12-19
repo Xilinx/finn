@@ -1,14 +1,13 @@
 # import numpy as np
 from onnx import TensorProto, helper
 
-# import finn.core.onnx_exec as oxe
+import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-# from finn.core.utils import gen_finn_dt_tensor
+from finn.core.utils import gen_finn_dt_tensor
 # from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen import CodeGen
-
-# from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.compile import Compile
 
 
 def make_single_slidingwindow_modelwrapper(
@@ -58,6 +57,14 @@ def make_single_slidingwindow_modelwrapper(
     return model
 
 
+def prepare_inputs(input_tensor, idt):
+    if idt == DataType.BIPOLAR:
+        # convert bipolar to binary
+        return {"inp": (input_tensor + 1) / 2}
+    else:
+        return {"inp": input_tensor}
+
+
 def test_fpgadataflow_slidingwindow():
     idt = DataType.BIPOLAR
     k = 2
@@ -67,9 +74,18 @@ def test_fpgadataflow_slidingwindow():
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
     simd = 1
 
-    # x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
+    x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
     model = make_single_slidingwindow_modelwrapper(
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
 
     model = model.transform(CodeGen())
+    model = model.transform(Compile())
+
+    # prepare input data
+    input_dict = prepare_inputs(x, idt)
+
+    # execute model
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    print(x)
+    print(y_produced)
