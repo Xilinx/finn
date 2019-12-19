@@ -1,4 +1,4 @@
-# import numpy as np
+import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
@@ -8,6 +8,37 @@ from finn.core.utils import gen_finn_dt_tensor
 from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen import CodeGen
 from finn.transformation.fpgadataflow.compile import Compile
+
+
+def get_im2col_indices(x_shape, k, stride):
+    # First figure out what the size of the output should be
+    N, C, H, W = x_shape
+    assert H == W
+    assert (W - k) % stride == 0
+    ofm_dim = int((W - k) / stride + 1)
+
+    i0 = np.repeat(np.arange(k), k)
+    i0 = np.tile(i0, C)
+    i1 = stride * np.repeat(np.arange(ofm_dim), ofm_dim)
+    j0 = np.tile(np.arange(k), k * C)
+    j1 = stride * np.tile(np.arange(ofm_dim), ofm_dim)
+    i = i0.reshape(-1, 1) + i1.reshape(1, -1)
+    j = j0.reshape(-1, 1) + j1.reshape(1, -1)
+
+    k = np.repeat(np.arange(C), k * k).reshape(-1, 1)
+
+    return (k, i, j)
+
+
+def im2col_indices(x, k, stride):
+    """ An implementation of im2col based on some fancy indexing """
+
+    l, i, j = get_im2col_indices(x.shape, k, stride)
+
+    cols = x[:, l, i, j]
+    C = x.shape[1]
+    cols = cols.transpose(1, 2, 0).reshape(k * k * C, -1)
+    return cols
 
 
 def make_single_slidingwindow_modelwrapper(
@@ -87,7 +118,10 @@ def test_fpgadataflow_slidingwindow():
 
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    print(x)
-    print(y_produced)
+    y_expected = im2col_indices(x, k, stride)
+    # reshape expected output to match node output
+    oshape = y_produced.shape
+    y_expected = y_expected.reshape(oshape)
 
+    assert (y_produced == y_expected).all()
     model = model.transform(CleanUp())
