@@ -1,3 +1,5 @@
+import pytest
+
 import numpy as np
 from onnx import TensorProto, helper
 
@@ -37,7 +39,33 @@ def im2col_indices(x, k, stride):
 
     cols = x[:, l, i, j]
     C = x.shape[1]
+    # cols = cols.transpose(0, 2, 1)
     cols = cols.transpose(1, 2, 0).reshape(k * k * C, -1)
+    cols = cols.transpose(1, 0)
+
+    # rearranging the output so it matches with finn-hlslib function
+    # swapping the columns according to the input channel
+    # if C > 1 :
+    parts = {}
+    for ch in range(C):
+        parts[ch] = []
+
+    for i in range(cols.shape[1]):
+        if i % C == 0:
+            parts[0].append(i)
+        elif (i + (C - 1)) % C == 0:
+            parts[1].append(i)
+        elif (i + (C - 2)) % C == 0:
+            parts[2].append(i)
+        elif (i + (C - 3)) % C == 0:
+            parts[3].append(i)
+    permutation = []
+    for i in parts:
+        for num in parts[i]:
+            permutation.append(num)
+
+    i = np.argsort(permutation)
+    cols = cols[:, i]
     return cols
 
 
@@ -96,16 +124,23 @@ def prepare_inputs(input_tensor, idt):
         return {"inp": input_tensor}
 
 
-def test_fpgadataflow_slidingwindow():
-    idt = DataType.BIPOLAR
-    k = 2
-    stride = 1
-    ifm_ch = 1
-    ifm_dim = 3
+# input datatype
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
+# kernel size
+@pytest.mark.parametrize("k", [2, 4])
+# input dimension
+@pytest.mark.parametrize("ifm_dim", [4, 6, 8])
+# input channels
+@pytest.mark.parametrize("ifm_ch", [1, 2, 3, 4])
+# Stride
+@pytest.mark.parametrize("stride", [1, 2])
+def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
+    simd = ifm_ch
+
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    simd = 1
 
     x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
+    # x_values = np
     model = make_single_slidingwindow_modelwrapper(
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
