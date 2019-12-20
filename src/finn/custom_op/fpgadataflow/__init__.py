@@ -71,6 +71,8 @@ class HLSCustomOp(CustomOp):
     def compile_singlenode_code(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir")
         builder = CppBuilder()
+        # to enable additional debug features please uncommand the next line
+        # builder.append_includes("-DDEBUG")
         builder.append_includes("-I/workspace/finn/src/finn/data/cpp")
         builder.append_includes("-I/workspace/cnpy/")
         builder.append_includes("-I/workspace/finn-hlslib")
