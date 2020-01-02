@@ -39,16 +39,11 @@ def test_im2col():
 
     x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
     # prepare input data
-    input_dict = prepare_inputs(x, idt)
+    input_dict = {"inp": x}
 
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    print("Input:")
+    print(x)
+    print("Output:")
     print(y_produced)
-
-
-def prepare_inputs(input_tensor, idt):
-    if idt == DataType.BIPOLAR:
-        # convert bipolar to binary
-        return {"inp": (input_tensor + 1) / 2}
-    else:
-        return {"inp": input_tensor}
