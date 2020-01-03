@@ -84,4 +84,45 @@ class Im2Col(CustomOp):
         context[node.output[0]] = output
 
     def verify_node(self):
-        pass
+        node = self.onnx_node
+
+        info_messages = []
+
+        # verify number of attributes
+        num_of_attr = 2
+        if len(node.attribute) == num_of_attr:
+            info_messages.append("The number of attributes is correct")
+        else:
+            info_messages.append(
+                """The number of attributes is incorrect,
+            {} should have {} attributes""".format(
+                    node.op_type, num_of_attr
+                )
+            )
+
+        # verify that "domain" is set to "finn"
+        domain_value = node.domain
+        if domain_value == "finn":
+            info_messages.append("Attribute domain is set correctly")
+        else:
+            info_messages.append('Attribute domain should be set to "finn"')
+
+        # verify that all necessary attributes exist
+        try:
+            self.get_nodeattr("stride")
+            self.get_nodeattr("kernel_size")
+            info_messages.append("All necessary attributes exist")
+        except Exception:
+            info_messages.append(
+                """The necessary attributes do not exist.
+                Im2Col needs the following attributes:
+                stride, kernel_size"""
+            )
+
+        # verify the number of inputs
+        if len(node.input) == 1:
+            info_messages.append("The number of inputs is correct")
+        else:
+            info_messages.append("{} needs 1 data input".format(node.op_type))
+
+        return info_messages
