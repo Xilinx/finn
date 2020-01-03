@@ -22,12 +22,7 @@ def check_two_dict_for_equality(dict1, dict2):
     return True
 
 
-def test_im2col():
-    idt = DataType.BIPOLAR
-    k = 2
-    stride = 1
-    ifm_ch = 1
-    ifm_dim = 4
+def test_execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim):
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
     out_pix = ofm_dim * ofm_dim
 
@@ -69,7 +64,6 @@ def test_im2col():
 
     # test node verification
     produced = model.analysis(verify_nodes)
-    print(produced)
     expected = {
         "Im2Col": [
             "The number of attributes is correct",
@@ -83,17 +77,26 @@ def test_im2col():
     ), """The produced output of
     the verification analysis pass is not equal to the expected one"""
 
-    # test execution
-    x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
     # prepare input data
     input_dict = {"inp": x}
 
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    return y_produced
+
+
+def test_im2col():
+    idt = DataType.BIPOLAR
+    k = 2
+    stride = 1
+    ifm_ch = 1
+    ifm_dim = 4
+    x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
     print("Input:")
     print(x)
     print("Output:")
-    print(y_produced)
+    print(test_execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim))
 
 
 def test_im2col_infer_shapes():
