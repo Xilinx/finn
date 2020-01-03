@@ -57,7 +57,7 @@ def im2col_indices(x, k, stride):
 
     i = np.argsort(permutation)
     cols = cols[:, i]
-    return cols
+    return cols.reshape(1, -1, k * k * C)
 
 
 class Im2Col(CustomOp):
