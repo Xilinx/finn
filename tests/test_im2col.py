@@ -1,10 +1,24 @@
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
+from finn.analysis.verify_custom_nodes import verify_nodes
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import gen_finn_dt_tensor
 from finn.transformation.infer_datatypes import InferDataTypes
+
+
+def check_two_dict_for_equality(dict1, dict2):
+    for key in dict1:
+        assert key in dict2, "Key: {} is not in both dictionaries".format(key)
+        assert (
+            dict1[key] == dict2[key]
+        ), """Values for key {} are not the same
+        in both dictionaries""".format(
+            key
+        )
+
+    return True
 
 
 def test_im2col():
@@ -41,6 +55,22 @@ def test_im2col():
     assert model.get_tensor_datatype("outp") is DataType.FLOAT32
     model = model.transform(InferDataTypes())
     assert model.get_tensor_datatype("outp") is DataType.BIPOLAR
+
+    # test node verification
+    produced = model.analysis(verify_nodes)
+    print(produced)
+    expected = {
+        "Im2Col": [
+            "The number of attributes is correct",
+            "Attribute domain is set correctly",
+            "All necessary attributes exist",
+            "The number of inputs is correct",
+        ],
+    }
+    assert check_two_dict_for_equality(
+        produced, expected
+    ), """The produced output of
+    the verification analysis pass is not equal to the expected one"""
 
     # test execution
     x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
