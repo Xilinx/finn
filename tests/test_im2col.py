@@ -4,10 +4,11 @@ import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import gen_finn_dt_tensor
+from finn.transformation.infer_datatypes import InferDataTypes
 
 
 def test_im2col():
-    idt = odt = DataType.BIPOLAR
+    idt = DataType.BIPOLAR
     k = 2
     stride = 1
     ifm_ch = 1
@@ -35,8 +36,13 @@ def test_im2col():
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype("outp", odt)
 
+    # test datatype inference
+    assert model.get_tensor_datatype("outp") is DataType.FLOAT32
+    model = model.transform(InferDataTypes())
+    assert model.get_tensor_datatype("outp") is DataType.BIPOLAR
+
+    # test execution
     x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
     # prepare input data
     input_dict = {"inp": x}
