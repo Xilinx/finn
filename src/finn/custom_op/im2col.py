@@ -1,4 +1,5 @@
 import numpy as np
+from onnx import TensorProto, helper
 
 from finn.custom_op import CustomOp
 
@@ -64,10 +65,40 @@ class Im2Col(CustomOp):
         return {
             "stride": ("i", True, 1),
             "kernel_size": ("i", True, 1),
+            "input_shape": ("s", True, ""),
         }
 
     def make_shape_compatible_op(self):
-        pass
+        k = self.get_nodeattr("kernel_size")
+        stride = self.get_nodeattr("stride")
+        ishape = self.get_nodeattr("input_shape")
+
+        # convert string into list of integers
+        ishape = ishape.strip("(")
+        ishape = ishape.strip(")")
+        ishape = ishape.split(",")
+        for i in range(0, len(ishape)):
+            ishape[i] = int(ishape[i])
+
+        # extract all necessary information and determine output dimensions
+        ifm_ch = ishape[1]
+        ifm_dim = ishape[2]
+        ofm_dim = int(((ifm_dim - k) / stride) + 1)
+        outpix = ofm_dim * ofm_dim
+
+        # implement tensor with correct shape
+        values = np.random.randn(1, outpix, k * k * ifm_ch).astype(np.float32)
+        return helper.make_node(
+            "Constant",
+            inputs=[],
+            outputs=["values"],
+            value=helper.make_tensor(
+                name="const_tensor",
+                data_type=TensorProto.FLOAT,
+                dims=values.shape,
+                vals=values.flatten().astype(float),
+            ),
+        )
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -89,7 +120,7 @@ class Im2Col(CustomOp):
         info_messages = []
 
         # verify number of attributes
-        num_of_attr = 2
+        num_of_attr = 3
         if len(node.attribute) == num_of_attr:
             info_messages.append("The number of attributes is correct")
         else:
