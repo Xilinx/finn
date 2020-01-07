@@ -42,11 +42,11 @@ class HLSCustomOp(CustomOp):
     def get_nodeattr_types(self):
         return {
             "backend": ("s", True, "fpgadataflow"),
-            "code_gen_dir": ("s", False, ""),
+            "code_gen_dir_npysim": ("s", False, ""),
             "executable_path": ("s", False, ""),
         }
 
-    def code_generation(self, model):
+    def code_generation_npysim(self, model):
         node = self.onnx_node
         self.generate_params(model)
         self.global_includes()
@@ -63,13 +63,13 @@ class HLSCustomOp(CustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
         f.write(template)
         f.close()
 
     def compile_singlenode_code(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         builder = CppBuilder()
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
@@ -87,7 +87,7 @@ class HLSCustomOp(CustomOp):
 
     def dynamic_input_to_npy(self, context, count):
         node = self.onnx_node
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         if code_gen_dir == "":
             raise Exception(
                 """
@@ -106,7 +106,7 @@ Found no codegen dir for this node, did you run the codegen transformation?
     def npy_to_dynamic_output(self, context):
         # TODO support multi-output nodes as needed
         node = self.onnx_node
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         output = np.load("{}/output.npy".format(code_gen_dir))
         context[node.output[0]] = output
 

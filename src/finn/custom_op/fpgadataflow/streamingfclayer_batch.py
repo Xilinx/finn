@@ -14,9 +14,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # "backend": ("s", True, "fpgadataflow"),
-            # "code_gen_dir": ("s", True, ""),
-            # "executable_path": ("s", True, ""),
             "PE": ("i", True, 0),
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
@@ -91,7 +88,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         # verify that all necessary attributes exist
         try:
-            self.get_nodeattr("code_gen_dir")
+            self.get_nodeattr("code_gen_dir_npysim")
             self.get_nodeattr("executable_path")
             self.get_nodeattr("resType")
             self.get_nodeattr("MW")
@@ -109,7 +106,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             info_messages.append(
                 """The necessary attributes do not exist.
                 StreamingFCLayer_Batch needs the following attributes:
-                code_gen_dir, executable_path, resType, MW, MH, SIMD, PE,
+                code_gen_dir_npysim, executable_path, resType, MW, MH, SIMD, PE,
                 inputDataType, weightDataType, outputDataType, ActVal,
                 binaryXnorMode, noActivation"""
             )
@@ -283,7 +280,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             weight_tensor, export_wdt, "weights", True, True
         )
         # write weights into params.h
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         f_weights = open("{}/params.h".format(code_gen_dir), "w")
 
         if export_wdt.bitwidth() != 1:
@@ -324,7 +321,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     threshold_tensor, tdt, "thresholds", False, True
                 )
                 # write thresholds into thresh.h
-                code_gen_dir = self.get_nodeattr("code_gen_dir")
+                code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
                 f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
                 tdt_hls = tdt.get_hls_datatype_str()
                 # use binary to export bipolar activations
@@ -357,7 +354,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         nf = mh // pe
 
         # TODO ensure codegen dir exists
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         # create a npy file fore each input of the node (in_ind is input index)
         in_ind = 0
         for inputs in node.input:
@@ -419,7 +416,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ]
 
     def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         dtype = self.get_input_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage
@@ -466,7 +463,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ]
 
     def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         dtype = self.get_output_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage

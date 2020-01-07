@@ -14,19 +14,19 @@ def _codegen_single_node(node, model):
         # lookup op_type in registry of CustomOps
         inst = registry.custom_op[op_type](node)
         # get the path of the code generation directory
-        code_gen_dir = inst.get_nodeattr("code_gen_dir")
+        code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
         # ensure that there is a directory
         if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
-            code_gen_dir = tmp.mkdtemp(prefix="code_gen_" + str(node.op_type) + "_")
-            inst.set_nodeattr("code_gen_dir", code_gen_dir)
+            code_gen_dir = tmp.mkdtemp(prefix="code_gen_npysim" + str(node.op_type) + "_")
+            inst.set_nodeattr("code_gen_dir_npysim", code_gen_dir)
         # ensure that there is generated code inside the dir
-        inst.code_generation(model)
+        inst.code_generation_npysim(model)
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)
 
 
-class CodeGen(Transformation):
+class CodeGen_npysim(Transformation):
     """Code generation for all nodes in model"""
 
     def apply(self, model):

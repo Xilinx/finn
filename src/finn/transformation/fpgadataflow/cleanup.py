@@ -22,10 +22,10 @@ class CleanUp(Transformation):
                     try:
                         # lookup op_type in registry of CustomOps
                         inst = registry.custom_op[op_type](node)
-                        code_gen_dir = inst.get_nodeattr("code_gen_dir")
+                        code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
                         if os.path.isdir(code_gen_dir):
                             shutil.rmtree(code_gen_dir)
-                        inst.set_nodeattr("code_gen_dir", "")
+                        inst.set_nodeattr("code_gen_dir_npysim", "")
                         inst.set_nodeattr("executable_path", "")
                     except KeyError:
                         # exception if op_type is not supported

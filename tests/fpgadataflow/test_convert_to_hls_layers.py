@@ -15,7 +15,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.fpgadataflow.streamingfclayer_batch import StreamingFCLayer_Batch
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.fpgadataflow.codegen import CodeGen
+from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
@@ -82,7 +82,7 @@ def test_convert_to_hls_layers_lfc_w1a1():
     fc3w.set_nodeattr("SIMD", 1024)
     fc3w.set_nodeattr("PE", 10)
 
-    model = model.transform(CodeGen())
+    model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
 
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")

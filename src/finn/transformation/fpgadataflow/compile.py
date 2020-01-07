@@ -22,7 +22,7 @@ class Compile(Transformation):
                         # lookup op_type in registry of CustomOps
                         inst = registry.custom_op[op_type](node)
                         # ensure that code is generated
-                        assert inst.get_nodeattr("code_gen_dir") != ""
+                        assert inst.get_nodeattr("code_gen_dir_npysim") != ""
                         # call the compilation function for this node
                         inst.compile_singlenode_code()
                         # ensure that executable path is now set

@@ -10,7 +10,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 from finn.custom_op.multithreshold import multithreshold
 from finn.transformation.fpgadataflow.cleanup import CleanUp
-from finn.transformation.fpgadataflow.codegen import CodeGen
+from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 
 
@@ -147,7 +147,7 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
         else:
             tdt = DataType.INT32
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-    model = model.transform(CodeGen())
+    model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
