@@ -57,7 +57,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
             idt = DataType.BINARY
 
         # TODO ensure codegen dir exists
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         # create a npy file for input of the node
 
         inp = context[node.input[0]]
@@ -100,7 +100,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ]
 
     def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         dtype = self.get_input_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage
@@ -136,7 +136,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ]
 
     def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         dtype = self.get_output_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage

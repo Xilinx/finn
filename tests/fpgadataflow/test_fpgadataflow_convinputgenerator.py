@@ -8,7 +8,7 @@ from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import gen_finn_dt_tensor
 from finn.transformation.fpgadataflow.cleanup import CleanUp
-from finn.transformation.fpgadataflow.codegen import CodeGen
+from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 
 
@@ -140,12 +140,11 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
 
     x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
-    # x_values = np
     model = make_single_slidingwindow_modelwrapper(
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
 
-    model = model.transform(CodeGen())
+    model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
 
     # prepare input data
