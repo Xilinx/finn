@@ -17,7 +17,9 @@ def _codegen_single_node(node, model):
         code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
         # ensure that there is a directory
         if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
-            code_gen_dir = tmp.mkdtemp(prefix="code_gen_npysim" + str(node.op_type) + "_")
+            code_gen_dir = tmp.mkdtemp(
+                prefix="code_gen_npysim_" + str(node.op_type) + "_"
+            )
             inst.set_nodeattr("code_gen_dir_npysim", code_gen_dir)
         # ensure that there is generated code inside the dir
         inst.code_generation_npysim(model)

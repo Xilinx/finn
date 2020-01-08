@@ -18,7 +18,7 @@ def _codegen_single_node(node, model, fpgapart, clk):
         # ensure that there is a directory
         if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
             code_gen_dir = tmp.mkdtemp(
-                prefix="code_gen_ipgen" + str(node.op_type) + "_"
+                prefix="code_gen_ipgen_" + str(node.op_type) + "_"
             )
             inst.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
         # ensure that there is generated code inside the dir
