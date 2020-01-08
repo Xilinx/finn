@@ -168,3 +168,18 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
     def save_as_npy(self):
         self.code_gen_dict["$SAVEASCNPY$"] = []
+
+    def blackboxfunction(self):
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in,
+                hls::stream<ap_uint<SIMD1*Input_precision1>> &out)""".format(
+                self.onnx_node.name
+            )
+        ]
+
+    def pragmas(self):
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE ap_ctrl_none port=return"
+        )

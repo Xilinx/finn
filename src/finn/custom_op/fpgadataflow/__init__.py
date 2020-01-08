@@ -38,13 +38,49 @@ class HLSCustomOp(CustomOp):
 
         """
         self.code_gen_dict = {}
+        self.ipgen_template= """
+        #include "bnn-library.h"
+        // includes for network parameters
+        $GLOBALS$
+
+        // defines for network parameters
+        $DEFINES$
+        
+        $BLACKBOXFUNCTION$
+        {
+        $PRAGMAS$
+        $DOCOMPUTE$
+        }
+        """
 
     def get_nodeattr_types(self):
         return {
             "backend": ("s", True, "fpgadataflow"),
             "code_gen_dir_npysim": ("s", False, ""),
+            "code_gen_dir_ipgen": ("s", False, ""),
             "executable_path": ("s", False, ""),
         }
+
+    def code_generation_ipgen(self, model):
+        node = self.onnx_node
+        self.global_includes()
+        self.defines()
+        self.blackboxfunction()
+        self.pragmas()
+        self.docompute()
+
+        template = self.ipgen_template
+
+        for key in self.code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(self.code_gen_dict[key])
+            template = template.replace(key, code_gen_line)
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        f = open(os.path.join(code_gen_dir, "top_{}.cpp".format(node.op_type)), "w")
+        f.write(template)
+        f.close()
+        self.code_gen_dict.clear()
+
 
     def code_generation_npysim(self, model):
         node = self.onnx_node
@@ -67,6 +103,7 @@ class HLSCustomOp(CustomOp):
         f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
         f.write(template)
         f.close()
+        self.code_gen_dict.clear()
 
     def compile_singlenode_code(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
@@ -161,3 +198,10 @@ compilation transformations?
     @abstractmethod
     def save_as_npy(self):
         pass
+
+    def blackboxfunction(self):
+        pass
+
+    def pragmas(self):
+        pass
+
