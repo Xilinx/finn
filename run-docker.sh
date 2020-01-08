@@ -26,7 +26,7 @@ BREVITAS_LOCAL=$SCRIPTPATH/brevitas
 EXAMPLES_LOCAL=$SCRIPTPATH/brevitas_cnv_lfc
 CNPY_LOCAL=$SCRIPTPATH/cnpy
 FINN_HLS_LOCAL=$SCRIPTPATH/finn-hlslib
-VIVADO_HLS_LOCAL=$VIVADO_PATH/include
+VIVADO_HLS_LOCAL=$VIVADO_PATH
 
 # clone dependency repos
 git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
@@ -39,7 +39,7 @@ echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
 echo "Mounting $SCRIPTPATH/brevitas_cnv_lfc into /workspace/brevitas_cnv_lfc"
 echo "Mounting $SCRIPTPATH/cnpy into /workspace/cnpy"
 echo "Mounting $SCRIPTPATH/finn-hlslib into /workspace/finn-hlslib"
-echo "Mounting $VIVADO_PATH/include into /workspace/vivado-hlslib"
+echo "Mounting $VIVADO_PATH into /workspace/vivado"
 
 if [ "$1" = "test" ]; then
 	echo "Running test suite"
@@ -62,11 +62,12 @@ docker build --tag=$DOCKER_TAG \
              .
 # Launch container with current directory mounted
 docker run --rm --name finn_dev -it \
+-e "XILINX_VIVADO=$VIVADO_PATH" \
 -v $SCRIPTPATH:/workspace/finn \
 -v $SCRIPTPATH/brevitas:/workspace/brevitas \
 -v $SCRIPTPATH/brevitas_cnv_lfc:/workspace/brevitas_cnv_lfc \
 -v $SCRIPTPATH/cnpy:/workspace/cnpy \
 -v $SCRIPTPATH/finn-hlslib:/workspace/finn-hlslib \
--v $VIVADO_PATH/include:/workspace/vivado-hlslib \
+-v $VIVADO_PATH:/workspace/vivado \
 -p 8888:8888 -p 8081:8081 \
 $DOCKER_TAG $DOCKER_CMD
