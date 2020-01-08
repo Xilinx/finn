@@ -37,20 +37,50 @@ class HLSCustomOp(CustomOp):
         }
 
         """
+
         self.code_gen_dict = {}
-        self.ipgen_template= """
+
+        self.ipgen_template = """
         #include "bnn-library.h"
         // includes for network parameters
         $GLOBALS$
 
         // defines for network parameters
         $DEFINES$
-        
+
         $BLACKBOXFUNCTION$
         {
         $PRAGMAS$
         $DOCOMPUTE$
         }
+        """
+
+        self.ipgentcl_template = """
+        set config_proj_name $PROJECTNAME$
+        puts "HLS project: $config_proj_name"
+        set config_hwsrcdir "$HWSRCDIR$"
+        puts "HW source dir: $config_hwsrcdir"
+        set config_proj_part "$FPGAPART$"
+
+        set config_bnnlibdir "$FINNHLSLIBDIR$"
+
+        set config_toplevelfxn "$TOPFXN$"
+        set config_clkperiod $CLKPERIOD$
+
+        open_project $config_proj_name
+        add_files $config_hwsrcdir/top_$TOPFXN$.cpp -cflags
+        "-std=c++0x -I$config_bnnlibdir"
+
+        set_top $config_toplevelfxn
+        open_solution sol1
+        set_part $config_proj_part
+
+        config_interface -m_axi_addr64
+
+        create_clock -period $config_clkperiod -name default
+        csynth_design
+        export_design -format ip_catalog
+        exit 0
         """
 
     def get_nodeattr_types(self):
@@ -61,8 +91,10 @@ class HLSCustomOp(CustomOp):
             "executable_path": ("s", False, ""),
         }
 
-    def code_generation_ipgen(self, model):
+    def code_generation_ipgen(self, model, fpgapart, clk):
         node = self.onnx_node
+
+        # generate top cpp file for ip generation
         self.global_includes()
         self.defines()
         self.blackboxfunction()
@@ -76,11 +108,30 @@ class HLSCustomOp(CustomOp):
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        f = open(os.path.join(code_gen_dir, "top_{}.cpp".format(node.op_type)), "w")
+        f = open(os.path.join(code_gen_dir, "top_{}.cpp".format(node.name)), "w")
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
 
+        # generate tcl script for ip generation
+        self.code_gen_dict["$PROJECTNAME$"] = ["project_{}".format(node.name)]
+        self.code_gen_dict["$HWSRCDIR$"] = [code_gen_dir]
+        self.code_gen_dict["$FPGAPART$"] = [fpgapart]
+        self.code_gen_dict["$FINNHLSLIBDIR$"] = ["/workspace/finn-hlslib"]
+        self.code_gen_dict["$TOPFXN$"] = [node.name]
+        self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
+
+        template = self.ipgentcl_template
+
+        for key in self.code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(self.code_gen_dict[key])
+            template = template.replace(key, code_gen_line)
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        f = open(os.path.join(code_gen_dir, "hls_syn_{}.tcl".format(node.name)), "w")
+        f.write(template)
+        f.close()
+        self.code_gen_dict.clear()
 
     def code_generation_npysim(self, model):
         node = self.onnx_node
@@ -204,4 +255,3 @@ compilation transformations?
 
     def pragmas(self):
         pass
-
