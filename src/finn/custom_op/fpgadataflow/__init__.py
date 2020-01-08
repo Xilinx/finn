@@ -3,7 +3,7 @@ import numpy as np
 import os
 import subprocess
 from finn.custom_op import CustomOp
-from finn.core.utils import CppBuilder
+from finn.core.utils import CppBuilder, IPGenBuilder
 
 
 class HLSCustomOp(CustomOp):
@@ -68,8 +68,7 @@ class HLSCustomOp(CustomOp):
         set config_clkperiod $CLKPERIOD$
 
         open_project $config_proj_name
-        add_files $config_hwsrcdir/top_$TOPFXN$.cpp -cflags
-        "-std=c++0x -I$config_bnnlibdir"
+        add_files $config_hwsrcdir/top_$TOPFXN$.cpp -cflags "-std=c++0x -I$config_bnnlibdir"
 
         set_top $config_toplevelfxn
         open_solution sol1
@@ -89,6 +88,7 @@ class HLSCustomOp(CustomOp):
             "code_gen_dir_npysim": ("s", False, ""),
             "code_gen_dir_ipgen": ("s", False, ""),
             "executable_path": ("s", False, ""),
+            "ipgen_path": ("s", False, ""),
         }
 
     def code_generation_ipgen(self, model, fpgapart, clk):
@@ -132,6 +132,15 @@ class HLSCustomOp(CustomOp):
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
+
+    def ipgen_singlenode_code(self):
+        node = self.onnx_node
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        builder = IPGenBuilder()
+        builder.append_tcl(code_gen_dir + "/hls_syn_{}.tcl".format(node.name))
+        builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
+        builder.build(code_gen_dir)
+        self.set_nodeattr("ipgen_path", builder.ipgen_path)
 
     def code_generation_npysim(self, model):
         node = self.onnx_node
