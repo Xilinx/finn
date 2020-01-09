@@ -10,8 +10,11 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 from finn.custom_op.multithreshold import multithreshold
 from finn.transformation.fpgadataflow.cleanup import CleanUp
+from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.general import GiveUniqueNodeNames
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -169,4 +172,7 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all()
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+    model = model.transform(HLSSynth_IPGen())
     model = model.transform(CleanUp())
