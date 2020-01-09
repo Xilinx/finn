@@ -8,8 +8,11 @@ from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import gen_finn_dt_tensor
 from finn.transformation.fpgadataflow.cleanup import CleanUp
+from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.general import GiveUniqueNodeNames
 
 
 def get_im2col_indices(x_shape, k, stride):
@@ -39,7 +42,6 @@ def im2col_indices(x, k, stride):
 
     cols = x[:, l, i, j]
     C = x.shape[1]
-    # cols = cols.transpose(0, 2, 1)
     cols = cols.transpose(1, 2, 0).reshape(k * k * C, -1)
     cols = cols.transpose(1, 0)
 
@@ -158,4 +160,8 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
     y_expected = y_expected.reshape(oshape)
 
     assert (y_produced == y_expected).all()
+
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+    model = model.transform(HLSSynth_IPGen())
     model = model.transform(CleanUp())

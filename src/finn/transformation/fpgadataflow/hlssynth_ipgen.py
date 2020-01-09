@@ -3,7 +3,7 @@ import finn.custom_op.registry as registry
 from finn.transformation import Transformation
 
 
-class IPGen(Transformation):
+class HLSSynth_IPGen(Transformation):
     """Compile for all nodes in model"""
 
     def __init__(self):
@@ -33,4 +33,3 @@ class IPGen(Transformation):
                             "Custom op_type %s is currently not supported." % op_type
                         )
         return (model, False)
-
