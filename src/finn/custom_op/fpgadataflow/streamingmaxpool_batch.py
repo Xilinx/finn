@@ -72,7 +72,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
 
-    def defines(self):
+    def defines(self, var):
         numReps = 2
         self.code_gen_dict["$DEFINES$"] = [
             """#define ImgDim {}\n #define PoolDim {}\n
@@ -197,3 +197,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 int(self.get_nodeattr("ImgDim") / self.get_nodeattr("PoolDim")),
             )
         ]
+
+    def blackboxfunction(self):
+        pass
+
+    def pragmas(self):
+        pass
