@@ -37,8 +37,10 @@ class HLSCustomOp(CustomOp):
         node = self.onnx_node
 
         # generate top cpp file for ip generation
+        path = self.get_nodeattr("code_gen_dir_ipgen")
+        self.generate_params(model, path)
         self.global_includes()
-        self.defines()
+        self.defines("ipgen")
         self.blackboxfunction()
         self.pragmas()
         self.docompute()
@@ -86,9 +88,10 @@ class HLSCustomOp(CustomOp):
 
     def code_generation_npysim(self, model):
         node = self.onnx_node
-        self.generate_params(model)
+        path = self.get_nodeattr("code_gen_dir_npysim")
+        self.generate_params(model, path)
         self.global_includes()
-        self.defines()
+        self.defines("npysim")
         self.read_npy_data()
         self.strm_decl()
         self.docompute()
@@ -170,7 +173,7 @@ compilation transformations?
         # load output npy file
         self.npy_to_dynamic_output(context)
 
-    def generate_params(self, model):
+    def generate_params(self, model, path):
         pass
 
     @abstractmethod
@@ -178,7 +181,7 @@ compilation transformations?
         pass
 
     @abstractmethod
-    def defines(self):
+    def defines(self, var):
         pass
 
     @abstractmethod
