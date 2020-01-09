@@ -201,8 +201,10 @@ compilation transformations?
     def save_as_npy(self):
         pass
 
+    @abstractmethod
     def blackboxfunction(self):
         pass
 
+    @abstractmethod
     def pragmas(self):
         pass
