@@ -516,20 +516,17 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
         self.code_gen_dict["$PRAGMAS$"].append(
-            """DO_PRAGMA(HLS ARRAY_PARTITION
-            variable=weights complete dim=1)"""
+            "DO_PRAGMA(HLS ARRAY_PARTITION variable=weights complete dim=1)"
         )
+
         self.code_gen_dict["$PRAGMAS$"].append(
-            """DO_PRAGMA(HLS ARRAY_PARTITION
-            variable=weights complete dim=2)"""
+            "DO_PRAGMA(HLS ARRAY_PARTITION variable=weights complete dim=2)"
         )
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$PRAGMAS$"].append(
-                """DO_PRAGMA(HLS ARRAY_PARTITION
-                variable=threshs complete dim=1)"""
+                "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs complete dim=1)"
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                """DO_PRAGMA(HLS ARRAY_PARTITION
-                variable=threshs complete dim=3)"""
+                "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs complete dim=3)"
             )
