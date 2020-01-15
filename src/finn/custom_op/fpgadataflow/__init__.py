@@ -31,6 +31,7 @@ class HLSCustomOp(CustomOp):
             "code_gen_dir_ipgen": ("s", False, ""),
             "executable_path": ("s", False, ""),
             "ipgen_path": ("s", False, ""),
+            "sim_mode": ("s", False, ""),
         }
 
     def code_generation_ipgen(self, model, fpgapart, clk):
