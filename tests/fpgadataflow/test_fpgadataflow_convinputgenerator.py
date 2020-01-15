@@ -12,6 +12,7 @@ from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.set_sim_mode import SetSimMode
 from finn.transformation.general import GiveUniqueNodeNames
 
 
@@ -145,7 +146,7 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
     model = make_single_slidingwindow_modelwrapper(
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
-
+    model = model.transform(SetSimMode("npysim"))
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
 
@@ -164,4 +165,5 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
+    model = model.transform(SetSimMode("rtlsim"))
     model = model.transform(CleanUp())

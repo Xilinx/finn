@@ -164,12 +164,23 @@ compilation transformations?
         process_execute.communicate()
 
     def execute_node(self, context, graph):
-        # save input(s)
-        self.dynamic_input_to_npy(context, 1)
-        # execute the precompiled model
-        self.exec_precompiled_singlenode_model()
-        # load output npy file
-        self.npy_to_dynamic_output(context)
+        mode = self.get_nodeattr("sim_mode")
+        if mode == "npysim":
+            # save input(s)
+            self.dynamic_input_to_npy(context, 1)
+            # execute the precompiled model
+            self.exec_precompiled_singlenode_model()
+            # load output npy file
+            self.npy_to_dynamic_output(context)
+        elif mode == "rtlsim":
+            pass
+        else:
+            raise Exception(
+                """Invalid value for attribute sim_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
 
     def generate_params(self, model):
         pass

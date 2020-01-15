@@ -45,39 +45,50 @@ class ConvolutionInputGenerator(HLSCustomOp):
         return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
 
     def execute_node(self, context, graph):
-        node = self.onnx_node
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_dim = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ofm_dim = self.get_nodeattr("OFMDim")
-        out_pix = ofm_dim * ofm_dim
-        idt = self.get_input_datatype()
-        if idt == DataType.BIPOLAR:
-            # use binary for bipolar storage
-            idt = DataType.BINARY
+        mode = self.get_nodeattr("sim_mode")
+        if mode == "npysim":
+            node = self.onnx_node
+            k = self.get_nodeattr("ConvKernelDim")
+            ifm_dim = self.get_nodeattr("IFMDim")
+            ifm_ch = self.get_nodeattr("IFMChannels")
+            ofm_dim = self.get_nodeattr("OFMDim")
+            out_pix = ofm_dim * ofm_dim
+            idt = self.get_input_datatype()
+            if idt == DataType.BIPOLAR:
+                # use binary for bipolar storage
+                idt = DataType.BINARY
 
-        # TODO ensure codegen dir exists
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
-        # create a npy file for input of the node
+            # TODO ensure codegen dir exists
+            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+            # create a npy file for input of the node
 
-        inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32"
-        assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim)
-        reshaped_inp = inp.transpose(0, 2, 3, 1)
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
-        # execute the precompiled model
-        super().exec_precompiled_singlenode_model()
-        # load output npy file
-        super().npy_to_dynamic_output(context)
-        if self.get_output_datatype() == DataType.BIPOLAR:
-            out = context[node.output[0]]
-            out = 2 * out - 1
-            context[node.output[0]] = out
-        assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch)
-        # reshape output to have expected shape
-        context[node.output[0]] = context[node.output[0]].reshape(
-            1, out_pix, k * k * ifm_ch
-        )
+            inp = context[node.input[0]]
+            assert str(inp.dtype) == "float32"
+            assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim)
+            reshaped_inp = inp.transpose(0, 2, 3, 1)
+            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
+            # execute the precompiled model
+            super().exec_precompiled_singlenode_model()
+            # load output npy file
+            super().npy_to_dynamic_output(context)
+            if self.get_output_datatype() == DataType.BIPOLAR:
+                out = context[node.output[0]]
+                out = 2 * out - 1
+                context[node.output[0]] = out
+            assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch)
+            # reshape output to have expected shape
+            context[node.output[0]] = context[node.output[0]].reshape(
+                1, out_pix, k * k * ifm_ch
+            )
+        elif mode == "rtlsim":
+            pass
+        else:
+            raise Exception(
+                """Invalid value for attribute sim_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
