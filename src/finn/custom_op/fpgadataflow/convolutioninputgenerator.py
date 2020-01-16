@@ -1,6 +1,7 @@
 import os
 
 import numpy as np
+from pyverilator import PyVerilator
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -46,13 +47,14 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("sim_mode")
+        node = self.onnx_node
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ofm_dim = self.get_nodeattr("OFMDim")
+        out_pix = ofm_dim * ofm_dim
+
         if mode == "npysim":
-            node = self.onnx_node
-            k = self.get_nodeattr("ConvKernelDim")
-            ifm_dim = self.get_nodeattr("IFMDim")
-            ifm_ch = self.get_nodeattr("IFMChannels")
-            ofm_dim = self.get_nodeattr("OFMDim")
-            out_pix = ofm_dim * ofm_dim
             idt = self.get_input_datatype()
             if idt == DataType.BIPOLAR:
                 # use binary for bipolar storage
@@ -81,7 +83,39 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 1, out_pix, k * k * ifm_ch
             )
         elif mode == "rtlsim":
-            pass
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            # check if needed file exists
+            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
+                code_gen_dir, node.name, node.name
+            )
+            if os.path.isfile(verilog_file):
+                inp = context[node.input[0]]
+                print(inp)
+                inp = inp.flatten()
+                sim = PyVerilator.build(
+                    verilog_file,
+                    verilog_path=[
+                        "{}/project_{}/sol1/impl/verilog/".format(
+                            code_gen_dir, node.name
+                        )
+                    ],
+                )
+                super().reset_rtlsim(sim)
+                super().toggle_clk(sim)
+                output = self.rtlsim(sim, inp)
+                output = [int(x) for x in output]
+                # reshape output (Only valid for sliding window!)
+                output = np.asarray(output, dtype=np.float32).reshape(
+                    1, out_pix, k * k * ifm_ch
+                )
+                context[node.output[0]] = output
+                print(output)
+
+            else:
+                raise Exception(
+                    """Found no verilog files for this node,
+                    did you run the codegen_ipgen transformation?"""
+                )
         else:
             raise Exception(
                 """Invalid value for attribute sim_mode! Is currently set to: {}

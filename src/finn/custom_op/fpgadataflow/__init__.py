@@ -5,6 +5,7 @@ import subprocess
 from finn.custom_op import CustomOp
 from finn.core.utils import CppBuilder, IPGenBuilder
 import finn.custom_op.fpgadataflow.templates
+from pyverilator import PyVerilator
 
 
 class HLSCustomOp(CustomOp):
@@ -131,7 +132,7 @@ class HLSCustomOp(CustomOp):
         if code_gen_dir == "":
             raise Exception(
                 """
-Found no codegen dir for this node, did you run the codegen transformation?
+Found no codegen dir for this node, did you run the codegen_npysim transformation?
             """
             )
         # create a npy file for each input of the node (in_ind is input index)
@@ -163,6 +164,53 @@ compilation transformations?
         process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
         process_execute.communicate()
 
+    def reset_rtlsim(self, sim):
+        for i in range(10):
+            sim.io.ap_rst_n = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_rst_n = 1
+
+    def toggle_clk(self, sim):
+        for i in range(10):
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+
+    def rtlsim(self, sim, inp):
+        my_inputs = inp
+        print("My inputs before:" + str(my_inputs))
+        my_outputs = []
+        sim.io.out_V_V_TREADY = 1
+        for i in range(100):
+            sim.io.in0_V_V_TVALID = 1 if len(my_inputs) > 0 else 0
+            if sim.io.in0_V_V_TREADY == 1 and len(my_inputs) > 0:
+                print("ready to write input")
+                sim.io.in0_V_V_TDATA = my_inputs[0]
+                my_inputs = my_inputs[1:]
+                sim.io.ap_clk = 1
+                sim.io.ap_clk = 0
+                sim.io.in0_V_V_TVALID = 1 if len(my_inputs) > 0 else 0
+            if sim.io.out_V_V_TVALID == 1:
+                print("ready to pop result")
+                my_outputs = my_outputs + [sim.io.out_V_V_TDATA]
+                sim.io.ap_clk = 1
+                sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            print("Iteration %d" % i)
+            print(sim.io)
+            print(my_inputs)
+            print(my_outputs)
+        return my_outputs
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("sim_mode")
         if mode == "npysim":
@@ -174,6 +222,7 @@ compilation transformations?
             self.npy_to_dynamic_output(context)
         elif mode == "rtlsim":
             pass
+
         else:
             raise Exception(
                 """Invalid value for attribute sim_mode! Is currently set to: {}
