@@ -12,6 +12,7 @@ RUN pip install jupyter
 RUN pip install netron
 RUN pip install matplotlib
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
+RUN apt install verilator
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
@@ -21,7 +22,7 @@ RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-d
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
-
+ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 
 ARG GID
 ARG GNAME

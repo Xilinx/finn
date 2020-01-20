@@ -12,6 +12,7 @@ from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.set_sim_mode import SetSimMode
 from finn.transformation.general import GiveUniqueNodeNames
 
 
@@ -133,19 +134,18 @@ def prepare_inputs(input_tensor, idt):
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [4, 6, 8])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [1, 2, 3, 4])
+@pytest.mark.parametrize("ifm_ch", [1])  # , 2, 3, 4])
 # Stride
 @pytest.mark.parametrize("stride", [1, 2])
 def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
     simd = ifm_ch
-
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
 
     x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
     model = make_single_slidingwindow_modelwrapper(
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
-
+    model = model.transform(SetSimMode("npysim"))
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
 
@@ -159,9 +159,12 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
     oshape = y_produced.shape
     y_expected = y_expected.reshape(oshape)
 
-    assert (y_produced == y_expected).all()
+    assert (y_produced == y_expected).all(), "npysim failed"
 
+    model = model.transform(SetSimMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced == y_expected).all(), "rtlsim failed"
     model = model.transform(CleanUp())

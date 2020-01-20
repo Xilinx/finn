@@ -1,6 +1,7 @@
 import os
 
 import numpy as np
+from pyverilator import PyVerilator
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -44,40 +45,111 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def get_stream_width(self):
         return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
 
+    def get_number_output_values(self):
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ofm_dim = self.get_nodeattr("OFMDim")
+        out_pix = ofm_dim * ofm_dim
+
+        return out_pix * k * k * ifm_ch
+
     def execute_node(self, context, graph):
+        mode = self.get_nodeattr("sim_mode")
         node = self.onnx_node
         k = self.get_nodeattr("ConvKernelDim")
         ifm_dim = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         ofm_dim = self.get_nodeattr("OFMDim")
         out_pix = ofm_dim * ofm_dim
-        idt = self.get_input_datatype()
-        if idt == DataType.BIPOLAR:
-            # use binary for bipolar storage
-            idt = DataType.BINARY
 
-        # TODO ensure codegen dir exists
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
-        # create a npy file for input of the node
+        if mode == "npysim":
+            idt = self.get_input_datatype()
+            if idt == DataType.BIPOLAR:
+                # use binary for bipolar storage
+                idt = DataType.BINARY
 
-        inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32"
-        assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim)
-        reshaped_inp = inp.transpose(0, 2, 3, 1)
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
-        # execute the precompiled model
-        super().exec_precompiled_singlenode_model()
-        # load output npy file
-        super().npy_to_dynamic_output(context)
-        if self.get_output_datatype() == DataType.BIPOLAR:
-            out = context[node.output[0]]
-            out = 2 * out - 1
-            context[node.output[0]] = out
-        assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch)
-        # reshape output to have expected shape
-        context[node.output[0]] = context[node.output[0]].reshape(
-            1, out_pix, k * k * ifm_ch
-        )
+            # TODO ensure codegen dir exists
+            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+            # create a npy file for input of the node
+
+            inp = context[node.input[0]]
+            assert str(inp.dtype) == "float32"
+            assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim)
+            reshaped_inp = inp.transpose(0, 2, 3, 1)
+            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
+            # execute the precompiled model
+            super().exec_precompiled_singlenode_model()
+            # load output npy file
+            super().npy_to_dynamic_output(context)
+            if self.get_output_datatype() == DataType.BIPOLAR:
+                out = context[node.output[0]]
+                out = 2 * out - 1
+                context[node.output[0]] = out
+            assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch)
+            # reshape output to have expected shape
+            context[node.output[0]] = context[node.output[0]].reshape(
+                1, out_pix, k * k * ifm_ch
+            )
+        elif mode == "rtlsim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            # check if needed file exists
+            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
+                code_gen_dir, node.name, node.name
+            )
+            if os.path.isfile(verilog_file):
+                inp = context[node.input[0]]
+                inp = inp.transpose(0, 2, 3, 1)
+                inp = inp.flatten()
+
+                # TODO: check how to sort inputs for multichannel inputs
+                # a = []
+                # for i in range(len(inp)):
+                #     if (i+1) % 2 == 0:
+                #         a.append((int(inp[i-1]) << 1) + int(inp[i]))
+                # inp = a
+                sim = PyVerilator.build(
+                    verilog_file,
+                    verilog_path=[
+                        "{}/project_{}/sol1/impl/verilog/".format(
+                            code_gen_dir, node.name
+                        )
+                    ],
+                )
+                super().reset_rtlsim(sim)
+                super().toggle_clk(sim)
+                output = self.rtlsim(sim, inp)
+                output = [int(x) for x in output]
+                odt = self.get_output_datatype()
+                if odt == DataType.BIPOLAR:
+                    output = [2 * x - 1 for x in output]
+
+                # pyverilator interprets int2 as uint2, so output has to be corrected
+                elif odt == DataType.INT2:
+                    mask = 2 ** (odt.bitwidth() - 1)
+                    output = [-(x & mask) + (x & ~mask) for x in output]
+                # TODO: check how to sort inputs for multichannel inputs
+                # output = [bin(x)[2:].zfill(ifm_ch) for x in output]
+                # output_ch1 = [int(x[:1]) for x in output]
+                # output_ch2 = [int(x[1:]) for x in output]
+
+                # reshape output
+                output = np.asarray([output], dtype=np.float32).reshape(
+                    1, out_pix, k * k * ifm_ch
+                )
+                context[node.output[0]] = output
+
+            else:
+                raise Exception(
+                    """Found no verilog files for this node,
+                    did you run the codegen_ipgen transformation?"""
+                )
+        else:
+            raise Exception(
+                """Invalid value for attribute sim_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
