@@ -18,8 +18,9 @@ class CodeGen_ipstitch(Transformation):
         self.fpgapart = fpgapart
 
     def apply(self, model):
-        ip_dirs = []
+        ip_dirs = ["list"]
         create_cmds = []
+        connect_cmds = []
         # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
             assert node.domain == "finn"
@@ -37,6 +38,50 @@ class CodeGen_ipstitch(Transformation):
             inst_name = node.name
             create_cmd = "create_bd_cell -type ip -vlnv %s %s" % (vlnv, inst_name)
             create_cmds += [create_cmd]
+            # TODO nonlinear topologies: check this for all inputs
+            my_producer = model.find_producer(node.input[0])
+            if my_producer is None:
+                # first node in graph
+                # make clock and reset external
+                connect_cmds.append(
+                    "make_bd_pins_external [get_bd_pins %s/ap_clk]" % inst_name
+                )
+                connect_cmds.append(
+                    "make_bd_pins_external [get_bd_pins %s/ap_rst_n]" % inst_name
+                )
+                # make input external
+                connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/in0_V_V]"
+                    % inst_name
+                )
+            else:
+                # intermediate node
+                # wire up global clock and reset
+                connect_cmds.append(
+                    "connect_bd_net [get_bd_ports ap_rst_n_0] [get_bd_pins %s/ap_rst_n]"
+                    % inst_name
+                )
+                connect_cmds.append(
+                    "connect_bd_net [get_bd_ports ap_clk_0] [get_bd_pins %s/ap_clk]"
+                    % inst_name
+                )
+                # wire up input to previous output
+                # TODO nonlinear topologies: loop over all inputs
+                my_in_name = "%s/in0_V_V" % (inst_name)
+                prev_out_name = "%s/out_V_V" % (my_producer.name)
+                connect_cmds.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s] [get_bd_intf_pins %s]"
+                    % (prev_out_name, my_in_name)
+                )
+            if model.find_consumer(node.output[0]) is None:
+                # last node in graph
+                # connect prev output to input
+                # make output external
+                connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/out_V_V]"
+                    % inst_name
+                )
+
         # create a temporary folder for the project
         vivado_proj = get_by_name(model.model.metadata_props, "vivado_proj", "key")
         if vivado_proj is None:
@@ -61,6 +106,10 @@ class CodeGen_ipstitch(Transformation):
         # create block design and instantiate all layers
         tcl.append('create_bd_design "finn_design"')
         tcl.extend(create_cmds)
+        tcl.extend(connect_cmds)
+        tcl.append("regenerate_bd_layout")
+        tcl.append("validate_bd_design")
+        tcl.append("save_bd_design")
         # TODO connect streams between layers
         # TODO connect clock and reset to external port
         # TODO expose first in and last out
