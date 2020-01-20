@@ -127,7 +127,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
 
-    def defines(self):
+    def defines(self, var):
         numReps = 1
         self.code_gen_dict["$DEFINES$"] = [
             """#define ConvKernelDim1 {}\n #define IFMChannels1 {}

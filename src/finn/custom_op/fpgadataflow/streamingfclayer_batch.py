@@ -266,7 +266,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         assert ret.shape[2] == n_thres_steps
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def generate_params(self, model):
+    def generate_params(self, model, path):
+        code_gen_dir = path
         # weights
         weights = model.get_initializer(self.onnx_node.input[1])
         # convert weights into hlslib-compatible format
@@ -280,7 +281,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             weight_tensor, export_wdt, "weights", True, True
         )
         # write weights into params.h
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        # code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         f_weights = open("{}/params.h".format(code_gen_dir), "w")
 
         if export_wdt.bitwidth() != 1:
@@ -300,6 +301,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
         f_weights.write(weight_hls_code)
         f_weights.close()
+
         # thresholds
         if len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
@@ -321,7 +323,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     threshold_tensor, tdt, "thresholds", False, True
                 )
                 # write thresholds into thresh.h
-                code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+                # code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
                 f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
                 tdt_hls = tdt.get_hls_datatype_str()
                 # use binary to export bipolar activations
@@ -399,7 +401,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
-    def defines(self):
+    def defines(self, var):
         numReps = 1
         self.code_gen_dict["$DEFINES$"] = [
             """#define MW1 {}\n #define MH1 {}\n #define SIMD1 {}\n
@@ -414,6 +416,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 numReps,
             )
         ]
+        if var == "ipgen":
+            self.code_gen_dict["$DEFINES$"].append("#define PRAGMA_SUB(x) _Pragma (#x)")
+            self.code_gen_dict["$DEFINES$"].append("#define DO_PRAGMA(x) PRAGMA_SUB(x)")
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
@@ -492,3 +497,36 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def save_as_npy(self):
         self.code_gen_dict["$SAVEASCNPY$"] = []
+
+    def blackboxfunction(self):
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            """void {}(hls::stream<ap_uint<{}>> &in0,
+                hls::stream<ap_uint<{}>> &out
+                )""".format(
+                self.onnx_node.name,
+                self.get_instream_width(),
+                self.get_outstream_width(),
+            )
+        ]
+
+    def pragmas(self):
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE ap_ctrl_none port=return"
+        )
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "DO_PRAGMA(HLS ARRAY_PARTITION variable=weights complete dim=1)"
+        )
+
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "DO_PRAGMA(HLS ARRAY_PARTITION variable=weights complete dim=2)"
+        )
+        if self.calc_tmem() != 0:
+            # TODO find a better way of checking for no pregenerated thresholds
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs complete dim=1)"
+            )
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs complete dim=3)"
+            )
