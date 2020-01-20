@@ -66,4 +66,7 @@ class CodeGen_ipstitch(Transformation):
         # TODO connect streams between layers
         # TODO connect clock and reset to external port
         # TODO expose first in and last out
+        tcl_string = "\n".join(tcl)
+        with open(vivado_proj_dir + "/make_project.tcl", "w") as f:
+            f.write(tcl_string)
         return (model, False)
