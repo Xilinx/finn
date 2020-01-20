@@ -5,7 +5,6 @@ import subprocess
 from finn.custom_op import CustomOp
 from finn.core.utils import CppBuilder, IPGenBuilder
 import finn.custom_op.fpgadataflow.templates
-from pyverilator import PyVerilator
 
 
 class HLSCustomOp(CustomOp):
@@ -186,29 +185,17 @@ compilation transformations?
 
     def rtlsim(self, sim, inp):
         my_inputs = inp
-        print("My inputs before:" + str(my_inputs))
         my_outputs = []
         sim.io.out_V_V_TREADY = 1
-        for i in range(100):
+        for i in range(400):
             sim.io.in0_V_V_TVALID = 1 if len(my_inputs) > 0 else 0
-            if sim.io.in0_V_V_TREADY == 1 and len(my_inputs) > 0:
-                print("ready to write input")
-                sim.io.in0_V_V_TDATA = my_inputs[0]
+            sim.io.in0_V_V_TDATA = my_inputs[0] if len(my_inputs) > 0 else 0
+            if sim.io.in0_V_V_TREADY == 1 and sim.io.in0_V_V_TVALID == 1:
                 my_inputs = my_inputs[1:]
-                sim.io.ap_clk = 1
-                sim.io.ap_clk = 0
-                sim.io.in0_V_V_TVALID = 1 if len(my_inputs) > 0 else 0
-            if sim.io.out_V_V_TVALID == 1:
-                print("ready to pop result")
+            if sim.io.out_V_V_TVALID == 1 and sim.io.out_V_V_TREADY == 1:
                 my_outputs = my_outputs + [sim.io.out_V_V_TDATA]
-                sim.io.ap_clk = 1
-                sim.io.ap_clk = 0
             sim.io.ap_clk = 1
             sim.io.ap_clk = 0
-            print("Iteration %d" % i)
-            print(sim.io)
-            print(my_inputs)
-            print(my_outputs)
         return my_outputs
 
     def execute_node(self, context, graph):
