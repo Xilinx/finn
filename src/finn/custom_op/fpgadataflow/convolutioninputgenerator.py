@@ -45,6 +45,14 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def get_stream_width(self):
         return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
 
+    def get_number_output_values(self):
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ofm_dim = self.get_nodeattr("OFMDim")
+        out_pix = ofm_dim * ofm_dim
+
+        return out_pix * k * k * ifm_ch
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("sim_mode")
         node = self.onnx_node

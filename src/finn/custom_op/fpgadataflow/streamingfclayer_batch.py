@@ -158,6 +158,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
+    def get_number_output_values(self):
+        pass
+
     def get_template_param_values(self):
         ret = dict()
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
