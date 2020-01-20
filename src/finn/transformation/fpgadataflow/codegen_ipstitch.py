@@ -13,10 +13,9 @@ class CodeGen_ipstitch(Transformation):
     and the CodeGen_ipgen transformation must have been previously run on
     the graph."""
 
-    def __init__(self, fpgapart, clk):
+    def __init__(self, fpgapart):
         super().__init__()
         self.fpgapart = fpgapart
-        self.clk = clk
 
     def apply(self, model):
         ip_dirs = []
@@ -28,13 +27,12 @@ class CodeGen_ipstitch(Transformation):
             assert backend_attribute is not None
             backend_value = backend_attribute.s.decode("UTF-8")
             assert backend_value == "fpgadataflow"
-            ip_dir_attribute = get_by_name(node.attribute, "code_gen_dir_ipgen")
+            ip_dir_attribute = get_by_name(node.attribute, "ipgen_path")
             assert ip_dir_attribute is not None
             ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
-            # TODO check for file presence instead?
-            assert ip_dir_value != ""
-            prj_name = "project_{}".format(node.name)
-            ip_dirs += [ip_dir_value + "/%s/sol1/impl/ip" % prj_name]
+            ip_dir_value += "/sol1/impl/ip"
+            assert os.path.isdir(ip_dir_value)
+            ip_dirs += [ip_dir_value]
             vlnv = "xilinx.com:hls:%s:1.0" % node.name
             inst_name = node.name
             create_cmd = "create_bd_cell -type ip -vlnv %s %s" % (vlnv, inst_name)
@@ -66,7 +64,7 @@ class CodeGen_ipstitch(Transformation):
         # TODO connect streams between layers
         # TODO connect clock and reset to external port
         # TODO expose first in and last out
-        tcl_string = "\n".join(tcl)
+        tcl_string = "\n".join(tcl) + "\n"
         with open(vivado_proj_dir + "/make_project.tcl", "w") as f:
             f.write(tcl_string)
         return (model, False)
