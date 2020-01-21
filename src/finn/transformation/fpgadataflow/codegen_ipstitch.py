@@ -1,4 +1,5 @@
 import os
+import subprocess
 import tempfile as tmp
 
 import onnx
@@ -11,7 +12,14 @@ class CodeGen_ipstitch(Transformation):
     """Create a Vivado IP Block Design project from all the generated IPs of a
     graph. All nodes in the graph must have the fpgadataflow backend attribute,
     and the CodeGen_ipgen transformation must have been previously run on
-    the graph."""
+    the graph. The resulting block design is also packaged as IP.
+
+    Outcome if successful: sets the vivado_proj attribute in the ONNX
+    ModelProto's metadata_props field, with the created project dir as the
+    value. A make_project.tcl script is also placed under the same folder,
+    which is called to instantiate the per-layer IPs and stitch them together.
+    The packaged block design IP can be found under the ip subdirectory.
+    """
 
     def __init__(self, fpgapart):
         super().__init__()
@@ -89,6 +97,9 @@ class CodeGen_ipstitch(Transformation):
             vivado_proj.key = "vivado_proj"
             vivado_proj.value = tmp.mkdtemp(prefix="vivado_proj_")
             model.model.metadata_props.append(vivado_proj)
+        else:
+            # create new temporary folder, don't reuse old one
+            vivado_proj.value = tmp.mkdtemp(prefix="vivado_proj_")
         vivado_proj_dir = vivado_proj.value
         # start building the tcl script
         tcl = []
@@ -102,16 +113,41 @@ class CodeGen_ipstitch(Transformation):
         tcl.append("set_property ip_repo_paths [%s] [current_project]" % ip_dirs_str)
         tcl.append("update_ip_catalog")
         # create block design and instantiate all layers
-        tcl.append('create_bd_design "finn_design"')
+        block_name = "finn_design"
+        tcl.append('create_bd_design "%s"' % block_name)
         tcl.extend(create_cmds)
         tcl.extend(connect_cmds)
         tcl.append("regenerate_bd_layout")
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
-        # TODO connect streams between layers
-        # TODO connect clock and reset to external port
-        # TODO expose first in and last out
+        # export block design itself as an IP core
+        block_vendor = "xilinx_finn"
+        block_library = "finn"
+        block_vlnv = "%s:%s:%s:1.0" % (block_vendor, block_library, block_name)
+        tcl.append(
+            (
+                "ipx::package_project -root_dir %s/ip -vendor %s "
+                "-library %s -taxonomy /UserIP -module %s -import_files"
+            )
+            % (vivado_proj_dir, block_vendor, block_library, block_name)
+        )
+        tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
+        # write the project creator tcl script
         tcl_string = "\n".join(tcl) + "\n"
         with open(vivado_proj_dir + "/make_project.tcl", "w") as f:
             f.write(tcl_string)
+        # create a shell script and call Vivado
+        make_project_sh = vivado_proj_dir + "/make_project.sh"
+        working_dir = os.environ["PWD"]
+        with open(make_project_sh, "w") as f:
+            f.write("#!/bin/bash \n")
+            f.write("cd {}\n".format(vivado_proj_dir))
+            f.write("vivado -mode batch -source make_project.tcl\n")
+            f.write("cd {}\n".format(working_dir))
+        bash_command = ["bash", make_project_sh]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
         return (model, False)
