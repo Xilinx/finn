@@ -2,8 +2,6 @@ import os
 import subprocess
 import tempfile as tmp
 
-import onnx
-
 from finn.core.utils import get_by_name
 from finn.transformation import Transformation
 
@@ -91,16 +89,8 @@ class CodeGen_ipstitch(Transformation):
                 )
 
         # create a temporary folder for the project
-        vivado_proj = get_by_name(model.model.metadata_props, "vivado_proj", "key")
-        if vivado_proj is None or not os.path.isdir(vivado_proj.value):
-            vivado_proj = onnx.StringStringEntryProto()
-            vivado_proj.key = "vivado_proj"
-            vivado_proj.value = tmp.mkdtemp(prefix="vivado_proj_")
-            model.model.metadata_props.append(vivado_proj)
-        else:
-            # create new temporary folder, don't reuse old one
-            vivado_proj.value = tmp.mkdtemp(prefix="vivado_proj_")
-        vivado_proj_dir = vivado_proj.value
+        vivado_proj_dir = tmp.mkdtemp(prefix="vivado_proj_")
+        model.set_metadata_prop("vivado_proj", vivado_proj_dir)
         # start building the tcl script
         tcl = []
         # create vivado project
