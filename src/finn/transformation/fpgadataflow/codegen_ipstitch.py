@@ -84,13 +84,11 @@ class CodeGen_ipstitch(Transformation):
 
         # create a temporary folder for the project
         vivado_proj = get_by_name(model.model.metadata_props, "vivado_proj", "key")
-        if vivado_proj is None:
+        if vivado_proj is None or not os.path.isdir(vivado_proj.value):
             vivado_proj = onnx.StringStringEntryProto()
             vivado_proj.key = "vivado_proj"
-            vivado_proj.value = ""
-            model.model.metadata_props.append(vivado_proj)
-        if not os.path.isdir(vivado_proj.value):
             vivado_proj.value = tmp.mkdtemp(prefix="vivado_proj_")
+            model.model.metadata_props.append(vivado_proj)
         vivado_proj_dir = vivado_proj.value
         # start building the tcl script
         tcl = []
