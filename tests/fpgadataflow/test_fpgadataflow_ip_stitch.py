@@ -1,9 +1,13 @@
+import os.path
+
 import numpy as np
 from onnx import TensorProto, helper
 
+import finn.core.utils.get_by_name as get_by_name
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import calculate_signed_dot_prod_range, gen_finn_dt_tensor
+from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
@@ -109,4 +113,9 @@ def test_fpgadataflow_ip_stitch():
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
     model = model.transform(CodeGen_ipstitch("xc7z020clg400-1"))
-    model.save("stitching-test.onnx")
+    vivado_proj = get_by_name(model.model.metadata_props, "vivado_proj", "key")
+    assert vivado_proj is not None
+    vivado_proj_dir = vivado_proj.value
+    assert os.path.isdir(vivado_proj_dir)
+    assert os.path.isfile(vivado_proj_dir + "/ip/component.xml")
+    model = model.transform(CleanUp())
