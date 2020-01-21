@@ -13,6 +13,11 @@ class CleanUp(Transformation):
         super().__init__()
 
     def apply(self, model):
+        # delete IP stitching project, if any
+        ipstitch_path = model.get_metadata_prop("vivado_proj")
+        if ipstitch_path is not None and os.path.isdir(ipstitch_path):
+            shutil.rmtree(ipstitch_path)
+            model.set_metadata_prop("vivado_proj", "")
         for node in model.graph.node:
             op_type = node.op_type
             if node.domain == "finn":
