@@ -220,13 +220,14 @@ compilation transformations?
                 self.set_nodeattr("sim_cycles", observation_count)
                 output_observed = True
 
-            if no_change_count == 100 and old_outputs == outputs:
-                raise Exception(
-                    "Error in simulation! Takes too long to produce output."
-                )
-            else:
-                no_change_count = 0
-                old_outputs = outputs
+            if no_change_count == 100:
+                if old_outputs == outputs:
+                    raise Exception(
+                        "Error in simulation! Takes too long to produce output."
+                    )
+                else:
+                    no_change_count = 0
+                    old_outputs = outputs
 
         return outputs
 
