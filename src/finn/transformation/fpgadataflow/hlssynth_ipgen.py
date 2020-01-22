@@ -3,7 +3,7 @@ import finn.custom_op.registry as registry
 from finn.transformation import Transformation
 
 
-class Compile(Transformation):
+class HLSSynth_IPGen(Transformation):
     """Compile for all nodes in model"""
 
     def __init__(self):
@@ -22,11 +22,11 @@ class Compile(Transformation):
                         # lookup op_type in registry of CustomOps
                         inst = registry.custom_op[op_type](node)
                         # ensure that code is generated
-                        assert inst.get_nodeattr("code_gen_dir_npysim") != ""
+                        assert inst.get_nodeattr("code_gen_dir_ipgen") != ""
                         # call the compilation function for this node
-                        inst.compile_singlenode_code()
+                        inst.ipgen_singlenode_code()
                         # ensure that executable path is now set
-                        assert inst.get_nodeattr("executable_path") != ""
+                        assert inst.get_nodeattr("ipgen_path") != ""
                     except KeyError:
                         # exception if op_type is not supported
                         raise Exception(

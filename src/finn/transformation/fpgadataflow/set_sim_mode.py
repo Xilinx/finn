@@ -3,11 +3,12 @@ import finn.custom_op.registry as registry
 from finn.transformation import Transformation
 
 
-class Compile(Transformation):
-    """Compile for all nodes in model"""
+class SetSimMode(Transformation):
+    """Set attribute sim_mode in all fpgadataflow nodes"""
 
-    def __init__(self):
+    def __init__(self, mode):
         super().__init__()
+        self.mode = mode
 
     def apply(self, model):
         for node in model.graph.node:
@@ -21,12 +22,10 @@ class Compile(Transformation):
                     try:
                         # lookup op_type in registry of CustomOps
                         inst = registry.custom_op[op_type](node)
-                        # ensure that code is generated
-                        assert inst.get_nodeattr("code_gen_dir_npysim") != ""
-                        # call the compilation function for this node
-                        inst.compile_singlenode_code()
-                        # ensure that executable path is now set
-                        assert inst.get_nodeattr("executable_path") != ""
+                        # set sim_mode accordingly to argument mode
+                        inst.set_nodeattr("sim_mode", self.mode)
+                        # ensure that sim_mode is now set
+                        assert inst.get_nodeattr("sim_mode") != ""
                     except KeyError:
                         # exception if op_type is not supported
                         raise Exception(

@@ -4,9 +4,6 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 class StreamingMaxPool_Batch(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
-            # "backend": ("s", True, "fpgadataflow"),
-            # "code_gen_dir": ("s", True, ""),
-            # "executable_path": ("s", True, ""),
             "ImgDim": ("i", True, 0),
             "PoolDim": ("i", True, 0),
             "NumChannels": ("i", True, 0),
@@ -51,7 +48,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
         # verify that all necessary attributes exist
         try:
-            self.get_nodeattr("code_gen_dir")
+            self.get_nodeattr("code_gen_dir_npysim")
             self.get_nodeattr("executable_path")
             self.get_nodeattr("ImgDim")
             self.get_nodeattr("PoolDim")
@@ -61,7 +58,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             info_messages.append(
                 """The necessary attributes do not exist.
                 StreamingMaxPool_Batch  needs the following attributes:
-                code_gen_dir, executable_path, ImgDim, PoolDim, NumChannels"""
+                code_gen_dir_npysim, executable_path, ImgDim, PoolDim, NumChannels"""
             )
 
         # verify the number of inputs
@@ -75,7 +72,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
 
-    def defines(self):
+    def defines(self, var):
         numReps = 2
         self.code_gen_dict["$DEFINES$"] = [
             """#define ImgDim {}\n #define PoolDim {}\n
@@ -89,7 +86,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def read_npy_data(self):
         node = self.onnx_node
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         # c++ code to read out an npy file
         # and put it in hls::stream in the correct order
         self.code_gen_dict["$READNPYDATA$"] = []
@@ -188,7 +185,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         self.code_gen_dict["$DATAOUTSTREAM$"].append("}")
 
     def save_as_npy(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         numReps = 1
         self.code_gen_dict["$SAVEASCNPY$"] = [
             """cnpy::npy_save("{}/output.npy",&output_data_vector[0],
@@ -200,3 +197,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 int(self.get_nodeattr("ImgDim") / self.get_nodeattr("PoolDim")),
             )
         ]
+
+    def blackboxfunction(self):
+        pass
+
+    def pragmas(self):
+        pass

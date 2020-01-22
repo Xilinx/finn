@@ -1,6 +1,7 @@
 import random
 import string
 import subprocess
+import os
 
 import numpy as np
 import onnx
@@ -248,3 +249,31 @@ class CppBuilder:
         bash_command = ["bash", self.compile_script]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+
+class IPGenBuilder:
+    def __init__(self):
+        self.tcl_script = ""
+        self.ipgen_path = ""
+        self.code_gen_dir = ""
+        self.ipgen_script=""
+
+    def append_tcl(self, tcl_script):
+        self.tcl_script = tcl_script
+
+    def set_ipgen_path(self, path):
+        self.ipgen_path = path
+
+    def build(self, code_gen_dir):
+        self.code_gen_dir = code_gen_dir
+        self.ipgen_script = str(self.code_gen_dir) + "/ipgen.sh"
+        working_dir = os.environ["PWD"]
+        f = open(self.ipgen_script, "w")
+        f.write("#!/bin/bash \n")
+        f.write("cd {}\n".format(code_gen_dir))
+        f.write("$VIVADO_PATH/bin/vivado_hls {}\n".format(self.tcl_script))
+        f.write("cd {}\n".format(working_dir))
+        f.close()
+        bash_command = ["bash", self.ipgen_script]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
+        

@@ -285,6 +285,25 @@ class ModelWrapper:
                 fanout += 1
         return fanout
 
+    def get_metadata_prop(self, key):
+        """Returns the value associated with metadata_prop with given key,
+        or None otherwise."""
+        metadata_prop = util.get_by_name(self.model.metadata_props, key, "key")
+        if metadata_prop is None:
+            return None
+        else:
+            return metadata_prop.value
+
+    def set_metadata_prop(self, key, value):
+        metadata_prop = util.get_by_name(self.model.metadata_props, key, "key")
+        if metadata_prop is None:
+            metadata_prop = onnx.StringStringEntryProto()
+            metadata_prop.key = key
+            metadata_prop.value = value
+            self.model.metadata_props.append(metadata_prop)
+        else:
+            metadata_prop.value = value
+
     def set_attribute(self, node, attribute_name, value):
         """Sets a custom node attribute of given name with given value"""
         """Data types of attributes in onnx are encoded:

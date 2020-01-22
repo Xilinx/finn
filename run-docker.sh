@@ -21,25 +21,29 @@ BREVITAS_REPO=https://github.com/Xilinx/brevitas.git
 EXAMPLES_REPO=https://github.com/maltanar/brevitas_cnv_lfc.git
 CNPY_REPO=https://github.com/rogersce/cnpy.git
 FINN_HLS_REPO=https://github.com/Xilinx/finn-hlslib.git
+PYVERILATOR_REPO=https://github.com/maltanar/pyverilator
 
 BREVITAS_LOCAL=$SCRIPTPATH/brevitas
 EXAMPLES_LOCAL=$SCRIPTPATH/brevitas_cnv_lfc
 CNPY_LOCAL=$SCRIPTPATH/cnpy
 FINN_HLS_LOCAL=$SCRIPTPATH/finn-hlslib
-VIVADO_HLS_LOCAL=$VIVADO_PATH/include
+PYVERILATOR_LOCAL=$SCRIPTPATH/pyverilator
+VIVADO_HLS_LOCAL=$VIVADO_PATH
 
 # clone dependency repos
 git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
 git clone $EXAMPLES_REPO $EXAMPLES_LOCAL ||  git -C "$EXAMPLES_LOCAL" pull
 git clone $CNPY_REPO $CNPY_LOCAL ||  git -C "$CNPY_LOCAL" pull
 git clone $FINN_HLS_REPO $FINN_HLS_LOCAL; git -C "$FINN_HLS_LOCAL" checkout b5dc957a16017b8356a7010144b0a4e2f8cfd124 ||  git -C "$FINN_HLS_LOCAL" checkout b5dc957a16017b8356a7010144b0a4e2f8cfd124
+git clone $PYVERILATOR_REPO $PYVERILATOR_LOCAL ||  git -C "$PYVERILATOR_LOCAL" pull
 
 echo "Mounting $SCRIPTPATH into /workspace/finn"
 echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
 echo "Mounting $SCRIPTPATH/brevitas_cnv_lfc into /workspace/brevitas_cnv_lfc"
 echo "Mounting $SCRIPTPATH/cnpy into /workspace/cnpy"
 echo "Mounting $SCRIPTPATH/finn-hlslib into /workspace/finn-hlslib"
-echo "Mounting $VIVADO_PATH/include into /workspace/vivado-hlslib"
+echo "Mounting $SCRIPTPATH/pyverilator into /workspace/pyverilator"
+echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
 
 if [ "$1" = "test" ]; then
 	echo "Running test suite"
@@ -62,11 +66,14 @@ docker build --tag=$DOCKER_TAG \
              .
 # Launch container with current directory mounted
 docker run --rm --name finn_dev -it \
+-e "XILINX_VIVADO=$VIVADO_PATH" \
 -v $SCRIPTPATH:/workspace/finn \
 -v $SCRIPTPATH/brevitas:/workspace/brevitas \
 -v $SCRIPTPATH/brevitas_cnv_lfc:/workspace/brevitas_cnv_lfc \
 -v $SCRIPTPATH/cnpy:/workspace/cnpy \
 -v $SCRIPTPATH/finn-hlslib:/workspace/finn-hlslib \
--v $VIVADO_PATH/include:/workspace/vivado-hlslib \
+-v $SCRIPTPATH/pyverilator:/workspace/pyverilator \
+-v $VIVADO_PATH:$VIVADO_PATH \
+-e VIVADO_PATH=$VIVADO_PATH \
 -p 8888:8888 -p 8081:8081 \
 $DOCKER_TAG $DOCKER_CMD

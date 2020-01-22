@@ -3,54 +3,97 @@ import numpy as np
 import os
 import subprocess
 from finn.custom_op import CustomOp
-from finn.core.utils import CppBuilder
+from finn.core.utils import CppBuilder, IPGenBuilder
+import finn.custom_op.fpgadataflow.templates
+from pyverilator import PyVerilator
 
 
 class HLSCustomOp(CustomOp):
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
-        # template for single node execution
-        self.docompute_template = """
-        #include "cnpy.h"
-        #include "npy2apintstream.hpp"
-        #include <vector>
-        #include "bnn-library.h"
 
-        // includes for network parameters
-        $GLOBALS$
-
-        // defines for network parameters
-        $DEFINES$
-
-        int main(){
-
-        $STREAMDECLARATIONS$
-
-        $READNPYDATA$
-
-        $DOCOMPUTE$
-
-        $DATAOUTSTREAM$
-
-        $SAVEASCNPY$
-
-        }
-
-        """
         self.code_gen_dict = {}
+
+        # getting templates from templates.py
+
+        # template for single node execution
+        self.docompute_template = templates.docompute_template
+
+        # templates for single node ip generation
+        # cpp file
+        self.ipgen_template = templates.ipgen_template
+        # tcl script
+        self.ipgentcl_template = templates.ipgentcl_template
 
     def get_nodeattr_types(self):
         return {
             "backend": ("s", True, "fpgadataflow"),
-            "code_gen_dir": ("s", False, ""),
+            "code_gen_dir_npysim": ("s", False, ""),
+            "code_gen_dir_ipgen": ("s", False, ""),
             "executable_path": ("s", False, ""),
+            "ipgen_path": ("s", False, ""),
+            "sim_mode": ("s", False, ""),
         }
 
-    def code_generation(self, model):
+    def code_generation_ipgen(self, model, fpgapart, clk):
         node = self.onnx_node
-        self.generate_params(model)
+
+        # generate top cpp file for ip generation
+        path = self.get_nodeattr("code_gen_dir_ipgen")
+        self.generate_params(model, path)
         self.global_includes()
-        self.defines()
+        self.defines("ipgen")
+        self.blackboxfunction()
+        self.pragmas()
+        self.docompute()
+
+        template = self.ipgen_template
+
+        for key in self.code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(self.code_gen_dict[key])
+            template = template.replace(key, code_gen_line)
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        f = open(os.path.join(code_gen_dir, "top_{}.cpp".format(node.name)), "w")
+        f.write(template)
+        f.close()
+        self.code_gen_dict.clear()
+
+        # generate tcl script for ip generation
+        self.code_gen_dict["$PROJECTNAME$"] = ["project_{}".format(node.name)]
+        self.code_gen_dict["$HWSRCDIR$"] = [code_gen_dir]
+        self.code_gen_dict["$FPGAPART$"] = [fpgapart]
+        self.code_gen_dict["$FINNHLSLIBDIR$"] = ["/workspace/finn-hlslib"]
+        self.code_gen_dict["$TOPFXN$"] = [node.name]
+        self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
+
+        template = self.ipgentcl_template
+
+        for key in self.code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(self.code_gen_dict[key])
+            template = template.replace(key, code_gen_line)
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        f = open(os.path.join(code_gen_dir, "hls_syn_{}.tcl".format(node.name)), "w")
+        f.write(template)
+        f.close()
+        self.code_gen_dict.clear()
+
+    def ipgen_singlenode_code(self):
+        node = self.onnx_node
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        builder = IPGenBuilder()
+        builder.append_tcl(code_gen_dir + "/hls_syn_{}.tcl".format(node.name))
+        builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
+        builder.build(code_gen_dir)
+        self.set_nodeattr("ipgen_path", builder.ipgen_path)
+
+    def code_generation_npysim(self, model):
+        node = self.onnx_node
+        path = self.get_nodeattr("code_gen_dir_npysim")
+        self.generate_params(model, path)
+        self.global_includes()
+        self.defines("npysim")
         self.read_npy_data()
         self.strm_decl()
         self.docompute()
@@ -63,18 +106,21 @@ class HLSCustomOp(CustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
         f.write(template)
         f.close()
+        self.code_gen_dict.clear()
 
     def compile_singlenode_code(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         builder = CppBuilder()
+        # to enable additional debug features please uncommand the next line
+        # builder.append_includes("-DDEBUG")
         builder.append_includes("-I/workspace/finn/src/finn/data/cpp")
         builder.append_includes("-I/workspace/cnpy/")
         builder.append_includes("-I/workspace/finn-hlslib")
-        builder.append_includes("-I/workspace/vivado-hlslib")
+        builder.append_includes("-I{}/include".format(os.environ["VIVADO_PATH"]))
         builder.append_includes("--std=c++11")
         builder.append_sources(code_gen_dir + "/*.cpp")
         builder.append_sources("/workspace/cnpy/cnpy.cpp")
@@ -85,11 +131,11 @@ class HLSCustomOp(CustomOp):
 
     def dynamic_input_to_npy(self, context, count):
         node = self.onnx_node
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         if code_gen_dir == "":
             raise Exception(
                 """
-Found no codegen dir for this node, did you run the codegen transformation?
+Found no codegen dir for this node, did you run the codegen_npysim transformation?
             """
             )
         # create a npy file for each input of the node (in_ind is input index)
@@ -104,7 +150,7 @@ Found no codegen dir for this node, did you run the codegen transformation?
     def npy_to_dynamic_output(self, context):
         # TODO support multi-output nodes as needed
         node = self.onnx_node
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         output = np.load("{}/output.npy".format(code_gen_dir))
         context[node.output[0]] = output
 
@@ -121,15 +167,74 @@ compilation transformations?
         process_execute = subprocess.Popen(executable_path, stdout=subprocess.PIPE)
         process_execute.communicate()
 
-    def execute_node(self, context, graph):
-        # save input(s)
-        self.dynamic_input_to_npy(context, 1)
-        # execute the precompiled model
-        self.exec_precompiled_singlenode_model()
-        # load output npy file
-        self.npy_to_dynamic_output(context)
+    def reset_rtlsim(self, sim):
+        for i in range(10):
+            sim.io.ap_rst_n = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            sim.io.ap_rst_n = 1
 
-    def generate_params(self, model):
+    def toggle_clk(self, sim):
+        for i in range(10):
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+
+    def rtlsim(self, sim, inp):
+        my_inputs = inp
+        print("My inputs before:" + str(my_inputs))
+        my_outputs = []
+        sim.io.out_V_V_TREADY = 1
+        for i in range(100):
+            sim.io.in0_V_V_TVALID = 1 if len(my_inputs) > 0 else 0
+            if sim.io.in0_V_V_TREADY == 1 and len(my_inputs) > 0:
+                print("ready to write input")
+                sim.io.in0_V_V_TDATA = my_inputs[0]
+                my_inputs = my_inputs[1:]
+                sim.io.ap_clk = 1
+                sim.io.ap_clk = 0
+                sim.io.in0_V_V_TVALID = 1 if len(my_inputs) > 0 else 0
+            if sim.io.out_V_V_TVALID == 1:
+                print("ready to pop result")
+                my_outputs = my_outputs + [sim.io.out_V_V_TDATA]
+                sim.io.ap_clk = 1
+                sim.io.ap_clk = 0
+            sim.io.ap_clk = 1
+            sim.io.ap_clk = 0
+            print("Iteration %d" % i)
+            print(sim.io)
+            print(my_inputs)
+            print(my_outputs)
+        return my_outputs
+
+    def execute_node(self, context, graph):
+        mode = self.get_nodeattr("sim_mode")
+        if mode == "npysim":
+            # save input(s)
+            self.dynamic_input_to_npy(context, 1)
+            # execute the precompiled model
+            self.exec_precompiled_singlenode_model()
+            # load output npy file
+            self.npy_to_dynamic_output(context)
+        elif mode == "rtlsim":
+            pass
+
+        else:
+            raise Exception(
+                """Invalid value for attribute sim_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
+
+    def generate_params(self, model, path):
         pass
 
     @abstractmethod
@@ -137,7 +242,7 @@ compilation transformations?
         pass
 
     @abstractmethod
-    def defines(self):
+    def defines(self, var):
         pass
 
     @abstractmethod
@@ -158,4 +263,12 @@ compilation transformations?
 
     @abstractmethod
     def save_as_npy(self):
+        pass
+
+    @abstractmethod
+    def blackboxfunction(self):
+        pass
+
+    @abstractmethod
+    def pragmas(self):
         pass

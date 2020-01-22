@@ -13,6 +13,11 @@ class CleanUp(Transformation):
         super().__init__()
 
     def apply(self, model):
+        # delete IP stitching project, if any
+        ipstitch_path = model.get_metadata_prop("vivado_proj")
+        if ipstitch_path is not None and os.path.isdir(ipstitch_path):
+            shutil.rmtree(ipstitch_path)
+            model.set_metadata_prop("vivado_proj", "")
         for node in model.graph.node:
             op_type = node.op_type
             if node.domain == "finn":
@@ -22,11 +27,26 @@ class CleanUp(Transformation):
                     try:
                         # lookup op_type in registry of CustomOps
                         inst = registry.custom_op[op_type](node)
-                        code_gen_dir = inst.get_nodeattr("code_gen_dir")
+                        # delete code_gen_dir from npysim
+                        code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
                         if os.path.isdir(code_gen_dir):
                             shutil.rmtree(code_gen_dir)
-                        inst.set_nodeattr("code_gen_dir", "")
+                        inst.set_nodeattr("code_gen_dir_npysim", "")
                         inst.set_nodeattr("executable_path", "")
+                        # delete code_gen_dir from ipgen and project folder
+                        code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
+                        ipgen_path = inst.get_nodeattr("ipgen_path")
+                        if os.path.isdir(code_gen_dir):
+                            shutil.rmtree(code_gen_dir)
+                        if os.path.isdir(ipgen_path):
+                            shutil.rmtree(ipgen_path)
+                        inst.set_nodeattr("code_gen_dir_ipgen", "")
+                        inst.set_nodeattr("ipgen_path", "")
+                        # delete Java HotSpot Performance data log
+                        for d_name in os.listdir("/tmp/"):
+                            if "hsperfdata" in d_name:
+                                shutil.rmtree("/tmp/" + str(d_name))
+
                     except KeyError:
                         # exception if op_type is not supported
                         raise Exception(
