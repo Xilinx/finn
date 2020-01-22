@@ -112,8 +112,8 @@ def test_fpgadataflow_ip_stitch():
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
     model = model.transform(CodeGen_ipstitch("xc7z020clg400-1"))
-    vivado_proj_dir = model.get_metadata_prop("vivado_proj")
-    assert vivado_proj_dir is not None
-    assert os.path.isdir(vivado_proj_dir)
-    assert os.path.isfile(vivado_proj_dir + "/ip/component.xml")
+    vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
+    assert vivado_stitch_proj_dir is not None
+    assert os.path.isdir(vivado_stitch_proj_dir)
+    assert os.path.isfile(vivado_stitch_proj_dir + "/ip/component.xml")
     model = model.transform(CleanUp())
