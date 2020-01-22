@@ -5,6 +5,7 @@
 | Export/Import             	| x        	| x        	| x        	|          	|          	|
 | Streamlining              	| x        	| x        	|          	|          	|          	|
 | Convert to HLS layers     	| x        	|          	|          	|          	|          	|
-| hlslib simulation         	| x        	|          	|          	|          	|          	|
-| Monolithic HLS generation 	|          	|          	|          	|          	|          	|
+| npysim                    	| x        	|          	|          	|          	|          	|
+| Stitched IPI design        	|          	|          	|          	|          	|           | 
+| rtlsim                    	|          	|          	|          	|          	|          	|
 | Hardware demo             	|          	|          	|          	|          	|          	|
