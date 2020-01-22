@@ -23,6 +23,7 @@ ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
+ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
 
 ARG GID
 ARG GNAME
