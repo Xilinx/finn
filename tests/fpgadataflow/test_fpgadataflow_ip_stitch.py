@@ -6,7 +6,6 @@ from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import calculate_signed_dot_prod_range, gen_finn_dt_tensor
-from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
@@ -117,5 +116,8 @@ def test_fpgadataflow_ip_stitch():
     assert vivado_stitch_proj_dir is not None
     assert os.path.isdir(vivado_stitch_proj_dir)
     assert os.path.isfile(vivado_stitch_proj_dir + "/ip/component.xml")
+    vivado_stitch_vlnv = model.get_metadata_prop("vivado_stitch_vlnv")
+    assert vivado_stitch_vlnv is not None
+    assert vivado_stitch_vlnv == "xilinx_finn:finn:finn_design:1.0"
     model = model.transform(MakePYNQProject("Pynq-Z1"))
-    #model = model.transform(CleanUp())
+    # model = model.transform(CleanUp())
