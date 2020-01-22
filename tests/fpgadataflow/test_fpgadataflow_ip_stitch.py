@@ -10,6 +10,7 @@ from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.general import GiveUniqueNodeNames
 
 
@@ -116,4 +117,5 @@ def test_fpgadataflow_ip_stitch():
     assert vivado_stitch_proj_dir is not None
     assert os.path.isdir(vivado_stitch_proj_dir)
     assert os.path.isfile(vivado_stitch_proj_dir + "/ip/component.xml")
-    model = model.transform(CleanUp())
+    model = model.transform(MakePYNQProject("Pynq-Z1"))
+    #model = model.transform(CleanUp())

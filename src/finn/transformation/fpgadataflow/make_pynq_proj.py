@@ -26,7 +26,7 @@ class MakePYNQProject(Transformation):
         pynq_shell_path = os.environ["PYNQSHELL_PATH"]
         if not os.path.isdir(pynq_shell_path):
             raise Exception("Ensure the PYNQ-HelloWorld utility repo is cloned.")
-        ipstitch_path = model.get_metadata_prop("vivado_pynq_proj")
+        ipstitch_path = model.get_metadata_prop("vivado_stitch_proj")
         if ipstitch_path is None or (not os.path.isdir(ipstitch_path)):
             raise Exception("No stitched IPI design found, apply CodeGen_ipstitch first.")
 
