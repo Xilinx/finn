@@ -114,6 +114,7 @@ class CodeGen_ipstitch(Transformation):
         block_vendor = "xilinx_finn"
         block_library = "finn"
         block_vlnv = "%s:%s:%s:1.0" % (block_vendor, block_library, block_name)
+        model.set_metadata_prop("vivado_stitch_vlnv", block_vlnv)
         tcl.append(
             (
                 "ipx::package_project -root_dir %s/ip -vendor %s "
