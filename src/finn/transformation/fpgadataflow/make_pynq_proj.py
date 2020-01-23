@@ -70,6 +70,7 @@ variable config_ip_axis_name_in
 variable config_ip_axis_name_out
 variable config_ip_use_axilite
 variable config_ip_project_dir
+variable config_output_products_dir
 
 # for arguments involving paths below: use absolute paths or relative to the
 # platform/overlay/bitstream folder
@@ -77,6 +78,8 @@ variable config_ip_project_dir
 set config_ip_project_dir %s
 # IP repositories that the project depends on
 set config_ip_repo %s
+# where the produced bitfile and .hwh file will be placed
+set config_output_products_dir %s
 
 # non-path arguments
 # VLNV of the IP block
@@ -98,6 +101,7 @@ set config_ip_use_axilite 0
         """ % (
             vivado_pynq_proj_dir,
             ip_dirs_str,
+            vivado_pynq_proj_dir,
             vivado_stitch_vlnv,
             in_bytes,
             out_bytes,
