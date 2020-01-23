@@ -81,10 +81,11 @@ class CodeGen_ipstitch(Transformation):
                 )
             if model.find_consumer(node.output[0]) is None:
                 # last node in graph
-                # connect prev output to input
+                # ensure it is a TLastMarker to have a valid TLast signal
+                assert node.op_type == "TLastMarker"
                 # make output external
                 connect_cmds.append(
-                    "make_bd_intf_pins_external [get_bd_intf_pins %s/out_V_V]"
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/out_r]"
                     % inst_name
                 )
 

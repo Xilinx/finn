@@ -30,6 +30,7 @@ def create_two_fc_model():
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, m])
     mid = helper.make_tensor_value_info("mid", TensorProto.FLOAT, [1, m])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
+    outp_tlast = helper.make_tensor_value_info("outp_tlast", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
         "StreamingFCLayer_Batch",
@@ -69,12 +70,22 @@ def create_two_fc_model():
         noActivation=no_act,
     )
 
+    tlastmarker = helper.make_node(
+        "TLastMarker",
+        ["outp"],
+        ["outp_tlast"],
+        domain="finn",
+        backend="fpgadataflow",
+        NumIters=m,
+        StreamWidth=2,
+    )
+
     graph = helper.make_graph(
-        nodes=[fc0, fc1],
+        nodes=[fc0, fc1, tlastmarker],
         name="fclayer_graph",
         inputs=[inp],
-        outputs=[outp],
-        value_info=[mid],
+        outputs=[outp_tlast],
+        value_info=[mid, outp],
     )
 
     model = helper.make_model(graph, producer_name="fclayer-model")
@@ -83,6 +94,7 @@ def create_two_fc_model():
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("mid", idt)
     model.set_tensor_datatype("outp", odt)
+    model.set_tensor_datatype("outp_tlast", odt)
     model.set_tensor_datatype("w0", wdt)
     model.set_tensor_datatype("w1", wdt)
 
@@ -116,6 +128,7 @@ def test_fpgadataflow_ip_gen_two_fc_model():
     model = model.transform(HLSSynth_IPGen())
     assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
     assert model.graph.node[1].op_type == "StreamingFCLayer_Batch"
+    assert model.graph.node[2].op_type == "TLastMarker"
     model.save("/tmp/test_fpgadataflow_ip_gen_two_fc_model.onnx")
 
 @pytest.mark.dependency(depends=["test_fpgadataflow_ip_gen_two_fc_model"])

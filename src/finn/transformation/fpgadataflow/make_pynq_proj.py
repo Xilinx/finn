@@ -53,7 +53,7 @@ class MakePYNQProject(Transformation):
         in_bytes = 1
         out_bytes = 1
         in_if_name = "in0_V_V_0"
-        out_if_name = "out_V_V_0"
+        out_if_name = "out_r_0"
         clk_name = "ap_clk_0"
         nrst_name = "ap_rst_n_0"
 
