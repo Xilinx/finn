@@ -161,4 +161,3 @@ def test_fpgadataflow_pynq_synth():
     bitfile = model.get_metadata_prop("vivado_pynq_bitfile")
     assert bitfile is not None
     assert os.path.isfile(bitfile)
-    model = model.transform(CleanUp())
