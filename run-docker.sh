@@ -30,6 +30,7 @@ CNPY_LOCAL=$SCRIPTPATH/cnpy
 FINN_HLS_LOCAL=$SCRIPTPATH/finn-hlslib
 PYVERILATOR_LOCAL=$SCRIPTPATH/pyverilator
 PYNQSHELL_LOCAL=$SCRIPTPATH/PYNQ-HelloWorld
+BUILD_LOCAL=/tmp/finn
 VIVADO_HLS_LOCAL=$VIVADO_PATH
 
 # clone dependency repos
@@ -40,6 +41,9 @@ git clone $FINN_HLS_REPO $FINN_HLS_LOCAL; git -C "$FINN_HLS_LOCAL" checkout b5dc
 git clone $PYVERILATOR_REPO $PYVERILATOR_LOCAL ||  git -C "$PYVERILATOR_LOCAL" pull
 git clone $PYNQSHELL_REPO $PYNQSHELL_LOCAL ||  git -C "$PYNQSHELL_LOCAL" pull
 
+# ensure build dir exists locally
+mkdir -p $BUILD_LOCAL
+
 echo "Mounting $SCRIPTPATH into /workspace/finn"
 echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
 echo "Mounting $SCRIPTPATH/brevitas_cnv_lfc into /workspace/brevitas_cnv_lfc"
@@ -47,6 +51,7 @@ echo "Mounting $SCRIPTPATH/cnpy into /workspace/cnpy"
 echo "Mounting $SCRIPTPATH/finn-hlslib into /workspace/finn-hlslib"
 echo "Mounting $SCRIPTPATH/pyverilator into /workspace/pyverilator"
 echo "Mounting $SCRIPTPATH/PYNQ-HelloWorld into /workspace/PYNQ-HelloWorld"
+echo "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
 echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
 
 if [ "$1" = "test" ]; then
@@ -78,6 +83,7 @@ docker run --rm --name finn_dev -it \
 -v $SCRIPTPATH/finn-hlslib:/workspace/finn-hlslib \
 -v $SCRIPTPATH/pyverilator:/workspace/pyverilator \
 -v $SCRIPTPATH/PYNQ-HelloWorld:/workspace/PYNQ-HelloWorld \
+-v $BUILD_LOCAL:$BUILD_LOCAL \
 -v $VIVADO_PATH:$VIVADO_PATH \
 -e VIVADO_PATH=$VIVADO_PATH \
 -p 8888:8888 -p 8081:8081 \

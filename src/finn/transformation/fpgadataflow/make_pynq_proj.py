@@ -1,8 +1,7 @@
 import os
 import subprocess
-import tempfile as tmp
 
-from finn.core.utils import get_by_name
+from finn.core.utils import get_by_name, make_build_dir
 from finn.transformation import Transformation
 
 
@@ -58,7 +57,7 @@ class MakePYNQProject(Transformation):
         nrst_name = "ap_rst_n_0"
 
         # create a temporary folder for the project
-        vivado_pynq_proj_dir = tmp.mkdtemp(prefix="vivado_pynq_proj_")
+        vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
         model.set_metadata_prop("vivado_pynq_proj", vivado_pynq_proj_dir)
 
         ip_config_tcl = """

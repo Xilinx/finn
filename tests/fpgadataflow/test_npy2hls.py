@@ -1,6 +1,5 @@
 import shutil
 import subprocess
-import tempfile as tmp
 
 import numpy as np
 
@@ -10,7 +9,7 @@ from finn.core.datatype import DataType
 
 
 def make_npy2apintstream_testcase(ndarray, dtype):
-    test_dir = tmp.mkdtemp(prefix="test_npy2apintstream_")
+    test_dir = make_build_dir(prefix="test_npy2apintstream_")
     shape = ndarray.shape
     elem_bits = dtype.bitwidth()
     packed_bits = shape[-1] * elem_bits

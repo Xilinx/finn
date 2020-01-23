@@ -1,8 +1,7 @@
 import os
-import tempfile as tmp
 
 import finn.custom_op.registry as registry
-from finn.core.utils import get_by_name
+from finn.core.utils import get_by_name, make_build_dir
 from finn.transformation import Transformation
 
 
@@ -17,7 +16,7 @@ def _codegen_single_node(node, model, fpgapart, clk):
         code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
         # ensure that there is a directory
         if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
-            code_gen_dir = tmp.mkdtemp(
+            code_gen_dir = make_build_dir(
                 prefix="code_gen_ipgen_" + str(node.op_type) + "_"
             )
             inst.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)

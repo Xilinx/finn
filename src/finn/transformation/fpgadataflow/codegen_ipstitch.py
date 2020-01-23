@@ -1,8 +1,7 @@
 import os
 import subprocess
-import tempfile as tmp
 
-from finn.core.utils import get_by_name
+from finn.core.utils import get_by_name, make_build_dir
 from finn.transformation import Transformation
 
 
@@ -90,7 +89,7 @@ class CodeGen_ipstitch(Transformation):
                 )
 
         # create a temporary folder for the project
-        vivado_stitch_proj_dir = tmp.mkdtemp(prefix="vivado_stitch_proj_")
+        vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
         model.set_metadata_prop("vivado_stitch_proj", vivado_stitch_proj_dir)
         # start building the tcl script
         tcl = []
