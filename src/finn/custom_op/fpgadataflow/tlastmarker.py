@@ -63,7 +63,7 @@ class TLastMarker(HLSCustomOp):
             "OutDType t;",
             "t.set_data(in0.read());",
             "t.set_last(i==(NumIters-1));",
-            "output.write(t);",
+            "out.write(t);",
             "}"
         ]
 
@@ -76,8 +76,8 @@ class TLastMarker(HLSCustomOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void TLastMarker(hls::stream<ap_uint<StreamWidth> > &in0,
-                hls::stream<OutDType> &out)"""
+            """void %s(hls::stream<ap_uint<StreamWidth> > &in0,
+                hls::stream<OutDType> &out)""" % self.onnx_node.name
         ]
 
     def pragmas(self):
