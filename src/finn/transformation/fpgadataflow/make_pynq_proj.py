@@ -2,6 +2,7 @@ import os
 import subprocess
 import tempfile as tmp
 
+from finn.core.utils import get_by_name
 from finn.transformation import Transformation
 
 
@@ -36,9 +37,21 @@ class MakePYNQProject(Transformation):
                 "No vlnv for stitched IP found, apply CodeGen_ipstitch first."
             )
 
+        # collect list of all IP dirs
+        ip_dirs = ["list"]
+        for node in model.graph.node:
+            ip_dir_attribute = get_by_name(node.attribute, "ipgen_path")
+            assert ip_dir_attribute is not None
+            ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
+            ip_dir_value += "/sol1/impl/ip"
+            assert os.path.isdir(ip_dir_value)
+            ip_dirs += [ip_dir_value]
+        ip_dirs += [ipstitch_path + "/ip"]
+        ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
+
         # TODO extract the actual in-out bytes from graph
-        in_bytes = 8
-        out_bytes = 8
+        in_bytes = 1
+        out_bytes = 1
         in_if_name = "in0_V_V_0"
         out_if_name = "out_V_V_0"
         clk_name = "ap_clk_0"
@@ -84,7 +97,7 @@ set config_ip_nrst_name %s
 set config_ip_use_axilite 0
         """ % (
             vivado_pynq_proj_dir,
-            ipstitch_path + "/ip",
+            ip_dirs_str,
             vivado_stitch_vlnv,
             in_bytes,
             out_bytes,
@@ -112,7 +125,7 @@ set config_ip_use_axilite 0
             f.write("cd {}\n".format(pynq_shell_path))
             f.write("export platform=%s\n" % (self.platform))
             f.write("export ip_config=%s\n" % (vivado_pynq_proj_dir + "/ip_config.tcl"))
-            f.write("make bitfile\n")
+            f.write("make bitstream\n")
             f.write("cd {}\n".format(working_dir))
         # call the project creation script
         # synthesis script will be called with a separate transformation
