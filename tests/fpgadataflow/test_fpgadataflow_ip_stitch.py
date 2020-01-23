@@ -1,6 +1,7 @@
 import os.path
 
 import numpy as np
+import pytest
 from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
@@ -10,6 +11,7 @@ from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
+from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 from finn.transformation.general import GiveUniqueNodeNames
 
 
@@ -106,11 +108,19 @@ def create_two_fc_model():
     return model
 
 
-def test_fpgadataflow_ip_stitch():
+@pytest.mark.dependency()
+def test_fpgadataflow_ip_gen_two_fc_model():
     model = create_two_fc_model()
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
+    assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
+    assert model.graph.node[1].op_type == "StreamingFCLayer_Batch"
+    model.save("/tmp/test_fpgadataflow_ip_gen_two_fc_model.onnx")
+
+@pytest.mark.dependency(depends=["test_fpgadataflow_ip_gen_two_fc_model"])
+def test_fpgadataflow_ip_stitch():
+    model = ModelWrapper("/tmp/test_fpgadataflow_ip_gen_two_fc_model.onnx")
     model = model.transform(CodeGen_ipstitch("xc7z020clg400-1"))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
@@ -119,5 +129,23 @@ def test_fpgadataflow_ip_stitch():
     vivado_stitch_vlnv = model.get_metadata_prop("vivado_stitch_vlnv")
     assert vivado_stitch_vlnv is not None
     assert vivado_stitch_vlnv == "xilinx_finn:finn:finn_design:1.0"
+    model.save("/tmp/test_fpgadataflow_ip_stitch.onnx")
+
+
+@pytest.mark.dependency(depends=["test_fpgadataflow_ip_stitch"])
+def test_fpgadataflow_pynq_projgen():
+    model = ModelWrapper("/tmp/test_fpgadataflow_ip_stitch.onnx")
     model = model.transform(MakePYNQProject("Pynq-Z1"))
-    # model = model.transform(CleanUp())
+    vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
+    assert vivado_pynq_proj_dir is not None
+    assert os.path.isdir(vivado_pynq_proj_dir)
+    model.save("/tmp/test_fpgadataflow_pynq_projgen.onnx")
+
+@pytest.mark.dependency(depends=["test_fpgadataflow_pynq_projgen"])
+def test_fpgadataflow_pynq_synth():
+    model = ModelWrapper("/tmp/test_fpgadataflow_pynq_projgen.onnx")
+    model = model.transform(SynthPYNQProject())
+    bitfile = model.get_metadata_prop("vivado_pynq_bitfile")
+    assert bitfile is not None
+    assert os.path.isfile(bitfile)
+    model = model.transform(CleanUp())
