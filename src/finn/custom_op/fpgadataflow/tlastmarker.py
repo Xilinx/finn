@@ -13,7 +13,7 @@ class TLastMarker(HLSCustomOp):
         my_attrs = {
             "NumIters": ("i", True, 0),
             # width of input-output data streams
-            "StreamDataWidth": ("i", True, 0)
+            "StreamWidth": ("i", True, 0)
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -38,7 +38,7 @@ class TLastMarker(HLSCustomOp):
         self.code_gen_dict["$GLOBALS$"] = ['#include "ap_axi_sdata.h"']
 
     def defines(self, var):
-        stream_width = self.get_nodeattr("StreamDataWidth")
+        stream_width = self.get_nodeattr("StreamWidth")
         # output stream must have TLAST, so we use this stream data type:
         # qdma_axis<stream_data_width,0,0,0 >
         out_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
