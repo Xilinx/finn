@@ -11,6 +11,7 @@ RUN apt update; apt install nano
 RUN pip install jupyter
 RUN pip install netron
 RUN pip install matplotlib
+RUN pip install pytest-dependency
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
 RUN apt install verilator
 
