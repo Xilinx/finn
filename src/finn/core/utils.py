@@ -111,7 +111,9 @@ def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 
 
-def unpack_innermost_dim_from_hex_string(data, shape, packedBits, targetBits):
+def unpack_innermost_dim_from_hex_string(
+    data, shape, packedBits, targetBits, reverseInnerDim=False
+):
     # function expects flattens array and returns an array in the desired shape
     outer_dim_elems = 1
     for dim in range(len(shape) - 1):
@@ -135,9 +137,11 @@ def unpack_innermost_dim_from_hex_string(data, shape, packedBits, targetBits):
             elem.reverse()
             elem_str = "".join(map(str, elem))
             ar_list.append(int(elem_str, 2))
-        ar_list.reverse()
+        # reverse inner dimension back to "normal" positions
+        if reverseInnerDim is False:
+            ar_list.reverse()
+        ar_list = [int(x) for x in ar_list]
         array.append(ar_list)
-
     array = np.asarray(array, dtype=np.float32).reshape(shape)
     return array
 
