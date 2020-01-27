@@ -1,9 +1,13 @@
+import os
 import sys
 
 import numpy as np
 
 from finn.core.datatype import DataType
-from finn.core.utils import pack_innermost_dim_as_hex_string
+from finn.core.utils import (
+    pack_innermost_dim_as_hex_string,
+    unpack_innermost_dim_from_hex_string
+)
 
 
 def numpy_to_hls_code(
@@ -56,3 +60,27 @@ def numpy_to_hls_code(
     else:
         ret = ret + " = \n" + strarr + ";"
     return ret
+
+
+def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits):
+    inp = np.load(input_file)
+    ishape = inp.shape
+    inp = inp.flatten()
+    inp_rev = []
+    for i in range(len(inp)):
+        inp_rev.append(inp[-1])
+        inp = inp[:-1]
+    inp_rev = np.asarray(inp_rev, dtype=np.float32).reshape(ishape)
+    packed_data = pack_innermost_dim_as_hex_string(inp_rev, input_dtype, pad_to_nbits)
+    packed_data = packed_data.flatten()
+    packed_data = [int(x[2:], 16) for x in packed_data]
+    packed_data.reverse()
+    return packed_data
+
+
+def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits):
+    output = [hex(int(x)) for x in output]
+    out_array = unpack_innermost_dim_from_hex_string(
+        output, dtype, shape, packedBits, targetBits, True
+    )
+    np.save(os.path.join(path, "output.npy"), out_array)
