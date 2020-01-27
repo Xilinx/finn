@@ -178,7 +178,7 @@ compilation transformations?
         sim.io.ap_clk = 0
 
     def rtlsim(self, sim, inp):
-        #import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         inputs = inp
         outputs = []
         sim.io.out_V_V_TREADY = 1

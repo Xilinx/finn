@@ -3,7 +3,11 @@ import os
 import numpy as np
 from pyverilator import PyVerilator
 
-from finn.backend.fpgadataflow.utils import numpy_to_hls_code, npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.backend.fpgadataflow.utils import (
+    npy_to_rtlsim_input,
+    numpy_to_hls_code,
+    rtlsim_output_to_npy
+)
 from finn.core.datatype import DataType
 from finn.core.utils import interleave_matrix_outer_dim_from_partitions
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -163,7 +167,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         return mh // pe
-
 
     def get_template_param_values(self):
         ret = dict()
@@ -374,7 +377,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             has to be set to one of the following value ("npysim", "rtlsim")""".format(
                     mode
                 )
-            ) 
+            )
 
         # create a npy file fore each input of the node (in_ind is input index)
         in_ind = 0
@@ -394,7 +397,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     reshaped_input = (reshaped_input + 1) / 2
                     export_idt = DataType.BINARY
                 else:
-                    export_idt = self.get_input_datatype() 
+                    export_idt = self.get_input_datatype()
                 np.save(
                     os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
                     reshaped_input,
@@ -402,7 +405,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             elif in_ind > 2:
                 raise Exception("Unexpected input found for StreamingFCLayer")
             in_ind += 1
-        
+
         if mode == "npysim":
             # execute the precompiled model
             super().exec_precompiled_singlenode_model()
@@ -423,7 +426,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
             if os.path.isfile(verilog_file):
                 nbits = self.get_instream_width()
-                inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
+                inp = npy_to_rtlsim_input(
+                    "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+                )
                 sim = PyVerilator.build(
                     verilog_file,
                     verilog_path=[
@@ -438,7 +443,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 odt = self.get_output_datatype()
                 target_bits = odt.bitwidth()
                 packed_bits = self.get_outstream_width()
-                rtlsim_output_to_npy(output, code_gen_dir, odt, (1, nf, pe), packed_bits, target_bits)
+                rtlsim_output_to_npy(
+                    output, code_gen_dir, odt, (1, nf, pe), packed_bits, target_bits
+                )
 
                 # load and reshape output
                 output = np.load("{}/output.npy".format(code_gen_dir))
@@ -458,7 +465,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     mode
                 )
             )
-
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
