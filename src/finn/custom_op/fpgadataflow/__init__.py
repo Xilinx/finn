@@ -168,26 +168,17 @@ compilation transformations?
         process_execute.communicate()
 
     def reset_rtlsim(self, sim):
-        for i in range(10):
-            sim.io.ap_rst_n = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_rst_n = 1
+        sim.io.ap_rst_n = 0
+        sim.io.ap_clk = 1
+        sim.io.ap_clk = 0
+        sim.io.ap_rst_n = 1
 
     def toggle_clk(self, sim):
-        for i in range(10):
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
+        sim.io.ap_clk = 1
+        sim.io.ap_clk = 0
 
     def rtlsim(self, sim, inp):
+        #import pdb; pdb.set_trace()
         inputs = inp
         outputs = []
         sim.io.out_V_V_TREADY = 1
@@ -228,6 +219,8 @@ compilation transformations?
                 else:
                     no_change_count = 0
                     old_outputs = outputs
+            print(inputs)
+            print(outputs)
 
         return outputs
 

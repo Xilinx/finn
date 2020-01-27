@@ -9,6 +9,7 @@ from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 from finn.custom_op.multithreshold import multithreshold
+from finn.transformation.fpgadataflow.set_sim_mode import SetSimMode
 from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
@@ -150,6 +151,7 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
         else:
             tdt = DataType.INT32
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    model = model.transform(SetSimMode("npysim"))
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
     # prepare input data
@@ -171,8 +173,13 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    assert (y_produced.reshape(y_expected.shape) == y_expected).all()
+    assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "npysim failed"
+
+    model = model.transform(SetSimMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
+    
     model = model.transform(CleanUp())
