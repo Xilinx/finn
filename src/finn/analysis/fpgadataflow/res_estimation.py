@@ -1,9 +1,10 @@
-import finn.custom_op.registry as registry
 import finn.core.utils as util
+import finn.custom_op.registry as registry
+
 
 def res_estimation(model):
     """Estimates the resources needed for the given model.
-    Returns {node op_type : resource estimation}"""
+    Returns {node name : resource estimation}"""
 
     res_dict = {}
     for node in model.graph.node:
@@ -15,6 +16,6 @@ def res_estimation(model):
             if backend_value == "fpgadataflow":
                 op_type = node.op_type
                 inst = registry.custom_op[op_type](node)
-                res_dict[op_type] = inst.node_res_estimation()
+                res_dict[node.name] = inst.node_res_estimation()
 
     return res_dict
