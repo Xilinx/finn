@@ -1,5 +1,5 @@
 import os
-
+import math
 import numpy as np
 
 from finn.backend.fpgadataflow.utils import numpy_to_hls_code
@@ -140,6 +140,27 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
 
         return info_messages
+
+    def bram_estimation(self):
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_instream_width()
+        D_out = self.get_outstream_width()
+        omega = (D_in * D_out) / (Q * P)
+        return P * (math.ceil(omega / 512)) * (math.ceil((Q * W) / 36))
+
+    def lut_estimation(self):
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        tdt = DataType.INT32
+        A = tdt.bitwidth()
+        c0 = 300
+        c1 = 1.1
+        return c0 + c1 * (P * Q) * (W * A)
 
     def get_input_datatype(self):
         return DataType[self.get_nodeattr("inputDataType")]
