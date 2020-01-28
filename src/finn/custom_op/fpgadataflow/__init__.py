@@ -35,6 +35,20 @@ class HLSCustomOp(CustomOp):
             "sim_cycles": ("i", False, 0),
         }
 
+    def node_res_estimation(self):
+        resources = []
+        resources.append("BRAMs: " + str(self.bram_estimation()))
+        resources.append("LUTs: " + str(self.lut_estimation()))
+        return resources
+
+    @abstractmethod
+    def bram_estimation(self):
+        pass
+
+    @abstractmethod
+    def lut_estimation(self):
+        pass
+
     def code_generation_ipgen(self, model, fpgapart, clk):
         node = self.onnx_node
 

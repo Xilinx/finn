@@ -69,7 +69,14 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
         return info_messages
 
+
     def get_number_output_values(self):
+        pass
+
+    def bram_estimation(self):
+        pass
+
+    def lut_estimation(self):
         pass
 
     def global_includes(self):

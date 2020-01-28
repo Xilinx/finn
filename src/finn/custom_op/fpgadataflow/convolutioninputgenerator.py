@@ -36,6 +36,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def verify_node(self):
         pass
 
+    def bram_estimation(self):
+        pass
+
+    def lut_estimation(self):
+        pass
+
     def get_input_datatype(self):
         return DataType[self.get_nodeattr("inputDataType")]
 
