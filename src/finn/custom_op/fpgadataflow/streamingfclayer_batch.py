@@ -1,5 +1,6 @@
-import os
 import math
+import os
+
 import numpy as np
 
 from finn.backend.fpgadataflow.utils import numpy_to_hls_code
@@ -142,6 +143,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return info_messages
 
     def bram_estimation(self):
+        """the calculations are based on:
+        - FINN-R: An End-to-End Deep-Learning Framework for Fast
+        Exploration of Quantized Neural Networks
+        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
+        Y. Umuroglu, M. Leeser and K. Vissers
+        - 12. Sep 2018
+        """
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
         wdt = self.get_weight_datatype()
@@ -152,14 +160,28 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return P * (math.ceil(omega / 512)) * (math.ceil((Q * W) / 36))
 
     def lut_estimation(self):
+        """the calculations are based on:
+        - FINN-R: An End-to-End Deep-Learning Framework for Fast
+        Exploration of Quantized Neural Networks
+        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
+        Y. Umuroglu, M. Leeser and K. Vissers
+        - 12. Sep 2018
+        """
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
         wdt = self.get_weight_datatype()
         W = wdt.bitwidth()
-        tdt = DataType.INT32
+        # determine tdt with input and weight data types
+        idt = self.get_input_datatype()
+        if idt == wdt == DataType.BIPOLAR:
+            tdt = DataType.UINT32
+        else:
+            tdt = DataType.INT32
         A = tdt.bitwidth()
+        # parameters from experiments in paper mentioned above
         c0 = 300
         c1 = 1.1
+
         return c0 + c1 * (P * Q) * (W * A)
 
     def get_input_datatype(self):
