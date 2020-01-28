@@ -5,7 +5,6 @@ import subprocess
 from finn.custom_op import CustomOp
 from finn.core.utils import CppBuilder, IPGenBuilder
 import finn.custom_op.fpgadataflow.templates
-from pyverilator import PyVerilator
 
 
 class HLSCustomOp(CustomOp):
@@ -34,6 +33,20 @@ class HLSCustomOp(CustomOp):
             "ipgen_path": ("s", False, ""),
             "sim_mode": ("s", False, ""),
         }
+
+    def node_res_estimation(self):
+        resources = []
+        resources.append("BRAMs: " + str(self.bram_estimation()))
+        resources.append("LUTs: " + str(self.lut_estimation()))
+        return resources
+
+    @abstractmethod
+    def bram_estimation(self):
+        pass
+
+    @abstractmethod
+    def lut_estimation(self):
+        pass
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         node = self.onnx_node
