@@ -5,6 +5,7 @@ from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
 import finn.custom_op.xnorpopcount as xp
+from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.utils import calculate_signed_dot_prod_range, gen_finn_dt_tensor
@@ -181,5 +182,8 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
     model = model.transform(HLSSynth_IPGen())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
+
+    hls_synt_res_est = model.analysis(hls_synth_res_estimation)
+    assert not not hls_synt_res_est
 
     model = model.transform(CleanUp())
