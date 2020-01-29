@@ -1,8 +1,8 @@
 #!/bin/bash
 
 if [ -z "$VIVADO_PATH" ];then
-	echo "For correct implementation please set an environment variable VIVADO_PATH that contains the path to your vivado installation directory"
-	exit 1
+        echo "For correct implementation please set an environment variable VIVADO_PATH that contains the path to your vivado installation directory"
+        exit 1
 fi
 
 DOCKER_GID=$(id -g)
@@ -46,14 +46,14 @@ echo "Mounting $SCRIPTPATH/pyverilator into /workspace/pyverilator"
 echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
 
 if [ "$1" = "test" ]; then
-	echo "Running test suite"
-	DOCKER_CMD="python setup.py test"
+        echo "Running test suite"
+        DOCKER_CMD="python setup.py test"
 elif [ "$1" = "notebook" ]; then
-	echo "Running Jupyter notebook server"
-	DOCKER_CMD="jupyter notebook --ip=0.0.0.0 notebooks"
+        echo "Running Jupyter notebook server"
+        DOCKER_CMD="source ~/.bashrc; jupyter notebook --ip=0.0.0.0 notebooks"
 else
-	echo "Running container only"
-	DOCKER_CMD="bash"
+        echo "Running container only"
+        DOCKER_CMD="bash"
 fi
 
 # Build the FINN Docker image
@@ -67,6 +67,7 @@ docker build --tag=$DOCKER_TAG \
 # Launch container with current directory mounted
 docker run --rm --name finn_dev -it \
 -e "XILINX_VIVADO=$VIVADO_PATH" \
+-e "SHELL=/bin/bash" \
 -v $SCRIPTPATH:/workspace/finn \
 -v $SCRIPTPATH/brevitas:/workspace/brevitas \
 -v $SCRIPTPATH/brevitas_cnv_lfc:/workspace/brevitas_cnv_lfc \
@@ -76,4 +77,5 @@ docker run --rm --name finn_dev -it \
 -v $VIVADO_PATH:$VIVADO_PATH \
 -e VIVADO_PATH=$VIVADO_PATH \
 -p 8888:8888 -p 8081:8081 \
-$DOCKER_TAG $DOCKER_CMD
+$DOCKER_TAG bash -c "$DOCKER_CMD"
+
