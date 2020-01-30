@@ -7,7 +7,7 @@ import finn.custom_op.registry as registry
 
 def hls_synth_res_estimation(model):
     """Extracts the results from the vivado synthesis.
-    Returns {node name : resource estimation}i"""
+    Returns {node name : resource estimation}"""
 
     res_dict = {}
     for node in model.graph.node:

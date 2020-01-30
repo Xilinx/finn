@@ -184,6 +184,6 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert not not hls_synt_res_est
+    assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
 
     model = model.transform(CleanUp())
