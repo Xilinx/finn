@@ -174,7 +174,8 @@ def test_fpgadataflow_fclayer(idt, wdt, act, nf, sf, mw, mh):
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "npysim failed"
-
+    # TODO split up into several dependent tests -- need to check how this
+    # works for parametrized tests...
     model = model.transform(SetSimMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
