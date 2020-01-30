@@ -5,7 +5,6 @@ import subprocess
 from finn.custom_op import CustomOp
 from finn.core.utils import CppBuilder, IPGenBuilder
 import finn.custom_op.fpgadataflow.templates
-from pyverilator import PyVerilator
 
 
 class HLSCustomOp(CustomOp):
@@ -33,7 +32,22 @@ class HLSCustomOp(CustomOp):
             "executable_path": ("s", False, ""),
             "ipgen_path": ("s", False, ""),
             "sim_mode": ("s", False, ""),
+            "sim_cycles": ("i", False, 0),
         }
+
+    def node_res_estimation(self):
+        resources = []
+        resources.append("BRAMs: " + str(self.bram_estimation()))
+        resources.append("LUTs: " + str(self.lut_estimation()))
+        return resources
+
+    @abstractmethod
+    def bram_estimation(self):
+        pass
+
+    @abstractmethod
+    def lut_estimation(self):
+        pass
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         node = self.onnx_node
@@ -168,51 +182,61 @@ compilation transformations?
         process_execute.communicate()
 
     def reset_rtlsim(self, sim):
-        for i in range(10):
-            sim.io.ap_rst_n = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            sim.io.ap_rst_n = 1
+        sim.io.ap_rst_n = 0
+        sim.io.ap_clk = 1
+        sim.io.ap_clk = 0
+        sim.io.ap_rst_n = 1
 
     def toggle_clk(self, sim):
-        for i in range(10):
+        sim.io.ap_clk = 1
+        sim.io.ap_clk = 0
+
+    def rtlsim(self, sim, inp):
+        # import pdb; pdb.set_trace()
+        inputs = inp
+        outputs = []
+        sim.io.out_V_V_TREADY = 1
+
+        # observe if output is completely calculated
+        # observation_count will contain the number of cycles the calculation ran
+        num_out_values = self.get_number_output_values()
+        output_observed = False
+        observation_count = 0
+
+        # avoid infinite looping of simulation by aborting when there is no change in
+        # output values after 100 cycles
+        no_change_count = 0
+        old_outputs = outputs
+
+        while not (output_observed):
+            sim.io.in0_V_V_TVALID = 1 if len(inputs) > 0 else 0
+            sim.io.in0_V_V_TDATA = inputs[0] if len(inputs) > 0 else 0
+            if sim.io.in0_V_V_TREADY == 1 and sim.io.in0_V_V_TVALID == 1:
+                inputs = inputs[1:]
+            if sim.io.out_V_V_TVALID == 1 and sim.io.out_V_V_TREADY == 1:
+                outputs = outputs + [sim.io.out_V_V_TDATA]
             sim.io.ap_clk = 1
             sim.io.ap_clk = 0
 
-    def rtlsim(self, sim, inp):
-        my_inputs = inp
-        print("My inputs before:" + str(my_inputs))
-        my_outputs = []
-        sim.io.out_V_V_TREADY = 1
-        for i in range(100):
-            sim.io.in0_V_V_TVALID = 1 if len(my_inputs) > 0 else 0
-            if sim.io.in0_V_V_TREADY == 1 and len(my_inputs) > 0:
-                print("ready to write input")
-                sim.io.in0_V_V_TDATA = my_inputs[0]
-                my_inputs = my_inputs[1:]
-                sim.io.ap_clk = 1
-                sim.io.ap_clk = 0
-                sim.io.in0_V_V_TVALID = 1 if len(my_inputs) > 0 else 0
-            if sim.io.out_V_V_TVALID == 1:
-                print("ready to pop result")
-                my_outputs = my_outputs + [sim.io.out_V_V_TDATA]
-                sim.io.ap_clk = 1
-                sim.io.ap_clk = 0
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-            print("Iteration %d" % i)
-            print(sim.io)
-            print(my_inputs)
-            print(my_outputs)
-        return my_outputs
+            observation_count = observation_count + 1
+            no_change_count = no_change_count + 1
+
+            if len(outputs) == num_out_values:
+                self.set_nodeattr("sim_cycles", observation_count)
+                output_observed = True
+
+            if no_change_count == 100:
+                if old_outputs == outputs:
+                    raise Exception(
+                        "Error in simulation! Takes too long to produce output."
+                    )
+                else:
+                    no_change_count = 0
+                    old_outputs = outputs
+            print(inputs)
+            print(outputs)
+
+        return outputs
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("sim_mode")
@@ -235,6 +259,10 @@ compilation transformations?
             )
 
     def generate_params(self, model, path):
+        pass
+
+    @abstractmethod
+    def get_number_output_values(self):
         pass
 
     @abstractmethod

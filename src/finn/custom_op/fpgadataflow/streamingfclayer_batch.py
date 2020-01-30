@@ -1,8 +1,14 @@
+import math
 import os
 
 import numpy as np
+from pyverilator import PyVerilator
 
-from finn.backend.fpgadataflow.utils import numpy_to_hls_code
+from finn.backend.fpgadataflow.utils import (
+    npy_to_rtlsim_input,
+    numpy_to_hls_code,
+    rtlsim_output_to_npy,
+)
 from finn.core.datatype import DataType
 from finn.core.utils import interleave_matrix_outer_dim_from_partitions
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -141,6 +147,44 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         return info_messages
 
+    def bram_estimation(self):
+        """the calculations are based on:
+        - FINN-R: An End-to-End Deep-Learning Framework for Fast
+        Exploration of Quantized Neural Networks
+        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
+        Y. Umuroglu, M. Leeser and K. Vissers
+        - 12. Sep 2018
+        """
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_instream_width()
+        D_out = self.get_outstream_width()
+        omega = (D_in * D_out) / (Q * P)
+        return P * (math.ceil(omega / 512)) * (math.ceil((Q * W) / 36))
+
+    def lut_estimation(self):
+        """the calculations are based on:
+        - FINN-R: An End-to-End Deep-Learning Framework for Fast
+        Exploration of Quantized Neural Networks
+        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
+        Y. Umuroglu, M. Leeser and K. Vissers
+        - 12. Sep 2018
+        """
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        # determine tdt with input and weight data types
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        # parameters from experiments in paper mentioned above
+        c0 = 300
+        c1 = 1.1
+
+        return c0 + c1 * (P * Q) * (W * A)
+
     def get_input_datatype(self):
         return DataType[self.get_nodeattr("inputDataType")]
 
@@ -157,6 +201,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def get_outstream_width(self):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
+
+    def get_number_output_values(self):
+        mh = self.get_nodeattr("MH")
+        pe = self.get_nodeattr("PE")
+        return mh // pe
 
     def get_template_param_values(self):
         ret = dict()
@@ -347,6 +396,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 f_thresh.close()
 
     def execute_node(self, context, graph):
+        mode = self.get_nodeattr("sim_mode")
         node = self.onnx_node
         mw = self.get_nodeattr("MW")
         mh = self.get_nodeattr("MH")
@@ -356,7 +406,18 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         nf = mh // pe
 
         # TODO ensure codegen dir exists
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        if mode == "npysim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        elif mode == "rtlsim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        else:
+            raise Exception(
+                """Invalid value for attribute sim_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
+
         # create a npy file fore each input of the node (in_ind is input index)
         in_ind = 0
         for inputs in node.input:
@@ -373,6 +434,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 if self.get_input_datatype() == DataType.BIPOLAR:
                     # store bipolar activations as binary
                     reshaped_input = (reshaped_input + 1) / 2
+                    export_idt = DataType.BINARY
+                else:
+                    export_idt = self.get_input_datatype()
                 np.save(
                     os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
                     reshaped_input,
@@ -380,18 +444,67 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             elif in_ind > 2:
                 raise Exception("Unexpected input found for StreamingFCLayer")
             in_ind += 1
-        # execute the precompiled model
-        super().exec_precompiled_singlenode_model()
-        # load output npy file
-        super().npy_to_dynamic_output(context)
-        # reinterpret binary output as bipolar where needed
-        if self.get_output_datatype() == DataType.BIPOLAR:
-            out = context[node.output[0]]
-            out = 2 * out - 1
-            context[node.output[0]] = out
-        assert context[node.output[0]].shape == (1, nf, pe)
-        # reshape output to have expected shape
-        context[node.output[0]] = context[node.output[0]].reshape(1, mh)
+
+        if mode == "npysim":
+            # execute the precompiled model
+            super().exec_precompiled_singlenode_model()
+            # load output npy file
+            super().npy_to_dynamic_output(context)
+            # reinterpret binary output as bipolar where needed
+            if self.get_output_datatype() == DataType.BIPOLAR:
+                out = context[node.output[0]]
+                out = 2 * out - 1
+                context[node.output[0]] = out
+            assert context[node.output[0]].shape == (1, nf, pe)
+            # reshape output to have expected shape
+            context[node.output[0]] = context[node.output[0]].reshape(1, mh)
+        elif mode == "rtlsim":
+            # check if needed file exists
+            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
+                code_gen_dir, node.name, node.name
+            )
+            if os.path.isfile(verilog_file):
+                nbits = self.get_instream_width()
+                inp = npy_to_rtlsim_input(
+                    "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+                )
+                sim = PyVerilator.build(
+                    verilog_file,
+                    verilog_path=[
+                        "{}/project_{}/sol1/impl/verilog/".format(
+                            code_gen_dir, node.name
+                        )
+                    ],
+                )
+                super().reset_rtlsim(sim)
+                super().toggle_clk(sim)
+                output = self.rtlsim(sim, inp)
+                odt = self.get_output_datatype()
+                target_bits = odt.bitwidth()
+                packed_bits = self.get_outstream_width()
+                out_npy_path = "{}/output.npy".format(code_gen_dir)
+                rtlsim_output_to_npy(
+                    output, out_npy_path, odt, (1, nf, pe), packed_bits, target_bits
+                )
+
+                # load and reshape output
+                output = np.load(out_npy_path)
+                output = np.asarray([output], dtype=np.float32).reshape(1, mh)
+                context[node.output[0]] = output
+
+            else:
+                raise Exception(
+                    """Found no verilog files for this node,
+                    did you run the codegen_ipgen transformation?"""
+                )
+
+        else:
+            raise Exception(
+                """Invalid value for attribute sim_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']

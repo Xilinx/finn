@@ -1,20 +1,23 @@
+import os
 import random
 import string
 import subprocess
-import os
+import tempfile
+
 import numpy as np
 import onnx
-import tempfile
 from bitstring import BitArray
 
 from finn.core.datatype import DataType
+
 
 def make_build_dir(prefix=""):
     """Creates a temporary folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
     will survive on the host after the FINN Docker container exits."""
 
-    return tempfile.mkdtemp(prefix="finn/"+prefix)
+    return tempfile.mkdtemp(prefix="finn/" + prefix)
+
 
 def valueinfo_to_tensor(vi):
     """Creates an all-zeroes numpy tensor from a ValueInfoProto."""
@@ -117,6 +120,49 @@ def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 
 
+def unpack_innermost_dim_from_hex_string(
+    data, dtype, shape, packedBits, targetBits, rtlsim=False
+):
+    # function expects flattens array and returns an array in the desired shape
+    outer_dim_elems = 1
+    for dim in range(len(shape) - 1):
+        outer_dim_elems = outer_dim_elems * shape[dim]
+    inner_dim_elems = shape[-1]
+
+    array = []
+    for outer_elem in range(outer_dim_elems):
+        ar_list = []
+        ar_elem = data[0]
+        data.pop(0)
+        ar_elem = ar_elem.split("x")
+        ar_elem_bin = bin(int(ar_elem[1], 16))[2:].zfill(packedBits)
+        ar_elem_bin = [int(x) for x in ar_elem_bin]
+
+        ar_elem_bin.reverse()
+        for i in range(inner_dim_elems):
+            upper_limit = (i + 1) * targetBits
+            lower_limit = i * targetBits
+            elem = ar_elem_bin[lower_limit:upper_limit]
+            elem.reverse()
+            elem_str = "".join(map(str, elem))
+            ar_list.append(int(elem_str, 2))
+        # reverse inner dimension back to "normal" positions
+        if rtlsim is False:
+            ar_list.reverse()
+        else:
+            # interpret output values correctly by flattening and adjusting the output
+            if dtype == DataType.BIPOLAR:
+                ar_list = [2 * x - 1 for x in ar_list]
+            # pyverilator interprets int2 as uint2, so output has to be corrected
+            elif dtype == DataType.INT2 or dtype == DataType.INT32:
+                mask = 2 ** (dtype.bitwidth() - 1)
+                ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
+
+        array.append(ar_list)
+    array = np.asarray(array, dtype=np.float32).reshape(shape)
+    return array
+
+
 def interleave_matrix_outer_dim_from_partitions(matrix, n_partitions):
     if type(matrix) != np.ndarray or matrix.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
@@ -208,7 +254,7 @@ def calculate_signed_dot_prod_range(dt_a, dt_b, len):
     types dt_a and dt_b of len elements can take."""
     assert dt_a.signed() and dt_b.signed()
     min_prod = 2 ** 30
-    max_prod = -2 ** 30
+    max_prod = -(2 ** 30)
     for a_val in [dt_a.min(), dt_a.max()]:
         for b_val in [dt_b.min(), dt_b.max()]:
             prod = a_val * b_val * len
@@ -256,12 +302,13 @@ class CppBuilder:
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
 
+
 class IPGenBuilder:
     def __init__(self):
         self.tcl_script = ""
         self.ipgen_path = ""
         self.code_gen_dir = ""
-        self.ipgen_script=""
+        self.ipgen_script = ""
 
     def append_tcl(self, tcl_script):
         self.tcl_script = tcl_script
@@ -276,7 +323,7 @@ class IPGenBuilder:
         f = open(self.ipgen_script, "w")
         f.write("#!/bin/bash \n")
         f.write("cd {}\n".format(code_gen_dir))
-        f.write("$VIVADO_PATH/bin/vivado_hls {}\n".format(self.tcl_script))
+        f.write("vivado_hls {}\n".format(self.tcl_script))
         f.write("cd {}\n".format(working_dir))
         f.close()
         bash_command = ["bash", self.ipgen_script]
