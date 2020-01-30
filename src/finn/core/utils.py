@@ -314,7 +314,7 @@ class IPGenBuilder:
         f = open(self.ipgen_script, "w")
         f.write("#!/bin/bash \n")
         f.write("cd {}\n".format(code_gen_dir))
-        f.write("$VIVADO_PATH/bin/vivado_hls {}\n".format(self.tcl_script))
+        f.write("vivado_hls {}\n".format(self.tcl_script))
         f.write("cd {}\n".format(working_dir))
         f.close()
         bash_command = ["bash", self.ipgen_script]
