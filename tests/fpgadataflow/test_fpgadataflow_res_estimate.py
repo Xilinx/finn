@@ -64,7 +64,7 @@ def test_res_estimate():
     model = model.transform(GiveUniqueNodeNames())
     prod_resource_estimation = model.analysis(res_estimation)
     expect_resource_estimation = {
-        "StreamingFCLayer_Batch_0": ["BRAMs: 1", "LUTs: 370.4"]
+        "StreamingFCLayer_Batch_0": ["BRAMs: 1", "LUTs: 304.4"]
     }
 
     assert check_two_dict_for_equality(
