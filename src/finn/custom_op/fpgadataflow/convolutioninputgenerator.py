@@ -36,6 +36,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def verify_node(self):
         pass
 
+    def bram_estimation(self):
+        pass
+
+    def lut_estimation(self):
+        pass
+
     def get_input_datatype(self):
         return DataType[self.get_nodeattr("inputDataType")]
 
@@ -44,6 +50,14 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
     def get_stream_width(self):
         return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
+
+    def get_number_output_values(self):
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ofm_dim = self.get_nodeattr("OFMDim")
+        out_pix = ofm_dim * ofm_dim
+
+        return out_pix * k * k * ifm_ch
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("sim_mode")
@@ -90,8 +104,15 @@ class ConvolutionInputGenerator(HLSCustomOp):
             )
             if os.path.isfile(verilog_file):
                 inp = context[node.input[0]]
-                print(inp)
+                inp = inp.transpose(0, 2, 3, 1)
                 inp = inp.flatten()
+
+                # TODO: check how to sort inputs for multichannel inputs
+                # a = []
+                # for i in range(len(inp)):
+                #     if (i+1) % 2 == 0:
+                #         a.append((int(inp[i-1]) << 1) + int(inp[i]))
+                # inp = a
                 sim = PyVerilator.build(
                     verilog_file,
                     verilog_path=[
@@ -104,12 +125,24 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 super().toggle_clk(sim)
                 output = self.rtlsim(sim, inp)
                 output = [int(x) for x in output]
-                # reshape output (Only valid for sliding window!)
-                output = np.asarray(output, dtype=np.float32).reshape(
+                odt = self.get_output_datatype()
+                if odt == DataType.BIPOLAR:
+                    output = [2 * x - 1 for x in output]
+
+                # pyverilator interprets int2 as uint2, so output has to be corrected
+                elif odt == DataType.INT2:
+                    mask = 2 ** (odt.bitwidth() - 1)
+                    output = [-(x & mask) + (x & ~mask) for x in output]
+                # TODO: check how to sort inputs for multichannel inputs
+                # output = [bin(x)[2:].zfill(ifm_ch) for x in output]
+                # output_ch1 = [int(x[:1]) for x in output]
+                # output_ch2 = [int(x[1:]) for x in output]
+
+                # reshape output
+                output = np.asarray([output], dtype=np.float32).reshape(
                     1, out_pix, k * k * ifm_ch
                 )
                 context[node.output[0]] = output
-                print(output)
 
             else:
                 raise Exception(

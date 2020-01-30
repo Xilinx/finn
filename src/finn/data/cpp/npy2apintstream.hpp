@@ -48,11 +48,11 @@ void apintstream2npy(hls::stream<PackedT> & in_stream, const std::vector<size_t>
     outer_dim_elems *= shape[dim];
   }
   size_t inner_dim_elems = shape[shape.size()-1];
-  DEBUG_NPY2APINTSTREAM("n_outer " << outer_dim_elems << " n_inner " << inner_dim_elems)
+  DEBUG_APINTSTREAM2NPY("n_outer " << outer_dim_elems << " n_inner " << inner_dim_elems)
   for(size_t outer_elem = 0; outer_elem < outer_dim_elems; outer_elem++) {
     PackedT packed_elem;
     in_stream >> packed_elem;
-    DEBUG_NPY2APINTSTREAM("packed hls elem " << std::hex << packed_elem << std::dec)
+    DEBUG_APINTSTREAM2NPY("packed hls elem " << std::hex << packed_elem << std::dec)
     for(size_t i = 0; i < inner_dim_elems; i++) {
       ElemT elem = packed_elem((i+1)*ElemBits-1, i*ElemBits);
       NpyT npyt = (NpyT) elem;
