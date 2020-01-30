@@ -173,11 +173,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         W = wdt.bitwidth()
         # determine tdt with input and weight data types
         idt = self.get_input_datatype()
-        if idt == wdt == DataType.BIPOLAR:
-            tdt = DataType.UINT32
-        else:
-            tdt = DataType.INT32
-        A = tdt.bitwidth()
+        A = idt.bitwidth()
         # parameters from experiments in paper mentioned above
         c0 = 300
         c1 = 1.1
