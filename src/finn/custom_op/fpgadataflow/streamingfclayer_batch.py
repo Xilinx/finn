@@ -6,7 +6,7 @@ from pyverilator import PyVerilator
 from finn.backend.fpgadataflow.utils import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
-    rtlsim_output_to_npy
+    rtlsim_output_to_npy,
 )
 from finn.core.datatype import DataType
 from finn.core.utils import interleave_matrix_outer_dim_from_partitions
@@ -443,12 +443,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 odt = self.get_output_datatype()
                 target_bits = odt.bitwidth()
                 packed_bits = self.get_outstream_width()
+                out_npy_path = "{}/output.npy".format(code_gen_dir)
                 rtlsim_output_to_npy(
-                    output, code_gen_dir, odt, (1, nf, pe), packed_bits, target_bits
+                    output, out_npy_path, odt, (1, nf, pe), packed_bits, target_bits
                 )
 
                 # load and reshape output
-                output = np.load("{}/output.npy".format(code_gen_dir))
+                output = np.load(out_npy_path)
                 output = np.asarray([output], dtype=np.float32).reshape(1, mh)
                 context[node.output[0]] = output
 

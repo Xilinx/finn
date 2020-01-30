@@ -1,4 +1,3 @@
-import os
 import sys
 
 import numpy as np
@@ -86,12 +85,12 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits):
 
 def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits):
     """Convert a flattened sequence of Python arbitrary-precision integers
-    output into a NumPy array. Each arbitrary-precision integer is assumed to
-    be a packed array of targetBits-bit elements, which will be unpacked
-    as the innermost dimension of the NumPy array."""
+    output into a NumPy array, saved as npy file at path. Each arbitrary-precision
+    integer is assumed to be a packed array of targetBits-bit elements, which
+    will be unpacked as the innermost dimension of the NumPy array."""
 
     output = [hex(int(x)) for x in output]
     out_array = unpack_innermost_dim_from_hex_string(
         output, dtype, shape, packedBits, targetBits, True
     )
-    np.save(os.path.join(path, "output.npy"), out_array)
+    np.save(path, out_array)
