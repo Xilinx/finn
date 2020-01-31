@@ -4,7 +4,7 @@ import os
 import subprocess
 from finn.custom_op import CustomOp
 from finn.core.utils import CppBuilder, IPGenBuilder
-import finn.custom_op.fpgadataflow.templates
+import finn.custom_op.fpgadataflow.templates as templates
 
 
 class HLSCustomOp(CustomOp):
@@ -41,13 +41,11 @@ class HLSCustomOp(CustomOp):
         resources.append("LUTs: " + str(self.lut_estimation()))
         return resources
 
-    @abstractmethod
     def bram_estimation(self):
-        pass
+        return 0
 
-    @abstractmethod
     def lut_estimation(self):
-        pass
+        return 0
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         node = self.onnx_node
