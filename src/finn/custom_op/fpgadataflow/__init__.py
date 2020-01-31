@@ -4,7 +4,7 @@ import os
 import subprocess
 from finn.custom_op import CustomOp
 from finn.core.utils import CppBuilder, IPGenBuilder
-import finn.custom_op.fpgadataflow.templates as templates
+from . import templates
 
 
 class HLSCustomOp(CustomOp):
