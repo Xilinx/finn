@@ -1,9 +1,5 @@
-import os
-
-import numpy as np
-
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
+
 
 class TLastMarker(HLSCustomOp):
     def __init__(self, onnx_node):
@@ -13,7 +9,7 @@ class TLastMarker(HLSCustomOp):
         my_attrs = {
             "NumIters": ("i", True, 0),
             # width of input-output data streams
-            "StreamWidth": ("i", True, 0)
+            "StreamWidth": ("i", True, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -44,8 +40,8 @@ class TLastMarker(HLSCustomOp):
         out_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
         self.code_gen_dict["$DEFINES$"] = [
             "#define StreamWidth %d" % stream_width,
-            "#define OutDType %s"  % out_stream_dtype,
-            "#define NumIters %d" % self.get_nodeattr("NumIters")
+            "#define OutDType %s" % out_stream_dtype,
+            "#define NumIters %d" % self.get_nodeattr("NumIters"),
         ]
 
     def read_npy_data(self):
@@ -64,7 +60,7 @@ class TLastMarker(HLSCustomOp):
             "t.set_data(in0.read());",
             "t.set_last(i==(NumIters-1));",
             "out.write(t);",
-            "}"
+            "}",
         ]
 
     def dataoutstrm(self):
@@ -77,7 +73,8 @@ class TLastMarker(HLSCustomOp):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """void %s(hls::stream<ap_uint<StreamWidth> > &in0,
-                hls::stream<OutDType> &out)""" % self.onnx_node.name
+                hls::stream<OutDType> &out)"""
+            % self.onnx_node.name
         ]
 
     def pragmas(self):
@@ -86,3 +83,6 @@ class TLastMarker(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def get_number_output_values(self):
+        return self.get_nodeattr("NumIters")
