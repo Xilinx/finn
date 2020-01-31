@@ -58,6 +58,7 @@ class TLastMarker(HLSCustomOp):
             "#pragma HLS PIPELINE II=1",
             "OutDType t;",
             "t.set_data(in0.read());",
+            "t.set_keep(-1);",
             "t.set_last(i==(NumIters-1));",
             "out.write(t);",
             "}",
