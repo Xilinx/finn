@@ -1,6 +1,8 @@
 import os
 import subprocess
 
+import numpy as np
+
 from finn.core.utils import get_by_name, make_build_dir
 from finn.transformation import Transformation
 
@@ -48,9 +50,20 @@ class MakePYNQProject(Transformation):
         ip_dirs += [ipstitch_path + "/ip"]
         ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
 
-        # TODO extract the actual in-out bytes from graph
-        in_bytes = 1
-        out_bytes = 1
+        # extract the actual in-out bytes from graph
+        i_tensor_name = model.graph.input[0].name
+        o_tensor_name = model.graph.output[0].name
+        i_tensor_shape = model.get_tensor_shape(i_tensor_name)
+        o_tensor_shape = model.get_tensor_shape(o_tensor_name)
+        i_tensor_dt = model.get_tensor_datatype(i_tensor_name)
+        o_tensor_dt = model.get_tensor_datatype(o_tensor_name)
+        i_bits = i_tensor_dt.bitwidth() * np.prod(i_tensor_shape)
+        o_bits = o_tensor_dt.bitwidth() * np.prod(o_tensor_shape)
+        # ensure i/o is padded to bytes
+        assert i_bits % 8 == 0
+        assert o_bits % 8 == 0
+        in_bytes = i_bits / 8
+        out_bytes = o_bits / 8
         in_if_name = "in0_V_V_0"
         out_if_name = "out_r_0"
         clk_name = "ap_clk_0"
