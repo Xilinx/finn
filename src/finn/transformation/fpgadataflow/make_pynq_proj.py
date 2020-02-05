@@ -11,7 +11,8 @@ from . import templates
 
 class MakePYNQProject(Transformation):
     """Create a Vivado PYNQ overlay project (including the shell infrastructure)
-    from the already-stitched IP block for this graph.
+    from the already-stitched IP block for this graph, and generate a Python
+    driver for the generated accelerator.
     All nodes in the graph must have the fpgadataflow backend attribute,
     and the CodeGen_ipstitch transformation must have been previously run on
     the graph.
@@ -99,14 +100,18 @@ class MakePYNQProject(Transformation):
         with open(make_project_sh, "w") as f:
             f.write(
                 templates.call_pynqshell_makefile_template
-                % (pynq_shell_path, self.platform, ipcfg, working_dir, "block_design")
+                % (pynq_shell_path, self.platform, ipcfg, "block_design", working_dir)
             )
         synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
         with open(synth_project_sh, "w") as f:
             f.write(
                 templates.call_pynqshell_makefile_template
-                % (pynq_shell_path, self.platform, ipcfg, working_dir, "bitstream")
+                % (pynq_shell_path, self.platform, ipcfg, "bitstream", working_dir)
             )
+        # generate the driver
+        driver_py = vivado_pynq_proj_dir + "/driver.py"
+        with open(driver_py, "w") as f:
+            f.write(templates.pynq_driver_template)
         # call the project creation script
         # synthesis script will be called with a separate transformation
         bash_command = ["bash", make_project_sh]
