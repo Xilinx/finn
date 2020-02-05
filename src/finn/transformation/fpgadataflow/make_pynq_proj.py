@@ -3,7 +3,7 @@ import subprocess
 
 import numpy as np
 
-from finn.core.utils import get_by_name, make_build_dir
+from finn.core.utils import get_by_name, make_build_dir, roundup_to_integer_multiple
 from finn.transformation import Transformation
 
 
@@ -60,6 +60,8 @@ class MakePYNQProject(Transformation):
         i_bits = i_tensor_dt.bitwidth() * np.prod(i_tensor_shape)
         o_bits = o_tensor_dt.bitwidth() * np.prod(o_tensor_shape)
         # ensure i/o is padded to bytes
+        i_bits = roundup_to_integer_multiple(i_bits, 8)
+        o_bits = roundup_to_integer_multiple(o_bits, 8)
         assert i_bits % 8 == 0
         assert o_bits % 8 == 0
         in_bytes = i_bits / 8
