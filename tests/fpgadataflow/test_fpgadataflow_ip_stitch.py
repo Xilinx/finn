@@ -21,8 +21,75 @@ test_fpga_part = "xczu3eg-sbva484-1-e"
 test_pynq_board = "Ultra96"
 
 # settings for PYNQ-Z1
-#test_fpga_part = "xc7z020clg400-1"
-#test_pynq_board = "Pynq-Z1"
+# test_fpga_part = "xc7z020clg400-1"
+# test_pynq_board = "Pynq-Z1"
+
+
+def create_one_fc_model():
+    # create a model with a StreamingFCLayer instance with no activation
+    # the wider range of the full accumulator makes debugging a bit easier
+    wdt = DataType.INT2
+    idt = DataType.INT2
+    odt = DataType.INT32
+    m = 4
+    no_act = 1
+    binary_xnor_mode = 0
+    actval = 0
+
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, m])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
+    outp_tlast = helper.make_tensor_value_info("outp_tlast", TensorProto.FLOAT, [1, m])
+
+    fc0 = helper.make_node(
+        "StreamingFCLayer_Batch",
+        ["inp", "w0"],
+        ["outp"],
+        domain="finn",
+        backend="fpgadataflow",
+        resType="ap_resource_lut()",
+        MW=m,
+        MH=m,
+        SIMD=m,
+        PE=m,
+        inputDataType=idt.name,
+        weightDataType=wdt.name,
+        outputDataType=odt.name,
+        ActVal=actval,
+        binaryXnorMode=binary_xnor_mode,
+        noActivation=no_act,
+    )
+
+    tlastmarker = helper.make_node(
+        "TLastMarker",
+        ["outp"],
+        ["outp_tlast"],
+        domain="finn",
+        backend="fpgadataflow",
+        NumIters=1,
+        StreamWidth=odt.bitwidth() * m,
+    )
+
+    graph = helper.make_graph(
+        nodes=[fc0, tlastmarker],
+        name="fclayer_graph",
+        inputs=[inp],
+        outputs=[outp_tlast],
+        value_info=[outp],
+    )
+
+    model = helper.make_model(graph, producer_name="fclayer-model")
+    model = ModelWrapper(model)
+
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", odt)
+    model.set_tensor_datatype("outp_tlast", odt)
+    model.set_tensor_datatype("w0", wdt)
+
+    # generate weights
+    w0 = gen_finn_dt_tensor(wdt, (m, m))
+    model.set_initializer("w0", w0)
+
+    return model
 
 
 def create_two_fc_model():
@@ -131,20 +198,20 @@ def create_two_fc_model():
 
 
 @pytest.mark.dependency()
-def test_fpgadataflow_ipstitch_gen_two_fc_model():
-    model = create_two_fc_model()
+def test_fpgadataflow_ipstitch_gen_model():
+    model = create_one_fc_model()
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen(test_fpga_part, 5))
     model = model.transform(HLSSynth_IPGen())
     assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
-    assert model.graph.node[1].op_type == "StreamingFCLayer_Batch"
-    assert model.graph.node[2].op_type == "TLastMarker"
-    model.save("/tmp/finn/test_fpgadataflow_ip_gen_two_fc_model.onnx")
+    # assert model.graph.node[1].op_type == "StreamingFCLayer_Batch"
+    assert model.graph.node[1].op_type == "TLastMarker"
+    model.save("/tmp/finn/test_fpgadataflow_ipstitch_gen_model.onnx")
 
 
-@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_gen_two_fc_model"])
+@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_gen_model"])
 def test_fpgadataflow_ipstitch_do_stitch():
-    model = ModelWrapper("/tmp/finn/test_fpgadataflow_ip_gen_two_fc_model.onnx")
+    model = ModelWrapper("/tmp/finn/test_fpgadataflow_ipstitch_gen_model.onnx")
     model = model.transform(CodeGen_ipstitch(test_fpga_part))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
