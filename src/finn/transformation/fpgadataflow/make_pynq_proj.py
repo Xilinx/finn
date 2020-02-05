@@ -6,10 +6,12 @@ import numpy as np
 from finn.core.utils import get_by_name, make_build_dir, roundup_to_integer_multiple
 from finn.transformation import Transformation
 
+from . import templates
+
 
 class MakePYNQProject(Transformation):
-    """Create a PYNQ project (including the shell infrastructure) from the
-    already-stitched IP block for this graph.
+    """Create a Vivado PYNQ overlay project (including the shell infrastructure)
+    from the already-stitched IP block for this graph.
     All nodes in the graph must have the fpgadataflow backend attribute,
     and the CodeGen_ipstitch transformation must have been previously run on
     the graph.
@@ -75,44 +77,7 @@ class MakePYNQProject(Transformation):
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
         model.set_metadata_prop("vivado_pynq_proj", vivado_pynq_proj_dir)
 
-        ip_config_tcl = """
-variable config_ip_repo
-variable config_ip_vlnv
-variable config_ip_bytes_in
-variable config_ip_bytes_out
-variable config_ip_axis_name_in
-variable config_ip_axis_name_out
-variable config_ip_use_axilite
-variable config_ip_project_dir
-variable config_output_products_dir
-
-# for arguments involving paths below: use absolute paths or relative to the
-# platform/overlay/bitstream folder
-# where to create the project
-set config_ip_project_dir %s
-# IP repositories that the project depends on
-set config_ip_repo %s
-# where the produced bitfile and .hwh file will be placed
-set config_output_products_dir %s
-
-# non-path arguments
-# VLNV of the IP block
-set config_ip_vlnv %s
-# width of the AXI stream into the IP, in bytes
-set config_ip_bytes_in %d
-# width of the AXI stream out of the IP, in bytes
-set config_ip_bytes_out %d
-# the name of the input AXI stream interface
-set config_ip_axis_name_in %s
-# the name of the output AXI stream interface
-set config_ip_axis_name_out %s
-# the name of the clock signal
-set config_ip_clk_name %s
-# the name of the active-low reset signal
-set config_ip_nrst_name %s
-# whether the IP needs an AXI Lite interface for control
-set config_ip_use_axilite 0
-        """ % (
+        ip_config_tcl = templates.ip_config_tcl_template % (
             vivado_pynq_proj_dir,
             ip_dirs_str,
             vivado_pynq_proj_dir,
@@ -130,21 +95,18 @@ set config_ip_use_axilite 0
         # create a shell script for project creation and synthesis
         make_project_sh = vivado_pynq_proj_dir + "/make_project.sh"
         working_dir = os.environ["PWD"]
+        ipcfg = vivado_pynq_proj_dir + "/ip_config.tcl"
         with open(make_project_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(pynq_shell_path))
-            f.write("export platform=%s\n" % (self.platform))
-            f.write("export ip_config=%s\n" % (vivado_pynq_proj_dir + "/ip_config.tcl"))
-            f.write("make block_design\n")
-            f.write("cd {}\n".format(working_dir))
+            f.write(
+                templates.call_pynqshell_makefile_template
+                % (pynq_shell_path, self.platform, ipcfg, working_dir, "block_design")
+            )
         synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
         with open(synth_project_sh, "w") as f:
-            f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(pynq_shell_path))
-            f.write("export platform=%s\n" % (self.platform))
-            f.write("export ip_config=%s\n" % (vivado_pynq_proj_dir + "/ip_config.tcl"))
-            f.write("make bitstream\n")
-            f.write("cd {}\n".format(working_dir))
+            f.write(
+                templates.call_pynqshell_makefile_template
+                % (pynq_shell_path, self.platform, ipcfg, working_dir, "bitstream")
+            )
         # call the project creation script
         # synthesis script will be called with a separate transformation
         bash_command = ["bash", make_project_sh]
