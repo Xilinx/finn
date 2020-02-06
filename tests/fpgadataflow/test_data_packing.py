@@ -4,8 +4,12 @@ import subprocess
 import numpy as np
 
 import finn.util.basic as cutil
-from finn.util.data_packing import array2hexstring, pack_innermost_dim_as_hex_string, numpy_to_hls_code
 from finn.core.datatype import DataType
+from finn.util.data_packing import (
+    array2hexstring,
+    numpy_to_hls_code,
+    pack_innermost_dim_as_hex_string,
+)
 
 
 def make_npy2apintstream_testcase(ndarray, dtype):
