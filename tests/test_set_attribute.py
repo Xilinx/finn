@@ -2,7 +2,7 @@ from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.core.utils import get_by_name
+from finn.util.basic import get_by_name
 
 
 def test_set_attribute():

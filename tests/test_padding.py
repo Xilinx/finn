@@ -1,6 +1,6 @@
 import numpy as np
 
-from finn.core.utils import pad_tensor_to_multiple_of
+from finn.util.basic import pad_tensor_to_multiple_of
 
 
 def test_pad_tensor_to_multiple_of():

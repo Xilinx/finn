@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from finn.core.utils import get_by_name
+from finn.util.basic import get_by_name
 import onnx.helper as helper
 
 

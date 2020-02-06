@@ -3,9 +3,9 @@ from onnx import TensorProto
 from onnx import helper as oh
 
 from finn.core.datatype import DataType
-from finn.core.utils import get_by_name
 from finn.transformation import Transformation
 from finn.transformation.infer_shapes import InferShapes
+from finn.util.basic import get_by_name
 
 
 class ConvertBipolarMatMulToXnorPopcount(Transformation):

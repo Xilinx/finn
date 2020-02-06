@@ -3,7 +3,7 @@ from pkgutil import get_data
 import numpy as np
 from onnx import TensorProto, helper
 
-import finn.core.utils as util
+import finn.util.basic as util
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
 
