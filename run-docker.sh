@@ -74,7 +74,7 @@ docker build --tag=$DOCKER_TAG \
              --build-arg PASSWD=$DOCKER_PASSWD \
              .
 # Launch container with current directory mounted
-docker run --rm --name finn_dev_$DOCKER_UNAME -it \
+docker run -t --rm --name finn_dev_$DOCKER_UNAME -it \
 -e "XILINX_VIVADO=$VIVADO_PATH" \
 -e "SHELL=/bin/bash" \
 -v $SCRIPTPATH:/workspace/finn \
