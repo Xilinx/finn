@@ -11,7 +11,7 @@ DOCKER_UNAME=$(id -un)
 DOCKER_UID=$(id -u)
 DOCKER_PASSWD="finn"
 DOCKER_TAG="finn_$DOCKER_UNAME"
-: ${DOCKER_PORT_FORWARD="-p 8888:8888 -p 8081:8081"}
+: ${JUPYTER_PORT=8888}
 
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -54,14 +54,14 @@ echo "Mounting $SCRIPTPATH/pyverilator into /workspace/pyverilator"
 echo "Mounting $SCRIPTPATH/PYNQ-HelloWorld into /workspace/PYNQ-HelloWorld"
 echo "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
 echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
-echo "Port-forwarding with $DOCKER_PORT_FORWARD"
+echo "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 
 if [ "$1" = "test" ]; then
         echo "Running test suite"
         DOCKER_CMD="python setup.py test"
 elif [ "$1" = "notebook" ]; then
         echo "Running Jupyter notebook server"
-        DOCKER_CMD="source ~/.bashrc; jupyter notebook --ip=0.0.0.0 notebooks"
+        DOCKER_CMD="source ~/.bashrc; jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
 else
         echo "Running container only"
         DOCKER_CMD="bash"
@@ -74,6 +74,7 @@ docker build --tag=$DOCKER_TAG \
              --build-arg UNAME=$DOCKER_UNAME \
              --build-arg UID=$DOCKER_UID \
              --build-arg PASSWD=$DOCKER_PASSWD \
+             --build-arg JUPYTER_PORT=$JUPYTER_PORT \
              .
 # Launch container with current directory mounted
 docker run -t --rm --name finn_dev_$DOCKER_UNAME -it \
@@ -89,5 +90,5 @@ docker run -t --rm --name finn_dev_$DOCKER_UNAME -it \
 -v $BUILD_LOCAL:$BUILD_LOCAL \
 -v $VIVADO_PATH:$VIVADO_PATH \
 -e VIVADO_PATH=$VIVADO_PATH \
-$DOCKER_PORT_FORWARD \
+-p $JUPYTER_PORT:$JUPYTER_PORT \
 $DOCKER_TAG bash -c "$DOCKER_CMD"

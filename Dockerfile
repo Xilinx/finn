@@ -31,6 +31,7 @@ ARG GNAME
 ARG UNAME
 ARG UID
 ARG PASSWD
+ARG JUPYTER_PORT
 
 RUN groupadd -g $GID $GNAME
 RUN useradd -M -u $UID $UNAME -g $GNAME
@@ -43,5 +44,5 @@ USER $UNAME
 
 RUN echo "source \$VIVADO_PATH/settings64.sh" >> /home/$UNAME/.bashrc
 RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /home/$UNAME/.bashrc
-
+EXPOSE $JUPYTER_PORT
 WORKDIR /home/$UNAME/finn
