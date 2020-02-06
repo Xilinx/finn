@@ -2,7 +2,7 @@ import os
 
 from onnx import TensorProto, helper
 
-import finn.core.utils as util
+import finn.util.basic as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.cleanup import CleanUp
@@ -52,7 +52,7 @@ def test_code_gen_trafo():
 
     model = model.transform(CodeGen_npysim())
     for node in model.graph.node:
-        code_gen_attribute = util.get_by_name(node.attribute, "code_gen_dir")
+        code_gen_attribute = util.get_by_name(node.attribute, "code_gen_dir_npysim")
         tmp_dir = code_gen_attribute.s.decode("UTF-8")
         assert os.path.isdir(
             tmp_dir

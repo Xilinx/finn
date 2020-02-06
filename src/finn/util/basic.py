@@ -2,12 +2,21 @@ import os
 import random
 import string
 import subprocess
+import tempfile
 
 import numpy as np
 import onnx
 from bitstring import BitArray
 
 from finn.core.datatype import DataType
+
+
+def make_build_dir(prefix=""):
+    """Creates a temporary folder with given prefix to be used as a build dir.
+    Use this function instead of tempfile.mkdtemp to ensure any generated files
+    will survive on the host after the FINN Docker container exits."""
+
+    return tempfile.mkdtemp(prefix="finn/" + prefix)
 
 
 def valueinfo_to_tensor(vi):

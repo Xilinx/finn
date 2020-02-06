@@ -1,6 +1,6 @@
 import numpy as np
 
-import finn.core.utils as util
+import finn.util.basic as util
 
 
 def test_interleave_matrix_outer_dim_from_partitions():

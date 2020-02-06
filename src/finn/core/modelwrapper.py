@@ -5,7 +5,7 @@ import onnx.helper as oh
 import onnx.numpy_helper as np_helper
 from onnx import TensorProto
 
-import finn.core.utils as util
+import finn.util.basic as util
 from finn.core.datatype import DataType
 
 

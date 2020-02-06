@@ -3,7 +3,7 @@ import sys
 import numpy as np
 
 from finn.core.datatype import DataType
-from finn.core.utils import (
+from finn.util.basic import (
     pack_innermost_dim_as_hex_string,
     unpack_innermost_dim_from_hex_string,
 )
@@ -65,7 +65,7 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits):
     """Convert the multidimensional NumPy array of integers (stored as floats)
     from input_file into a flattened sequence of Python arbitrary-precision
     integers, packing the innermost dimension. See
-    finn.core.utils.pack_innermost_dim_as_hex_string() for more info on how the
+    finn.util.basic.pack_innermost_dim_as_hex_string() for more info on how the
     packing works."""
 
     inp = np.load(input_file)
