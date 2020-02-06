@@ -1,8 +1,11 @@
-import numpy as np
+import binascii
 import sys
 
+import numpy as np
 from bitstring import BitArray
+
 from finn.core.datatype import DataType
+
 
 def array2hexstring(array, dtype, pad_to_nbits, prefix="0x"):
     """
@@ -49,6 +52,27 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x"):
         raise Exception("Number of bits is greater than pad_to_nbits")
     # represent as hex
     return prefix + lineval.hex
+
+
+def hexstring2npbytearray(hexstring, remove_prefix="0x"):
+    """Convert a hex string into a NumPy array of dtype uint8. Examples:
+
+    hexstring2npbytearray("0f01") = array([15,  1], dtype=uint8)
+    """
+    # remove prefix if found
+    if hexstring.startswith(remove_prefix):
+        lrp = len(remove_prefix)
+        hexstring = hexstring[lrp:]
+    # use Python's built-in bytearray
+    return np.asarray(bytearray.fromhex(hexstring), dtype=np.uint8)
+
+
+def npbytearray2hexstring(npbytearray, prefix="0x"):
+    """Convert a NumPy array of uint8 dtype into a hex string. Examples:
+
+    npbytearray2hexstring(array([15,  1], dtype=uint8)) = "0x0f01"
+    """
+    return prefix + binascii.hexlify(bytearray(npbytearray)).decode("utf-8")
 
 
 def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
@@ -114,6 +138,7 @@ def unpack_innermost_dim_from_hex_string(
         array.append(ar_list)
     array = np.asarray(array, dtype=np.float32).reshape(shape)
     return array
+
 
 def numpy_to_hls_code(
     ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_decl=False
@@ -200,3 +225,20 @@ def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits):
         output, dtype, shape, packedBits, targetBits, True
     )
     np.save(path, out_array)
+
+
+def finnpy_to_packed_bytearray(ndarray, dtype):
+    """Given a numpy ndarray with FINN DataType dtype, pack the innermost
+    dimension and return the packed representation as an ndarray of uint8.
+    The packed innermost dimension will be padded to the nearest multiple
+    of 8 bits.
+    """
+
+    # pack innermost dim to hex strings padded to 8 bits
+    packed_hexstring = pack_innermost_dim_as_hex_string(ndarray, dtype, 8)
+
+    # convert hex strings to byte array
+    def fn(x):
+        return np.asarray(list(map(hexstring2npbytearray, x)))
+
+    return np.apply_along_axis(fn, packed_hexstring.ndim - 1, packed_hexstring)
