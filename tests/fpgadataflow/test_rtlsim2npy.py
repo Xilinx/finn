@@ -1,7 +1,7 @@
 import numpy as np
 
 from finn.core.datatype import DataType
-from finn.util.basic import unpack_innermost_dim_from_hex_string
+from finn.util.data_packing import unpack_innermost_dim_from_hex_string
 
 
 def test_unpack_innermost_dim_from_hex_string():

@@ -3,7 +3,8 @@ import numpy as np
 import os
 import subprocess
 from finn.custom_op import CustomOp
-from finn.util.basic import CppBuilder, IPGenBuilder
+from finn.util.basic import CppBuilder
+from finn.util.fpgadataflow import IPGenBuilder
 from . import templates
 
 

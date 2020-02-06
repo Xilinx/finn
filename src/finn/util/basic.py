@@ -10,7 +10,6 @@ from bitstring import BitArray
 
 from finn.core.datatype import DataType
 
-
 def make_build_dir(prefix=""):
     """Creates a temporary folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
@@ -49,119 +48,6 @@ def random_string(stringLength=6):
     """Randomly generate a string of letters and digits."""
     lettersAndDigits = string.ascii_letters + string.digits
     return "".join(random.choice(lettersAndDigits) for i in range(stringLength))
-
-
-def array2hexstring(array, dtype, pad_to_nbits, prefix="0x"):
-    """
-    Pack given one-dimensional NumPy array with FINN DataType dtype into a hex
-    string.
-    Any BIPOLAR values will be converted to a single bit with a 0 representing
-    -1.
-    pad_to_nbits is used to prepend leading zeros to ensure packed strings of
-    fixed width. The minimum value for pad_to_nbits is 4, since a single hex
-    digit is four bits.
-
-    Examples:
-    array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = "e"
-    array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = "0e"
-    """
-    if pad_to_nbits < 4:
-        pad_to_nbits = 4
-    # ensure input is a numpy array with float values
-    if type(array) != np.ndarray or array.dtype != np.float32:
-        # try to convert to a float numpy array (container dtype is float)
-        array = np.asarray(array, dtype=np.float32)
-    # ensure one-dimensional array to pack
-    assert array.ndim == 1
-    if dtype == DataType.BIPOLAR:
-        # convert bipolar values to binary
-        array = (array + 1) / 2
-        dtype = DataType.BINARY
-    lineval = BitArray(length=0)
-    bw = dtype.bitwidth()
-    for val in array:
-        # ensure that this value is permitted by chosen dtype
-        assert dtype.allowed(val)
-        if dtype.is_integer():
-            if dtype.signed():
-                lineval.append(BitArray(int=int(val), length=bw))
-            else:
-                lineval.append(BitArray(uint=int(val), length=bw))
-        else:
-            lineval.append(BitArray(float=val, length=bw))
-    if pad_to_nbits >= lineval.len:
-        # extend to the desired output width (a minimum of 4 bits)
-        lineval.prepend(BitArray(length=pad_to_nbits - lineval.len))
-    else:
-        raise Exception("Number of bits is greater than pad_to_nbits")
-    # represent as hex
-    return prefix + lineval.hex
-
-
-def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
-    """Pack the innermost dimension of the given numpy ndarray into hex
-    strings using array2hexstring. Examples:
-
-    A = [[1, 1, 1, 0], [0, 1, 1, 0]]
-    eA = ["0e", "06"]
-    pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA
-    B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
-    eB = [[ "0f", "0f"], ["07", "0d"]]
-    pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB
-    """
-
-    if type(ndarray) != np.ndarray or ndarray.dtype != np.float32:
-        # try to convert to a float numpy array (container dtype is float)
-        ndarray = np.asarray(ndarray, dtype=np.float32)
-
-    def fun(x):
-        return array2hexstring(x, dtype, pad_to_nbits)
-
-    return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
-
-
-def unpack_innermost_dim_from_hex_string(
-    data, dtype, shape, packedBits, targetBits, rtlsim=False
-):
-    # function expects flattens array and returns an array in the desired shape
-    outer_dim_elems = 1
-    for dim in range(len(shape) - 1):
-        outer_dim_elems = outer_dim_elems * shape[dim]
-    inner_dim_elems = shape[-1]
-
-    array = []
-    for outer_elem in range(outer_dim_elems):
-        ar_list = []
-        ar_elem = data[0]
-        data.pop(0)
-        ar_elem = ar_elem.split("x")
-        ar_elem_bin = bin(int(ar_elem[1], 16))[2:].zfill(packedBits)
-        ar_elem_bin = [int(x) for x in ar_elem_bin]
-
-        ar_elem_bin.reverse()
-        for i in range(inner_dim_elems):
-            upper_limit = (i + 1) * targetBits
-            lower_limit = i * targetBits
-            elem = ar_elem_bin[lower_limit:upper_limit]
-            elem.reverse()
-            elem_str = "".join(map(str, elem))
-            ar_list.append(int(elem_str, 2))
-        # reverse inner dimension back to "normal" positions
-        if rtlsim is False:
-            ar_list.reverse()
-        else:
-            # interpret output values correctly by flattening and adjusting the output
-            if dtype == DataType.BIPOLAR:
-                ar_list = [2 * x - 1 for x in ar_list]
-            # pyverilator interprets int2 as uint2, so output has to be corrected
-            elif dtype == DataType.INT2 or dtype == DataType.INT32:
-                mask = 2 ** (dtype.bitwidth() - 1)
-                ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
-
-        array.append(ar_list)
-    array = np.asarray(array, dtype=np.float32).reshape(shape)
-    return array
-
 
 def interleave_matrix_outer_dim_from_partitions(matrix, n_partitions):
     if type(matrix) != np.ndarray or matrix.dtype != np.float32:
@@ -299,33 +185,5 @@ class CppBuilder:
             f.write("#!/bin/bash \n")
             f.write(bash_compile + "\n")
         bash_command = ["bash", self.compile_script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-
-
-class IPGenBuilder:
-    def __init__(self):
-        self.tcl_script = ""
-        self.ipgen_path = ""
-        self.code_gen_dir = ""
-        self.ipgen_script = ""
-
-    def append_tcl(self, tcl_script):
-        self.tcl_script = tcl_script
-
-    def set_ipgen_path(self, path):
-        self.ipgen_path = path
-
-    def build(self, code_gen_dir):
-        self.code_gen_dir = code_gen_dir
-        self.ipgen_script = str(self.code_gen_dir) + "/ipgen.sh"
-        working_dir = os.environ["PWD"]
-        f = open(self.ipgen_script, "w")
-        f.write("#!/bin/bash \n")
-        f.write("cd {}\n".format(code_gen_dir))
-        f.write("vivado_hls {}\n".format(self.tcl_script))
-        f.write("cd {}\n".format(working_dir))
-        f.close()
-        bash_command = ["bash", self.ipgen_script]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
