@@ -2,7 +2,7 @@ import os
 
 from onnx import TensorProto, helper
 
-import finn.core.utils as util
+import finn.util.basic as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.cleanup import CleanUp

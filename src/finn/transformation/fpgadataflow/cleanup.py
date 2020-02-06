@@ -1,8 +1,8 @@
 import os
 import shutil
 
-import finn.core.utils as util
 import finn.custom_op.registry as registry
+import finn.util.basic as util
 from finn.transformation import Transformation
 
 

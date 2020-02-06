@@ -3,13 +3,13 @@ import subprocess
 
 import numpy as np
 
-import finn.core.utils as cutil
-from finn.backend.fpgadataflow.utils import numpy_to_hls_code
+import finn.util.basic as cutil
 from finn.core.datatype import DataType
+from finn.util.fpgadataflow import numpy_to_hls_code
 
 
 def make_npy2apintstream_testcase(ndarray, dtype):
-    test_dir = make_build_dir(prefix="test_npy2apintstream_")
+    test_dir = cutil.make_build_dir(prefix="test_npy2apintstream_")
     shape = ndarray.shape
     elem_bits = dtype.bitwidth()
     packed_bits = shape[-1] * elem_bits

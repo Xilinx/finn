@@ -1,5 +1,5 @@
-import finn.core.utils as util
 import finn.custom_op.registry as registry
+import finn.util.basic as util
 
 
 def res_estimation(model):

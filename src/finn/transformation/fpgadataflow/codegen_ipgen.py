@@ -1,8 +1,8 @@
 import os
 
 import finn.custom_op.registry as registry
-from finn.core.utils import get_by_name, make_build_dir
 from finn.transformation import Transformation
+from finn.util.basic import get_by_name, make_build_dir
 
 
 def _codegen_single_node(node, model, fpgapart, clk):

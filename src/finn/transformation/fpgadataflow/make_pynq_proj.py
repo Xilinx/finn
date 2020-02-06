@@ -3,8 +3,8 @@ import subprocess
 
 import numpy as np
 
-from finn.core.utils import get_by_name, make_build_dir, roundup_to_integer_multiple
 from finn.transformation import Transformation
+from finn.util.basic import get_by_name, make_build_dir, roundup_to_integer_multiple
 
 from . import templates
 

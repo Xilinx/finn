@@ -1,8 +1,8 @@
 import os
 import subprocess
 
-from finn.core.utils import get_by_name, make_build_dir
 from finn.transformation import Transformation
+from finn.util.basic import get_by_name, make_build_dir
 
 
 class CodeGen_ipstitch(Transformation):
@@ -84,8 +84,7 @@ class CodeGen_ipstitch(Transformation):
                 assert node.op_type == "TLastMarker"
                 # make output external
                 connect_cmds.append(
-                    "make_bd_intf_pins_external [get_bd_intf_pins %s/out_r]"
-                    % inst_name
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/out_r]" % inst_name
                 )
 
         # create a temporary folder for the project

@@ -1,8 +1,8 @@
 import os
 import xml.etree.ElementTree as ET
 
-import finn.core.utils as util
 import finn.custom_op.registry as registry
+import finn.util.basic as util
 
 
 def hls_synth_res_estimation(model):
