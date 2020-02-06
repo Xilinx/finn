@@ -11,6 +11,7 @@ DOCKER_UNAME=$(id -un)
 DOCKER_UID=$(id -u)
 DOCKER_PASSWD="finn"
 DOCKER_TAG="finn_$DOCKER_UNAME"
+: ${DOCKER_PORT_FORWARD="-p 8888:8888 -p 8081:8081"}
 
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -53,6 +54,7 @@ echo "Mounting $SCRIPTPATH/pyverilator into /workspace/pyverilator"
 echo "Mounting $SCRIPTPATH/PYNQ-HelloWorld into /workspace/PYNQ-HelloWorld"
 echo "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
 echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
+echo "Port-forwarding with $DOCKER_PORT_FORWARD"
 
 if [ "$1" = "test" ]; then
         echo "Running test suite"
@@ -87,5 +89,5 @@ docker run -t --rm --name finn_dev_$DOCKER_UNAME -it \
 -v $BUILD_LOCAL:$BUILD_LOCAL \
 -v $VIVADO_PATH:$VIVADO_PATH \
 -e VIVADO_PATH=$VIVADO_PATH \
--p 8888:8888 -p 8081:8081 \
+$DOCKER_PORT_FORWARD \
 $DOCKER_TAG bash -c "$DOCKER_CMD"
