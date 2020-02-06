@@ -7,8 +7,10 @@ import finn.util.basic as cutil
 from finn.core.datatype import DataType
 from finn.util.data_packing import (
     array2hexstring,
+    finnpy_to_packed_bytearray,
     numpy_to_hls_code,
     pack_innermost_dim_as_hex_string,
+    packed_bytearray_to_finnpy,
 )
 
 
@@ -136,3 +138,24 @@ def test_numpy_to_hls_code():
     eB = """{{ap_uint<4>("0xf", 16), ap_uint<4>("0xf", 16)},
      {ap_uint<4>("0x7", 16), ap_uint<4>("0xd", 16)}};"""
     assert remove_all_whitespace(ret) == remove_all_whitespace(eB)
+
+
+def test_finnpy_to_packed_bytearray():
+    A = [[1, 1, 1, 0], [0, 1, 1, 0]]
+    eA = np.asarray([[14], [6]], dtype=np.uint8)
+    assert (finnpy_to_packed_bytearray(A, DataType.BINARY) == eA).all()
+    B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
+    eB = np.asarray([[[15], [15]], [[7], [13]]], dtype=np.uint8)
+    assert (finnpy_to_packed_bytearray(B, DataType.UINT2) == eB).all()
+    C = [1, 7, 2, 5]
+    eC = np.asarray([23, 37], dtype=np.uint8)
+    assert (finnpy_to_packed_bytearray(C, DataType.UINT4) == eC).all()
+    D = [[1, 7, 2, 5], [2, 5, 1, 7]]
+    eD = np.asarray([[23, 37], [37, 23]], dtype=np.uint8)
+    assert (finnpy_to_packed_bytearray(D, DataType.UINT4) == eD).all()
+
+
+def test_packed_bytearray_to_finnpy():
+    A = np.asarray([[14], [6]], dtype=np.uint8)
+    eA = np.asarray([[1, 1, 1, 0], [0, 1, 1, 0]], dtype=np.float32)
+    assert (packed_bytearray_to_finnpy(A, DataType.BINARY) == eA).all()
