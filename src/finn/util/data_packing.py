@@ -99,13 +99,32 @@ def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
 
 
 def unpack_innermost_dim_from_hex_string(
-    data, dtype, shape, packedBits, targetBits, rtlsim=False
+    ndarray, dtype, out_shape, reverse_inner=False
 ):
-    # function expects flattens array and returns an array in the desired shape
+    """Convert a NumPy array of hex strings into a FINN NumPy array by unpacking
+    the hex strings into the specified data type. out_shape can be specified
+    such that any padding in the packing dimension is removed. If reverse_inner
+    is set, the innermost unpacked dimension will be reversed."""
+
+    if type(ndarray) != np.ndarray:
+        raise Exception(
+            """unpack_innermost_dim_from_hex_string needs ndarray
+        as input"""
+        )
+    if ndarray.dtype.kind not in {"U", "S"}:
+        raise Exception(
+            """unpack_innermost_dim_from_hex_string needs ndarray of
+        hex strings as input"""
+        )
+    # convert ndarray into flattened list
+    data = ndarray.flatten().tolist()
+    packedBits = len(data[0]) * 8
+    targetBits = dtype.bitwidth()
+    # calculate outer and inner dim shapes
     outer_dim_elems = 1
-    for dim in range(len(shape) - 1):
-        outer_dim_elems = outer_dim_elems * shape[dim]
-    inner_dim_elems = shape[-1]
+    for dim in range(len(out_shape) - 1):
+        outer_dim_elems = outer_dim_elems * out_shape[dim]
+    inner_dim_elems = out_shape[-1]
 
     array = []
     for outer_elem in range(outer_dim_elems):
@@ -125,7 +144,7 @@ def unpack_innermost_dim_from_hex_string(
             elem_str = "".join(map(str, elem))
             ar_list.append(int(elem_str, 2))
         # reverse inner dimension back to "normal" positions
-        if rtlsim is False:
+        if reverse_inner is False:
             ar_list.reverse()
         else:
             # interpret output values correctly by flattening and adjusting the output
@@ -137,7 +156,7 @@ def unpack_innermost_dim_from_hex_string(
                 ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
 
         array.append(ar_list)
-    array = np.asarray(array, dtype=np.float32).reshape(shape)
+    array = np.asarray(array, dtype=np.float32).reshape(out_shape)
     return array
 
 
@@ -221,9 +240,10 @@ def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits):
     integer is assumed to be a packed array of targetBits-bit elements, which
     will be unpacked as the innermost dimension of the NumPy array."""
 
-    output = [hex(int(x)) for x in output]
+    # TODO should have its own testbench?
+    output = np.asarray([hex(int(x)) for x in output])
     out_array = unpack_innermost_dim_from_hex_string(
-        output, dtype, shape, packedBits, targetBits, True
+        output, dtype, shape, reverse_inner=True
     )
     np.save(path, out_array)
 
