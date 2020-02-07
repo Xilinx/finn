@@ -255,7 +255,8 @@ def finnpy_to_packed_bytearray(ndarray, dtype):
     of 8 bits. The returned ndarray has the same number of dimensions as the
     input.
     """
-    if type(ndarray) != np.ndarray or ndarray.dtype != np.float32:
+
+    if (not issubclass(type(ndarray), np.ndarray)) or ndarray.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
         ndarray = np.asarray(ndarray, dtype=np.float32)
     # pack innermost dim to hex strings padded to 8 bits
