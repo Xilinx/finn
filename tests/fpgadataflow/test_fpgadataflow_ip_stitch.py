@@ -10,6 +10,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 from finn.transformation.general import GiveUniqueNodeNames
@@ -249,3 +250,13 @@ def test_fpgadataflow_ipstitch_pynq_synth():
     assert bitfile is not None
     assert os.path.isfile(bitfile)
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_synth.onnx")
+
+
+@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_projgen"])
+def test_fpgadataflow_ipstitch_pynq_driver():
+    model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
+    model = model.transform(MakePYNQDriver())
+    driver_dir = model.get_metadata_prop("pynq_driver_dir")
+    assert driver_dir is not None
+    assert os.path.isdir(driver_dir)
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_driver.onnx")
