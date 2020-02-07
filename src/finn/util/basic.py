@@ -6,16 +6,23 @@ import tempfile
 
 import numpy as np
 import onnx
-from bitstring import BitArray
 
 from finn.core.datatype import DataType
+
 
 def make_build_dir(prefix=""):
     """Creates a temporary folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
     will survive on the host after the FINN Docker container exits."""
-
-    return tempfile.mkdtemp(prefix="finn/" + prefix)
+    try:
+        inst_prefix = os.environ["FINN_INST_NAME"] + "/"
+        return tempfile.mkdtemp(prefix=inst_prefix + prefix)
+    except KeyError:
+        raise Exception(
+            """Environment variable FINN_INST_NAME must be set
+        correctly. Please ensure you have launched the Docker contaier correctly.
+        """
+        )
 
 
 def valueinfo_to_tensor(vi):
@@ -48,6 +55,7 @@ def random_string(stringLength=6):
     """Randomly generate a string of letters and digits."""
     lettersAndDigits = string.ascii_letters + string.digits
     return "".join(random.choice(lettersAndDigits) for i in range(stringLength))
+
 
 def interleave_matrix_outer_dim_from_partitions(matrix, n_partitions):
     if type(matrix) != np.ndarray or matrix.dtype != np.float32:
