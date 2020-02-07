@@ -10,7 +10,11 @@ DOCKER_GNAME=$(id -gn)
 DOCKER_UNAME=$(id -un)
 DOCKER_UID=$(id -u)
 DOCKER_PASSWD="finn"
-DOCKER_TAG="finn_$DOCKER_UNAME"
+# generate a random number per-run to allow multiple
+# containers from the same user
+DOCKER_RND=$(shuf -i0-32768 -n1)
+DOCKER_TAG="finn_${DOCKER_UNAME}"
+DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
 : ${JUPYTER_PORT=8888}
 
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
@@ -31,7 +35,7 @@ CNPY_LOCAL=$SCRIPTPATH/cnpy
 FINN_HLS_LOCAL=$SCRIPTPATH/finn-hlslib
 PYVERILATOR_LOCAL=$SCRIPTPATH/pyverilator
 PYNQSHELL_LOCAL=$SCRIPTPATH/PYNQ-HelloWorld
-BUILD_LOCAL=/tmp/finn
+BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
 
 # clone dependency repos
@@ -45,6 +49,7 @@ git clone $PYNQSHELL_REPO $PYNQSHELL_LOCAL ||  git -C "$PYNQSHELL_LOCAL" pull
 # ensure build dir exists locally
 mkdir -p $BUILD_LOCAL
 
+echo "Instance is named as $DOCKER_INST_NAME"
 echo "Mounting $SCRIPTPATH into /workspace/finn"
 echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
 echo "Mounting $SCRIPTPATH/brevitas_cnv_lfc into /workspace/brevitas_cnv_lfc"
@@ -77,7 +82,8 @@ docker build --tag=$DOCKER_TAG \
              --build-arg JUPYTER_PORT=$JUPYTER_PORT \
              .
 # Launch container with current directory mounted
-docker run -t --rm --name finn_dev_$DOCKER_UNAME -it \
+docker run -t --rm --name $DOCKER_INST_NAME -it \
+--hostname $DOCKER_INST_NAME \
 -e "XILINX_VIVADO=$VIVADO_PATH" \
 -e "SHELL=/bin/bash" \
 -v $SCRIPTPATH:/workspace/finn \
@@ -90,5 +96,6 @@ docker run -t --rm --name finn_dev_$DOCKER_UNAME -it \
 -v $BUILD_LOCAL:$BUILD_LOCAL \
 -v $VIVADO_PATH:$VIVADO_PATH \
 -e VIVADO_PATH=$VIVADO_PATH \
+-e FINN_INST_NAME=$DOCKER_TAG \
 -p $JUPYTER_PORT:$JUPYTER_PORT \
 $DOCKER_TAG bash -c "$DOCKER_CMD"
