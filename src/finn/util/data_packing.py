@@ -280,7 +280,9 @@ def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None):
     given DataType. output_shape can be specified to remove padding from the
     packed dimension, or set to None to be inferred from the input."""
 
-    if type(packed_bytearray) != np.ndarray or packed_bytearray.dtype != np.uint8:
+    if (
+        not issubclass(type(packed_bytearray), np.ndarray)
+    ) or packed_bytearray.dtype != np.uint8:
         raise Exception("packed_bytearray_to_finnpy needs NumPy uint8 arrays")
     if packed_bytearray.ndim == 0:
         raise Exception("packed_bytearray_to_finnpy expects at least 1D ndarray")
