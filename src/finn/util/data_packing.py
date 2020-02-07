@@ -295,8 +295,6 @@ def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None):
     packed_hexstring = np.apply_along_axis(
         npbytearray2hexstring, packed_dim, packed_bytearray
     )
-    ret = unpack_innermost_dim_from_hex_string(
-        packed_hexstring, dtype, output_shape, packed_bits, target_bits
-    )
+    ret = unpack_innermost_dim_from_hex_string(packed_hexstring, dtype, output_shape)
 
     return ret

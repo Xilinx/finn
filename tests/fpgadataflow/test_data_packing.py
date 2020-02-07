@@ -157,5 +157,22 @@ def test_finnpy_to_packed_bytearray():
 
 def test_packed_bytearray_to_finnpy():
     A = np.asarray([[14], [6]], dtype=np.uint8)
-    eA = np.asarray([[1, 1, 1, 0], [0, 1, 1, 0]], dtype=np.float32)
-    assert (packed_bytearray_to_finnpy(A, DataType.BINARY) == eA).all()
+    eA = [[1, 1, 1, 0], [0, 1, 1, 0]]
+    eA = np.asarray(eA, dtype=np.float32)
+    shapeA = eA.shape
+    assert (packed_bytearray_to_finnpy(A, DataType.BINARY, shapeA) == eA).all()
+    B = np.asarray([[[15], [15]], [[7], [13]]], dtype=np.uint8)
+    eB = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
+    eB = np.asarray(eB, dtype=np.float32)
+    shapeB = eB.shape
+    assert (packed_bytearray_to_finnpy(B, DataType.UINT2, shapeB) == eB).all()
+    C = np.asarray([23, 37], dtype=np.uint8)
+    eC = [1, 7, 2, 5]
+    eC = np.asarray(eC, dtype=np.float32)
+    shapeC = eC.shape
+    assert (packed_bytearray_to_finnpy(C, DataType.UINT4, shapeC) == eC).all()
+    D = np.asarray([[23, 37], [37, 23]], dtype=np.uint8)
+    eD = [[1, 7, 2, 5], [2, 5, 1, 7]]
+    eD = np.asarray(eD, dtype=np.float32)
+    shapeD = eD.shape
+    assert (packed_bytearray_to_finnpy(D, DataType.UINT4, shapeD) == eD).all()
