@@ -35,8 +35,8 @@ class MakePYNQDriver(Transformation):
         # TODO convert this to an analysis pass
         i_tensor_name = model.graph.input[0].name
         o_tensor_name = model.graph.output[0].name
-        i_tensor_shape = model.get_tensor_shape(i_tensor_name)
-        o_tensor_shape = model.get_tensor_shape(o_tensor_name)
+        i_tensor_shape = tuple(model.get_tensor_shape(i_tensor_name))
+        o_tensor_shape = tuple(model.get_tensor_shape(o_tensor_name))
         i_tensor_dt = model.get_tensor_datatype(i_tensor_name)
         o_tensor_dt = model.get_tensor_datatype(o_tensor_name)
         # generate dummy i/o tensors and their packed versions
