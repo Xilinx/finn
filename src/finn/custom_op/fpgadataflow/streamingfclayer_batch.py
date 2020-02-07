@@ -4,14 +4,14 @@ import os
 import numpy as np
 from pyverilator import PyVerilator
 
-from finn.backend.fpgadataflow.utils import (
+from finn.core.datatype import DataType
+from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.util.basic import interleave_matrix_outer_dim_from_partitions
+from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     rtlsim_output_to_npy,
 )
-from finn.core.datatype import DataType
-from finn.core.utils import interleave_matrix_outer_dim_from_partitions
-from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class StreamingFCLayer_Batch(HLSCustomOp):

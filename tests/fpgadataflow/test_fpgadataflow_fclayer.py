@@ -8,7 +8,6 @@ import finn.custom_op.xnorpopcount as xp
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.core.utils import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 from finn.custom_op.multithreshold import multithreshold
 from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
@@ -17,6 +16,7 @@ from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.set_sim_mode import SetSimMode
 from finn.transformation.general import GiveUniqueNodeNames
+from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):

@@ -1,6 +1,4 @@
-import numpy as np
-
-import finn.core.utils as util
+import finn.util.basic as util
 from finn.core.datatype import DataType
 
 
