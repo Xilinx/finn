@@ -139,6 +139,8 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
 
 def gen_finn_dt_tensor(finn_dt, tensor_shape):
     """Generates random tensor in given shape and with given FINN DataType"""
+    if type(tensor_shape) == list:
+        tensor_shape = tuple(tensor_shape)
     if finn_dt == DataType.BIPOLAR:
         tensor_values = np.random.randint(2, size=tensor_shape)
         tensor_values = 2 * tensor_values - 1
