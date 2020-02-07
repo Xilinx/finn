@@ -254,26 +254,29 @@ def finnpy_to_packed_bytearray(ndarray, dtype):
         return np.apply_along_axis(fn, packed_hexstring.ndim - 1, packed_hexstring)
 
 
-def packed_bytearray_to_finnpy(packed_bytearray, dtype):
+def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None):
     """Given a packed numpy uint8 ndarray, unpack it into a FINN array of
-    given DataType."""
+    given DataType. output_shape can be specified to remove padding from the
+    packed dimension, or set to None to be inferred from the input."""
+
     if type(packed_bytearray) != np.ndarray or packed_bytearray.dtype != np.uint8:
         raise Exception("packed_bytearray_to_finnpy needs NumPy uint8 arrays")
     if packed_bytearray.ndim == 0:
         raise Exception("packed_bytearray_to_finnpy expects at least 1D ndarray")
-    # TODO how to handle un-padding here?
     packed_dim = packed_bytearray.ndim - 1
     packed_bits = packed_bytearray.shape[packed_dim] * 8
     target_bits = dtype.bitwidth()
-    assert packed_bits % target_bits == 0
-    n_target_elems = packed_bits // target_bits
-    retshape = packed_bytearray.shape[:-1] + (n_target_elems,)
+    if output_shape is None:
+        # determine output shape from input shape
+        assert packed_bits % target_bits == 0
+        n_target_elems = packed_bits // target_bits
+        output_shape = packed_bytearray.shape[:-1] + (n_target_elems,)
     # convert innermost dim of byte array to hex strings
     packed_hexstring = np.apply_along_axis(
         npbytearray2hexstring, packed_dim, packed_bytearray
     )
     ret = unpack_innermost_dim_from_hex_string(
-        packed_hexstring, dtype, retshape, packed_bits, target_bits
+        packed_hexstring, dtype, output_shape, packed_bits, target_bits
     )
 
     return ret
