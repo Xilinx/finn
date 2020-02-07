@@ -10,6 +10,19 @@ import onnx
 from finn.core.datatype import DataType
 
 
+def get_finn_root():
+    "Return the root directory that FINN is cloned into."
+
+    try:
+        return os.environ["FINN_ROOT"]
+    except KeyError:
+        raise Exception(
+            """Environment variable FINN_ROOT must be set
+        correctly. Please ensure you have launched the Docker contaier correctly.
+        """
+        )
+
+
 def make_build_dir(prefix=""):
     """Creates a temporary folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
