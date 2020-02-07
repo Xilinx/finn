@@ -13,7 +13,11 @@ from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
+from finn.util.basic import (
+    calculate_signed_dot_prod_range,
+    gen_finn_dt_tensor,
+    make_build_dir,
+)
 
 # TODO control board/part for tests from a global place
 # settings for Ultra96
@@ -23,6 +27,8 @@ test_pynq_board = "Ultra96"
 # settings for PYNQ-Z1
 # test_fpga_part = "xc7z020clg400-1"
 # test_pynq_board = "Pynq-Z1"
+
+ip_stitch_model_dir = make_build_dir("test_fpgadataflow_ipstitch")
 
 
 def create_one_fc_model():
@@ -206,12 +212,14 @@ def test_fpgadataflow_ipstitch_gen_model():
     assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
     # assert model.graph.node[1].op_type == "StreamingFCLayer_Batch"
     assert model.graph.node[1].op_type == "TLastMarker"
-    model.save("/tmp/finn/test_fpgadataflow_ipstitch_gen_model.onnx")
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx")
 
 
 @pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_gen_model"])
 def test_fpgadataflow_ipstitch_do_stitch():
-    model = ModelWrapper("/tmp/finn/test_fpgadataflow_ipstitch_gen_model.onnx")
+    model = ModelWrapper(
+        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
+    )
     model = model.transform(CodeGen_ipstitch(test_fpga_part))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
@@ -220,23 +228,24 @@ def test_fpgadataflow_ipstitch_do_stitch():
     vivado_stitch_vlnv = model.get_metadata_prop("vivado_stitch_vlnv")
     assert vivado_stitch_vlnv is not None
     assert vivado_stitch_vlnv == "xilinx_finn:finn:finn_design:1.0"
-    model.save("/tmp/finn/test_fpgadataflow_ip_stitch.onnx")
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
 
 
 @pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_do_stitch"])
 def test_fpgadataflow_ipstitch_pynq_projgen():
-    model = ModelWrapper("/tmp/finn/test_fpgadataflow_ip_stitch.onnx")
+    model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
     model = model.transform(MakePYNQProject(test_pynq_board))
     vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
     assert vivado_pynq_proj_dir is not None
     assert os.path.isdir(vivado_pynq_proj_dir)
-    model.save("/tmp/finn/test_fpgadataflow_pynq_projgen.onnx")
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
 
 
 @pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_projgen"])
 def test_fpgadataflow_ipstitch_pynq_synth():
-    model = ModelWrapper("/tmp/finn/test_fpgadataflow_pynq_projgen.onnx")
+    model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
     model = model.transform(SynthPYNQProject())
     bitfile = model.get_metadata_prop("vivado_pynq_bitfile")
     assert bitfile is not None
     assert os.path.isfile(bitfile)
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_synth.onnx")
