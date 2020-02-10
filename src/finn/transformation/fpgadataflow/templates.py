@@ -51,28 +51,51 @@ pynq_driver_template = """
 from pynq import Overlay
 import numpy as np
 from pynq import allocate
+from finn.util.data_packing import (
+    finnpy_to_packed_bytearray,
+    packed_bytearray_to_finnpy
+)
+from finn.core.datatype import DataType
 
-bitfile_path = "/home/xilinx/finn/resizer.bit"
+bitfile_path = "resizer.bit"
 ol = Overlay(bitfile_path)
 dma=ol.axi_dma_0
 
-ibuf = np.load("input.npy")
-idt = DataType.INT2
-ishape_packed = (1,)
-ibuf_packed = npy2packedbytes(ibuf, idt)
-ibuf_packed_device = allocate(shape=ishape_packed, dtype=np.int8)
+# declare input/output types and shapes for the accelerator
+# input FINN DataType
+idt = $INPUT_FINN_DATATYPE$
+# unpacked and packed input shapes
+ishape_unpacked = $INPUT_SHAPE_UNPACKED$
+ishape_packed = $INPUT_SHAPE_PACKED$
+# output FINN DataType
+odt = $OUTPUT_FINN_DATATYPE$
+# unpacked and packed output shapes
+oshape_packed = $OUTPUT_SHAPE_PACKED$
+oshape_unpacked = $OUTPUT_SHAPE_UNPACKED$
 
+# load desired input .npy file
+ibuf_unpacked = np.load("input.npy")
+# ensure that shape is as expected
+assert ibuf_unpacked.shape == ishape_unpacked
+
+# pack the input buffer
+ibuf_packed = finnpy_to_packed_bytearray(ibuf_unpacked, idt)
+# allocate a PYNQ buffer for the packed input buffer
+ibuf_packed_device = allocate(shape=ishape_packed, dtype=np.uint8)
+# copy the packed data into the PYNQ buffer
+# TODO optimization: pack directly into the PYNQ buffer?
 np.copyto(ibuf_packed_device, ibuf_packed)
 
-odt = DataType.INT32
-oshape_packed = (16,)
-obuf_packed = allocate(shape=oshape_packed, dtype=np.int8)
+# allocate a PYNQ buffer for the returned packed output buffer
+obuf_packed = allocate(shape=oshape_packed, dtype=np.uint8)
 
+# set up the DMA and wait until all transfers complete
 dma.sendchannel.transfer(ibuf_packed_device)
 dma.recvchannel.transfer(obuf_packed)
 dma.sendchannel.wait()
 dma.recvchannel.wait()
 
-obuf = packedbytes2npy(obuf_packed, odt)
-np.save("output.npy", obuf)
+# unpack the packed output buffer from accelerator
+obuf_unpacked = packed_bytearray_to_finnpy(obuf_packed, odt, oshape_unpacked)
+np.save("output.npy", obuf_unpacked)
 """

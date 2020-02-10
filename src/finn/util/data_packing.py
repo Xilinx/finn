@@ -1,8 +1,12 @@
-import numpy as np
+import binascii
 import sys
 
+import numpy as np
 from bitstring import BitArray
+
 from finn.core.datatype import DataType
+from finn.util.basic import roundup_to_integer_multiple
+
 
 def array2hexstring(array, dtype, pad_to_nbits, prefix="0x"):
     """
@@ -51,6 +55,27 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x"):
     return prefix + lineval.hex
 
 
+def hexstring2npbytearray(hexstring, remove_prefix="0x"):
+    """Convert a hex string into a NumPy array of dtype uint8. Examples:
+
+    hexstring2npbytearray("0f01") = array([15,  1], dtype=uint8)
+    """
+    # remove prefix if found
+    if hexstring.startswith(remove_prefix):
+        lrp = len(remove_prefix)
+        hexstring = hexstring[lrp:]
+    # use Python's built-in bytearray
+    return np.asarray(bytearray.fromhex(hexstring), dtype=np.uint8)
+
+
+def npbytearray2hexstring(npbytearray, prefix="0x"):
+    """Convert a NumPy array of uint8 dtype into a hex string. Examples:
+
+    npbytearray2hexstring(array([15,  1], dtype=uint8)) = "0x0f01"
+    """
+    return prefix + binascii.hexlify(bytearray(npbytearray)).decode("utf-8")
+
+
 def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
     """Pack the innermost dimension of the given numpy ndarray into hex
     strings using array2hexstring. Examples:
@@ -74,13 +99,32 @@ def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
 
 
 def unpack_innermost_dim_from_hex_string(
-    data, dtype, shape, packedBits, targetBits, rtlsim=False
+    ndarray, dtype, out_shape, reverse_inner=False
 ):
-    # function expects flattens array and returns an array in the desired shape
+    """Convert a NumPy array of hex strings into a FINN NumPy array by unpacking
+    the hex strings into the specified data type. out_shape can be specified
+    such that any padding in the packing dimension is removed. If reverse_inner
+    is set, the innermost unpacked dimension will be reversed."""
+
+    if type(ndarray) != np.ndarray:
+        raise Exception(
+            """unpack_innermost_dim_from_hex_string needs ndarray
+        as input"""
+        )
+    if ndarray.dtype.kind not in {"U", "S"}:
+        raise Exception(
+            """unpack_innermost_dim_from_hex_string needs ndarray of
+        hex strings as input"""
+        )
+    # convert ndarray into flattened list
+    data = ndarray.flatten().tolist()
+    packedBits = len(data[0]) * 8
+    targetBits = dtype.bitwidth()
+    # calculate outer and inner dim shapes
     outer_dim_elems = 1
-    for dim in range(len(shape) - 1):
-        outer_dim_elems = outer_dim_elems * shape[dim]
-    inner_dim_elems = shape[-1]
+    for dim in range(len(out_shape) - 1):
+        outer_dim_elems = outer_dim_elems * out_shape[dim]
+    inner_dim_elems = out_shape[-1]
 
     array = []
     for outer_elem in range(outer_dim_elems):
@@ -100,20 +144,23 @@ def unpack_innermost_dim_from_hex_string(
             elem_str = "".join(map(str, elem))
             ar_list.append(int(elem_str, 2))
         # reverse inner dimension back to "normal" positions
-        if rtlsim is False:
+        if reverse_inner is False:
             ar_list.reverse()
-        else:
-            # interpret output values correctly by flattening and adjusting the output
-            if dtype == DataType.BIPOLAR:
-                ar_list = [2 * x - 1 for x in ar_list]
-            # pyverilator interprets int2 as uint2, so output has to be corrected
-            elif dtype == DataType.INT2 or dtype == DataType.INT32:
-                mask = 2 ** (dtype.bitwidth() - 1)
-                ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
+
+        # interpret output values correctly
+
+        # interpret values as bipolar
+        if dtype == DataType.BIPOLAR:
+            ar_list = [2 * x - 1 for x in ar_list]
+        # interpret values as signed values 
+        elif dtype.name.startswith("INT"):
+            mask = 2 ** (dtype.bitwidth() - 1)
+            ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
 
         array.append(ar_list)
-    array = np.asarray(array, dtype=np.float32).reshape(shape)
+    array = np.asarray(array, dtype=np.float32).reshape(out_shape)
     return array
+
 
 def numpy_to_hls_code(
     ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_decl=False
@@ -195,8 +242,64 @@ def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits):
     integer is assumed to be a packed array of targetBits-bit elements, which
     will be unpacked as the innermost dimension of the NumPy array."""
 
-    output = [hex(int(x)) for x in output]
+    # TODO should have its own testbench?
+    output = np.asarray([hex(int(x)) for x in output])
     out_array = unpack_innermost_dim_from_hex_string(
-        output, dtype, shape, packedBits, targetBits, True
+        output, dtype, shape, reverse_inner=True
     )
     np.save(path, out_array)
+
+
+def finnpy_to_packed_bytearray(ndarray, dtype):
+    """Given a numpy ndarray with FINN DataType dtype, pack the innermost
+    dimension and return the packed representation as an ndarray of uint8.
+    The packed innermost dimension will be padded to the nearest multiple
+    of 8 bits. The returned ndarray has the same number of dimensions as the
+    input.
+    """
+
+    if (not issubclass(type(ndarray), np.ndarray)) or ndarray.dtype != np.float32:
+        # try to convert to a float numpy array (container dtype is float)
+        ndarray = np.asarray(ndarray, dtype=np.float32)
+    # pack innermost dim to hex strings padded to 8 bits
+    bits = dtype.bitwidth() * ndarray.shape[-1]
+    bits_padded = roundup_to_integer_multiple(bits, 8)
+    packed_hexstring = pack_innermost_dim_as_hex_string(ndarray, dtype, bits_padded)
+
+    def fn(x):
+        return np.asarray(list(map(hexstring2npbytearray, x)))
+
+    if packed_hexstring.ndim == 0:
+        # scalar, call hexstring2npbytearray directly
+        return hexstring2npbytearray(np.asscalar(packed_hexstring))
+    else:
+        # convert ndarray of hex strings to byte array
+        return np.apply_along_axis(fn, packed_hexstring.ndim - 1, packed_hexstring)
+
+
+def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None):
+    """Given a packed numpy uint8 ndarray, unpack it into a FINN array of
+    given DataType. output_shape can be specified to remove padding from the
+    packed dimension, or set to None to be inferred from the input."""
+
+    if (
+        not issubclass(type(packed_bytearray), np.ndarray)
+    ) or packed_bytearray.dtype != np.uint8:
+        raise Exception("packed_bytearray_to_finnpy needs NumPy uint8 arrays")
+    if packed_bytearray.ndim == 0:
+        raise Exception("packed_bytearray_to_finnpy expects at least 1D ndarray")
+    packed_dim = packed_bytearray.ndim - 1
+    packed_bits = packed_bytearray.shape[packed_dim] * 8
+    target_bits = dtype.bitwidth()
+    if output_shape is None:
+        # determine output shape from input shape
+        assert packed_bits % target_bits == 0
+        n_target_elems = packed_bits // target_bits
+        output_shape = packed_bytearray.shape[:-1] + (n_target_elems,)
+    # convert innermost dim of byte array to hex strings
+    packed_hexstring = np.apply_along_axis(
+        npbytearray2hexstring, packed_dim, packed_bytearray
+    )
+    ret = unpack_innermost_dim_from_hex_string(packed_hexstring, dtype, output_shape)
+
+    return ret
