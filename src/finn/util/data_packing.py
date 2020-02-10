@@ -146,14 +146,16 @@ def unpack_innermost_dim_from_hex_string(
         # reverse inner dimension back to "normal" positions
         if reverse_inner is False:
             ar_list.reverse()
-        else:
-            # interpret output values correctly by flattening and adjusting the output
-            if dtype == DataType.BIPOLAR:
-                ar_list = [2 * x - 1 for x in ar_list]
-            # pyverilator interprets int2 as uint2, so output has to be corrected
-            elif dtype == DataType.INT2 or dtype == DataType.INT32:
-                mask = 2 ** (dtype.bitwidth() - 1)
-                ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
+
+        # interpret output values correctly
+
+        # interpret values as bipolar
+        if dtype == DataType.BIPOLAR:
+            ar_list = [2 * x - 1 for x in ar_list]
+        # interpret values as signed values 
+        elif dtype.name.startswith("INT"):
+            mask = 2 ** (dtype.bitwidth() - 1)
+            ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
 
         array.append(ar_list)
     array = np.asarray(array, dtype=np.float32).reshape(out_shape)
