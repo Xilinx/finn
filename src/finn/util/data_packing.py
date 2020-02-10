@@ -277,7 +277,7 @@ def finnpy_to_packed_bytearray(ndarray, dtype):
         return np.apply_along_axis(fn, packed_hexstring.ndim - 1, packed_hexstring)
 
 
-def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None):
+def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None, reverse_inner=False):
     """Given a packed numpy uint8 ndarray, unpack it into a FINN array of
     given DataType. output_shape can be specified to remove padding from the
     packed dimension, or set to None to be inferred from the input."""
@@ -300,6 +300,6 @@ def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None):
     packed_hexstring = np.apply_along_axis(
         npbytearray2hexstring, packed_dim, packed_bytearray
     )
-    ret = unpack_innermost_dim_from_hex_string(packed_hexstring, dtype, output_shape)
+    ret = unpack_innermost_dim_from_hex_string(packed_hexstring, dtype, output_shape, reverse_inner)
 
     return ret
