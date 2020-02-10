@@ -16,6 +16,7 @@ DOCKER_RND=$(shuf -i0-32768 -n1)
 DOCKER_TAG="finn_${DOCKER_UNAME}"
 DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
 : ${JUPYTER_PORT=8888}
+: ${NETRON_PORT=8081}
 
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -60,6 +61,7 @@ echo "Mounting $SCRIPTPATH/PYNQ-HelloWorld into /workspace/PYNQ-HelloWorld"
 echo "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
 echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
 echo "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
+echo "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 
 if [ "$1" = "test" ]; then
         echo "Running test suite"
@@ -80,6 +82,7 @@ docker build --tag=$DOCKER_TAG \
              --build-arg UID=$DOCKER_UID \
              --build-arg PASSWD=$DOCKER_PASSWD \
              --build-arg JUPYTER_PORT=$JUPYTER_PORT \
+             --build-arg NETRON_PORT=$NETRON_PORT \
              .
 # Launch container with current directory mounted
 docker run -t --rm --name $DOCKER_INST_NAME -it \
@@ -98,4 +101,5 @@ docker run -t --rm --name $DOCKER_INST_NAME -it \
 -e VIVADO_PATH=$VIVADO_PATH \
 -e FINN_INST_NAME=$DOCKER_INST_NAME \
 -p $JUPYTER_PORT:$JUPYTER_PORT \
+-p $NETRON_PORT:$NETRON_PORT \
 $DOCKER_TAG bash -c "$DOCKER_CMD"
