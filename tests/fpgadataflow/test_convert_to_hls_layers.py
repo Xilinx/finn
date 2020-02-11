@@ -6,7 +6,6 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-from models.LFC import LFC
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -22,18 +21,13 @@ from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeN
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.test import get_fc_model_trained
 
 export_onnx_path = "test_output_lfc.onnx"
-# TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_checkpoint = (
-    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
-)
 
 
 def test_convert_to_hls_layers_lfc_w1a1():
-    lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
-    checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
-    lfc.load_state_dict(checkpoint["state_dict"])
+    lfc = get_fc_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())

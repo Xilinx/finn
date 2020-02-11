@@ -7,30 +7,15 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-from models.LFC import LFC
-from models.SFC import SFC
-from models.TFC import TFC
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.basic import make_build_dir
+from finn.util.test import get_fc_model_trained
 
 export_onnx_path = make_build_dir("test_brevitas_fc_")
-
-
-# TODO get from config instead, hardcoded to Docker path for now
-def get_trained_fc_checkpoint(size, weight_bit_width, act_bit_width):
-    nname = "%s_%dW%dA" % (size, weight_bit_width, act_bit_width)
-    root = "/workspace/brevitas_cnv_lfc/pretrained_models/%s/checkpoints/best.tar"
-    return root % nname
-
-
-def get_fc_model_def(size):
-    model_def_map = {"LFC": LFC, "SFC": SFC, "TFC": TFC}
-    return model_def_map[size]
-
 
 # activation: None or DataType
 @pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
@@ -41,11 +26,7 @@ def get_fc_model_def(size):
 def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
     nname = "%s_%dW%dA" % (size, wbits, abits)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
-    checkpoint_loc = get_trained_fc_checkpoint(size, wbits, abits)
-    model_def = get_fc_model_def(size)
-    fc = model_def(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=abits)
-    checkpoint = torch.load(checkpoint_loc, map_location="cpu")
-    fc.load_state_dict(checkpoint["state_dict"])
+    fc = get_fc_model_trained(size, wbits, abits)
     bo.export_finn_onnx(fc, (1, 1, 28, 28), finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
