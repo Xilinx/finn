@@ -11,7 +11,7 @@ import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
 from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.fpgadataflow.streamingfclayer_batch import StreamingFCLayer_Batch
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
@@ -61,19 +61,19 @@ def test_convert_to_hls_layers_tfc_w1a1():
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
     os.remove(export_onnx_path)
 
-    fc0w = StreamingFCLayer_Batch(fc0)
+    fc0w = getCustomOp(fc0)
     fc0w.set_nodeattr("SIMD", 784)
     fc0w.set_nodeattr("PE", 16)
 
-    fc1w = StreamingFCLayer_Batch(fc1)
+    fc1w = getCustomOp(fc1)
     fc1w.set_nodeattr("SIMD", 16)
     fc1w.set_nodeattr("PE", 16)
 
-    fc2w = StreamingFCLayer_Batch(fc2)
+    fc2w = getCustomOp(fc2)
     fc2w.set_nodeattr("SIMD", 16)
     fc2w.set_nodeattr("PE", 16)
 
-    fc3w = StreamingFCLayer_Batch(fc3)
+    fc3w = getCustomOp(fc3)
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
 
