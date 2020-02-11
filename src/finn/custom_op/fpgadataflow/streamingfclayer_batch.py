@@ -13,6 +13,12 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 
+# ONNX i/o tensor shape assumptions for StreamingFCLayer:
+# input 0 is the input vector, shape (1, i_size) = (1, MW)
+# input 1 is the weight vector, shape (i_size, o_size) = (MW, MH)
+# (optional) input 2 is the threshold vector, shape (o_size, n_thres)
+# output 0 is the output vector, shape (1, o_size) = (1, MH)
+
 
 class StreamingFCLayer_Batch(HLSCustomOp):
     def __init__(self, onnx_node):
