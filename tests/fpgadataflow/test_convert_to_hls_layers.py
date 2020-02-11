@@ -23,11 +23,11 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.test import get_fc_model_trained
 
-export_onnx_path = "test_output_lfc.onnx"
+export_onnx_path = "test_output_tfc.onnx"
 
 
-def test_convert_to_hls_layers_lfc_w1a1():
-    lfc = get_fc_model_trained("LFC", 1, 1)
+def test_convert_to_hls_layers_tfc_w1a1():
+    lfc = get_fc_model_trained("TFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
@@ -43,38 +43,38 @@ def test_convert_to_hls_layers_lfc_w1a1():
     fc0 = model.graph.node[2]
     assert fc0.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
-    assert model.get_tensor_shape(fc0.input[1]) == [784, 1024]
-    assert model.get_tensor_shape(fc0.input[2]) == [1024, 1]
+    assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
+    assert model.get_tensor_shape(fc0.input[2]) == [64, 1]
     fc1 = model.graph.node[3]
     assert fc1.op_type == "StreamingFCLayer_Batch"
-    assert model.get_tensor_shape(fc1.input[0]) == [1, 1024]
-    assert model.get_tensor_shape(fc1.input[1]) == [1024, 1024]
-    assert model.get_tensor_shape(fc1.input[2]) == [1024, 1]
+    assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
+    assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
+    assert model.get_tensor_shape(fc1.input[2]) == [64, 1]
     fc2 = model.graph.node[4]
     assert fc2.op_type == "StreamingFCLayer_Batch"
-    assert model.get_tensor_shape(fc2.input[0]) == [1, 1024]
-    assert model.get_tensor_shape(fc2.input[1]) == [1024, 1024]
-    assert model.get_tensor_shape(fc2.input[2]) == [1024, 1]
+    assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
+    assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
+    assert model.get_tensor_shape(fc2.input[2]) == [64, 1]
     fc3 = model.graph.node[5]
     assert fc3.op_type == "StreamingFCLayer_Batch"
-    assert model.get_tensor_shape(fc3.input[0]) == [1, 1024]
-    assert model.get_tensor_shape(fc3.input[1]) == [1024, 10]
+    assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
+    assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
     os.remove(export_onnx_path)
 
     fc0w = StreamingFCLayer_Batch(fc0)
     fc0w.set_nodeattr("SIMD", 784)
-    fc0w.set_nodeattr("PE", 32)
+    fc0w.set_nodeattr("PE", 16)
 
     fc1w = StreamingFCLayer_Batch(fc1)
-    fc1w.set_nodeattr("SIMD", 1024)
-    fc1w.set_nodeattr("PE", 32)
+    fc1w.set_nodeattr("SIMD", 16)
+    fc1w.set_nodeattr("PE", 16)
 
     fc2w = StreamingFCLayer_Batch(fc2)
-    fc2w.set_nodeattr("SIMD", 1024)
-    fc2w.set_nodeattr("PE", 32)
+    fc2w.set_nodeattr("SIMD", 16)
+    fc2w.set_nodeattr("PE", 16)
 
     fc3w = StreamingFCLayer_Batch(fc3)
-    fc3w.set_nodeattr("SIMD", 1024)
+    fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
 
     model = model.transform(CodeGen_npysim())
