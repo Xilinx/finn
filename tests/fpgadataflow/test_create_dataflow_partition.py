@@ -36,6 +36,7 @@ def test_dataflow_partition_tlastmarker():
     model = ModelWrapper(model_path)
     model = model.transform(InsertTLastMarker())
     assert model.graph.node[-1].op_type == "TLastMarker"
+    assert model.graph.node[-1].domain == "finn"
     tl_node = getCustomOp(model.graph.node[-1])
     assert tl_node.get_nodeattr("NumIters") == 1
     assert tl_node.get_nodeattr("StreamWidth") == 320

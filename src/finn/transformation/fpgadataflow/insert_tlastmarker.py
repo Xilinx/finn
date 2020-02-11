@@ -39,6 +39,8 @@ class InsertTLastMarker(Transformation):
                 [graph_out_name],
                 NumIters=num_iters,
                 StreamWidth=stream_width,
+                domain="finn",
+                backend="fpgadataflow",
             )
             model.graph.node.append(tlast_node)
             return (model, True)
