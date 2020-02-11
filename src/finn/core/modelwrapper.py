@@ -115,6 +115,19 @@ class ModelWrapper:
             qa.quant_parameter_tensor_names.append(dt)
             qnt_annotations.append(qa)
 
+    def get_tensor_valueinfo(self, tensor_name):
+        """Returns ValueInfoProto of tensor with given name, if it has one."""
+        graph = self._model_proto.graph
+        vi_names = [(x.name, x) for x in graph.input]
+        vi_names += [(x.name, x) for x in graph.output]
+        vi_names += [(x.name, x) for x in graph.value_info]
+        try:
+            vi_ind = [x[0] for x in vi_names].index(tensor_name)
+            vi = vi_names[vi_ind][1]
+            return vi
+        except ValueError:
+            return None
+
     def get_tensor_shape(self, tensor_name):
         """Returns the shape of tensor with given name, if it has ValueInfoProto."""
         graph = self._model_proto.graph
