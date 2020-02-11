@@ -6,6 +6,7 @@ import onnx.numpy_helper as np_helper
 from onnx import TensorProto
 
 import finn.util.basic as util
+import finn.util.onnx as onnxutil
 from finn.core.datatype import DataType
 
 
@@ -248,14 +249,14 @@ class ModelWrapper:
         graph = self._model_proto.graph
         # make empty tensors for all the graph inputs and outputs
         for vi in graph.input:
-            new_tensor = util.valueinfo_to_tensor(vi)
+            new_tensor = onnxutil.valueinfo_to_tensor(vi)
             execution_context[vi.name] = new_tensor
         for vi in graph.output:
-            new_tensor = util.valueinfo_to_tensor(vi)
+            new_tensor = onnxutil.valueinfo_to_tensor(vi)
             execution_context[vi.name] = new_tensor
         # make empty tensors for all intermediate buffers
         for vi in graph.value_info:
-            new_tensor = util.valueinfo_to_tensor(vi)
+            new_tensor = onnxutil.valueinfo_to_tensor(vi)
             execution_context[vi.name] = new_tensor
         # fill in the constants provided by the initializers (TensorProto to npy)
         for t in graph.initializer:

@@ -1,8 +1,6 @@
 import os
 
 import brevitas.onnx as bo
-import torch
-from models.LFC import LFC
 
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
@@ -10,6 +8,7 @@ from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
+from finn.util.test import get_fc_model_trained
 
 export_onnx_path = "test_output_lfc.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
@@ -19,9 +18,7 @@ trained_lfc_checkpoint = (
 
 
 def test_infer_datatypes():
-    lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
-    checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
-    lfc.load_state_dict(checkpoint["state_dict"])
+    lfc = get_fc_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())

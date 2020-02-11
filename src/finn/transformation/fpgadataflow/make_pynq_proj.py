@@ -1,8 +1,6 @@
 import os
 import subprocess
 
-import numpy as np
-
 from finn.transformation import Transformation
 from finn.util.basic import get_by_name, make_build_dir, roundup_to_integer_multiple
 
@@ -11,8 +9,7 @@ from . import templates
 
 class MakePYNQProject(Transformation):
     """Create a Vivado PYNQ overlay project (including the shell infrastructure)
-    from the already-stitched IP block for this graph, and generate a Python
-    driver for the generated accelerator.
+    from the already-stitched IP block for this graph.
     All nodes in the graph must have the fpgadataflow backend attribute,
     and the CodeGen_ipstitch transformation must have been previously run on
     the graph.
@@ -54,21 +51,22 @@ class MakePYNQProject(Transformation):
         ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
 
         # extract the actual in-out bytes from graph
+        # TODO convert this to an analysis pass
         i_tensor_name = model.graph.input[0].name
         o_tensor_name = model.graph.output[0].name
         i_tensor_shape = model.get_tensor_shape(i_tensor_name)
         o_tensor_shape = model.get_tensor_shape(o_tensor_name)
         i_tensor_dt = model.get_tensor_datatype(i_tensor_name)
         o_tensor_dt = model.get_tensor_datatype(o_tensor_name)
-        i_bits = i_tensor_dt.bitwidth() * np.prod(i_tensor_shape)
-        o_bits = o_tensor_dt.bitwidth() * np.prod(o_tensor_shape)
+        i_bits_per_cycle = i_tensor_dt.bitwidth() * i_tensor_shape[-1]
+        o_bits_per_cycle = o_tensor_dt.bitwidth() * o_tensor_shape[-1]
         # ensure i/o is padded to bytes
-        i_bits = roundup_to_integer_multiple(i_bits, 8)
-        o_bits = roundup_to_integer_multiple(o_bits, 8)
-        assert i_bits % 8 == 0
-        assert o_bits % 8 == 0
-        in_bytes = i_bits / 8
-        out_bytes = o_bits / 8
+        i_bits_per_cycle_padded = roundup_to_integer_multiple(i_bits_per_cycle, 8)
+        o_bits_per_cycle_padded = roundup_to_integer_multiple(o_bits_per_cycle, 8)
+        assert i_bits_per_cycle_padded % 8 == 0
+        assert i_bits_per_cycle_padded % 8 == 0
+        in_bytes = i_bits_per_cycle_padded / 8
+        out_bytes = o_bits_per_cycle_padded / 8
         in_if_name = "in0_V_V_0"
         out_if_name = "out_r_0"
         clk_name = "ap_clk_0"
@@ -108,10 +106,6 @@ class MakePYNQProject(Transformation):
                 templates.call_pynqshell_makefile_template
                 % (pynq_shell_path, self.platform, ipcfg, "bitstream", working_dir)
             )
-        # generate the driver
-        driver_py = vivado_pynq_proj_dir + "/driver.py"
-        with open(driver_py, "w") as f:
-            f.write(templates.pynq_driver_template)
         # call the project creation script
         # synthesis script will be called with a separate transformation
         bash_command = ["bash", make_project_sh]

@@ -146,14 +146,16 @@ def unpack_innermost_dim_from_hex_string(
         # reverse inner dimension back to "normal" positions
         if reverse_inner is False:
             ar_list.reverse()
-        else:
-            # interpret output values correctly by flattening and adjusting the output
-            if dtype == DataType.BIPOLAR:
-                ar_list = [2 * x - 1 for x in ar_list]
-            # pyverilator interprets int2 as uint2, so output has to be corrected
-            elif dtype == DataType.INT2 or dtype == DataType.INT32:
-                mask = 2 ** (dtype.bitwidth() - 1)
-                ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
+
+        # interpret output values correctly
+
+        # interpret values as bipolar
+        if dtype == DataType.BIPOLAR:
+            ar_list = [2 * x - 1 for x in ar_list]
+        # interpret values as signed values 
+        elif dtype.name.startswith("INT"):
+            mask = 2 ** (dtype.bitwidth() - 1)
+            ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
 
         array.append(ar_list)
     array = np.asarray(array, dtype=np.float32).reshape(out_shape)
@@ -255,7 +257,8 @@ def finnpy_to_packed_bytearray(ndarray, dtype):
     of 8 bits. The returned ndarray has the same number of dimensions as the
     input.
     """
-    if type(ndarray) != np.ndarray or ndarray.dtype != np.float32:
+
+    if (not issubclass(type(ndarray), np.ndarray)) or ndarray.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
         ndarray = np.asarray(ndarray, dtype=np.float32)
     # pack innermost dim to hex strings padded to 8 bits
@@ -279,7 +282,9 @@ def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None):
     given DataType. output_shape can be specified to remove padding from the
     packed dimension, or set to None to be inferred from the input."""
 
-    if type(packed_bytearray) != np.ndarray or packed_bytearray.dtype != np.uint8:
+    if (
+        not issubclass(type(packed_bytearray), np.ndarray)
+    ) or packed_bytearray.dtype != np.uint8:
         raise Exception("packed_bytearray_to_finnpy needs NumPy uint8 arrays")
     if packed_bytearray.ndim == 0:
         raise Exception("packed_bytearray_to_finnpy expects at least 1D ndarray")
