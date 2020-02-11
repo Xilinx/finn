@@ -1,5 +1,6 @@
-import os
 from pkgutil import get_data
+
+import pytest
 
 import brevitas.onnx as bo
 import numpy as np
@@ -7,87 +8,46 @@ import onnx
 import onnx.numpy_helper as nph
 import torch
 from models.LFC import LFC
+from models.SFC import SFC
+from models.TFC import TFC
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
+from finn.util.basic import make_build_dir
 
-export_onnx_path = "test_output_lfc.onnx"
+export_onnx_path = make_build_dir("test_brevitas_fc_")
+
+
 # TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_w1a1_checkpoint = (
-    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
-)
-
-trained_lfc_w1a2_checkpoint = (
-    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W2A/checkpoints/best.tar"
-)
+def get_trained_fc_checkpoint(size, weight_bit_width, act_bit_width):
+    nname = "%s_%dW%dA" % (size, weight_bit_width, act_bit_width)
+    root = "/workspace/brevitas_cnv_lfc/pretrained_models/%s/checkpoints/best.tar"
+    return root % nname
 
 
-def test_brevitas_trained_lfc_w1a1_pytorch():
-    # load pretrained weights into LFC-w1a1
-    lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1).eval()
-    checkpoint = torch.load(trained_lfc_w1a1_checkpoint, map_location="cpu")
-    lfc.load_state_dict(checkpoint["state_dict"])
-    # load one of the test vectors
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
-    input_tensor = onnx.load_tensor_from_string(raw_i)
-    input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()
-    assert input_tensor.shape == (1, 1, 28, 28)
-    # do forward pass in PyTorch/Brevitas
-    produced = lfc.forward(input_tensor).detach().numpy()
-    expected = [
-        [
-            3.3253,
-            -2.5652,
-            9.2157,
-            -1.4251,
-            1.4251,
-            -3.3728,
-            0.2850,
-            -0.5700,
-            7.0781,
-            -1.2826,
-        ]
-    ]
-    assert np.isclose(produced, expected, atol=1e-4).all()
+def get_fc_model_def(size):
+    model_def_map = {"LFC": LFC, "SFC": SFC, "TFC": TFC}
+    return model_def_map[size]
 
 
-def test_brevitas_trained_lfc_w1a2_pytorch():
-    # load pretrained weights into LFC-w1a2
-    lfc = LFC(weight_bit_width=1, act_bit_width=2, in_bit_width=2).eval()
-    checkpoint = torch.load(trained_lfc_w1a2_checkpoint, map_location="cpu")
-    lfc.load_state_dict(checkpoint["state_dict"])
-    # load one of the test vectors
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
-    input_tensor = onnx.load_tensor_from_string(raw_i)
-    input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()
-    assert input_tensor.shape == (1, 1, 28, 28)
-    # do forward pass in PyTorch/Brevitas
-    produced = lfc.forward(input_tensor).detach().numpy()
-    expected = [
-        [
-            4.598069,
-            -6.3698025,
-            10.75695,
-            0.3796571,
-            1.4764442,
-            -5.4417515,
-            -1.8982856,
-            -5.610488,
-            6.116698,
-            0.21092065,
-        ]
-    ]
-    assert np.isclose(produced, expected, atol=1e-4).all()
-
-
-def test_brevitas_to_onnx_export_and_exec_lfc_w1a1():
-    lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
-    checkpoint = torch.load(trained_lfc_w1a1_checkpoint, map_location="cpu")
-    lfc.load_state_dict(checkpoint["state_dict"])
-    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
+# activation: None or DataType
+@pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
+# weight bits
+@pytest.mark.parametrize("wbits", [1])
+# act bits
+@pytest.mark.parametrize("abits", [1, 2])
+def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
+    nname = "%s_%dW%dA" % (size, wbits, abits)
+    finn_onnx = export_onnx_path + "/%s.onnx" % nname
+    checkpoint_loc = get_trained_fc_checkpoint(size, wbits, abits)
+    model_def = get_fc_model_def(size)
+    fc = model_def(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=abits)
+    checkpoint = torch.load(checkpoint_loc, map_location="cpu")
+    fc.load_state_dict(checkpoint["state_dict"])
+    bo.export_finn_onnx(fc, (1, 1, 28, 28), finn_onnx)
+    model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     # load one of the test vectors
@@ -101,32 +61,5 @@ def test_brevitas_to_onnx_export_and_exec_lfc_w1a1():
     input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()
     assert input_tensor.shape == (1, 1, 28, 28)
     # do forward pass in PyTorch/Brevitas
-    expected = lfc.forward(input_tensor).detach().numpy()
+    expected = fc.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
-    # remove the downloaded model and extracted files
-    os.remove(export_onnx_path)
-
-
-def test_brevitas_to_onnx_export_and_exec_lfc_w1a2():
-    lfc = LFC(weight_bit_width=1, act_bit_width=2, in_bit_width=2)
-    checkpoint = torch.load(trained_lfc_w1a2_checkpoint, map_location="cpu")
-    lfc.load_state_dict(checkpoint["state_dict"])
-    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
-    model = model.transform(InferShapes())
-    model = model.transform(FoldConstants())
-    # load one of the test vectors
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
-    input_tensor = onnx.load_tensor_from_string(raw_i)
-    # run using FINN-based execution
-    input_dict = {"0": nph.to_array(input_tensor)}
-    output_dict = oxe.execute_onnx(model, input_dict)
-    produced = output_dict[list(output_dict.keys())[0]]
-    # run using PyTorch/Brevitas
-    input_tensor = torch.from_numpy(nph.to_array(input_tensor)).float()
-    assert input_tensor.shape == (1, 1, 28, 28)
-    # do forward pass in PyTorch/Brevitas
-    expected = lfc.forward(input_tensor).detach().numpy()
-    assert np.isclose(produced, expected, atol=1e-3).all()
-    # remove the downloaded model and extracted files
-    os.remove(export_onnx_path)
