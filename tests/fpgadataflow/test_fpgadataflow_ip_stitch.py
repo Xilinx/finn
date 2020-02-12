@@ -22,12 +22,12 @@ from finn.util.basic import (
 
 # TODO control board/part for tests from a global place
 # settings for Ultra96
-test_fpga_part = "xczu3eg-sbva484-1-e"
-test_pynq_board = "Ultra96"
+#test_fpga_part = "xczu3eg-sbva484-1-e"
+#test_pynq_board = "Ultra96"
 
 # settings for PYNQ-Z1
-# test_fpga_part = "xc7z020clg400-1"
-# test_pynq_board = "Pynq-Z1"
+test_fpga_part = "xc7z020clg400-1"
+test_pynq_board = "Pynq-Z1"
 
 ip_stitch_model_dir = make_build_dir("test_fpgadataflow_ipstitch")
 
