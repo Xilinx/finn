@@ -13,6 +13,12 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 
+# ONNX i/o tensor shape assumptions for StreamingFCLayer:
+# input 0 is the input vector, shape (1, i_size) = (1, MW)
+# input 1 is the weight vector, shape (i_size, o_size) = (MW, MH)
+# (optional) input 2 is the threshold vector, shape (o_size, n_thres)
+# output 0 is the output vector, shape (1, o_size) = (1, MH)
+
 
 class StreamingFCLayer_Batch(HLSCustomOp):
     def __init__(self, onnx_node):
@@ -628,18 +634,27 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+        # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
+        # partition for parallel access along the PE dimension (dim 1)
         self.code_gen_dict["$PRAGMAS$"].append(
-            "DO_PRAGMA(HLS ARRAY_PARTITION variable=weights complete dim=1)"
+            (
+                "DO_PRAGMA(HLS ARRAY_PARTITION "
+                "variable=weights.m_weights complete dim=1)"
+            )
         )
-
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "DO_PRAGMA(HLS ARRAY_PARTITION variable=weights complete dim=2)"
-        )
+        # the threshold tensor is acc_type [PE][TMEM][N_THRES]
+        # partition for parallel access along PE and N_THRES dimensions (dims 1 and 3)
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$PRAGMAS$"].append(
-                "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs complete dim=1)"
+                (
+                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=1)"
+                )
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs complete dim=3)"
+                (
+                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=3)"
+                )
             )

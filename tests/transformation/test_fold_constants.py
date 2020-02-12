@@ -5,12 +5,12 @@ import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as np_helper
-from models.LFC import LFC
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
+from finn.util.test import get_fc_model_untrained
 
 export_onnx_path = "test_output_lfc.onnx"
 
@@ -32,7 +32,7 @@ def test_const_folding():
 
 
 def test_const_folding_shapes():
-    lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
+    lfc = get_fc_model_untrained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())

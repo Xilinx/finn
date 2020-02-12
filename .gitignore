@@ -49,9 +49,9 @@ MANIFEST
 .venv*/
 
 # Cloned dependencies for Docker
-brevitas/
-brevitas_cnv_lfc/
-cnpy/
-finn-hlslib/
-pyverilator/
-PYNQ-HelloWorld/
+/brevitas/
+/brevitas_cnv_lfc/
+/cnpy/
+/finn-hlslib/
+/pyverilator/
+/PYNQ-HelloWorld/
