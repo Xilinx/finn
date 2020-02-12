@@ -1,4 +1,5 @@
 import shutil
+import os
 import subprocess
 
 import numpy as np
@@ -59,8 +60,8 @@ def make_npy2apintstream_testcase(ndarray, dtype):
         f.write("\n".join(test_app_string))
     cmd_compile = """
 g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
--I/workspace/cnpy/ -I/workspace/vivado-hlslib -I/workspace/finn/src/finn/data/cpp \
---std=c++11 -lz"""
+-I/workspace/cnpy/ -I{}/include -I/workspace/finn/src/finn/data/cpp \
+--std=c++11 -lz""".format(os.environ["VIVADO_PATH"])
     with open(test_dir + "/compile.sh", "w") as f:
         f.write(cmd_compile)
     compile = subprocess.Popen(
