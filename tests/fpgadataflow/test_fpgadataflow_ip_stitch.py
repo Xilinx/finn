@@ -75,6 +75,7 @@ def create_one_fc_model():
         domain="finn",
         backend="fpgadataflow",
         NumIters=1,
+        ElemWidth=odt.bitwidth(),
         StreamWidth=odt.bitwidth() * m,
     )
 
@@ -164,6 +165,7 @@ def create_two_fc_model():
         backend="fpgadataflow",
         NumIters=m,
         StreamWidth=2,
+        ElemWidth=odt.bitwidth(),
     )
 
     graph = helper.make_graph(

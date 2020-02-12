@@ -40,6 +40,7 @@ def test_dataflow_partition_tlastmarker():
     tl_node = getCustomOp(model.graph.node[-1])
     assert tl_node.get_nodeattr("NumIters") == 1
     assert tl_node.get_nodeattr("StreamWidth") == 320
+    assert tl_node.get_nodeattr("ElemWidth") == 32
     model.save(build_dir + "/test_dataflow_partition_tlastmarker.onnx")
     model = model.transform(InsertTLastMarker())
     model.save(build_dir + "/test_dataflow_partition_tlastmarker2.onnx")
