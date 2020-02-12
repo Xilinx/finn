@@ -259,7 +259,7 @@ def test_fpgadataflow_ipstitch_pynq_synth():
 @pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_projgen"])
 def test_fpgadataflow_ipstitch_pynq_driver():
     model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
-    model = model.transform(MakePYNQDriver(test_pynq_board))
+    model = model.transform(MakePYNQDriver())
     driver_dir = model.get_metadata_prop("pynq_driver_dir")
     assert driver_dir is not None
     assert os.path.isdir(driver_dir)
