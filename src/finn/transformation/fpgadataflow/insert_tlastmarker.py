@@ -25,6 +25,7 @@ class InsertTLastMarker(Transformation):
             stream_width = int(custom_op.get_outstream_width())
             out_shape = model.get_tensor_shape(graph_out_name)
             out_dtype = model.get_tensor_datatype(graph_out_name)
+            elem_width = out_dtype.bitwidth()
             # make new buffer
             final_node_out = oh.make_tensor_value_info(
                 model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
@@ -39,6 +40,7 @@ class InsertTLastMarker(Transformation):
                 [graph_out_name],
                 NumIters=num_iters,
                 StreamWidth=stream_width,
+                ElemWidth=elem_width,
                 domain="finn",
                 backend="fpgadataflow",
             )
