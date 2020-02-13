@@ -152,7 +152,7 @@ def unpack_innermost_dim_from_hex_string(
         # interpret values as bipolar
         if dtype == DataType.BIPOLAR:
             ar_list = [2 * x - 1 for x in ar_list]
-        # interpret values as signed values 
+        # interpret values as signed values
         elif dtype.name.startswith("INT"):
             mask = 2 ** (dtype.bitwidth() - 1)
             ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
@@ -277,7 +277,13 @@ def finnpy_to_packed_bytearray(ndarray, dtype):
         return np.apply_along_axis(fn, packed_hexstring.ndim - 1, packed_hexstring)
 
 
-def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None, reverse_inner=False):
+def packed_bytearray_to_finnpy(
+    packed_bytearray,
+    dtype,
+    output_shape=None,
+    reverse_inner=False,
+    reverse_endian=False,
+):
     """Given a packed numpy uint8 ndarray, unpack it into a FINN array of
     given DataType. output_shape can be specified to remove padding from the
     packed dimension, or set to None to be inferred from the input."""
@@ -296,10 +302,20 @@ def packed_bytearray_to_finnpy(packed_bytearray, dtype, output_shape=None, rever
         assert packed_bits % target_bits == 0
         n_target_elems = packed_bits // target_bits
         output_shape = packed_bytearray.shape[:-1] + (n_target_elems,)
+    if reverse_endian and target_bits > 8:
+        # revse the endianness of each element
+        orig_shape = packed_bytearray.shape
+        assert target_bits % 8 == 0
+        target_bytes = target_bits // 8
+        new_shape = orig_shape[:-1] + (-1, target_bytes)
+        packed_bytearray = np.flip(packed_bytearray.reshape(new_shape), axis=-1)
+        packed_bytearray = packed_bytearray.reshape(orig_shape)
     # convert innermost dim of byte array to hex strings
     packed_hexstring = np.apply_along_axis(
         npbytearray2hexstring, packed_dim, packed_bytearray
     )
-    ret = unpack_innermost_dim_from_hex_string(packed_hexstring, dtype, output_shape, reverse_inner)
+    ret = unpack_innermost_dim_from_hex_string(
+        packed_hexstring, dtype, output_shape, reverse_inner
+    )
 
     return ret
