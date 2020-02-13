@@ -7,7 +7,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
-from finn.transformation.fpgadataflow.set_sim_mode import SetSimMode
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
 def test_layer_streaming_maxpool_batch():
@@ -113,7 +113,7 @@ def test_layer_streaming_maxpool_batch():
     ).reshape(2, 2, 4, 4)
     print(input_tensor)
 
-    model = model.transform(SetSimMode("npysim"))
+    model = model.transform(SetExecMode("npysim"))
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
 
