@@ -20,16 +20,11 @@ from finn.util.basic import (
     calculate_signed_dot_prod_range,
     gen_finn_dt_tensor,
     make_build_dir,
+    pynq_part_map,
 )
 
-# TODO control board/part for tests from a global place
-# settings for Ultra96
-# test_fpga_part = "xczu3eg-sbva484-1-e"
-# test_pynq_board = "Ultra96"
-
-# settings for PYNQ-Z1
-test_fpga_part = "xc7z020clg400-1"
-test_pynq_board = "Pynq-Z1"
+test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+test_fpga_part = pynq_part_map[test_pynq_board]
 
 ip_stitch_model_dir = make_build_dir("test_fpgadataflow_ipstitch")
 
