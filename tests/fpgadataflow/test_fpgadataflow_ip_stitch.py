@@ -54,7 +54,7 @@ def create_one_fc_model():
         MW=m,
         MH=m,
         SIMD=m,
-        PE=m,
+        PE=m // 2,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
@@ -69,7 +69,7 @@ def create_one_fc_model():
         ["outp_tlast"],
         domain="finn",
         backend="fpgadataflow",
-        NumIters=1,
+        NumIters=2,
         ElemWidth=odt.bitwidth(),
         StreamWidth=odt.bitwidth() * m,
     )

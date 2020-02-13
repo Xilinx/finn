@@ -9,6 +9,7 @@ variable config_ip_axis_name_out
 variable config_ip_use_axilite
 variable config_ip_project_dir
 variable config_output_products_dir
+variable config_remote_cache
 
 # for arguments involving paths below: use absolute paths or relative to the
 # platform/overlay/bitstream folder
@@ -36,6 +37,8 @@ set config_ip_clk_name %s
 set config_ip_nrst_name %s
 # whether the IP needs an AXI Lite interface for control
 set config_ip_use_axilite 0
+# Vivado OOC IP cache
+set config_remote_cache "%s"
 """
 
 call_pynqshell_makefile_template = """

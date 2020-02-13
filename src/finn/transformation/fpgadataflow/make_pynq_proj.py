@@ -69,6 +69,7 @@ class MakePYNQProject(Transformation):
         out_if_name = "out_r_0"
         clk_name = "ap_clk_0"
         nrst_name = "ap_rst_n_0"
+        vivado_ip_cache = os.getenv("VIVADO_IP_CACHE", default="")
 
         # create a temporary folder for the project
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
@@ -85,6 +86,7 @@ class MakePYNQProject(Transformation):
             out_if_name,
             clk_name,
             nrst_name,
+            vivado_ip_cache,
         )
 
         with open(vivado_pynq_proj_dir + "/ip_config.tcl", "w") as f:
