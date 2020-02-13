@@ -25,58 +25,72 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import copy
+import os
+import subprocess
 
 import numpy as np
 import onnx.helper as helper
 import onnxruntime as rt
 
 import finn.core.execute_custom_node as ex_cu_node
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.registry import getCustomOp
+from finn.util.basic import get_by_name
 
 
 def execute_node(node, context, graph):
-    """Call onnxruntime to execute a single node. Input/output provided via context."""
+    """Execute a single node by using onnxruntime, with custom function or
+    if dataflow partition by using remote execution or rtlsim.
+    Input/output provided via context."""
 
-    # run node with custom function or by using onnxruntime
-
-    if node.domain == "finn":
-
-        ex_cu_node.execute_custom_node(node, context, graph)
-
+    if node.op_type == "StreamingDataflowPartition":
+        sdp_node = getCustomOp(node)
+        model = ModelWrapper(sdp_node.get_nodeattr("model"))
+        execute_onnx(model, context)
     else:
+        if node.domain == "finn":
 
-        # onnxruntime unfortunately does not implement run_node as defined by ONNX,
-        # it can only execute entire models -- so we create a model which solely
-        # consists of our current node.
-        node_inputs = list(filter(lambda x: x.name in node.input, graph.input))
-        node_inputs += list(filter(lambda x: x.name in node.input, graph.value_info))
-        node_outputs = list(filter(lambda x: x.name in node.output, graph.output))
-        node_outputs += list(filter(lambda x: x.name in node.output, graph.value_info))
-        node_graph = helper.make_graph(
-            nodes=[node],
-            name="single-node-exec",
-            inputs=node_inputs,
-            outputs=node_outputs,
-        )
-        node_model = helper.make_model(node_graph)
-        input_dict = dict()
-        for inp in node.input:
-            input_dict[inp] = context[inp]
+            ex_cu_node.execute_custom_node(node, context, graph)
 
-        sess = rt.InferenceSession(node_model.SerializeToString())
-        output_list = sess.run(None, input_dict)
+        else:
 
-        for output_ind in range(len(node.output)):
-            outp = node.output[output_ind]
-            if output_list[output_ind].shape != context[outp].shape:
-                raise Exception(
-                    """Output shapes disagree after node execution:
-                    found %s vs expected %s"""
-                    % (
-                        str(output_list[output_ind].shape.shape),
-                        str(context[outp].shape),
+            # onnxruntime unfortunately does not implement run_node as defined by ONNX,
+            # it can only execute entire models -- so we create a model which solely
+            # consists of our current node.
+            node_inputs = list(filter(lambda x: x.name in node.input, graph.input))
+            node_inputs += list(
+                filter(lambda x: x.name in node.input, graph.value_info)
+            )
+            node_outputs = list(filter(lambda x: x.name in node.output, graph.output))
+            node_outputs += list(
+                filter(lambda x: x.name in node.output, graph.value_info)
+            )
+            node_graph = helper.make_graph(
+                nodes=[node],
+                name="single-node-exec",
+                inputs=node_inputs,
+                outputs=node_outputs,
+            )
+            node_model = helper.make_model(node_graph)
+            input_dict = dict()
+            for inp in node.input:
+                input_dict[inp] = context[inp]
+
+            sess = rt.InferenceSession(node_model.SerializeToString())
+            output_list = sess.run(None, input_dict)
+
+            for output_ind in range(len(node.output)):
+                outp = node.output[output_ind]
+                if output_list[output_ind].shape != context[outp].shape:
+                    raise Exception(
+                        """Output shapes disagree after node execution:
+                        found %s vs expected %s"""
+                        % (
+                            str(output_list[output_ind].shape.shape),
+                            str(context[outp].shape),
+                        )
                     )
-                )
-            context[outp] = output_list[output_ind]
+                context[outp] = output_list[output_ind]
 
 
 def execute_onnx(model, input_dict, return_full_exec_context=False):
@@ -113,11 +127,46 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
                 )
         else:
             raise Exception("Provided input not found in graph context: %s" % inp_name)
-    # now call each node in the graph nodes list
-    # we can simply walk down the list since the ONNX spec guarantees that it is
-    # topologically sorted
+
+    # if model only consists of hls custom op nodes the whole model can be executed
+    # using rtlsim or by passing the inputs as .npy file to the PYNQ board and
+    # after execution copying the output back to FINN flow
+
+    # to determine if a model has at least one non hls custom op a flag is introduced
+    not_all_hls_nodes = False
     for node in graph.node:
-        execute_node(node, execution_context, graph)
+        backend_attribute = get_by_name(node.attribute, "backend")
+        if backend_attribute is None:
+            not_all_hls_nodes = True
+        elif backend_attribute.s.decode("UTF-8") == "fpgadataflow":
+            pass
+        else:
+            raise Exception("Attribute backend is set to an unknown value!")
+
+    # if there are non hls custom op nodes in the model execute_node()
+    # is called for each node
+
+    if not_all_hls_nodes is True:
+        # we can simply walk down the list since the ONNX spec guarantees that it is
+        # topologically sorted
+        for node in graph.node:
+            execute_node(node, execution_context, graph)
+    else:
+        pynq_ip = model.get_metadata_prop("pynq_ip")
+        pynq_username = model.get_metadata_prop("pynq_username")
+        pynq_password = model.get_metadata_prop("pynq_password")
+        pynq_target_dir = model.get_metadata_prop("pynq_target_dir")
+        deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
+        inp = input_dict[model.graph.input[0].name]
+        np.save(os.path.join(deployment_dir, "input.npy"), inp)
+        # copy input to PYNQ board
+        cmd = "sshpass -p {} scp -r {}/input.npy {}@{}:{}".format(
+            pynq_password, deployment_dir, pynq_username, pynq_ip, pynq_target_dir
+        )
+        bash_command = ["/bin/bash", "-c", cmd]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
+
     if return_full_exec_context:
         return execution_context
     else:
