@@ -3,7 +3,7 @@ import finn.util.basic as util
 from finn.transformation import Transformation
 
 
-class SetSimMode(Transformation):
+class SetExecMode(Transformation):
     """Set attribute sim_mode in all fpgadataflow nodes"""
 
     def __init__(self, mode):
@@ -23,9 +23,9 @@ class SetSimMode(Transformation):
                         # lookup op_type in registry of CustomOps
                         inst = registry.custom_op[op_type](node)
                         # set sim_mode accordingly to argument mode
-                        inst.set_nodeattr("sim_mode", self.mode)
+                        inst.set_nodeattr("exec_mode", self.mode)
                         # ensure that sim_mode is now set
-                        assert inst.get_nodeattr("sim_mode") != ""
+                        assert inst.get_nodeattr("exec_mode") != ""
                     except KeyError:
                         # exception if op_type is not supported
                         raise Exception(
