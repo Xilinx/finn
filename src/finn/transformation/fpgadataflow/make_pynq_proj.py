@@ -52,8 +52,10 @@ class MakePYNQProject(Transformation):
         ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
 
         # extract HLSCustomOp instances to get i/o stream widths
-        first_node = getCustomOp(model.graph.node[0])
-        last_node = getCustomOp(model.graph.node[-1])
+        i_tensor_name = model.graph.input[0].name
+        o_tensor_name = model.graph.output[0].name
+        first_node = getCustomOp(model.find_consumer(i_tensor_name))
+        last_node = getCustomOp(model.find_producer(o_tensor_name))
         i_bits_per_cycle = first_node.get_instream_width()
         o_bits_per_cycle = last_node.get_outstream_width()
         # ensure i/o is padded to bytes
