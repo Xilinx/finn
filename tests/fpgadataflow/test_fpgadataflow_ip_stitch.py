@@ -7,16 +7,19 @@ from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.core.onnx_exec import execute_onnx
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
+)
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
-from finn. transformation.fpgadataflow.create_dataflow_partition import CreateDataflowPartition
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import (
     calculate_signed_dot_prod_range,
@@ -271,3 +274,12 @@ def test_fpgadataflow_ipstitch_pynq_deployment_folder():
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx")
 
 
+@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_deployment_folder"])
+def test_fpgadataflow_ipstitch_remote_execution():
+    model = ModelWrapper(
+        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx"
+    )
+    idt = DataType.INT2
+    x = gen_finn_dt_tensor(idt, (1, 4))
+    input_dict = {"inp": x}
+    execute_onnx(model, input_dict)
