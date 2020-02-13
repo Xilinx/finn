@@ -232,8 +232,6 @@ compilation transformations?
                 else:
                     no_change_count = 0
                     old_outputs = outputs
-            print(inputs)
-            print(outputs)
 
         return outputs
 
