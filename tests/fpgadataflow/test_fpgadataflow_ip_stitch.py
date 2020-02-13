@@ -20,16 +20,11 @@ from finn.util.basic import (
     calculate_signed_dot_prod_range,
     gen_finn_dt_tensor,
     make_build_dir,
+    pynq_part_map,
 )
 
-# TODO control board/part for tests from a global place
-# settings for Ultra96
-# test_fpga_part = "xczu3eg-sbva484-1-e"
-# test_pynq_board = "Ultra96"
-
-# settings for PYNQ-Z1
-test_fpga_part = "xc7z020clg400-1"
-test_pynq_board = "Pynq-Z1"
+test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+test_fpga_part = pynq_part_map[test_pynq_board]
 
 ip_stitch_model_dir = make_build_dir("test_fpgadataflow_ipstitch")
 
@@ -59,7 +54,7 @@ def create_one_fc_model():
         MW=m,
         MH=m,
         SIMD=m,
-        PE=m,
+        PE=m // 2,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
@@ -74,7 +69,8 @@ def create_one_fc_model():
         ["outp_tlast"],
         domain="finn",
         backend="fpgadataflow",
-        NumIters=1,
+        NumIters=2,
+        ElemWidth=odt.bitwidth(),
         StreamWidth=odt.bitwidth() * m,
     )
 
@@ -164,6 +160,7 @@ def create_two_fc_model():
         backend="fpgadataflow",
         NumIters=m,
         StreamWidth=2,
+        ElemWidth=odt.bitwidth(),
     )
 
     graph = helper.make_graph(
@@ -257,7 +254,7 @@ def test_fpgadataflow_ipstitch_pynq_synth():
 @pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_projgen"])
 def test_fpgadataflow_ipstitch_pynq_driver():
     model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
-    model = model.transform(MakePYNQDriver(test_pynq_board))
+    model = model.transform(MakePYNQDriver())
     driver_dir = model.get_metadata_prop("pynq_driver_dir")
     assert driver_dir is not None
     assert os.path.isdir(driver_dir)

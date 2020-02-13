@@ -1,6 +1,7 @@
 import os
 import subprocess
 
+from finn.custom_op.registry import getCustomOp
 from finn.transformation import Transformation
 from finn.util.basic import get_by_name, make_build_dir, roundup_to_integer_multiple
 
@@ -50,16 +51,13 @@ class MakePYNQProject(Transformation):
         ip_dirs += [ipstitch_path + "/ip"]
         ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
 
-        # extract the actual in-out bytes from graph
-        # TODO convert this to an analysis pass
+        # extract HLSCustomOp instances to get i/o stream widths
         i_tensor_name = model.graph.input[0].name
         o_tensor_name = model.graph.output[0].name
-        i_tensor_shape = model.get_tensor_shape(i_tensor_name)
-        o_tensor_shape = model.get_tensor_shape(o_tensor_name)
-        i_tensor_dt = model.get_tensor_datatype(i_tensor_name)
-        o_tensor_dt = model.get_tensor_datatype(o_tensor_name)
-        i_bits_per_cycle = i_tensor_dt.bitwidth() * i_tensor_shape[-1]
-        o_bits_per_cycle = o_tensor_dt.bitwidth() * o_tensor_shape[-1]
+        first_node = getCustomOp(model.find_consumer(i_tensor_name))
+        last_node = getCustomOp(model.find_producer(o_tensor_name))
+        i_bits_per_cycle = first_node.get_instream_width()
+        o_bits_per_cycle = last_node.get_outstream_width()
         # ensure i/o is padded to bytes
         i_bits_per_cycle_padded = roundup_to_integer_multiple(i_bits_per_cycle, 8)
         o_bits_per_cycle_padded = roundup_to_integer_multiple(o_bits_per_cycle, 8)
@@ -71,6 +69,7 @@ class MakePYNQProject(Transformation):
         out_if_name = "out_r_0"
         clk_name = "ap_clk_0"
         nrst_name = "ap_rst_n_0"
+        vivado_ip_cache = os.getenv("VIVADO_IP_CACHE", default="")
 
         # create a temporary folder for the project
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
@@ -87,6 +86,7 @@ class MakePYNQProject(Transformation):
             out_if_name,
             clk_name,
             nrst_name,
+            vivado_ip_cache,
         )
 
         with open(vivado_pynq_proj_dir + "/ip_config.tcl", "w") as f:

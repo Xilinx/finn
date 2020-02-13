@@ -297,3 +297,15 @@ compilation transformations?
     @abstractmethod
     def pragmas(self):
         pass
+
+    def get_folded_input_shape(self):
+        raise Exception("get_folded_input_shape not implemented for this op")
+
+    def get_folded_output_shape(self):
+        raise Exception("get_folded_output_shape not implemented for this op")
+
+    def get_instream_width(self):
+        raise Exception("get_instream_width not implemented for this op")
+
+    def get_outstream_width(self):
+        raise Exception("get_outstream_width not implemented for this op")
