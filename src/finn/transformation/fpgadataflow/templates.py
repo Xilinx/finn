@@ -103,5 +103,5 @@ dma.recvchannel.wait()
 obuf_folded = packed_bytearray_to_finnpy(obuf_packed, odt, oshape_folded)
 # convert to normal reshape and save
 obuf_normal = obuf_folded.reshape(oshape_normal)
-np.save("output.npy", obuf_unpacked)
+np.save("output.npy", obuf_normal)
 """
