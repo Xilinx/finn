@@ -1,5 +1,5 @@
-import shutil
 import os
+import shutil
 import subprocess
 
 import numpy as np
@@ -61,7 +61,9 @@ def make_npy2apintstream_testcase(ndarray, dtype):
     cmd_compile = """
 g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
 -I/workspace/cnpy/ -I{}/include -I/workspace/finn/src/finn/data/cpp \
---std=c++11 -lz""".format(os.environ["VIVADO_PATH"])
+--std=c++11 -lz""".format(
+        os.environ["VIVADO_PATH"]
+    )
     with open(test_dir + "/compile.sh", "w") as f:
         f.write(cmd_compile)
     compile = subprocess.Popen(
@@ -191,3 +193,13 @@ def test_packed_bytearray_to_finnpy():
     eE = np.asarray(eE, dtype=np.float32)
     shapeE = eE.shape
     assert (packed_bytearray_to_finnpy(E, DataType.INT32, shapeE) == eE).all()
+    F = np.asarray(
+        [[252, 255, 255, 255, 0, 0, 0, 0, 252, 255, 255, 255, 252, 255, 255, 255]],
+        dtype=np.uint8,
+    )
+    eF = [[-4, 0, -4, -4]]
+    eF = np.asarray(eE, dtype=np.float32)
+    shapeF = eF.shape
+    assert (
+        packed_bytearray_to_finnpy(F, DataType.INT32, shapeF, reverse_endian=True) == eF
+    ).all()

@@ -27,7 +27,6 @@ ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
-ENV PYNQ_BOARD "Pynq-Z1"
 
 ARG GID
 ARG GNAME

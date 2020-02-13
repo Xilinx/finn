@@ -103,7 +103,9 @@ dma.sendchannel.wait()
 dma.recvchannel.wait()
 
 # unpack the packed output buffer from accelerator
-obuf_folded = packed_bytearray_to_finnpy(obuf_packed, odt, oshape_folded)
+obuf_folded = packed_bytearray_to_finnpy(
+    obuf_packed, odt, oshape_folded, reverse_endian=True
+)
 # convert to normal reshape and save
 obuf_normal = obuf_folded.reshape(oshape_normal)
 np.save("output.npy", obuf_normal)

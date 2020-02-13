@@ -11,6 +11,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
@@ -27,7 +28,7 @@ from finn.util.basic import (
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
 
-ip_stitch_model_dir = make_build_dir("test_fpgadataflow_ipstitch")
+ip_stitch_model_dir = make_build_dir("test_fpgadataflow_ipstitch_")
 
 
 def create_one_fc_model():
@@ -40,10 +41,11 @@ def create_one_fc_model():
     no_act = 1
     binary_xnor_mode = 0
     actval = 0
+    simd = 2
+    pe = 2
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, m])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
-    outp_tlast = helper.make_tensor_value_info("outp_tlast", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
         "StreamingFCLayer_Batch",
@@ -54,8 +56,8 @@ def create_one_fc_model():
         resType="ap_resource_lut()",
         MW=m,
         MH=m,
-        SIMD=m,
-        PE=m // 2,
+        SIMD=simd,
+        PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
@@ -64,23 +66,8 @@ def create_one_fc_model():
         noActivation=no_act,
     )
 
-    tlastmarker = helper.make_node(
-        "TLastMarker",
-        ["outp"],
-        ["outp_tlast"],
-        domain="finn",
-        backend="fpgadataflow",
-        NumIters=2,
-        ElemWidth=odt.bitwidth(),
-        StreamWidth=odt.bitwidth() * m,
-    )
-
     graph = helper.make_graph(
-        nodes=[fc0, tlastmarker],
-        name="fclayer_graph",
-        inputs=[inp],
-        outputs=[outp_tlast],
-        value_info=[outp],
+        nodes=[fc0], name="fclayer_graph", inputs=[inp], outputs=[outp],
     )
 
     model = helper.make_model(graph, producer_name="fclayer-model")
@@ -88,7 +75,6 @@ def create_one_fc_model():
 
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", odt)
-    model.set_tensor_datatype("outp_tlast", odt)
     model.set_tensor_datatype("w0", wdt)
 
     # generate weights
@@ -110,11 +96,12 @@ def create_two_fc_model():
     actval = odt.min()
     no_act = 0
     binary_xnor_mode = 0
+    pe = 2
+    simd = 2
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, m])
     mid = helper.make_tensor_value_info("mid", TensorProto.FLOAT, [1, m])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
-    outp_tlast = helper.make_tensor_value_info("outp_tlast", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
         "StreamingFCLayer_Batch",
@@ -125,8 +112,8 @@ def create_two_fc_model():
         resType="ap_resource_lut()",
         MW=m,
         MH=m,
-        SIMD=1,
-        PE=1,
+        SIMD=simd,
+        PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
@@ -144,8 +131,8 @@ def create_two_fc_model():
         resType="ap_resource_lut()",
         MW=m,
         MH=m,
-        SIMD=1,
-        PE=1,
+        SIMD=simd,
+        PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
@@ -154,23 +141,12 @@ def create_two_fc_model():
         noActivation=no_act,
     )
 
-    tlastmarker = helper.make_node(
-        "TLastMarker",
-        ["outp"],
-        ["outp_tlast"],
-        domain="finn",
-        backend="fpgadataflow",
-        NumIters=m,
-        StreamWidth=2,
-        ElemWidth=odt.bitwidth(),
-    )
-
     graph = helper.make_graph(
-        nodes=[fc0, fc1, tlastmarker],
+        nodes=[fc0, fc1],
         name="fclayer_graph",
         inputs=[inp],
-        outputs=[outp_tlast],
-        value_info=[mid, outp],
+        outputs=[outp],
+        value_info=[mid],
     )
 
     model = helper.make_model(graph, producer_name="fclayer-model")
@@ -179,7 +155,6 @@ def create_two_fc_model():
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("mid", idt)
     model.set_tensor_datatype("outp", odt)
-    model.set_tensor_datatype("outp_tlast", odt)
     model.set_tensor_datatype("w0", wdt)
     model.set_tensor_datatype("w1", wdt)
 
@@ -213,14 +188,13 @@ def test_fpgadataflow_ipstitch_gen_model():
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = ModelWrapper(sdp_node.get_nodeattr("model"))
-
+    model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen(test_fpga_part, 5))
     model = model.transform(HLSSynth_IPGen())
     assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
     # assert model.graph.node[1].op_type == "StreamingFCLayer_Batch"
-    assert model.graph.node[1].op_type == "TLastMarker"
-
+    assert model.graph.node[-1].op_type == "TLastMarker"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx")
 
 

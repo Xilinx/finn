@@ -17,8 +17,11 @@ DOCKER_TAG="finn_${DOCKER_UNAME}"
 # uncomment to run multiple instances with different names
 # DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
 DOCKER_INST_NAME="finn_${DOCKER_UNAME}"
+# the settings below will be taken from environment variables if available,
+# otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
 : ${NETRON_PORT=8081}
+: ${PYNQ_BOARD="Pynq-Z1"}
 
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -40,7 +43,7 @@ PYVERILATOR_LOCAL=$SCRIPTPATH/pyverilator
 PYNQSHELL_LOCAL=$SCRIPTPATH/PYNQ-HelloWorld
 BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
-: ${VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache}
+VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
 
 # clone dependency repos
 git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
@@ -67,6 +70,7 @@ echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
 echo "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 echo "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 echo "Vivado IP cache dir is at $VIVADO_IP_CACHE"
+echo "Using default PYNQ board $PYNQ_BOARD"
 
 if [ "$1" = "test" ]; then
         echo "Running test suite"
@@ -107,6 +111,7 @@ docker run -t --rm --name $DOCKER_INST_NAME -it \
 -e FINN_INST_NAME=$DOCKER_INST_NAME \
 -e FINN_ROOT="/workspace/finn" \
 -e VIVADO_IP_CACHE="$VIVADO_IP_CACHE" \
+-e PYNQ_BOARD=$PYNQ_BOARD \
 -p $JUPYTER_PORT:$JUPYTER_PORT \
 -p $NETRON_PORT:$NETRON_PORT \
 $DOCKER_TAG bash -c "$DOCKER_CMD"
