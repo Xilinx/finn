@@ -9,6 +9,7 @@ variable config_ip_axis_name_out
 variable config_ip_use_axilite
 variable config_ip_project_dir
 variable config_output_products_dir
+variable config_remote_cache
 
 # for arguments involving paths below: use absolute paths or relative to the
 # platform/overlay/bitstream folder
@@ -36,6 +37,8 @@ set config_ip_clk_name %s
 set config_ip_nrst_name %s
 # whether the IP needs an AXI Lite interface for control
 set config_ip_use_axilite 0
+# Vivado OOC IP cache
+set config_remote_cache "%s"
 """
 
 call_pynqshell_makefile_template = """
@@ -64,22 +67,26 @@ dma=ol.axi_dma_0
 # declare input/output types and shapes for the accelerator
 # input FINN DataType
 idt = $INPUT_FINN_DATATYPE$
-# unpacked and packed input shapes
-ishape_unpacked = $INPUT_SHAPE_UNPACKED$
+# normal, folded and packed input shapes
+ishape_normal = $INPUT_SHAPE_NORMAL$
+ishape_folded = $INPUT_SHAPE_FOLDED$
 ishape_packed = $INPUT_SHAPE_PACKED$
 # output FINN DataType
 odt = $OUTPUT_FINN_DATATYPE$
-# unpacked and packed output shapes
+# normal, folded and packed output shapes
+oshape_normal = $OUTPUT_SHAPE_NORMAL$
+oshape_folded = $OUTPUT_SHAPE_FOLDED$
 oshape_packed = $OUTPUT_SHAPE_PACKED$
-oshape_unpacked = $OUTPUT_SHAPE_UNPACKED$
 
 # load desired input .npy file
-ibuf_unpacked = np.load("input.npy")
+ibuf_normal = np.load("input.npy")
 # ensure that shape is as expected
-assert ibuf_unpacked.shape == ishape_unpacked
+assert ibuf_normal.shape == ishape_normal
+# convert to folded form
+ibuf_folded = ibuf_normal.reshape(ishape_folded)
 
 # pack the input buffer
-ibuf_packed = finnpy_to_packed_bytearray(ibuf_unpacked, idt)
+ibuf_packed = finnpy_to_packed_bytearray(ibuf_folded, idt)
 # allocate a PYNQ buffer for the packed input buffer
 ibuf_packed_device = allocate(shape=ishape_packed, dtype=np.uint8)
 # copy the packed data into the PYNQ buffer
@@ -96,6 +103,8 @@ dma.sendchannel.wait()
 dma.recvchannel.wait()
 
 # unpack the packed output buffer from accelerator
-obuf_unpacked = packed_bytearray_to_finnpy(obuf_packed, odt, oshape_unpacked)
-np.save("output.npy", obuf_unpacked)
+obuf_folded = packed_bytearray_to_finnpy(obuf_packed, odt, oshape_folded)
+# convert to normal reshape and save
+obuf_normal = obuf_folded.reshape(oshape_normal)
+np.save("output.npy", obuf_normal)
 """

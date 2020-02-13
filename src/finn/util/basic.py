@@ -8,6 +8,11 @@ import numpy as np
 
 from finn.core.datatype import DataType
 
+# mapping from PYNQ board names to FPGA part names
+pynq_part_map = dict()
+pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
+pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
+
 
 def get_finn_root():
     "Return the root directory that FINN is cloned into."
