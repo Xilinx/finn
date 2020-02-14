@@ -35,7 +35,6 @@ import onnxruntime as rt
 import finn.core.execute_custom_node as ex_cu_node
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
-from finn.util.basic import get_by_name
 
 
 def execute_node(node, context, graph):
@@ -128,30 +127,17 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
         else:
             raise Exception("Provided input not found in graph context: %s" % inp_name)
 
-    # if model only consists of hls custom op nodes the whole model can be executed
-    # using rtlsim or by passing the inputs as .npy file to the PYNQ board and
-    # after execution copying the output back to FINN flow
-
-    # to determine if a model has at least one non hls custom op a flag is introduced
-    not_all_hls_nodes = False
-    for node in graph.node:
-        backend_attribute = get_by_name(node.attribute, "backend")
-        if backend_attribute is None:
-            not_all_hls_nodes = True
-        elif backend_attribute.s.decode("UTF-8") == "fpgadataflow":
-            pass
-        else:
-            raise Exception("Attribute backend is set to an unknown value!")
-
-    # if there are non hls custom op nodes in the model execute_node()
-    # is called for each node
-
-    if not_all_hls_nodes is True:
+    # check if model has an execution mode set
+    # if None, execute model node by node using execute_node()
+    # if set to "bitfile" execute model on PYNQ board
+    # if set to "rtlsim" execute model using pyverilator
+    model_exec_mode = model.get_metadata_prop("exec_mode")
+    if model_exec_mode is None:
         # we can simply walk down the list since the ONNX spec guarantees that it is
         # topologically sorted
         for node in graph.node:
             execute_node(node, execution_context, graph)
-    else:
+    elif model_exec_mode == "bitfile":
         pynq_ip = model.get_metadata_prop("pynq_ip")
         pynq_username = model.get_metadata_prop("pynq_username")
         pynq_password = model.get_metadata_prop("pynq_password")
@@ -159,13 +145,53 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
         deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
         inp = input_dict[model.graph.input[0].name]
         np.save(os.path.join(deployment_dir, "input.npy"), inp)
+        # extracting last folder of absolute path (deployment_dir)
+        deployment_folder = os.path.basename(os.path.normpath(deployment_dir))
         # copy input to PYNQ board
-        cmd = "sshpass -p {} scp -r {}/input.npy {}@{}:{}".format(
-            pynq_password, deployment_dir, pynq_username, pynq_ip, pynq_target_dir
+        cmd = "sshpass -p {} scp -r {}/input.npy {}@{}:{}/{}".format(
+            pynq_password,
+            deployment_dir,
+            pynq_username,
+            pynq_ip,
+            pynq_target_dir,
+            deployment_folder,
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+
+        cmd = (
+            "sshpass -p {} ssh {}@{} "
+            '"cd {}/{}; echo "xilinx" | sudo -S python3.6 driver.py"'
+        ).format(
+            pynq_password, pynq_username, pynq_ip, pynq_target_dir, deployment_folder
+        )
+        bash_command = ["/bin/bash", "-c", cmd]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
+
+        cmd = "sshpass -p {} scp {}@{}:{}/{}/output.npy {}".format(
+            pynq_password,
+            pynq_username,
+            pynq_ip,
+            pynq_target_dir,
+            deployment_folder,
+            deployment_dir,
+        )
+        bash_command = ["/bin/bash", "-c", cmd]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
+        outp = np.load("{}/output.npy".format(deployment_dir))
+        execution_context[graph.output[0].name] = outp
+
+    elif model_exec_mode == "rtlsim":
+        pass
+    else:
+        raise Exception(
+            """Metadata property "exec_mode" is set to an unknown value.
+        Can be left unset or has to be set to "bitfile" for remote execution
+        on PYNQ board or "rtlsim" for execution using pyverilator!"""
+        )
 
     if return_full_exec_context:
         return execution_context
