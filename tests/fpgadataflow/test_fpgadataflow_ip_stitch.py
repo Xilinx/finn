@@ -77,7 +77,8 @@ def create_one_fc_model():
     model.set_tensor_datatype("w0", wdt)
 
     # generate weights
-    w0 = gen_finn_dt_tensor(wdt, (m, m))
+    # w0 = gen_finn_dt_tensor(wdt, (m, m))
+    w0 = np.eye(m, dtype=np.float32)
     model.set_initializer("w0", w0)
 
     return model
@@ -186,7 +187,6 @@ def test_fpgadataflow_ipstitch_gen_model():
     model = model.transform(CodeGen_ipgen(test_fpga_part, 5))
     model = model.transform(HLSSynth_IPGen())
     assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
-    # assert model.graph.node[1].op_type == "StreamingFCLayer_Batch"
     assert model.graph.node[-1].op_type == "TLastMarker"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx")
 
