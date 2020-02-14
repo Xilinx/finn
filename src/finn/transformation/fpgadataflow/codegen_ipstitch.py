@@ -88,6 +88,7 @@ class CodeGen_ipstitch(Transformation):
                 )
 
         # create a temporary folder for the project
+        prjname = "finn_vivado_stitch_proj"
         vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
         model.set_metadata_prop("vivado_stitch_proj", vivado_stitch_proj_dir)
         # start building the tcl script
@@ -95,7 +96,7 @@ class CodeGen_ipstitch(Transformation):
         # create vivado project
         tcl.append(
             "create_project %s %s -part %s"
-            % ("finn_vivado_stitch_proj", vivado_stitch_proj_dir, self.fpgapart)
+            % (prjname, vivado_stitch_proj_dir, self.fpgapart)
         )
         # add all the generated IP dirs to ip_repo_paths
         ip_dirs_str = " ".join(ip_dirs)
@@ -125,6 +126,21 @@ class CodeGen_ipstitch(Transformation):
         tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
+        # create wrapper hdl (for rtlsim later on)
+        bd_base = "%s/%s.srcs/sources_1/bd/%s" % (
+            vivado_stitch_proj_dir,
+            prjname,
+            block_name,
+        )
+        bd_filename = "%s/%s.bd" % (bd_base, block_name)
+        tcl.append("make_wrapper -files [get_files %s] -top" % bd_filename)
+        tcl.append("add_files -norecurse %s/hdl/%s_wrapper.v" % (bd_base, block_name))
+        # export list of used Verilog files (for rtlsim later on)
+        tcl.append("set all_v_files [get_files -filter {FILE_TYPE == Verilog}]")
+        v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
+        tcl.append("set fp [open %s w]" % v_file_list)
+        tcl.append("puts $fp $all_v_files")
+        tcl.append("close $fp")
         # write the project creator tcl script
         tcl_string = "\n".join(tcl) + "\n"
         with open(vivado_stitch_proj_dir + "/make_project.tcl", "w") as f:
