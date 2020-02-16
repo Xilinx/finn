@@ -1,12 +1,8 @@
-import subprocess
 import os
-import numpy as np
+import subprocess
 
-from finn.core.datatype import DataType
-from finn.util.data_packing import (
-    pack_innermost_dim_as_hex_string,
-    unpack_innermost_dim_from_hex_string,
-)
+from pyverilator import PyVerilator
+
 
 class IPGenBuilder:
     def __init__(self):
@@ -34,3 +30,18 @@ class IPGenBuilder:
         bash_command = ["bash", self.ipgen_script]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+
+
+def pyverilate_stitched_ip(model):
+    "Given a model with stitched IP, return a PyVerilator sim object."
+    vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
+    with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
+        all_verilog_srcs = f.read().split()
+
+    def file_to_dir(x):
+        return os.path.dirname(os.path.realpath(x))
+
+    all_verilog_dirs = list(map(file_to_dir, all_verilog_srcs))
+    top_verilog = model.get_metadata_prop("wrapper_filename")
+    sim = PyVerilator.build(top_verilog, verilog_path=all_verilog_dirs)
+    return sim
