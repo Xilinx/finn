@@ -134,7 +134,9 @@ class CodeGen_ipstitch(Transformation):
         )
         bd_filename = "%s/%s.bd" % (bd_base, block_name)
         tcl.append("make_wrapper -files [get_files %s] -top" % bd_filename)
-        tcl.append("add_files -norecurse %s/hdl/%s_wrapper.v" % (bd_base, block_name))
+        wrapper_filename = "%s/hdl/%s_wrapper.v" % (bd_base, block_name)
+        tcl.append("add_files -norecurse %s" % wrapper_filename)
+        model.set_metadata_prop("wrapper_filename", wrapper_filename)
         # export list of used Verilog files (for rtlsim later on)
         tcl.append("set all_v_files [get_files -filter {FILE_TYPE == Verilog}]")
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
