@@ -13,7 +13,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.basic import make_build_dir
-from finn.util.test import get_fc_model_trained
+from finn.util.test import get_test_model_trained
 
 export_onnx_path = make_build_dir("test_brevitas_fc_")
 
@@ -26,7 +26,7 @@ export_onnx_path = make_build_dir("test_brevitas_fc_")
 def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
     nname = "%s_%dW%dA" % (size, wbits, abits)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
-    fc = get_fc_model_trained(size, wbits, abits)
+    fc = get_test_model_trained(size, wbits, abits)
     bo.export_finn_onnx(fc, (1, 1, 28, 28), finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
