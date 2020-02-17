@@ -27,6 +27,7 @@ from finn.util.basic import (
     make_build_dir,
     pynq_part_map,
 )
+from finn.util.fpgadataflow import pyverilate_stitched_ip
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
@@ -218,6 +219,25 @@ def test_fpgadataflow_ipstitch_do_stitch():
     assert vivado_stitch_vlnv is not None
     assert vivado_stitch_vlnv == "xilinx_finn:finn:finn_design:1.0"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
+
+
+@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_do_stitch"])
+def test_fpgadataflow_ipstitch_rtlsim():
+    model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
+    sim = pyverilate_stitched_ip(model)
+    exp_io = [
+        "ap_clk_0",
+        "ap_rst_n_0",
+        "in0_V_V_0_tdata",
+        "in0_V_V_0_tready",
+        "in0_V_V_0_tvalid",
+        "out_r_0_tdata",
+        "out_r_0_tkeep",
+        "out_r_0_tlast",
+        "out_r_0_tready",
+        "out_r_0_tvalid",
+    ]
+    assert dir(sim.io) == exp_io
 
 
 @pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_do_stitch"])
