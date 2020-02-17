@@ -275,10 +275,10 @@ def test_fpgadataflow_ipstitch_pynq_deployment_folder():
     model = ModelWrapper(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_driver.onnx"
     )
-    ip = "172.21.165.113"
-    username = "xilinx"
-    password = "xilinx"
-    target_dir = "/home/xilinx/" + os.environ["FINN_INST_NAME"]
+    ip = os.getenv("PYNQ_IP", "192.168.3.1")
+    username = os.getenv("PYNQ_USERNAME", "xilinx")
+    password = os.getenv("PYNQ_PASSWORD", "xilinx")
+    target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
     model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
     pynq_ip = model.get_metadata_prop("pynq_ip")
     pynq_username = model.get_metadata_prop("pynq_username")
@@ -306,3 +306,4 @@ def test_fpgadataflow_ipstitch_remote_execution():
     x = gen_finn_dt_tensor(idt, (1, 4))
     input_dict = {"inp": x}
     outp = execute_onnx(model, input_dict)
+    print(outp)
