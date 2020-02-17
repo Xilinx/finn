@@ -33,6 +33,7 @@ import onnxruntime as rt
 import finn.core.execute_custom_node as ex_cu_node
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.remote_exec import remote_exec
+from finn.core.rtlsim_exec import rtlsim_exec
 from finn.custom_op.registry import getCustomOp
 
 
@@ -141,8 +142,8 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
         # use remote exec metadata built into model to execute on a remote PYNQ
         remote_exec(model, execution_context)
     elif model_exec_mode == "rtlsim":
-        # TODO compile pyverilator model and execute
-        pass
+        # use stitched IP for rtlsim
+        rtlsim_exec(model, execution_context)
     else:
         raise Exception(
             """Metadata property "exec_mode" is set to an unknown value.

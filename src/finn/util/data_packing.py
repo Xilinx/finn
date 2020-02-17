@@ -1,4 +1,5 @@
 import binascii
+import os
 import sys
 
 import numpy as np
@@ -220,8 +221,12 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits):
     integers, packing the innermost dimension. See
     finn.util.basic.pack_innermost_dim_as_hex_string() for more info on how the
     packing works."""
-
-    inp = np.load(input_file)
+    if os.isfile(input_file):
+        inp = np.load(input_file)
+    elif issubclass(type(input_file), np.ndarray):
+        inp = input_file
+    else:
+        raise Exception("input_file must be ndarray or filename for .npy")
     ishape = inp.shape
     inp = inp.flatten()
     inp_rev = []
@@ -248,6 +253,7 @@ def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits):
         output, dtype, shape, reverse_inner=True
     )
     np.save(path, out_array)
+    return out_array
 
 
 def finnpy_to_packed_bytearray(ndarray, dtype):
