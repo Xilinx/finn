@@ -1,5 +1,3 @@
-from finn.core.modelwrapper import ModelWrapper
-from finn.core.onnx_exec import execute_onnx
 from finn.custom_op import CustomOp
 
 # note that the StreamingDataflowPartition node is only a meta/container node,
@@ -21,9 +19,9 @@ class StreamingDataflowPartition(CustomOp):
         pass
 
     def execute_node(self, context, graph):
-        # retrieve linked "child" dataflow model and execute
-        dataflow_model = ModelWrapper(self.get_nodeattr("model"))
-        execute_onnx(dataflow_model, context)
+        # TODO add RPC execution with synthesized bitfile?
+        # whole-design rtlsim with PyVerilator may also be an alternative
+        pass
 
     def verify_node(self):
         info_messages = []
