@@ -221,10 +221,10 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits):
     integers, packing the innermost dimension. See
     finn.util.basic.pack_innermost_dim_as_hex_string() for more info on how the
     packing works."""
-    if os.isfile(input_file):
-        inp = np.load(input_file)
-    elif issubclass(type(input_file), np.ndarray):
+    if issubclass(type(input_file), np.ndarray):
         inp = input_file
+    elif os.path.isfile(input_file):
+        inp = np.load(input_file)
     else:
         raise Exception("input_file must be ndarray or filename for .npy")
     ishape = inp.shape
