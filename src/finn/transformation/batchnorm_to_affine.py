@@ -67,8 +67,10 @@ class BatchNormToAffine(Transformation):
                 # remove old nodes
                 graph.node.remove(n)
                 if consumer is not None:
-                    graph.node.remove(consumer)
+                    if consumer.op_type == "Squeeze":
+                        graph.node.remove(consumer)
                 if producer is not None:
-                    graph.node.remove(producer)
+                    if producer.op_type == "Unsqueeze":
+                        graph.node.remove(producer)
         model = model.transform(InferShapes())
         return (model, graph_modified)

@@ -12,7 +12,7 @@ from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
-from finn.util.test import get_fc_model_trained
+from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_lfc.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
@@ -22,7 +22,7 @@ trained_lfc_w1a1_checkpoint = (
 
 
 def test_streamline_lfc_w1a1():
-    lfc = get_fc_model_trained("LFC", 1, 1)
+    lfc = get_test_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
