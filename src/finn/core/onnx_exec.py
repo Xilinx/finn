@@ -25,8 +25,6 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import copy
-import os
-import subprocess
 
 import numpy as np
 import onnx.helper as helper
@@ -34,6 +32,7 @@ import onnxruntime as rt
 
 import finn.core.execute_custom_node as ex_cu_node
 from finn.core.modelwrapper import ModelWrapper
+from finn.core.remote_exec import remote_exec
 from finn.custom_op.registry import getCustomOp
 
 
@@ -129,67 +128,25 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
 
     # check if model has an execution mode set
     # if None, execute model node by node using execute_node()
-    # if set to "bitfile" execute model on PYNQ board
+    # if set to "remote_pynq" execute model on PYNQ board
     # if set to "rtlsim" execute model using pyverilator
     model_exec_mode = model.get_metadata_prop("exec_mode")
     if model_exec_mode is None:
+        # execute the model node by node
         # we can simply walk down the list since the ONNX spec guarantees that it is
         # topologically sorted
         for node in graph.node:
             execute_node(node, execution_context, graph)
-    elif model_exec_mode == "bitfile":
-        pynq_ip = model.get_metadata_prop("pynq_ip")
-        pynq_username = model.get_metadata_prop("pynq_username")
-        pynq_password = model.get_metadata_prop("pynq_password")
-        pynq_target_dir = model.get_metadata_prop("pynq_target_dir")
-        deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
-        inp = input_dict[model.graph.input[0].name]
-        np.save(os.path.join(deployment_dir, "input.npy"), inp)
-        # extracting last folder of absolute path (deployment_dir)
-        deployment_folder = os.path.basename(os.path.normpath(deployment_dir))
-        # copy input to PYNQ board
-        cmd = "sshpass -p {} scp -r {}/input.npy {}@{}:{}/{}".format(
-            pynq_password,
-            deployment_dir,
-            pynq_username,
-            pynq_ip,
-            pynq_target_dir,
-            deployment_folder,
-        )
-        bash_command = ["/bin/bash", "-c", cmd]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-
-        cmd = (
-            "sshpass -p {} ssh {}@{} "
-            '"cd {}/{}; echo "xilinx" | sudo -S python3.6 driver.py"'
-        ).format(
-            pynq_password, pynq_username, pynq_ip, pynq_target_dir, deployment_folder
-        )
-        bash_command = ["/bin/bash", "-c", cmd]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-
-        cmd = "sshpass -p {} scp {}@{}:{}/{}/output.npy {}".format(
-            pynq_password,
-            pynq_username,
-            pynq_ip,
-            pynq_target_dir,
-            deployment_folder,
-            deployment_dir,
-        )
-        bash_command = ["/bin/bash", "-c", cmd]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-        outp = np.load("{}/output.npy".format(deployment_dir))
-        execution_context[graph.output[0].name] = outp
-
+    elif model_exec_mode == "remote_pynq":
+        # use remote exec metadata built into model to execute on a remote PYNQ
+        remote_exec(model, execution_context)
     elif model_exec_mode == "rtlsim":
+        # TODO compile pyverilator model and execute
         pass
     else:
         raise Exception(
             """Metadata property "exec_mode" is set to an unknown value.
-        Can be left unset or has to be set to "bitfile" for remote execution
+        Can be left unset or has to be set to "remote_pynq" for remote execution
         on PYNQ board or "rtlsim" for execution using pyverilator!"""
         )
 

@@ -186,7 +186,7 @@ def create_two_fc_model():
 
 @pytest.mark.dependency()
 # exec_mode of StreamingDataflowPartition
-# @pytest.mark.parametrize("exec_mode", ["bitfile"]) #, "rtlsim"])
+# @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
 def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
     model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
@@ -194,7 +194,7 @@ def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = ModelWrapper(sdp_node.get_nodeattr("model"))
-        model.set_metadata_prop("exec_mode", "bitfile")
+        model.set_metadata_prop("exec_mode", "remote_pynq")
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen(test_fpga_part, 5))
