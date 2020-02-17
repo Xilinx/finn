@@ -23,10 +23,10 @@ def get_test_model_trained(netname, wbits, abits):
     fc = model_def_fxn(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=abits)
     checkpoint = torch.load(checkpoint_loc, map_location="cpu")
     fc.load_state_dict(checkpoint["state_dict"])
-    return fc
+    return fc.eval()
 
 
 def get_test_model_untrained(netname, wbits, abits):
     model_def_fxn = get_test_model_def_fxn(netname)
     fc = model_def_fxn(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=abits)
-    return fc
+    return fc.eval()
