@@ -9,7 +9,6 @@ from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_es
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.multithreshold import multithreshold
-from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
@@ -175,7 +174,6 @@ def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "npysim failed"
-    model = model.transform(CleanUp())
 
 
 # activation: None or DataType
@@ -257,5 +255,3 @@ def test_fpgadataflow_fclayer_rtlsim(idt, wdt, act, nf, sf, mw, mh):
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
-
-    model = model.transform(CleanUp())
