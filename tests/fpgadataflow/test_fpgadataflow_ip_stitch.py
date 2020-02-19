@@ -71,7 +71,7 @@ def create_one_fc_model():
     )
 
     graph = helper.make_graph(
-        nodes=[fc0], name="fclayer_graph", inputs=[inp], outputs=[outp],
+        nodes=[fc0], name="fclayer_graph", inputs=[inp], outputs=[outp]
     )
 
     model = helper.make_model(graph, producer_name="fclayer-model")
@@ -82,7 +82,7 @@ def create_one_fc_model():
     model.set_tensor_datatype("w0", wdt)
 
     # generate weights
-    w0 = gen_finn_dt_tensor(wdt, (m, m))
+    w0 = np.eye(m, dtype=np.float32)
     model.set_initializer("w0", w0)
 
     model = model.transform(CreateDataflowPartition())
