@@ -16,7 +16,7 @@ from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcou
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
-from finn.transformation.fpgadataflow.set_sim_mode import SetSimMode
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
@@ -79,7 +79,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
 
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
-    model = model.transform(SetSimMode("npysim"))
+    model = model.transform(SetExecMode("npysim"))
 
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)

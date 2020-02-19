@@ -31,52 +31,65 @@ import onnx.helper as helper
 import onnxruntime as rt
 
 import finn.core.execute_custom_node as ex_cu_node
+from finn.core.modelwrapper import ModelWrapper
+from finn.core.remote_exec import remote_exec
+from finn.core.rtlsim_exec import rtlsim_exec
+from finn.custom_op.registry import getCustomOp
 
 
 def execute_node(node, context, graph):
-    """Call onnxruntime to execute a single node. Input/output provided via context."""
+    """Execute a single node by using onnxruntime, with custom function or
+    if dataflow partition by using remote execution or rtlsim.
+    Input/output provided via context."""
 
-    # run node with custom function or by using onnxruntime
-
-    if node.domain == "finn":
-
-        ex_cu_node.execute_custom_node(node, context, graph)
-
+    if node.op_type == "StreamingDataflowPartition":
+        sdp_node = getCustomOp(node)
+        model = ModelWrapper(sdp_node.get_nodeattr("model"))
+        execute_onnx(model, context)
     else:
+        if node.domain == "finn":
 
-        # onnxruntime unfortunately does not implement run_node as defined by ONNX,
-        # it can only execute entire models -- so we create a model which solely
-        # consists of our current node.
-        node_inputs = list(filter(lambda x: x.name in node.input, graph.input))
-        node_inputs += list(filter(lambda x: x.name in node.input, graph.value_info))
-        node_outputs = list(filter(lambda x: x.name in node.output, graph.output))
-        node_outputs += list(filter(lambda x: x.name in node.output, graph.value_info))
-        node_graph = helper.make_graph(
-            nodes=[node],
-            name="single-node-exec",
-            inputs=node_inputs,
-            outputs=node_outputs,
-        )
-        node_model = helper.make_model(node_graph)
-        input_dict = dict()
-        for inp in node.input:
-            input_dict[inp] = context[inp]
+            ex_cu_node.execute_custom_node(node, context, graph)
 
-        sess = rt.InferenceSession(node_model.SerializeToString())
-        output_list = sess.run(None, input_dict)
+        else:
 
-        for output_ind in range(len(node.output)):
-            outp = node.output[output_ind]
-            if output_list[output_ind].shape != context[outp].shape:
-                raise Exception(
-                    """Output shapes disagree after node execution:
-                    found %s vs expected %s"""
-                    % (
-                        str(output_list[output_ind].shape.shape),
-                        str(context[outp].shape),
+            # onnxruntime unfortunately does not implement run_node as defined by ONNX,
+            # it can only execute entire models -- so we create a model which solely
+            # consists of our current node.
+            node_inputs = list(filter(lambda x: x.name in node.input, graph.input))
+            node_inputs += list(
+                filter(lambda x: x.name in node.input, graph.value_info)
+            )
+            node_outputs = list(filter(lambda x: x.name in node.output, graph.output))
+            node_outputs += list(
+                filter(lambda x: x.name in node.output, graph.value_info)
+            )
+            node_graph = helper.make_graph(
+                nodes=[node],
+                name="single-node-exec",
+                inputs=node_inputs,
+                outputs=node_outputs,
+            )
+            node_model = helper.make_model(node_graph)
+            input_dict = dict()
+            for inp in node.input:
+                input_dict[inp] = context[inp]
+
+            sess = rt.InferenceSession(node_model.SerializeToString())
+            output_list = sess.run(None, input_dict)
+
+            for output_ind in range(len(node.output)):
+                outp = node.output[output_ind]
+                if output_list[output_ind].shape != context[outp].shape:
+                    raise Exception(
+                        """Output shapes disagree after node execution:
+                        found %s vs expected %s"""
+                        % (
+                            str(output_list[output_ind].shape.shape),
+                            str(context[outp].shape),
+                        )
                     )
-                )
-            context[outp] = output_list[output_ind]
+                context[outp] = output_list[output_ind]
 
 
 def execute_onnx(model, input_dict, return_full_exec_context=False):
@@ -113,11 +126,31 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
                 )
         else:
             raise Exception("Provided input not found in graph context: %s" % inp_name)
-    # now call each node in the graph nodes list
-    # we can simply walk down the list since the ONNX spec guarantees that it is
-    # topologically sorted
-    for node in graph.node:
-        execute_node(node, execution_context, graph)
+
+    # check if model has an execution mode set
+    # if None, execute model node by node using execute_node()
+    # if set to "remote_pynq" execute model on PYNQ board
+    # if set to "rtlsim" execute model using pyverilator
+    model_exec_mode = model.get_metadata_prop("exec_mode")
+    if (model_exec_mode is None) or (model_exec_mode == ""):
+        # execute the model node by node
+        # we can simply walk down the list since the ONNX spec guarantees that it is
+        # topologically sorted
+        for node in graph.node:
+            execute_node(node, execution_context, graph)
+    elif model_exec_mode == "remote_pynq":
+        # use remote exec metadata built into model to execute on a remote PYNQ
+        remote_exec(model, execution_context)
+    elif model_exec_mode == "rtlsim":
+        # use stitched IP for rtlsim
+        rtlsim_exec(model, execution_context)
+    else:
+        raise Exception(
+            """Metadata property "exec_mode" is set to an unknown value.
+        Can be left unset or has to be set to "remote_pynq" for remote execution
+        on PYNQ board or "rtlsim" for execution using pyverilator!"""
+        )
+
     if return_full_exec_context:
         return execution_context
     else:
