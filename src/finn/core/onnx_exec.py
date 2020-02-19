@@ -132,7 +132,7 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
     # if set to "remote_pynq" execute model on PYNQ board
     # if set to "rtlsim" execute model using pyverilator
     model_exec_mode = model.get_metadata_prop("exec_mode")
-    if model_exec_mode is None:
+    if (model_exec_mode is None) or (model_exec_mode == ""):
         # execute the model node by node
         # we can simply walk down the list since the ONNX spec guarantees that it is
         # topologically sorted
