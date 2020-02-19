@@ -17,6 +17,9 @@ DOCKER_TAG="finn_${DOCKER_UNAME}"
 # uncomment to run multiple instances with different names
 # DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
 DOCKER_INST_NAME="finn_${DOCKER_UNAME}"
+# ensure Docker tag and inst. name are all lowercase
+DOCKER_TAG=$(echo "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')
+DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
 # the settings below will be taken from environment variables if available,
 # otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
