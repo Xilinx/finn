@@ -82,7 +82,12 @@
             
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="end_to_end_flow.html">FINN - End-to-End Flow</a></li>
-<li class="toctree-l1 current"><a class="current reference internal" href="#">Getting Started</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Getting Started</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#how-to-use-the-finn-compiler">How to use the FINN compiler</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#running-finn-in-docker">Running FINN in Docker</a></li>
+</ul>
+</li>
 <li class="toctree-l1"><a class="reference internal" href="source_code.html">Source Code</a></li>
 </ul>
 
@@ -150,6 +155,23 @@
             
   <div class="section" id="getting-started">
 <h1>Getting Started<a class="headerlink" href="#getting-started" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="how-to-use-the-finn-compiler">
+<h2>How to use the FINN compiler<a class="headerlink" href="#how-to-use-the-finn-compiler" title="Permalink to this headline">¶</a></h2>
+<p>The FINN compiler should not be thought of a single pushbutton tool that does everything for you, but rather as a collection of scripts/tools that will help you convert a QNN into a custom FPGA accelerator that performs high-performance inference. We do provide several examples of taking trained networks all the way down to FPGA bitfiles, but if you are trying to do this for custom networks you will have to write your own Python scripts that call the appropriate FINN Compiler functions that process your design correctly, or adding new functions as required.</p>
+</div>
+<div class="section" id="requirements">
+<h2>Requirements<a class="headerlink" href="#requirements" title="Permalink to this headline">¶</a></h2>
+<ul class="simple">
+<li><p>Ubuntu 18.04</p></li>
+<li><p>Docker</p></li>
+<li><p>A working Vivado installation</p></li>
+<li><p>A <cite>VIVADO_PATH</cite> environment variable pointing to the Vivado installation directory (e.g. the directory where settings64.sh is located)</p></li>
+</ul>
+</div>
+<div class="section" id="running-finn-in-docker">
+<h2>Running FINN in Docker<a class="headerlink" href="#running-finn-in-docker" title="Permalink to this headline">¶</a></h2>
+<p>We use Docker extensively for developing and deploying FINN. If you are not familiar with Docker, there are many excellent <a class="reference external" href="https://docker-curriculum.com/">online resources</a> to get started. There is a Dockerfile in the root of the repository, as well as a <cite>run-docker.sh</cite> script that can be launched in the following modes:</p>
+</div>
 </div>
 
 
