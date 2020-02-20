@@ -19,6 +19,7 @@ RUN apt install verilator
 RUN apt-get -y install sshpass
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN pip install sphinx
+RUN pip install sphinx_rtd_theme
 
 
 # Note that we expect the cloned finn directory on the host to be
