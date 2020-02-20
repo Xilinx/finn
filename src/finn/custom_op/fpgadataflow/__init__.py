@@ -32,7 +32,7 @@ class HLSCustomOp(CustomOp):
             "code_gen_dir_ipgen": ("s", False, ""),
             "executable_path": ("s", False, ""),
             "ipgen_path": ("s", False, ""),
-            "sim_mode": ("s", False, ""),
+            "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
         }
 
@@ -232,13 +232,11 @@ compilation transformations?
                 else:
                     no_change_count = 0
                     old_outputs = outputs
-            print(inputs)
-            print(outputs)
 
         return outputs
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("sim_mode")
+        mode = self.get_nodeattr("exec_mode")
         if mode == "npysim":
             # save input(s)
             self.dynamic_input_to_npy(context, 1)
@@ -251,7 +249,7 @@ compilation transformations?
 
         else:
             raise Exception(
-                """Invalid value for attribute sim_mode! Is currently set to: {}
+                """Invalid value for attribute exec_mode! Is currently set to: {}
             has to be set to one of the following value ("npysim", "rtlsim")""".format(
                     mode
                 )

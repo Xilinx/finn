@@ -17,8 +17,15 @@ class TLastMarker(HLSCustomOp):
         return my_attrs
 
     def execute_node(self, context, graph):
-        # TODO consider implementing rtlsim for TLastMarker
-        raise Exception("TLastMarker does yet not support execution")
+        # TLastMarker's behavior is only visible when doing
+        # rtlsim with stitched IP, since it marks the end
+        # of the current image/input sample. when executing
+        # inside FINN as a single node, this is not visible.
+        # so here we simply return the input as output
+        i_name = self.onnx_node.input[0]
+        o_name = self.onnx_node.output[0]
+        i_tensor = context[i_name]
+        context[o_name] = i_tensor
 
     def make_shape_compatible_op(self):
         # not supported for shape inference

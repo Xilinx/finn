@@ -1,4 +1,5 @@
 import os
+import subprocess
 from distutils.dir_util import copy_tree
 from shutil import copy
 
@@ -46,5 +47,21 @@ class DeployToPYNQ(Transformation):
         pynq_driver_dir = model.get_metadata_prop("pynq_driver_dir")
         copy_tree(pynq_driver_dir, deployment_dir)
         model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
+
+        # create target directory on PYNQ board
+        cmd = 'sshpass -p {} ssh {}@{} "mkdir -p {}"'.format(
+            self.password, self.username, self.ip, self.target_dir
+        )
+        bash_command = ["/bin/bash", "-c", cmd]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
+
+        # copy directory to PYNQ board using scp and sshpass
+        cmd = "sshpass -p {} scp -r {} {}@{}:{}".format(
+            self.password, deployment_dir, self.username, self.ip, self.target_dir
+        )
+        bash_command = ["/bin/bash", "-c", cmd]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
 
         return (model, False)
