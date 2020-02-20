@@ -2,6 +2,8 @@ import os
 import shutil
 import subprocess
 
+import pytest
+
 import numpy as np
 
 import finn.util.basic as cutil
@@ -15,7 +17,10 @@ from finn.util.data_packing import (
 )
 
 
-def make_npy2apintstream_testcase(ndarray, dtype):
+@pytest.mark.parametrize("dtype", [DataType.BINARY, DataType.INT2, DataType.INT32])
+@pytest.mark.parametrize("test_shape", [(1, 2, 4), (1, 1, 64), (2, 64)])
+def test_npy2apintstream(test_shape, dtype):
+    ndarray = cutil.gen_finn_dt_tensor(dtype, test_shape)
     test_dir = cutil.make_build_dir(prefix="test_npy2apintstream_")
     shape = ndarray.shape
     elem_bits = dtype.bitwidth()
@@ -39,6 +44,7 @@ def make_npy2apintstream_testcase(ndarray, dtype):
     shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
     test_app_string = []
     test_app_string += ["#include <cstddef>"]
+    test_app_string += ["#define AP_INT_MAX_W 4096"]
     test_app_string += ['#include "ap_int.h"']
     test_app_string += ['#include "stdint.h"']
     test_app_string += ['#include "hls_stream.h"']
@@ -84,23 +90,6 @@ g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
     assert success
 
 
-test_shapes = [(1, 2, 4), (1, 1, 64), (2, 64)]
-
-
-def test_npy2apintstream_binary():
-    for test_shape in test_shapes:
-        dt = DataType.BINARY
-        W = cutil.gen_finn_dt_tensor(dt, test_shape)
-        make_npy2apintstream_testcase(W, dt)
-
-
-def test_npy2apintstream_int2():
-    for test_shape in test_shapes:
-        dt = DataType.INT2
-        W = cutil.gen_finn_dt_tensor(dt, test_shape)
-        make_npy2apintstream_testcase(W, dt)
-
-
 def test_array2hexstring():
     assert array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) == "0xe"
     assert array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) == "0x0e"
@@ -111,6 +100,8 @@ def test_array2hexstring():
     assert array2hexstring([1, 1, 1, -1], DataType.INT4, 16) == "0x111f"
     assert array2hexstring([-1], DataType.FLOAT32, 32) == "0xbf800000"
     assert array2hexstring([17.125], DataType.FLOAT32, 32) == "0x41890000"
+    assert array2hexstring([1, 1, 0, 1], DataType.BINARY, 4, reverse=True) == "0xb"
+    assert array2hexstring([1, 1, 1, 0], DataType.BINARY, 8, reverse=True) == "0x07"
 
 
 def test_pack_innermost_dim_as_hex_string():
@@ -120,6 +111,11 @@ def test_pack_innermost_dim_as_hex_string():
     B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
     eB = np.asarray([["0x0f", "0x0f"], ["0x07", "0x0d"]])
     assert (pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB).all()
+    C = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
+    eC = np.asarray([["0x0f", "0x0f"], ["0x0d", "0x07"]])
+    assert (
+        pack_innermost_dim_as_hex_string(C, DataType.UINT2, 8, reverse_inner=True) == eC
+    ).all()
 
 
 def test_numpy_to_hls_code():
