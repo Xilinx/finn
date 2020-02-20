@@ -100,10 +100,10 @@ finn.transformation.fpgadataflow.make\_pynq\_proj module
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.set\_sim\_mode module
-------------------------------------------------------
+finn.transformation.fpgadataflow.set\_exec\_mode module
+-------------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.set_sim_mode
+.. automodule:: finn.transformation.fpgadataflow.set_exec_mode
    :members:
    :undoc-members:
    :show-inheritance:

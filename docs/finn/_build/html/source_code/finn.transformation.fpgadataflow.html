@@ -1,0 +1,461 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>finn.transformation.fpgadataflow package &mdash; FINN  documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+        <script type="text/javascript" src="../_static/jquery.js"></script>
+        <script type="text/javascript" src="../_static/underscore.js"></script>
+        <script type="text/javascript" src="../_static/doctools.js"></script>
+        <script type="text/javascript" src="../_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="finn.transformation.streamline package" href="finn.transformation.streamline.html" />
+    <link rel="prev" title="finn.transformation package" href="finn.transformation.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> FINN
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../source_code.html">Source Code</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">FINN</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="../source_code.html">Source Code</a> &raquo;</li>
+        
+          <li><a href="finn.html">finn package</a> &raquo;</li>
+        
+          <li><a href="finn.transformation.html">finn.transformation package</a> &raquo;</li>
+        
+      <li>finn.transformation.fpgadataflow package</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/source_code/finn.transformation.fpgadataflow.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="finn-transformation-fpgadataflow-package">
+<h1>finn.transformation.fpgadataflow package<a class="headerlink" href="#finn-transformation-fpgadataflow-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.cleanup">
+<span id="finn-transformation-fpgadataflow-cleanup-module"></span><h2>finn.transformation.fpgadataflow.cleanup module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.cleanup" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.cleanup.CleanUp">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.cleanup.</code><code class="sig-name descname">CleanUp</code><a class="headerlink" href="#finn.transformation.fpgadataflow.cleanup.CleanUp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Remove any generated files for fpgadataflow nodes.</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.cleanup.CleanUp.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.cleanup.CleanUp.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.codegen_ipgen">
+<span id="finn-transformation-fpgadataflow-codegen-ipgen-module"></span><h2>finn.transformation.fpgadataflow.codegen_ipgen module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.codegen_ipgen" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.codegen_ipgen.</code><code class="sig-name descname">CodeGen_ipgen</code><span class="sig-paren">(</span><em class="sig-param">fpgapart</em>, <em class="sig-param">clk</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Code generation for all nodes in model</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.codegen_ipstitch">
+<span id="finn-transformation-fpgadataflow-codegen-ipstitch-module"></span><h2>finn.transformation.fpgadataflow.codegen_ipstitch module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.codegen_ipstitch" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.codegen_ipstitch.CodeGen_ipstitch">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.codegen_ipstitch.</code><code class="sig-name descname">CodeGen_ipstitch</code><span class="sig-paren">(</span><em class="sig-param">fpgapart</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_ipstitch.CodeGen_ipstitch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Create a Vivado IP Block Design project from all the generated IPs of a
+graph. All nodes in the graph must have the fpgadataflow backend attribute,
+and the CodeGen_ipgen transformation must have been previously run on
+the graph. The resulting block design is also packaged as IP.</p>
+<p>Outcome if successful: sets the vivado_stitch_proj attribute in the ONNX
+ModelProto’s metadata_props field, with the created project dir as the
+value. A make_project.tcl script is also placed under the same folder,
+which is called to instantiate the per-layer IPs and stitch them together.
+The packaged block design IP can be found under the ip subdirectory.</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.codegen_ipstitch.CodeGen_ipstitch.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_ipstitch.CodeGen_ipstitch.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.codegen_npysim">
+<span id="finn-transformation-fpgadataflow-codegen-npysim-module"></span><h2>finn.transformation.fpgadataflow.codegen_npysim module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.codegen_npysim" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.codegen_npysim.</code><code class="sig-name descname">CodeGen_npysim</code><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Code generation for all nodes in model</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.compile">
+<span id="finn-transformation-fpgadataflow-compile-module"></span><h2>finn.transformation.fpgadataflow.compile module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.compile" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.compile.Compile">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.compile.</code><code class="sig-name descname">Compile</code><a class="headerlink" href="#finn.transformation.fpgadataflow.compile.Compile" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Compile for all nodes in model</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.compile.Compile.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.compile.Compile.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.convert_to_hls_layers">
+<span id="finn-transformation-fpgadataflow-convert-to-hls-layers-module"></span><h2>finn.transformation.fpgadataflow.convert_to_hls_layers module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.convert_to_hls_layers" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.convert_to_hls_layers.InferBinaryStreamingFCLayer">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.convert_to_hls_layers.</code><code class="sig-name descname">InferBinaryStreamingFCLayer</code><a class="headerlink" href="#finn.transformation.fpgadataflow.convert_to_hls_layers.InferBinaryStreamingFCLayer" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Convert pairs of binary XnorPopcountMatMul layers to
+StreamingFCLayer_Batch layers. Any immediately following MultiThreshold
+layers will also be absorbed into the MVTU.</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.convert_to_hls_layers.InferBinaryStreamingFCLayer.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.convert_to_hls_layers.InferBinaryStreamingFCLayer.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.create_dataflow_partition">
+<span id="finn-transformation-fpgadataflow-create-dataflow-partition-module"></span><h2>finn.transformation.fpgadataflow.create_dataflow_partition module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.create_dataflow_partition" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.create_dataflow_partition.CreateDataflowPartition">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.create_dataflow_partition.</code><code class="sig-name descname">CreateDataflowPartition</code><a class="headerlink" href="#finn.transformation.fpgadataflow.create_dataflow_partition.CreateDataflowPartition" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Split a graph into two graphs; one which contains non-FINN-dataflow nodes
+and a StreamingDataflowPartition node, and another which only contains
+FINN dataflow nodes. The StreamingDataflowPartition has a model attribute
+that indicates the filename for the second graph that only contains
+dataflow nodes. No action is taken if there are no dataflow nodes.</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.create_dataflow_partition.CreateDataflowPartition.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.create_dataflow_partition.CreateDataflowPartition.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.hlssynth_ipgen">
+<span id="finn-transformation-fpgadataflow-hlssynth-ipgen-module"></span><h2>finn.transformation.fpgadataflow.hlssynth_ipgen module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.hlssynth_ipgen" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.hlssynth_ipgen.</code><code class="sig-name descname">HLSSynth_IPGen</code><a class="headerlink" href="#finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Compile for all nodes in model</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.insert_tlastmarker">
+<span id="finn-transformation-fpgadataflow-insert-tlastmarker-module"></span><h2>finn.transformation.fpgadataflow.insert_tlastmarker module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.insert_tlastmarker" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.insert_tlastmarker.InsertTLastMarker">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.insert_tlastmarker.</code><code class="sig-name descname">InsertTLastMarker</code><a class="headerlink" href="#finn.transformation.fpgadataflow.insert_tlastmarker.InsertTLastMarker" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Ensure that the graph is terminated with a TLastMarker node, inserting
+one if necessary.</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.insert_tlastmarker.InsertTLastMarker.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.insert_tlastmarker.InsertTLastMarker.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.make_deployment">
+<span id="finn-transformation-fpgadataflow-make-deployment-module"></span><h2>finn.transformation.fpgadataflow.make_deployment module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.make_deployment" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.make_deployment.</code><code class="sig-name descname">DeployToPYNQ</code><span class="sig-paren">(</span><em class="sig-param">ip</em>, <em class="sig-param">username</em>, <em class="sig-param">password</em>, <em class="sig-param">target_dir</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Collects all necessary files for deployment and copies them to the PYNQ board.
+Expects information about PYNQ board to make scp possible:
+* ip address of board
+* username and password for board
+* target directory where the files are stored on the board</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.make_pynq_driver">
+<span id="finn-transformation-fpgadataflow-make-pynq-driver-module"></span><h2>finn.transformation.fpgadataflow.make_pynq_driver module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.make_pynq_driver" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.make_pynq_driver.MakePYNQDriver">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.make_pynq_driver.</code><code class="sig-name descname">MakePYNQDriver</code><a class="headerlink" href="#finn.transformation.fpgadataflow.make_pynq_driver.MakePYNQDriver" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Create PYNQ Python code to correctly interface the generated
+accelerator, including data packing/unpacking. The MakePYNQProject
+transformation must have been already applied.</p>
+<p>Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
+ModelProto’s metadata_props field, with the created driver dir as the
+value.</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.make_pynq_driver.MakePYNQDriver.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.make_pynq_driver.MakePYNQDriver.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.make_pynq_proj">
+<span id="finn-transformation-fpgadataflow-make-pynq-proj-module"></span><h2>finn.transformation.fpgadataflow.make_pynq_proj module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.make_pynq_proj" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.make_pynq_proj.MakePYNQProject">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.make_pynq_proj.</code><code class="sig-name descname">MakePYNQProject</code><span class="sig-paren">(</span><em class="sig-param">platform</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.make_pynq_proj.MakePYNQProject" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Create a Vivado PYNQ overlay project (including the shell infrastructure)
+from the already-stitched IP block for this graph.
+All nodes in the graph must have the fpgadataflow backend attribute,
+and the CodeGen_ipstitch transformation must have been previously run on
+the graph.</p>
+<p>Outcome if successful: sets the vivado_pynq_proj attribute in the ONNX
+ModelProto’s metadata_props field, with the created project dir as the
+value.</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.make_pynq_proj.MakePYNQProject.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.make_pynq_proj.MakePYNQProject.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.set_exec_mode">
+<span id="finn-transformation-fpgadataflow-set-exec-mode-module"></span><h2>finn.transformation.fpgadataflow.set_exec_mode module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.set_exec_mode" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.set_exec_mode.SetExecMode">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.set_exec_mode.</code><code class="sig-name descname">SetExecMode</code><span class="sig-paren">(</span><em class="sig-param">mode</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.set_exec_mode.SetExecMode" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Set attribute sim_mode in all fpgadataflow nodes</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.set_exec_mode.SetExecMode.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.set_exec_mode.SetExecMode.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.synth_pynq_proj">
+<span id="finn-transformation-fpgadataflow-synth-pynq-proj-module"></span><h2>finn.transformation.fpgadataflow.synth_pynq_proj module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.synth_pynq_proj" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.fpgadataflow.synth_pynq_proj.SynthPYNQProject">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.synth_pynq_proj.</code><code class="sig-name descname">SynthPYNQProject</code><a class="headerlink" href="#finn.transformation.fpgadataflow.synth_pynq_proj.SynthPYNQProject" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Run synthesis for the PYNQ project for this graph. The MakePYNQProject
+transformation must be applied prior to this transformation.</p>
+<dl class="method">
+<dt id="finn.transformation.fpgadataflow.synth_pynq_proj.SynthPYNQProject.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.synth_pynq_proj.SynthPYNQProject.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow.templates">
+<span id="finn-transformation-fpgadataflow-templates-module"></span><h2>finn.transformation.fpgadataflow.templates module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.templates" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-finn.transformation.fpgadataflow">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-finn.transformation.fpgadataflow" title="Permalink to this headline">¶</a></h2>
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="finn.transformation.streamline.html" class="btn btn-neutral float-right" title="finn.transformation.streamline package" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="finn.transformation.html" class="btn btn-neutral float-left" title="finn.transformation package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2020, Y. Umuroglu, J. Petri-Koenig
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

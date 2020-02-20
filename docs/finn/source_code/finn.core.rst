@@ -36,6 +36,22 @@ finn.core.onnx\_exec module
    :undoc-members:
    :show-inheritance:
 
+finn.core.remote\_exec module
+-----------------------------
+
+.. automodule:: finn.core.remote_exec
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.core.rtlsim\_exec module
+-----------------------------
+
+.. automodule:: finn.core.rtlsim_exec
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 
 Module contents
 ---------------

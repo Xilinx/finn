@@ -1,0 +1,30 @@
+analysis.fpgadataflow package
+=============================
+
+Submodules
+----------
+
+analysis.fpgadataflow.hls\_synth\_res\_estimation module
+--------------------------------------------------------
+
+.. automodule:: analysis.fpgadataflow.hls_synth_res_estimation
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+analysis.fpgadataflow.res\_estimation module
+--------------------------------------------
+
+.. automodule:: analysis.fpgadataflow.res_estimation
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
+Module contents
+---------------
+
+.. automodule:: analysis.fpgadataflow
+   :members:
+   :undoc-members:
+   :show-inheritance:

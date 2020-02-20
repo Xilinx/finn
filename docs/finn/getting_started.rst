@@ -53,6 +53,5 @@ FINN comes with a set of tests which can be launched using the command above. No
 Running the test suite using Jenkins
 ************************************
 ::
-  sh run-docker.sh jenkins
-       
 
+  sh run-docker.sh jenkins
