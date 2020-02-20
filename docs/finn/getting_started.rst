@@ -21,6 +21,7 @@ We use Docker extensively for developing and deploying FINN. If you are not fami
 Getting an interactive shell for development or experimentation
 ***************************************************************
 ::
+
   sh run_docker.sh
    
 Simply running sh run-docker.sh without any additional arguments will clone the dependency repos, create a Docker container and give you a terminal with you can use for development for experimentation.
@@ -32,6 +33,7 @@ Simply running sh run-docker.sh without any additional arguments will clone the 
 Running the Jupyter notebooks
 *****************************
 ::
+
   sh run-docker.sh notebook
 
 This will launch the Jupyter notebook server inside a Docker container, and print a link on the terminal that you can open in your browser to run the FINN notebooks or create new ones. 
@@ -43,6 +45,7 @@ The run-docker.sh script forwards ports 8888 for Jupyter and 8081 for Netron, an
 Running the test suite directly
 *******************************
 ::
+  
   sh run-docker.sh test
 
 FINN comes with a set of tests which can be launched using the command above. Note that some of the tests involve extra compilation and the entire test suite may take some time to complete.  
