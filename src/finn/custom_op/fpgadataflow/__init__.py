@@ -4,7 +4,10 @@ import os
 import subprocess
 from finn.custom_op import CustomOp
 from finn.util.basic import CppBuilder
-from finn.util.fpgadataflow import IPGenBuilder
+from finn.util.fpgadataflow import (
+    IPGenBuilder,
+    pyverilate_get_liveness_threshold_cycles,
+)
 from . import templates
 
 
@@ -206,6 +209,7 @@ compilation transformations?
         # output values after 100 cycles
         no_change_count = 0
         old_outputs = outputs
+        liveness_threshold = pyverilate_get_liveness_threshold_cycles()
 
         while not (output_observed):
             sim.io.in0_V_V_TVALID = 1 if len(inputs) > 0 else 0
@@ -224,10 +228,12 @@ compilation transformations?
                 self.set_nodeattr("sim_cycles", observation_count)
                 output_observed = True
 
-            if no_change_count == 100:
+            if no_change_count == liveness_threshold:
                 if old_outputs == outputs:
                     raise Exception(
-                        "Error in simulation! Takes too long to produce output."
+                        "Error in simulation! Takes too long to produce output. "
+                        "Consider setting the LIVENESS_THRESHOLD env.var. to a "
+                        "larger value."
                     )
                 else:
                     no_change_count = 0

@@ -2,7 +2,10 @@ import os
 
 from finn.custom_op.registry import getCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.util.fpgadataflow import pyverilate_stitched_ip
+from finn.util.fpgadataflow import (
+    pyverilate_get_liveness_threshold_cycles,
+    pyverilate_stitched_ip,
+)
 
 
 def rtlsim_exec(model, execution_context):
@@ -73,9 +76,10 @@ def _run_rtlsim(sim, inp, num_out_values):
     observation_count = 0
 
     # avoid infinite looping of simulation by aborting when there is no change in
-    # output values after 100 cycles
+    # output values after LIVENESS_THRESHOLD cycles
     no_change_count = 0
     old_outputs = outputs
+    liveness_threshold = pyverilate_get_liveness_threshold_cycles()
 
     while not (output_observed):
         sim.io.in0_V_V_0_tvalid = 1 if len(inputs) > 0 else 0
@@ -94,10 +98,12 @@ def _run_rtlsim(sim, inp, num_out_values):
             sim_cycles = observation_count
             output_observed = True
 
-        if no_change_count == 100:
+        if no_change_count == liveness_threshold:
             if old_outputs == outputs:
                 raise Exception(
                     "Error in simulation! Takes too long to produce output."
+                    "Consider setting the LIVENESS_THRESHOLD env.var. to a "
+                    "larger value."
                 )
             else:
                 no_change_count = 0
