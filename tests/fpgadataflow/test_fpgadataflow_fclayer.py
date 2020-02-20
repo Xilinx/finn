@@ -9,12 +9,11 @@ from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_es
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.multithreshold import multithreshold
-from finn.transformation.fpgadataflow.cleanup import CleanUp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
-from finn.transformation.fpgadataflow.set_sim_mode import SetSimMode
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
@@ -152,7 +151,7 @@ def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
         else:
             tdt = DataType.INT32
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
-    model = model.transform(SetSimMode("npysim"))
+    model = model.transform(SetExecMode("npysim"))
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
     # prepare input data
@@ -175,7 +174,6 @@ def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "npysim failed"
-    model = model.transform(CleanUp())
 
 
 # activation: None or DataType
@@ -248,7 +246,7 @@ def test_fpgadataflow_fclayer_rtlsim(idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # TODO split up into several dependent tests -- need to check how this
     # works for parametrized tests...
-    model = model.transform(SetSimMode("rtlsim"))
+    model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
@@ -257,5 +255,3 @@ def test_fpgadataflow_fclayer_rtlsim(idt, wdt, act, nf, sf, mw, mh):
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
-
-    model = model.transform(CleanUp())

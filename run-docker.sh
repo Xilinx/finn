@@ -17,11 +17,18 @@ DOCKER_TAG="finn_${DOCKER_UNAME}"
 # uncomment to run multiple instances with different names
 # DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
 DOCKER_INST_NAME="finn_${DOCKER_UNAME}"
+# ensure Docker tag and inst. name are all lowercase
+DOCKER_TAG=$(echo "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')
+DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
 # the settings below will be taken from environment variables if available,
 # otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
 : ${NETRON_PORT=8081}
 : ${PYNQ_BOARD="Pynq-Z1"}
+: ${PYNQ_IP="192.168.3.1"}
+: ${PYNQ_USERNAME="xilinx"}
+: ${PYNQ_PASSWORD="xilinx"}
+: ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -112,6 +119,10 @@ docker run -t --rm --name $DOCKER_INST_NAME -it \
 -e FINN_ROOT="/workspace/finn" \
 -e VIVADO_IP_CACHE="$VIVADO_IP_CACHE" \
 -e PYNQ_BOARD=$PYNQ_BOARD \
+-e PYNQ_IP=$PYNQ_IP \
+-e PYNQ_USERNAME=$PYNQ_USERNAME \
+-e PYNQ_PASSWORD=$PYNQ_PASSWORD \
+-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR \
 -p $JUPYTER_PORT:$JUPYTER_PORT \
 -p $NETRON_PORT:$NETRON_PORT \
 $DOCKER_TAG bash -c "$DOCKER_CMD"

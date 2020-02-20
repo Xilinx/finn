@@ -47,7 +47,9 @@ def test_unpack_innermost_dim_from_hex_string():
     dtype = DataType.INT2
     shape = (1, 2, 2, 2)
     eC = [[[-1, -1], [-1, -1]], [[-1, 1], [1, -1]]]
-    C_unpacked = unpack_innermost_dim_from_hex_string(C, dtype, shape, reverse_inner=True)
+    C_unpacked = unpack_innermost_dim_from_hex_string(
+        C, dtype, shape, reverse_inner=True
+    )
     assert (C_unpacked == eC).all()
 
     # INT4
@@ -58,20 +60,20 @@ def test_unpack_innermost_dim_from_hex_string():
     D_unpacked = unpack_innermost_dim_from_hex_string(D, dtype, shape)
     assert (D_unpacked == eD).all()
 
-    D_unpacked = unpack_innermost_dim_from_hex_string(D, dtype, shape, reverse_inner=True)
+    D_unpacked = unpack_innermost_dim_from_hex_string(
+        D, dtype, shape, reverse_inner=True
+    )
     assert (D_unpacked == eD).all()
-
 
     # INT32
     E = np.asarray(["0xffffffff", "0xfffffffe", "0x02", "0xffffffef"])
     dtype = DataType.INT32
     shape = (1, 4, 1)
-    eE = [[[-1],[-2],[2],[-17]]]
+    eE = [[[-1], [-2], [2], [-17]]]
     E_unpacked = unpack_innermost_dim_from_hex_string(E, dtype, shape)
     assert (E_unpacked == eE).all()
 
-    E_unpacked = unpack_innermost_dim_from_hex_string(E, dtype, shape, reverse_inner=True)
+    E_unpacked = unpack_innermost_dim_from_hex_string(
+        E, dtype, shape, reverse_inner=True
+    )
     assert (E_unpacked == eE).all()
-
-
-

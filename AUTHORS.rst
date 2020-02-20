@@ -2,4 +2,6 @@
 Contributors
 ============
 
-* Yaman Umuroglu <yamanu@xilinx.com>
+* Yaman Umuroglu
+* Jakoba Petri-Koenig
+* Andrea Rigoni

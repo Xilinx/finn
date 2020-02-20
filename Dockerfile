@@ -14,6 +14,8 @@ RUN pip install matplotlib
 RUN pip install pytest-dependency
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
 RUN apt install verilator
+RUN apt-get -y install sshpass
+RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example

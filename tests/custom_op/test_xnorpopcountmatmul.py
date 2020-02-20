@@ -17,7 +17,7 @@ from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeN
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
-from finn.util.test import get_fc_model_trained
+from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_lfc.onnx"
 # TODO get from config instead, hardcoded to Docker path for now
@@ -62,7 +62,7 @@ def test_xnorpopcountmatmul():
 
 
 def test_convert_bipolar_matmul_to_xnorpopcountmatmul():
-    lfc = get_fc_model_trained("LFC", 1, 1)
+    lfc = get_test_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())

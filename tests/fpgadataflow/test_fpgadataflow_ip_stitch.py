@@ -1,4 +1,3 @@
-# import os.path
 import os
 
 import pytest
@@ -8,8 +7,13 @@ from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.core.onnx_exec import execute_onnx
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
+)
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
@@ -23,6 +27,7 @@ from finn.util.basic import (
     make_build_dir,
     pynq_part_map,
 )
+from finn.util.fpgadataflow import pyverilate_stitched_ip
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
@@ -66,7 +71,7 @@ def create_one_fc_model():
     )
 
     graph = helper.make_graph(
-        nodes=[fc0], name="fclayer_graph", inputs=[inp], outputs=[outp],
+        nodes=[fc0], name="fclayer_graph", inputs=[inp], outputs=[outp]
     )
 
     model = helper.make_model(graph, producer_name="fclayer-model")
@@ -77,10 +82,10 @@ def create_one_fc_model():
     model.set_tensor_datatype("w0", wdt)
 
     # generate weights
-    # w0 = gen_finn_dt_tensor(wdt, (m, m))
     w0 = np.eye(m, dtype=np.float32)
     model.set_initializer("w0", w0)
 
+    model = model.transform(CreateDataflowPartition())
     return model
 
 
@@ -180,8 +185,16 @@ def create_two_fc_model():
 
 
 @pytest.mark.dependency()
-def test_fpgadataflow_ipstitch_gen_model():
+# exec_mode of StreamingDataflowPartition
+# @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
+def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
     model = create_one_fc_model()
+    if model.graph.node[0].op_type == "StreamingDataflowPartition":
+        sdp_node = getCustomOp(model.graph.node[0])
+        assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
+        assert os.path.isfile(sdp_node.get_nodeattr("model"))
+        model = ModelWrapper(sdp_node.get_nodeattr("model"))
+        model.set_metadata_prop("exec_mode", "remote_pynq")
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen(test_fpga_part, 5))
@@ -205,6 +218,31 @@ def test_fpgadataflow_ipstitch_do_stitch():
     assert vivado_stitch_vlnv is not None
     assert vivado_stitch_vlnv == "xilinx_finn:finn:finn_design:1.0"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
+
+
+@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_do_stitch"])
+def test_fpgadataflow_ipstitch_rtlsim():
+    model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
+    sim = pyverilate_stitched_ip(model)
+    exp_io = [
+        "ap_clk_0",
+        "ap_rst_n_0",
+        "in0_V_V_0_tdata",
+        "in0_V_V_0_tready",
+        "in0_V_V_0_tvalid",
+        "out_r_0_tdata",
+        "out_r_0_tkeep",
+        "out_r_0_tlast",
+        "out_r_0_tready",
+        "out_r_0_tvalid",
+    ]
+    assert dir(sim.io) == exp_io
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    idt = model.get_tensor_datatype("inp")
+    ishape = model.get_tensor_shape("inp")
+    x = gen_finn_dt_tensor(idt, ishape)
+    rtlsim_res = execute_onnx(model, {"inp": x})["outp"]
+    assert (rtlsim_res == x).all()
 
 
 @pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_do_stitch"])
@@ -242,10 +280,10 @@ def test_fpgadataflow_ipstitch_pynq_deployment_folder():
     model = ModelWrapper(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_driver.onnx"
     )
-    ip = "172.21.165.113"
-    username = "xilinx"
-    password = "xilinx"
-    target_dir = "/home/xilinx/" + os.environ["FINN_INST_NAME"]
+    ip = os.getenv("PYNQ_IP", "192.168.3.1")
+    username = os.getenv("PYNQ_USERNAME", "xilinx")
+    password = os.getenv("PYNQ_PASSWORD", "xilinx")
+    target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
     model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
     pynq_ip = model.get_metadata_prop("pynq_ip")
     pynq_username = model.get_metadata_prop("pynq_username")
@@ -262,3 +300,15 @@ def test_fpgadataflow_ipstitch_pynq_deployment_folder():
     assert os.path.isdir(deployment_dir)
 
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx")
+
+
+@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_deployment_folder"])
+def test_fpgadataflow_ipstitch_remote_execution():
+    model = ModelWrapper(
+        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx"
+    )
+    idt = DataType.INT2
+    x = gen_finn_dt_tensor(idt, (1, 4))
+    input_dict = {"inp": x}
+    outp = execute_onnx(model, input_dict)
+    print(outp)

@@ -419,7 +419,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 f_thresh.close()
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("sim_mode")
+        mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
         mw = self.get_nodeattr("MW")
         mh = self.get_nodeattr("MH")
@@ -435,7 +435,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
             raise Exception(
-                """Invalid value for attribute sim_mode! Is currently set to: {}
+                """Invalid value for attribute exec_mode! Is currently set to: {}
             has to be set to one of the following value ("npysim", "rtlsim")""".format(
                     mode
                 )
@@ -451,9 +451,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 assert str(context[inputs].dtype) == "float32"
                 expected_inp_shape = (1, sf, simd)
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
-                # flip SIMD (innermost) dimension of input tensor, there's some reversal
-                # going on somewhere with a mistmatch between npy and hls...
-                reshaped_input = np.flip(reshaped_input, -1)
                 if self.get_input_datatype() == DataType.BIPOLAR:
                     # store bipolar activations as binary
                     reshaped_input = (reshaped_input + 1) / 2
@@ -523,7 +520,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         else:
             raise Exception(
-                """Invalid value for attribute sim_mode! Is currently set to: {}
+                """Invalid value for attribute exec_mode! Is currently set to: {}
             has to be set to one of the following value ("npysim", "rtlsim")""".format(
                     mode
                 )
@@ -569,8 +566,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         npy_type = "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
+        # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0, true);'
             % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
         )
 
@@ -619,8 +617,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         shape = (1, nf, self.get_nodeattr("PE"))
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
+        # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
