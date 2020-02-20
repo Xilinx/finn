@@ -54,12 +54,7 @@ class TLastMarker(HLSCustomOp):
         ]
 
     def read_npy_data(self):
-        # TLastMarker does not support npysim
         self.code_gen_dict["$READNPYDATA$"] = []
-
-    def strm_decl(self):
-        # TLastMarker does not support npysim
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
@@ -74,7 +69,6 @@ class TLastMarker(HLSCustomOp):
         ]
 
     def dataoutstrm(self):
-        # TLastMarker does not support npysim
         self.code_gen_dict["$DATAOUTSTREAM$"] = []
 
     def save_as_npy(self):
@@ -114,3 +108,12 @@ class TLastMarker(HLSCustomOp):
     def get_outstream_width(self):
         stream_width = self.get_nodeattr("StreamWidth")
         return stream_width
+
+    def strm_decl(self):
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<OutDType> out ("out");'
+        )
