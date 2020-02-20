@@ -36,7 +36,7 @@ Running the Jupyter notebooks
 
 This will launch the Jupyter notebook server inside a Docker container, and print a link on the terminal that you can open in your browser to run the FINN notebooks or create new ones. 
 .. note:: The link will look something like this (the token you get will be different):
-          http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc
+http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc
 
 The run-docker.sh script forwards ports 8888 for Jupyter and 8081 for Netron, and launches the notebook server with appropriate arguments.
 
