@@ -14,6 +14,7 @@ def rtlsim_exec(model, execution_context):
     # ensure stitched ip project already exists
     assert os.path.isfile(model.get_metadata_prop("wrapper_filename"))
     assert os.path.isdir(model.get_metadata_prop("vivado_stitch_proj"))
+    trace_file = model.get_metadata_prop("rtlsim_trace")
     # extract input shape
     # TODO extend for multiple inputs
     i_name = model.graph.input[0].name
@@ -41,7 +42,7 @@ def rtlsim_exec(model, execution_context):
     sim = pyverilate_stitched_ip(model)
     _reset_rtlsim(sim)
     _toggle_clk(sim)
-    ret = _run_rtlsim(sim, packed_input, num_out_values)
+    ret = _run_rtlsim(sim, packed_input, num_out_values, trace_file)
     packed_output = ret[0]
     model.set_metadata_prop("sim_cycles", str(ret[1]))
     # unpack output and put into context
@@ -64,7 +65,7 @@ def _toggle_clk(sim):
     sim.io.ap_clk_0 = 0
 
 
-def _run_rtlsim(sim, inp, num_out_values):
+def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
     # import pdb; pdb.set_trace()
     inputs = inp
     outputs = []
@@ -80,6 +81,9 @@ def _run_rtlsim(sim, inp, num_out_values):
     no_change_count = 0
     old_outputs = outputs
     liveness_threshold = pyverilate_get_liveness_threshold_cycles()
+
+    if trace_file is not None:
+        sim.start_vcd_trace(trace_file)
 
     while not (output_observed):
         sim.io.in0_V_V_0_tvalid = 1 if len(inputs) > 0 else 0
@@ -100,6 +104,9 @@ def _run_rtlsim(sim, inp, num_out_values):
 
         if no_change_count == liveness_threshold:
             if old_outputs == outputs:
+                if trace_file is not None:
+                    sim.flush_vcd_trace()
+                    sim.stop_vcd_trace()
                 raise Exception(
                     "Error in simulation! Takes too long to produce output."
                     "Consider setting the LIVENESS_THRESHOLD env.var. to a "
@@ -108,5 +115,8 @@ def _run_rtlsim(sim, inp, num_out_values):
             else:
                 no_change_count = 0
                 old_outputs = outputs
+    if trace_file is not None:
+        sim.flush_vcd_trace()
+        sim.stop_vcd_trace()
 
     return (outputs, sim_cycles)
