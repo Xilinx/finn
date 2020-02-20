@@ -14,7 +14,7 @@ What is FINN?
 
 * The FINN project, which includes tools for training quantized neural networks such as Brevitas, the FINN compiler, and the finn-hlslib Vivado HLS library of FPGA components for QNNs. An overview of the project can be taken from the following graphic and details can be seen on the project homepage.
 
-.. image:: ../img/finn-flow.png
+.. image:: ../img/finn-stack.png
    :height: 600px
    :scale: 75%
    :align: center
