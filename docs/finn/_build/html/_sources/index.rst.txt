@@ -6,15 +6,15 @@
 ****
 FINN
 ****
-**This website is currently under construction.**
+.. note:: **This website is currently under construction.**
 
-FINN is an experimental framework from Xilinx Research Labs to explore deep neural network inference on FPGAs. It specifically targets quantized neural networks, with emphasis on generating dataflow-style architectures customized for each network. It is not intended to be a generic DNN accelerator like xDNN, but rather a tool for exploring the design space of DNN inference accelerators on FPGAs.
+Welcome to the FINN Read the Docs website. This website is about the new, more modular version of FINN, which is currently under development on GitHub, and we welcome contributions from the community! Stay tuned for more updates.
 
 What is FINN?
 =============
 'FINN' is colloquially used to refer to two separate but highly related things:
 
-* The FINN project, which includes tools for training quantized neural networks such as Brevitas, the FINN compiler, and the finn-hlslib Vivado HLS library of FPGA components for QNNs. An overview of the project can be taken from the following graphic and details can be seen on the `FINN project homepage <https://xilinx.github.io/finn/>`_.
+* The FINN project, which is an experimental framework from Xilinx Research Labs to explore deep neural network inference on FPGAs. It specifically targets quantized neural networks, with emphasis on generating dataflow-style architectures customized for each network. It includes tools for training quantized neural networks such as Brevitas, the FINN compiler, and the finn-hlslib Vivado HLS library of FPGA components for QNNs. An overview of the project can be taken from the following graphic and details can be seen on the `FINN project homepage <https://xilinx.github.io/finn/>`_.
 
 .. image:: ../img/finn-stack.png
    :scale: 50%
