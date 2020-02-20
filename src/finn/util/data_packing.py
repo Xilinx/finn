@@ -242,7 +242,9 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=Fal
     return packed_data
 
 
-def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits):
+def rtlsim_output_to_npy(
+    output, path, dtype, shape, packedBits, targetBits, reverse_inner=True
+):
     """Convert a flattened sequence of Python arbitrary-precision integers
     output into a NumPy array, saved as npy file at path. Each arbitrary-precision
     integer is assumed to be a packed array of targetBits-bit elements, which
@@ -251,13 +253,13 @@ def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits):
     # TODO should have its own testbench?
     output = np.asarray([hex(int(x)) for x in output])
     out_array = unpack_innermost_dim_from_hex_string(
-        output, dtype, shape, reverse_inner=True
+        output, dtype, shape, reverse_inner=reverse_inner
     )
     np.save(path, out_array)
     return out_array
 
 
-def finnpy_to_packed_bytearray(ndarray, dtype):
+def finnpy_to_packed_bytearray(ndarray, dtype, reverse_inner=False):
     """Given a numpy ndarray with FINN DataType dtype, pack the innermost
     dimension and return the packed representation as an ndarray of uint8.
     The packed innermost dimension will be padded to the nearest multiple
@@ -271,7 +273,9 @@ def finnpy_to_packed_bytearray(ndarray, dtype):
     # pack innermost dim to hex strings padded to 8 bits
     bits = dtype.bitwidth() * ndarray.shape[-1]
     bits_padded = roundup_to_integer_multiple(bits, 8)
-    packed_hexstring = pack_innermost_dim_as_hex_string(ndarray, dtype, bits_padded)
+    packed_hexstring = pack_innermost_dim_as_hex_string(
+        ndarray, dtype, bits_padded, reverse_inner=reverse_inner
+    )
 
     def fn(x):
         return np.asarray(list(map(hexstring2npbytearray, x)))
