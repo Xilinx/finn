@@ -238,6 +238,12 @@ def test_fpgadataflow_ipstitch_rtlsim():
         "out_r_0_tvalid",
     ]
     assert dir(sim.io) == exp_io
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    idt = model.get_tensor_datatype("inp")
+    ishape = model.get_tensor_shape("inp")
+    x = gen_finn_dt_tensor(idt, ishape)
+    rtlsim_res = execute_onnx(model, {"inp": x})["outp"]
+    assert (rtlsim_res == x).all()
 
 
 @pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_do_stitch"])
