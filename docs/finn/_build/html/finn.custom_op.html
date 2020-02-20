@@ -1,0 +1,359 @@
+
+<!DOCTYPE html>
+
+<html xmlns="http://www.w3.org/1999/xhtml">
+  <head>
+    <meta charset="utf-8" />
+    <title>finn.custom_op package &#8212; FINN  documentation</title>
+    <link rel="stylesheet" href="_static/alabaster.css" type="text/css" />
+    <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+    <script type="text/javascript" src="_static/jquery.js"></script>
+    <script type="text/javascript" src="_static/underscore.js"></script>
+    <script type="text/javascript" src="_static/doctools.js"></script>
+    <script type="text/javascript" src="_static/language_data.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+   
+  <link rel="stylesheet" href="_static/custom.css" type="text/css" />
+  
+  
+  <meta name="viewport" content="width=device-width, initial-scale=0.9, maximum-scale=0.9" />
+
+  </head><body>
+  
+
+    <div class="document">
+      <div class="documentwrapper">
+        <div class="bodywrapper">
+          
+
+          <div class="body" role="main">
+            
+  <div class="section" id="finn-custom-op-package">
+<h1>finn.custom_op package<a class="headerlink" href="#finn-custom-op-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="subpackages">
+<h2>Subpackages<a class="headerlink" href="#subpackages" title="Permalink to this headline">¶</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="finn.custom_op.fpgadataflow.html">finn.custom_op.fpgadataflow package</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="finn.custom_op.fpgadataflow.html#submodules">Submodules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="finn.custom_op.fpgadataflow.html#module-finn.custom_op.fpgadataflow.convolutioninputgenerator">finn.custom_op.fpgadataflow.convolutioninputgenerator module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="finn.custom_op.fpgadataflow.html#module-finn.custom_op.fpgadataflow.streamingfclayer_batch">finn.custom_op.fpgadataflow.streamingfclayer_batch module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="finn.custom_op.fpgadataflow.html#module-finn.custom_op.fpgadataflow.streamingmaxpool_batch">finn.custom_op.fpgadataflow.streamingmaxpool_batch module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="finn.custom_op.fpgadataflow.html#module-finn.custom_op.fpgadataflow.templates">finn.custom_op.fpgadataflow.templates module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="finn.custom_op.fpgadataflow.html#module-finn.custom_op.fpgadataflow.tlastmarker">finn.custom_op.fpgadataflow.tlastmarker module</a></li>
+<li class="toctree-l2"><a class="reference internal" href="finn.custom_op.fpgadataflow.html#module-finn.custom_op.fpgadataflow">Module contents</a></li>
+</ul>
+</li>
+</ul>
+</div>
+</div>
+<div class="section" id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-finn.custom_op.multithreshold">
+<span id="finn-custom-op-multithreshold-module"></span><h2>finn.custom_op.multithreshold module<a class="headerlink" href="#module-finn.custom_op.multithreshold" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.custom_op.multithreshold.MultiThreshold">
+<em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.multithreshold.</code><code class="sig-name descname">MultiThreshold</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.MultiThreshold" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#finn.custom_op.CustomOp" title="finn.custom_op.CustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.CustomOp</span></code></a></p>
+<dl class="method">
+<dt id="finn.custom_op.multithreshold.MultiThreshold.execute_node">
+<code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.MultiThreshold.execute_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute this CustomOp instance, given the execution context and
+ONNX graph.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.multithreshold.MultiThreshold.get_nodeattr_types">
+<code class="sig-name descname">get_nodeattr_types</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.MultiThreshold.get_nodeattr_types" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a dict of permitted attributes for node, where:
+returned_dict[attribute_name] = (dtype, require, default_value)
+- dtype indicates which member of the ONNX AttributeProto
+will be utilized
+- require indicates whether this attribute is required
+- default_val indicates the default value that will be used if the
+attribute is not set</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.multithreshold.MultiThreshold.infer_node_datatype">
+<code class="sig-name descname">infer_node_datatype</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.MultiThreshold.infer_node_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the DataType annotations corresponding to the outputs of this
+node.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.multithreshold.MultiThreshold.make_shape_compatible_op">
+<code class="sig-name descname">make_shape_compatible_op</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.MultiThreshold.make_shape_compatible_op" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a standard ONNX op which is compatible with this CustomOp
+for performing shape inference.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.multithreshold.MultiThreshold.verify_node">
+<code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.MultiThreshold.verify_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Verifies that all attributes the node needs are there and
+that particular attributes are set correctly. Also checks if
+the number of inputs is equal to the expected number</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.custom_op.multithreshold.compare">
+<code class="sig-prename descclassname">finn.custom_op.multithreshold.</code><code class="sig-name descname">compare</code><span class="sig-paren">(</span><em class="sig-param">x</em>, <em class="sig-param">y</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.compare" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="finn.custom_op.multithreshold.multithreshold">
+<code class="sig-prename descclassname">finn.custom_op.multithreshold.</code><code class="sig-name descname">multithreshold</code><span class="sig-paren">(</span><em class="sig-param">v</em>, <em class="sig-param">thresholds</em>, <em class="sig-param">out_scale=None</em>, <em class="sig-param">out_bias=None</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.multithreshold" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-finn.custom_op.registry">
+<span id="finn-custom-op-registry-module"></span><h2>finn.custom_op.registry module<a class="headerlink" href="#module-finn.custom_op.registry" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="finn.custom_op.registry.getCustomOp">
+<code class="sig-prename descclassname">finn.custom_op.registry.</code><code class="sig-name descname">getCustomOp</code><span class="sig-paren">(</span><em class="sig-param">node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.registry.getCustomOp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a FINN CustomOp instance for the given ONNX node, if it exists.</p>
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.custom_op.streamingdataflowpartition">
+<span id="finn-custom-op-streamingdataflowpartition-module"></span><h2>finn.custom_op.streamingdataflowpartition module<a class="headerlink" href="#module-finn.custom_op.streamingdataflowpartition" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition">
+<em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.streamingdataflowpartition.</code><code class="sig-name descname">StreamingDataflowPartition</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#finn.custom_op.CustomOp" title="finn.custom_op.CustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.CustomOp</span></code></a></p>
+<dl class="method">
+<dt id="finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.execute_node">
+<code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.execute_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute this CustomOp instance, given the execution context and
+ONNX graph.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.get_nodeattr_types">
+<code class="sig-name descname">get_nodeattr_types</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.get_nodeattr_types" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a dict of permitted attributes for node, where:
+returned_dict[attribute_name] = (dtype, require, default_value)
+- dtype indicates which member of the ONNX AttributeProto
+will be utilized
+- require indicates whether this attribute is required
+- default_val indicates the default value that will be used if the
+attribute is not set</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.infer_node_datatype">
+<code class="sig-name descname">infer_node_datatype</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.infer_node_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the DataType annotations corresponding to the outputs of this
+node.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.make_shape_compatible_op">
+<code class="sig-name descname">make_shape_compatible_op</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.make_shape_compatible_op" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a standard ONNX op which is compatible with this CustomOp
+for performing shape inference.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.verify_node">
+<code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.verify_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Verifies that all attributes the node needs are there and
+that particular attributes are set correctly. Also checks if
+the number of inputs is equal to the expected number</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.custom_op.xnorpopcount">
+<span id="finn-custom-op-xnorpopcount-module"></span><h2>finn.custom_op.xnorpopcount module<a class="headerlink" href="#module-finn.custom_op.xnorpopcount" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.custom_op.xnorpopcount.XnorPopcountMatMul">
+<em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.xnorpopcount.</code><code class="sig-name descname">XnorPopcountMatMul</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.XnorPopcountMatMul" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#finn.custom_op.CustomOp" title="finn.custom_op.CustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.CustomOp</span></code></a></p>
+<dl class="method">
+<dt id="finn.custom_op.xnorpopcount.XnorPopcountMatMul.execute_node">
+<code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.XnorPopcountMatMul.execute_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute this CustomOp instance, given the execution context and
+ONNX graph.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.xnorpopcount.XnorPopcountMatMul.get_nodeattr_types">
+<code class="sig-name descname">get_nodeattr_types</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.XnorPopcountMatMul.get_nodeattr_types" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a dict of permitted attributes for node, where:
+returned_dict[attribute_name] = (dtype, require, default_value)
+- dtype indicates which member of the ONNX AttributeProto
+will be utilized
+- require indicates whether this attribute is required
+- default_val indicates the default value that will be used if the
+attribute is not set</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.xnorpopcount.XnorPopcountMatMul.infer_node_datatype">
+<code class="sig-name descname">infer_node_datatype</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.XnorPopcountMatMul.infer_node_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the DataType annotations corresponding to the outputs of this
+node.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.xnorpopcount.XnorPopcountMatMul.make_shape_compatible_op">
+<code class="sig-name descname">make_shape_compatible_op</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.XnorPopcountMatMul.make_shape_compatible_op" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a standard ONNX op which is compatible with this CustomOp
+for performing shape inference.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.xnorpopcount.XnorPopcountMatMul.verify_node">
+<code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.XnorPopcountMatMul.verify_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Verifies that all attributes the node needs are there and
+that particular attributes are set correctly. Also checks if
+the number of inputs is equal to the expected number</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.custom_op.xnorpopcount.xnorpopcountmatmul">
+<code class="sig-prename descclassname">finn.custom_op.xnorpopcount.</code><code class="sig-name descname">xnorpopcountmatmul</code><span class="sig-paren">(</span><em class="sig-param">inp0</em>, <em class="sig-param">inp1</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.xnorpopcountmatmul" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</div>
+<div class="section" id="module-finn.custom_op">
+<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-finn.custom_op" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.custom_op.CustomOp">
+<em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.</code><code class="sig-name descname">CustomOp</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">abc.ABC</span></code></p>
+<dl class="method">
+<dt id="finn.custom_op.CustomOp.execute_node">
+<em class="property">abstract </em><code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp.execute_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute this CustomOp instance, given the execution context and
+ONNX graph.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.CustomOp.get_nodeattr">
+<code class="sig-name descname">get_nodeattr</code><span class="sig-paren">(</span><em class="sig-param">name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp.get_nodeattr" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get a node attribute by name. Data is stored inside the ONNX node’s
+AttributeProto container. Attribute must be part of get_nodeattr_types.
+Default value is returned if attribute is not set.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.CustomOp.get_nodeattr_types">
+<em class="property">abstract </em><code class="sig-name descname">get_nodeattr_types</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp.get_nodeattr_types" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a dict of permitted attributes for node, where:
+returned_dict[attribute_name] = (dtype, require, default_value)
+- dtype indicates which member of the ONNX AttributeProto
+will be utilized
+- require indicates whether this attribute is required
+- default_val indicates the default value that will be used if the
+attribute is not set</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.CustomOp.infer_node_datatype">
+<em class="property">abstract </em><code class="sig-name descname">infer_node_datatype</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp.infer_node_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the DataType annotations corresponding to the outputs of this
+node.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.CustomOp.make_shape_compatible_op">
+<em class="property">abstract </em><code class="sig-name descname">make_shape_compatible_op</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp.make_shape_compatible_op" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a standard ONNX op which is compatible with this CustomOp
+for performing shape inference.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.CustomOp.set_nodeattr">
+<code class="sig-name descname">set_nodeattr</code><span class="sig-paren">(</span><em class="sig-param">name</em>, <em class="sig-param">value</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp.set_nodeattr" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set a node attribute by name. Data is stored inside the ONNX node’s
+AttributeProto container. Attribute must be part of get_nodeattr_types.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.CustomOp.verify_node">
+<em class="property">abstract </em><code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp.verify_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Verifies that all attributes the node needs are there and
+that particular attributes are set correctly. Also checks if
+the number of inputs is equal to the expected number</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+</div>
+
+
+          </div>
+          
+        </div>
+      </div>
+      <div class="sphinxsidebar" role="navigation" aria-label="main navigation">
+        <div class="sphinxsidebarwrapper">
+<h1 class="logo"><a href="index.html">FINN</a></h1>
+
+
+
+
+
+
+
+
+<h3>Navigation</h3>
+
+<div class="relations">
+<h3>Related Topics</h3>
+<ul>
+  <li><a href="index.html">Documentation overview</a><ul>
+  </ul></li>
+</ul>
+</div>
+<div id="searchbox" style="display: none" role="search">
+  <h3 id="searchlabel">Quick search</h3>
+    <div class="searchformwrapper">
+    <form class="search" action="search.html" method="get">
+      <input type="text" name="q" aria-labelledby="searchlabel" />
+      <input type="submit" value="Go" />
+    </form>
+    </div>
+</div>
+<script type="text/javascript">$('#searchbox').show(0);</script>
+
+
+
+
+
+
+
+
+        </div>
+      </div>
+      <div class="clearer"></div>
+    </div>
+    <div class="footer">
+      &copy;2020, Y. Umuroglu, J. Petri-Koenig.
+      
+      |
+      Powered by <a href="http://sphinx-doc.org/">Sphinx 2.2.2</a>
+      &amp; <a href="https://github.com/bitprophet/alabaster">Alabaster 0.7.12</a>
+      
+      |
+      <a href="_sources/finn.custom_op.rst.txt"
+          rel="nofollow">Page source</a>
+    </div>
+
+    
+
+    
+  </body>
+</html>
