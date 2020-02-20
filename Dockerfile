@@ -12,8 +12,11 @@ RUN pip install jupyter
 RUN pip install netron
 RUN pip install matplotlib
 RUN pip install pytest-dependency
+RUN apt-get update
+RUN apt-get -y upgrade
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
 RUN apt install verilator
+RUN pip install sphinx
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
