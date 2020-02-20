@@ -221,29 +221,24 @@ def numpy_to_hls_code(
     return ret
 
 
-def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits):
+def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=False):
     """Convert the multidimensional NumPy array of integers (stored as floats)
     from input_file into a flattened sequence of Python arbitrary-precision
     integers, packing the innermost dimension. See
     finn.util.basic.pack_innermost_dim_as_hex_string() for more info on how the
-    packing works."""
+    packing works. If reverse_inner is set, the innermost dimension will be
+    reversed prior to packing."""
     if issubclass(type(input_file), np.ndarray):
         inp = input_file
     elif os.path.isfile(input_file):
         inp = np.load(input_file)
     else:
         raise Exception("input_file must be ndarray or filename for .npy")
-    ishape = inp.shape
-    inp = inp.flatten()
-    inp_rev = []
-    for i in range(len(inp)):
-        inp_rev.append(inp[-1])
-        inp = inp[:-1]
-    inp_rev = np.asarray(inp_rev, dtype=np.float32).reshape(ishape)
-    packed_data = pack_innermost_dim_as_hex_string(inp_rev, input_dtype, pad_to_nbits)
+    packed_data = pack_innermost_dim_as_hex_string(
+        inp, input_dtype, pad_to_nbits, reverse_inner=reverse_inner
+    )
     packed_data = packed_data.flatten()
     packed_data = [int(x[2:], 16) for x in packed_data]
-    packed_data.reverse()
     return packed_data
 
 
