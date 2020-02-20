@@ -29,6 +29,7 @@ author = 'Y. Umuroglu, J. Petri-Koenig'
 # ones.
 extensions = [
 ]
+extensions.append('sphinx.ext.autodoc')
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']
