@@ -100,6 +100,8 @@ def test_array2hexstring():
     assert array2hexstring([1, 1, 1, -1], DataType.INT4, 16) == "0x111f"
     assert array2hexstring([-1], DataType.FLOAT32, 32) == "0xbf800000"
     assert array2hexstring([17.125], DataType.FLOAT32, 32) == "0x41890000"
+    assert array2hexstring([1, 1, 0, 1], DataType.BINARY, 4, reverse=True) == "0xb"
+    assert array2hexstring([1, 1, 1, 0], DataType.BINARY, 8, reverse=True) == "0x07"
 
 
 def test_pack_innermost_dim_as_hex_string():
@@ -109,6 +111,11 @@ def test_pack_innermost_dim_as_hex_string():
     B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
     eB = np.asarray([["0x0f", "0x0f"], ["0x07", "0x0d"]])
     assert (pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB).all()
+    C = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
+    eC = np.asarray([["0x0f", "0x0f"], ["0x0d", "0x07"]])
+    assert (
+        pack_innermost_dim_as_hex_string(C, DataType.UINT2, 8, reverse_inner=True) == eC
+    ).all()
 
 
 def test_numpy_to_hls_code():

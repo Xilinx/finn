@@ -9,7 +9,7 @@ from finn.core.datatype import DataType
 from finn.util.basic import roundup_to_integer_multiple
 
 
-def array2hexstring(array, dtype, pad_to_nbits, prefix="0x"):
+def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     """
     Pack given one-dimensional NumPy array with FINN DataType dtype into a hex
     string.
@@ -17,11 +17,14 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x"):
     -1.
     pad_to_nbits is used to prepend leading zeros to ensure packed strings of
     fixed width. The minimum value for pad_to_nbits is 4, since a single hex
-    digit is four bits.
+    digit is four bits. reverse can be used to reverse the array prior to
+    packing.
 
     Examples:
-    array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = "e"
-    array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = "0e"
+    array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = "0xe"
+    array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = "0x0e"
+    array2hexstring([1, 1, 0, 1], DataType.BINARY, 4, reverse=True) = "0xb"
+    array2hexstring([1, 1, 1, 0], DataType.BINARY, 8, reverse=True) = "0x07"
     """
     if pad_to_nbits < 4:
         pad_to_nbits = 4
@@ -35,6 +38,9 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x"):
         # convert bipolar values to binary
         array = (array + 1) / 2
         dtype = DataType.BINARY
+    # reverse prior to packing, if desired
+    if reverse:
+        array = np.flip(array, -1)
     lineval = BitArray(length=0)
     bw = dtype.bitwidth()
     for val in array:
@@ -77,7 +83,7 @@ def npbytearray2hexstring(npbytearray, prefix="0x"):
     return prefix + binascii.hexlify(bytearray(npbytearray)).decode("utf-8")
 
 
-def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
+def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner=False):
     """Pack the innermost dimension of the given numpy ndarray into hex
     strings using array2hexstring. Examples:
 
@@ -94,7 +100,7 @@ def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits):
         ndarray = np.asarray(ndarray, dtype=np.float32)
 
     def fun(x):
-        return array2hexstring(x, dtype, pad_to_nbits)
+        return array2hexstring(x, dtype, pad_to_nbits, reverse=reverse_inner)
 
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 
