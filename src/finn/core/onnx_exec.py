@@ -124,8 +124,8 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
                         str(input_dict[inp_name].shape),
                     )
                 )
-        else:
-            raise Exception("Provided input not found in graph context: %s" % inp_name)
+        # else:
+        # raise Exception("Provided input not found in graph context: %s" % inp_name)
 
     # check if model has an execution mode set
     # if None, execute model node by node using execute_node()
