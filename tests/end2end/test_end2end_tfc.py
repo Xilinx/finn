@@ -129,7 +129,7 @@ def test_end2end_tfc_ip_stitch():
     model.save(build_dir + "/end2end_tfc_w1_a1_ipstitch.onnx")
 
 
-def test_end2end_tfc_verify_ip_stitch():
+def test_end2end_tfc_verify_dataflow_part():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_ipstitch.onnx")
     x = np.zeros((1, 784), dtype=np.float32)
     inp_name = model.graph.input[0].name
@@ -139,15 +139,55 @@ def test_end2end_tfc_verify_ip_stitch():
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
     model = model.transform(SetExecMode("npysim"))
+    model.save(build_dir + "/end2end_tfc_w1_a1_ipstitch_npysim.onnx")
     res_npysim = execute_onnx(model, inp_dict)[out_name]
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
+    model.save(build_dir + "/end2end_tfc_w1_a1_ipstitch_nodebynode_rtlsim.onnx")
     res_rtlsim_nodebynode = execute_onnx(model, inp_dict)[out_name]
     # whole-network (ip-stitched) rtlsim
     model.set_metadata_prop("exec_mode", "rtlsim")
-    res_rtlsim_ipstitched = execute_onnx(model, inp_dict)[out_name]
+    model.save(build_dir + "/end2end_tfc_w1_a1_ipstitch_whole_rtlsim.onnx")
+    res_rtlsim_whole = execute_onnx(model, inp_dict)[out_name]
     assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
-    assert np.isclose(res_npysim, res_rtlsim_ipstitched).all()
+    assert np.isclose(res_npysim, res_rtlsim_whole).all()
+
+
+def test_end2end_tfc_verify_all():
+    # use the streamlined model as the "golden" model for right answers
+    golden = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_streamlined.onnx")
+    iname = golden.graph.input[0].name
+    oname = golden.graph.output[0].name
+    ishape = golden.get_tensor_shape(iname)
+    x = np.zeros(ishape, dtype=np.float32)
+    y_golden = execute_onnx(golden, {iname: x})[oname]
+    # set up parent+child graph to test
+    # we'll use models from the previous step as the child model
+    parent_model = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_dataflow_parent.onnx")
+    iname = parent_model.graph.input[0].name
+    oname = parent_model.graph.output[0].name
+    # produce results with npysim
+    sdp_node = getCustomOp(parent_model.graph.node[2])
+    sdp_node.set_nodeattr(
+        "model", build_dir + "/end2end_tfc_w1_a1_ipstitch_npysim.onnx"
+    )
+    ret_npysim = execute_onnx(parent_model, {iname: x}, True)
+    y_npysim = ret_npysim[oname]
+    # produce results with node-by-node rtlsim
+    sdp_node.set_nodeattr(
+        "model", build_dir + "/end2end_tfc_w1_a1_ipstitch_nodebynode_rtlsim.onnx"
+    )
+    ret_nodebynode_rtlsim = execute_onnx(parent_model, {iname: x}, True)
+    y_nodebynode_rtlsim = ret_nodebynode_rtlsim[oname]
+    # produce results with whole-network (stitched ip) rtlsim
+    sdp_node.set_nodeattr(
+        "model", build_dir + "/end2end_tfc_w1_a1_ipstitch_whole_rtlsim.onnx"
+    )
+    ret_whole_rtlsim = execute_onnx(parent_model, {iname: x}, True)
+    y_whole_rtlsim = ret_whole_rtlsim[oname]
+    assert np.isclose(y_golden, y_npysim).all()
+    assert np.isclose(y_golden, y_nodebynode_rtlsim).all()
+    assert np.isclose(y_golden, y_whole_rtlsim).all()
 
 
 def test_end2end_tfc_make_pynq_proj():
