@@ -479,9 +479,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(1, mh)
         elif mode == "rtlsim":
+            prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, node.name
+                code_gen_dir, node.name, prefixed_top_name
             )
             if os.path.isfile(verilog_file):
                 nbits = self.get_instream_width()

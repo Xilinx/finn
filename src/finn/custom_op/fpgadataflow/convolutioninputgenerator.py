@@ -98,9 +98,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
             )
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, node.name
+                code_gen_dir, node.name, prefixed_top_name
             )
             if os.path.isfile(verilog_file):
                 inp = context[node.input[0]]
@@ -209,7 +210,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
                 OFMDim1, SIMD1, Stride1> (in0, out, numReps);""".format(
-                node.op_type,
+                node.op_type
             )
         ]
 
