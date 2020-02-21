@@ -1,0 +1,245 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>finn.core.onnx_exec module &mdash; FINN  documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+        <script type="text/javascript" src="../_static/jquery.js"></script>
+        <script type="text/javascript" src="../_static/underscore.js"></script>
+        <script type="text/javascript" src="../_static/doctools.js"></script>
+        <script type="text/javascript" src="../_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="finn.core.remote_exec module" href="finn.core.remote_exec.html" />
+    <link rel="prev" title="finn.core.modelwrapper module" href="finn.core.modelwrapper.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> FINN
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../source_code.html">Source Code</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">FINN</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="../source_code.html">Source Code</a> &raquo;</li>
+        
+          <li><a href="finn.html">finn package</a> &raquo;</li>
+        
+          <li><a href="finn.core.html">finn.core package</a> &raquo;</li>
+        
+      <li>finn.core.onnx_exec module</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/source_code/finn.core.onnx_exec.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="module-finn.core.onnx_exec">
+<span id="finn-core-onnx-exec-module"></span><h1>finn.core.onnx_exec module<a class="headerlink" href="#module-finn.core.onnx_exec" title="Permalink to this headline">¶</a></h1>
+<dl class="function">
+<dt id="finn.core.onnx_exec.compare_execution">
+<code class="sig-prename descclassname">finn.core.onnx_exec.</code><code class="sig-name descname">compare_execution</code><span class="sig-paren">(</span><em class="sig-param">model_a</em>, <em class="sig-param">model_b</em>, <em class="sig-param">input_dict</em>, <em class="sig-param">compare_fxn=&lt;function &lt;lambda&gt;&gt;</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.onnx_exec.compare_execution" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute two ONNX models and compare their outputs using given function.
+compare_fxn should take in two tensors and return a Boolean</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.core.onnx_exec.execute_node">
+<code class="sig-prename descclassname">finn.core.onnx_exec.</code><code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">node</em>, <em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.onnx_exec.execute_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute a single node by using onnxruntime, with custom function or
+if dataflow partition by using remote execution or rtlsim.
+Input/output provided via context.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.core.onnx_exec.execute_onnx">
+<code class="sig-prename descclassname">finn.core.onnx_exec.</code><code class="sig-name descname">execute_onnx</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">input_dict</em>, <em class="sig-param">return_full_exec_context=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.onnx_exec.execute_onnx" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute given ONNX ModelWrapper with given named inputs.
+If return_full_exec_context is False, a dict of named outputs is returned
+as indicated by the model.graph.output.
+If return return_full_exec_context is True, the full set of tensors used by
+the execution (including inputs, weights, activations and final outputs)
+will be returned as a dict.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.core.onnx_exec.execute_onnx_and_make_model">
+<code class="sig-prename descclassname">finn.core.onnx_exec.</code><code class="sig-name descname">execute_onnx_and_make_model</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">input_dict</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.onnx_exec.execute_onnx_and_make_model" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute given ONNX ModelWrapper with given named inputs and return a new
+ModelWrapper where an initializer is provided for each tensor as taken from
+the execution. This new model is useful for debugging, since it contains
+all the intermediate activation values.</p>
+</dd></dl>
+
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="finn.core.remote_exec.html" class="btn btn-neutral float-right" title="finn.core.remote_exec module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="finn.core.modelwrapper.html" class="btn btn-neutral float-left" title="finn.core.modelwrapper module" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2020, Y. Umuroglu, J. Petri-Koenig
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

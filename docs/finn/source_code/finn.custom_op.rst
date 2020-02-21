@@ -11,38 +11,12 @@ Subpackages
 Submodules
 ----------
 
-finn.custom\_op.multithreshold module
--------------------------------------
+.. toctree::
 
-.. automodule:: finn.custom_op.multithreshold
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.registry module
--------------------------------
-
-.. automodule:: finn.custom_op.registry
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.streamingdataflowpartition module
--------------------------------------------------
-
-.. automodule:: finn.custom_op.streamingdataflowpartition
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.xnorpopcount module
------------------------------------
-
-.. automodule:: finn.custom_op.xnorpopcount
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
+   finn.custom_op.multithreshold
+   finn.custom_op.registry
+   finn.custom_op.streamingdataflowpartition
+   finn.custom_op.xnorpopcount
 
 Module contents
 ---------------

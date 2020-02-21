@@ -35,8 +35,8 @@
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="finn.util package" href="finn.util.html" />
-    <link rel="prev" title="finn.transformation.fpgadataflow package" href="finn.transformation.fpgadataflow.html" /> 
+    <link rel="next" title="finn.transformation.streamline.absorb module" href="finn.transformation.streamline.absorb.html" />
+    <link rel="prev" title="finn.transformation.fpgadataflow.templates module" href="finn.transformation.fpgadataflow.templates.html" /> 
 </head>
 
 <body class="wy-body-for-nav">
@@ -158,165 +158,15 @@
 <h1>finn.transformation.streamline package<a class="headerlink" href="#finn-transformation-streamline-package" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="submodules">
 <h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="finn.transformation.streamline.absorb.html">finn.transformation.streamline.absorb module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finn.transformation.streamline.collapse_repeated.html">finn.transformation.streamline.collapse_repeated module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finn.transformation.streamline.reorder.html">finn.transformation.streamline.reorder module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finn.transformation.streamline.round_thresholds.html">finn.transformation.streamline.round_thresholds module</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finn.transformation.streamline.sign_to_thres.html">finn.transformation.streamline.sign_to_thres module</a></li>
+</ul>
 </div>
-<div class="section" id="module-finn.transformation.streamline.absorb">
-<span id="finn-transformation-streamline-absorb-module"></span><h2>finn.transformation.streamline.absorb module<a class="headerlink" href="#module-finn.transformation.streamline.absorb" title="Permalink to this headline">¶</a></h2>
-<dl class="class">
-<dt id="finn.transformation.streamline.absorb.Absorb1BitMulIntoMatMul">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.absorb.</code><code class="sig-name descname">Absorb1BitMulIntoMatMul</code><a class="headerlink" href="#finn.transformation.streamline.absorb.Absorb1BitMulIntoMatMul" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Absorb bipolar or binary multiplications into the preciding matrix
-multiply.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.absorb.Absorb1BitMulIntoMatMul.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.absorb.Absorb1BitMulIntoMatMul.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-<dl class="class">
-<dt id="finn.transformation.streamline.absorb.AbsorbAddIntoMultiThreshold">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.absorb.</code><code class="sig-name descname">AbsorbAddIntoMultiThreshold</code><a class="headerlink" href="#finn.transformation.streamline.absorb.AbsorbAddIntoMultiThreshold" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Absorb preceding Add ops into MultiThreshold by updating the threshold
-values. Only scalar/1D add vectors can be absorbed.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.absorb.AbsorbAddIntoMultiThreshold.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.absorb.AbsorbAddIntoMultiThreshold.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-<dl class="class">
-<dt id="finn.transformation.streamline.absorb.AbsorbMulIntoMultiThreshold">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.absorb.</code><code class="sig-name descname">AbsorbMulIntoMultiThreshold</code><a class="headerlink" href="#finn.transformation.streamline.absorb.AbsorbMulIntoMultiThreshold" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Absorb preceding Mul ops into MultiThreshold by updating the threshold
-values. Only <em>positive</em> scalar/1D mul vectors can be absorbed.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.absorb.AbsorbMulIntoMultiThreshold.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.absorb.AbsorbMulIntoMultiThreshold.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-<dl class="class">
-<dt id="finn.transformation.streamline.absorb.FactorOutMulSignMagnitude">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.absorb.</code><code class="sig-name descname">FactorOutMulSignMagnitude</code><a class="headerlink" href="#finn.transformation.streamline.absorb.FactorOutMulSignMagnitude" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Split multiply-by-constant nodes into two multiply-by-constant nodes,
-where the first node is a bipolar vector (of signs) and the second is a
-vector of magnitudes.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.absorb.FactorOutMulSignMagnitude.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.absorb.FactorOutMulSignMagnitude.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-</div>
-<div class="section" id="module-finn.transformation.streamline.collapse_repeated">
-<span id="finn-transformation-streamline-collapse-repeated-module"></span><h2>finn.transformation.streamline.collapse_repeated module<a class="headerlink" href="#module-finn.transformation.streamline.collapse_repeated" title="Permalink to this headline">¶</a></h2>
-<dl class="class">
-<dt id="finn.transformation.streamline.collapse_repeated.CollapseRepeatedAdd">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.collapse_repeated.</code><code class="sig-name descname">CollapseRepeatedAdd</code><a class="headerlink" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedAdd" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp" title="finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp</span></code></a></p>
-</dd></dl>
-
-<dl class="class">
-<dt id="finn.transformation.streamline.collapse_repeated.CollapseRepeatedMul">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.collapse_repeated.</code><code class="sig-name descname">CollapseRepeatedMul</code><a class="headerlink" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedMul" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp" title="finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp</span></code></a></p>
-</dd></dl>
-
-<dl class="class">
-<dt id="finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.collapse_repeated.</code><code class="sig-name descname">CollapseRepeatedOp</code><span class="sig-paren">(</span><em class="sig-param">op_name</em>, <em class="sig-param">make_collapsed_param_fxn</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Collapse repeated consecutive operations with constant parameters into
-a single operation. make_collapsed_param_fxn must take two tensors and
-return a tensor which gives the equivalent result using a single op.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-</div>
-<div class="section" id="module-finn.transformation.streamline.reorder">
-<span id="finn-transformation-streamline-reorder-module"></span><h2>finn.transformation.streamline.reorder module<a class="headerlink" href="#module-finn.transformation.streamline.reorder" title="Permalink to this headline">¶</a></h2>
-<dl class="class">
-<dt id="finn.transformation.streamline.reorder.MoveAddPastMul">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.reorder.</code><code class="sig-name descname">MoveAddPastMul</code><a class="headerlink" href="#finn.transformation.streamline.reorder.MoveAddPastMul" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Move add operations past multiply operations. The aim is to have them
-next to each other such that they can be collapsed into a single add.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.reorder.MoveAddPastMul.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.reorder.MoveAddPastMul.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-<dl class="class">
-<dt id="finn.transformation.streamline.reorder.MoveScalarAddPastMatMul">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.reorder.</code><code class="sig-name descname">MoveScalarAddPastMatMul</code><a class="headerlink" href="#finn.transformation.streamline.reorder.MoveScalarAddPastMatMul" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Move scalar add operations past matmul operations. We want to have adds
-next to each other such that they can be collapsed into a single add.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.reorder.MoveScalarAddPastMatMul.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.reorder.MoveScalarAddPastMatMul.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-<dl class="class">
-<dt id="finn.transformation.streamline.reorder.MoveScalarMulPastMatMul">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.reorder.</code><code class="sig-name descname">MoveScalarMulPastMatMul</code><a class="headerlink" href="#finn.transformation.streamline.reorder.MoveScalarMulPastMatMul" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Move scalar mul operations past matmul operations. We want to have muls
-next to each other such that they can be collapsed into a single mul.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.reorder.MoveScalarMulPastMatMul.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.reorder.MoveScalarMulPastMatMul.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-</div>
-<div class="section" id="module-finn.transformation.streamline.round_thresholds">
-<span id="finn-transformation-streamline-round-thresholds-module"></span><h2>finn.transformation.streamline.round_thresholds module<a class="headerlink" href="#module-finn.transformation.streamline.round_thresholds" title="Permalink to this headline">¶</a></h2>
-<dl class="class">
-<dt id="finn.transformation.streamline.round_thresholds.RoundAndClipThresholds">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.round_thresholds.</code><code class="sig-name descname">RoundAndClipThresholds</code><a class="headerlink" href="#finn.transformation.streamline.round_thresholds.RoundAndClipThresholds" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>For MultiThreshold nodes operating on integer inputs, round up
-thresholds values to the nearest integer. Additionally, if the input
-is unsigned, sets negative thresholds to zero.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.round_thresholds.RoundAndClipThresholds.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.round_thresholds.RoundAndClipThresholds.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-</div>
-<div class="section" id="module-finn.transformation.streamline.sign_to_thres">
-<span id="finn-transformation-streamline-sign-to-thres-module"></span><h2>finn.transformation.streamline.sign_to_thres module<a class="headerlink" href="#module-finn.transformation.streamline.sign_to_thres" title="Permalink to this headline">¶</a></h2>
-<dl class="class">
-<dt id="finn.transformation.streamline.sign_to_thres.ConvertSignToThres">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.sign_to_thres.</code><code class="sig-name descname">ConvertSignToThres</code><a class="headerlink" href="#finn.transformation.streamline.sign_to_thres.ConvertSignToThres" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Convert Sign node instances to MultiThreshold with threshold at 0.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.sign_to_thres.ConvertSignToThres.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.sign_to_thres.ConvertSignToThres.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
 </div>
 <div class="section" id="module-finn.transformation.streamline">
 <span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-finn.transformation.streamline" title="Permalink to this headline">¶</a></h2>
@@ -343,10 +193,10 @@ is unsigned, sets negative thresholds to zero.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="finn.util.html" class="btn btn-neutral float-right" title="finn.util package" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+        <a href="finn.transformation.streamline.absorb.html" class="btn btn-neutral float-right" title="finn.transformation.streamline.absorb module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
       
       
-        <a href="finn.transformation.fpgadataflow.html" class="btn btn-neutral float-left" title="finn.transformation.fpgadataflow package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+        <a href="finn.transformation.fpgadataflow.templates.html" class="btn btn-neutral float-left" title="finn.transformation.fpgadataflow.templates module" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
       
     </div>
   

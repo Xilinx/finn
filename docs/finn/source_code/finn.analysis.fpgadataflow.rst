@@ -4,22 +4,10 @@ finn.analysis.fpgadataflow package
 Submodules
 ----------
 
-finn.analysis.fpgadataflow.hls\_synth\_res\_estimation module
--------------------------------------------------------------
+.. toctree::
 
-.. automodule:: finn.analysis.fpgadataflow.hls_synth_res_estimation
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.analysis.fpgadataflow.res\_estimation module
--------------------------------------------------
-
-.. automodule:: finn.analysis.fpgadataflow.res_estimation
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
+   finn.analysis.fpgadataflow.hls_synth_res_estimation
+   finn.analysis.fpgadataflow.res_estimation
 
 Module contents
 ---------------

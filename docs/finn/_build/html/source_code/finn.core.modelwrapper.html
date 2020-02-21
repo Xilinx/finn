@@ -1,0 +1,368 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>finn.core.modelwrapper module &mdash; FINN  documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+        <script type="text/javascript" src="../_static/jquery.js"></script>
+        <script type="text/javascript" src="../_static/underscore.js"></script>
+        <script type="text/javascript" src="../_static/doctools.js"></script>
+        <script type="text/javascript" src="../_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="finn.core.onnx_exec module" href="finn.core.onnx_exec.html" />
+    <link rel="prev" title="finn.core.execute_custom_node module" href="finn.core.execute_custom_node.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> FINN
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../source_code.html">Source Code</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">FINN</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="../source_code.html">Source Code</a> &raquo;</li>
+        
+          <li><a href="finn.html">finn package</a> &raquo;</li>
+        
+          <li><a href="finn.core.html">finn.core package</a> &raquo;</li>
+        
+      <li>finn.core.modelwrapper module</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/source_code/finn.core.modelwrapper.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="module-finn.core.modelwrapper">
+<span id="finn-core-modelwrapper-module"></span><h1>finn.core.modelwrapper module<a class="headerlink" href="#module-finn.core.modelwrapper" title="Permalink to this headline">¶</a></h1>
+<dl class="class">
+<dt id="finn.core.modelwrapper.ModelWrapper">
+<em class="property">class </em><code class="sig-prename descclassname">finn.core.modelwrapper.</code><code class="sig-name descname">ModelWrapper</code><span class="sig-paren">(</span><em class="sig-param">onnx_model_proto</em>, <em class="sig-param">make_deepcopy=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>A wrapper around ONNX ModelProto that exposes some useful utility
+functions for graph manipulation and exploration.</p>
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.analysis">
+<code class="sig-name descname">analysis</code><span class="sig-paren">(</span><em class="sig-param">analysis_fxn</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.analysis" title="Permalink to this definition">¶</a></dt>
+<dd><p>Run given anaylsis_fxn on this model and return resulting dict.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.check_all_tensor_shapes_specified">
+<code class="sig-name descname">check_all_tensor_shapes_specified</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.check_all_tensor_shapes_specified" title="Permalink to this definition">¶</a></dt>
+<dd><p>Checks whether all tensors have a specified shape (ValueInfo).
+The ONNX standard allows for intermediate activations to have no
+associated ValueInfo, but FINN expects this.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.check_compatibility">
+<code class="sig-name descname">check_compatibility</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.check_compatibility" title="Permalink to this definition">¶</a></dt>
+<dd><p>Checks this model for FINN compatibility:
+* no embedded subgraphs
+* all tensor shapes are specified, including activations
+* all constants are initializers</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.find_consumer">
+<code class="sig-name descname">find_consumer</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.find_consumer" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find and return the node that consumes the tensor with given name.
+Currently only works for linear graphs.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.find_producer">
+<code class="sig-name descname">find_producer</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.find_producer" title="Permalink to this definition">¶</a></dt>
+<dd><p>Find and return the node that produces the tensor with given name.
+Currently only works for linear graphs.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.get_all_tensor_names">
+<code class="sig-name descname">get_all_tensor_names</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_all_tensor_names" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return a list of all (input, output and value_info) tensor names
+in the graph.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.get_initializer">
+<code class="sig-name descname">get_initializer</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_initializer" title="Permalink to this definition">¶</a></dt>
+<dd><p>Get the initializer value for tensor with given name, if any.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.get_metadata_prop">
+<code class="sig-name descname">get_metadata_prop</code><span class="sig-paren">(</span><em class="sig-param">key</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_metadata_prop" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the value associated with metadata_prop with given key,
+or None otherwise.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.get_tensor_datatype">
+<code class="sig-name descname">get_tensor_datatype</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_tensor_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the FINN DataType of tensor with given name.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.get_tensor_fanout">
+<code class="sig-name descname">get_tensor_fanout</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_tensor_fanout" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the number of nodes for which the tensor with given name is
+as input.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.get_tensor_shape">
+<code class="sig-name descname">get_tensor_shape</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_tensor_shape" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns the shape of tensor with given name, if it has ValueInfoProto.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.get_tensor_valueinfo">
+<code class="sig-name descname">get_tensor_valueinfo</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_tensor_valueinfo" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns ValueInfoProto of tensor with given name, if it has one.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.graph">
+<em class="property">property </em><code class="sig-name descname">graph</code><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.graph" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.make_empty_exec_context">
+<code class="sig-name descname">make_empty_exec_context</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.make_empty_exec_context" title="Permalink to this definition">¶</a></dt>
+<dd><p>Creates an empty execution context for this model.
+The execution context is a dictionary of all tensors used for the
+inference computation. Any initializer values will be taken into
+account, all other tensors will be zero.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.make_new_valueinfo_name">
+<code class="sig-name descname">make_new_valueinfo_name</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.make_new_valueinfo_name" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a name that can be used for a new value_info.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.model">
+<em class="property">property </em><code class="sig-name descname">model</code><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.model" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.rename_tensor">
+<code class="sig-name descname">rename_tensor</code><span class="sig-paren">(</span><em class="sig-param">old_name</em>, <em class="sig-param">new_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.rename_tensor" title="Permalink to this definition">¶</a></dt>
+<dd><p>Rename a tensor from old_name to new_name.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.save">
+<code class="sig-name descname">save</code><span class="sig-paren">(</span><em class="sig-param">filename</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.save" title="Permalink to this definition">¶</a></dt>
+<dd><p>Save the wrapper ONNX ModelProto into a file with given name.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.set_initializer">
+<code class="sig-name descname">set_initializer</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em>, <em class="sig-param">tensor_value</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.set_initializer" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the initializer value for tensor with given name.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.set_metadata_prop">
+<code class="sig-name descname">set_metadata_prop</code><span class="sig-paren">(</span><em class="sig-param">key</em>, <em class="sig-param">value</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.set_metadata_prop" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.set_tensor_datatype">
+<code class="sig-name descname">set_tensor_datatype</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em>, <em class="sig-param">datatype</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.set_tensor_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Sets the FINN DataType of tensor with given name.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.set_tensor_shape">
+<code class="sig-name descname">set_tensor_shape</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em>, <em class="sig-param">tensor_shape</em>, <em class="sig-param">dtype=1</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.set_tensor_shape" title="Permalink to this definition">¶</a></dt>
+<dd><p>Assign shape in ValueInfoProto for tensor with given name.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.core.modelwrapper.ModelWrapper.transform">
+<code class="sig-name descname">transform</code><span class="sig-paren">(</span><em class="sig-param">transformation</em>, <em class="sig-param">make_deepcopy=True</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.transform" title="Permalink to this definition">¶</a></dt>
+<dd><p>Applies given Transformation repeatedly until no more changes can be made
+and returns a transformed ModelWrapper instance.
+If make_deepcopy is specified, operates on a new (deep)copy of model.</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="finn.core.onnx_exec.html" class="btn btn-neutral float-right" title="finn.core.onnx_exec module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="finn.core.execute_custom_node.html" class="btn btn-neutral float-left" title="finn.core.execute_custom_node module" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2020, Y. Umuroglu, J. Petri-Koenig
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>

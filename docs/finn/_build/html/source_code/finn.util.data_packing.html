@@ -1,0 +1,313 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>finn.util.data_packing module &mdash; FINN  documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="../_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
+        <script type="text/javascript" src="../_static/jquery.js"></script>
+        <script type="text/javascript" src="../_static/underscore.js"></script>
+        <script type="text/javascript" src="../_static/doctools.js"></script>
+        <script type="text/javascript" src="../_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="../_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="finn.util.fpgadataflow module" href="finn.util.fpgadataflow.html" />
+    <link rel="prev" title="finn.util.basic module" href="finn.util.basic.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="../index.html" class="icon icon-home"> FINN
+          
+
+          
+          </a>
+
+          
+            
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../source_code.html">Source Code</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">FINN</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="../index.html">Docs</a> &raquo;</li>
+        
+          <li><a href="../source_code.html">Source Code</a> &raquo;</li>
+        
+          <li><a href="finn.html">finn package</a> &raquo;</li>
+        
+          <li><a href="finn.util.html">finn.util package</a> &raquo;</li>
+        
+      <li>finn.util.data_packing module</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="../_sources/source_code/finn.util.data_packing.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="module-finn.util.data_packing">
+<span id="finn-util-data-packing-module"></span><h1>finn.util.data_packing module<a class="headerlink" href="#module-finn.util.data_packing" title="Permalink to this headline">¶</a></h1>
+<dl class="function">
+<dt id="finn.util.data_packing.array2hexstring">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">array2hexstring</code><span class="sig-paren">(</span><em class="sig-param">array</em>, <em class="sig-param">dtype</em>, <em class="sig-param">pad_to_nbits</em>, <em class="sig-param">prefix='0x'</em>, <em class="sig-param">reverse=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.array2hexstring" title="Permalink to this definition">¶</a></dt>
+<dd><p>Pack given one-dimensional NumPy array with FINN DataType dtype into a hex
+string.
+Any BIPOLAR values will be converted to a single bit with a 0 representing
+-1.
+pad_to_nbits is used to prepend leading zeros to ensure packed strings of
+fixed width. The minimum value for pad_to_nbits is 4, since a single hex
+digit is four bits. reverse can be used to reverse the array prior to
+packing.</p>
+<p>Examples:
+array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = “0xe”
+array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = “0x0e”
+array2hexstring([1, 1, 0, 1], DataType.BINARY, 4, reverse=True) = “0xb”
+array2hexstring([1, 1, 1, 0], DataType.BINARY, 8, reverse=True) = “0x07”</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.data_packing.finnpy_to_packed_bytearray">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">finnpy_to_packed_bytearray</code><span class="sig-paren">(</span><em class="sig-param">ndarray</em>, <em class="sig-param">dtype</em>, <em class="sig-param">reverse_inner=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.finnpy_to_packed_bytearray" title="Permalink to this definition">¶</a></dt>
+<dd><p>Given a numpy ndarray with FINN DataType dtype, pack the innermost
+dimension and return the packed representation as an ndarray of uint8.
+The packed innermost dimension will be padded to the nearest multiple
+of 8 bits. The returned ndarray has the same number of dimensions as the
+input.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.data_packing.hexstring2npbytearray">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">hexstring2npbytearray</code><span class="sig-paren">(</span><em class="sig-param">hexstring</em>, <em class="sig-param">remove_prefix='0x'</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.hexstring2npbytearray" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert a hex string into a NumPy array of dtype uint8. Examples:</p>
+<p>hexstring2npbytearray(“0f01”) = array([15,  1], dtype=uint8)</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.data_packing.npbytearray2hexstring">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">npbytearray2hexstring</code><span class="sig-paren">(</span><em class="sig-param">npbytearray</em>, <em class="sig-param">prefix='0x'</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.npbytearray2hexstring" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert a NumPy array of uint8 dtype into a hex string. Examples:</p>
+<p>npbytearray2hexstring(array([15,  1], dtype=uint8)) = “0x0f01”</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.data_packing.npy_to_rtlsim_input">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">npy_to_rtlsim_input</code><span class="sig-paren">(</span><em class="sig-param">input_file</em>, <em class="sig-param">input_dtype</em>, <em class="sig-param">pad_to_nbits</em>, <em class="sig-param">reverse_inner=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.npy_to_rtlsim_input" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert the multidimensional NumPy array of integers (stored as floats)
+from input_file into a flattened sequence of Python arbitrary-precision
+integers, packing the innermost dimension. See
+finn.util.basic.pack_innermost_dim_as_hex_string() for more info on how the
+packing works. If reverse_inner is set, the innermost dimension will be
+reversed prior to packing.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.data_packing.numpy_to_hls_code">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">numpy_to_hls_code</code><span class="sig-paren">(</span><em class="sig-param">ndarray</em>, <em class="sig-param">dtype</em>, <em class="sig-param">hls_var_name</em>, <em class="sig-param">pack_innermost_dim=True</em>, <em class="sig-param">no_decl=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.numpy_to_hls_code" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return C++ code representation of a numpy ndarray with FINN DataType
+dtype, using hls_var_name as the resulting C++ variable name. If
+pack_innermost_dim is specified, the innermost dimension of the ndarray
+will be packed into a hex string using array2hexstring. If no_decl is
+set to True, no variable name and type will be generated as part of the
+emitted string.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.data_packing.pack_innermost_dim_as_hex_string">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">pack_innermost_dim_as_hex_string</code><span class="sig-paren">(</span><em class="sig-param">ndarray</em>, <em class="sig-param">dtype</em>, <em class="sig-param">pad_to_nbits</em>, <em class="sig-param">reverse_inner=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.pack_innermost_dim_as_hex_string" title="Permalink to this definition">¶</a></dt>
+<dd><p>Pack the innermost dimension of the given numpy ndarray into hex
+strings using array2hexstring. Examples:</p>
+<p>A = [[1, 1, 1, 0], [0, 1, 1, 0]]
+eA = [“0e”, “06”]
+pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA
+B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
+eB = [[ “0f”, “0f”], [“07”, “0d”]]
+pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.data_packing.packed_bytearray_to_finnpy">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">packed_bytearray_to_finnpy</code><span class="sig-paren">(</span><em class="sig-param">packed_bytearray</em>, <em class="sig-param">dtype</em>, <em class="sig-param">output_shape=None</em>, <em class="sig-param">reverse_inner=False</em>, <em class="sig-param">reverse_endian=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.packed_bytearray_to_finnpy" title="Permalink to this definition">¶</a></dt>
+<dd><p>Given a packed numpy uint8 ndarray, unpack it into a FINN array of
+given DataType. output_shape can be specified to remove padding from the
+packed dimension, or set to None to be inferred from the input.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.data_packing.rtlsim_output_to_npy">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">rtlsim_output_to_npy</code><span class="sig-paren">(</span><em class="sig-param">output</em>, <em class="sig-param">path</em>, <em class="sig-param">dtype</em>, <em class="sig-param">shape</em>, <em class="sig-param">packedBits</em>, <em class="sig-param">targetBits</em>, <em class="sig-param">reverse_inner=True</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.rtlsim_output_to_npy" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert a flattened sequence of Python arbitrary-precision integers
+output into a NumPy array, saved as npy file at path. Each arbitrary-precision
+integer is assumed to be a packed array of targetBits-bit elements, which
+will be unpacked as the innermost dimension of the NumPy array.</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.data_packing.unpack_innermost_dim_from_hex_string">
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">unpack_innermost_dim_from_hex_string</code><span class="sig-paren">(</span><em class="sig-param">ndarray</em>, <em class="sig-param">dtype</em>, <em class="sig-param">out_shape</em>, <em class="sig-param">reverse_inner=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.unpack_innermost_dim_from_hex_string" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert a NumPy array of hex strings into a FINN NumPy array by unpacking
+the hex strings into the specified data type. out_shape can be specified
+such that any padding in the packing dimension is removed. If reverse_inner
+is set, the innermost unpacked dimension will be reversed.</p>
+</dd></dl>
+
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
+      
+        <a href="finn.util.fpgadataflow.html" class="btn btn-neutral float-right" title="finn.util.fpgadataflow module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+      
+      
+        <a href="finn.util.basic.html" class="btn btn-neutral float-left" title="finn.util.basic module" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+      
+    </div>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2020, Y. Umuroglu, J. Petri-Koenig
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
