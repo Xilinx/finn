@@ -1,7 +1,7 @@
 Source Code
 ============
 
-.. toctree::
-
-   source_code/finn.rst
-
+.. automodule:: finn
+    :members:
+    :undoc-members:
+    :show-inheritance:
