@@ -37,6 +37,7 @@ class HLSCustomOp(CustomOp):
             "ipgen_path": ("s", False, ""),
             "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
+            "rtlsim_trace": ("s", False, ""),
         }
 
     def node_res_estimation(self):
@@ -195,6 +196,11 @@ compilation transformations?
 
     def rtlsim(self, sim, inp):
         # import pdb; pdb.set_trace()
+        trace_file = self.get_nodeattr("rtlsim_trace")
+        if trace_file != "":
+            if trace_file == "default":
+                trace_file = self.onnx_node.name + ".vcd"
+            sim.start_vcd_trace(trace_file)
         inputs = inp
         outputs = []
         sim.io.out_V_V_TREADY = 1
@@ -230,6 +236,9 @@ compilation transformations?
 
             if no_change_count == liveness_threshold:
                 if old_outputs == outputs:
+                    if trace_file != "":
+                        sim.flush_vcd_trace()
+                        sim.stop_vcd_trace()
                     raise Exception(
                         "Error in simulation! Takes too long to produce output. "
                         "Consider setting the LIVENESS_THRESHOLD env.var. to a "
@@ -238,7 +247,9 @@ compilation transformations?
                 else:
                     no_change_count = 0
                     old_outputs = outputs
-
+        if trace_file != "":
+            sim.flush_vcd_trace()
+            sim.stop_vcd_trace()
         return outputs
 
     def execute_node(self, context, graph):
