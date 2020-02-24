@@ -221,7 +221,7 @@ def numpy_to_hls_code(
     return ret
 
 
-def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=False):
+def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=True):
     """Convert the multidimensional NumPy array of integers (stored as floats)
     from input_file into a flattened sequence of Python arbitrary-precision
     integers, packing the innermost dimension. See
