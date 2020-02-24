@@ -4,7 +4,13 @@ from finn.transformation import Transformation
 
 
 class Compile(Transformation):
-    """Compile for all nodes in model"""
+    """For every node: compile C++ code in node attribute "code_gen_dir_npysim" 
+    and save path to executables in node attribute "executable_path".
+    All nodes in the graph must have the fpgadataflow backend attribute.
+
+    To use these executables, exec_mode must be set to "npysim" (using transformation 
+    SetExecMode) and the model has to be executed using execute_onnx() from 
+    finn.core.onnx_exec"""
 
     def __init__(self):
         super().__init__()

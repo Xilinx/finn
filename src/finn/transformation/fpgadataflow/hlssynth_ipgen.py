@@ -4,7 +4,14 @@ from finn.transformation import Transformation
 
 
 class HLSSynth_IPGen(Transformation):
-    """Compile for all nodes in model"""
+    """For each node: generate IP block from code in folder
+    that is referenced in node attribute "code_gen_dir_ipgen"
+    and save path of generated project in node attribute "ipgen_path".
+    All nodes in the graph must have the fpgadataflow backend attribute.
+
+    This transformation calls Vivado HLS for synthesis, so it will run for 
+    some time (several minutes)"""
+
 
     def __init__(self):
         super().__init__()

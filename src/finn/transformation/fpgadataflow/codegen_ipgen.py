@@ -6,8 +6,9 @@ from finn.util.basic import get_by_name, make_build_dir
 
 
 def _codegen_single_node(node, model, fpgapart, clk):
-    """Call custom implementation to generate code for single custom node
-    and create folder that contains all the generated files"""
+    """Calls C++ code generation for one node. Resulting code can be used 
+    to generate a Vivado IP block for the node."""
+
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
@@ -28,7 +29,16 @@ def _codegen_single_node(node, model, fpgapart, clk):
 
 
 class CodeGen_ipgen(Transformation):
-    """Code generation for all nodes in model"""
+    """Call custom implementation to generate code for single custom node
+    and create folder that contains all the generated files.
+    All nodes in the graph must have the fpgadataflow backend attribute and 
+    transformation gets additional arguments:
+    * fpgapart (string)
+    * clk in ns (int)
+
+    Outcome if succesful: Node attribute "code_gen_dir_ipgen" contains path to folder 
+    that contains generated C++ code that can be used to generate a Vivado IP block. 
+    The subsequent transformation is HLSSynth_IPGen"""
 
     def __init__(self, fpgapart, clk):
         super().__init__()

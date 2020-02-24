@@ -50,10 +50,12 @@ class CollapseRepeatedOp(Transformation):
 
 
 class CollapseRepeatedAdd(CollapseRepeatedOp):
+    """Collapse repeated adder node into a single operation."""
     def __init__(self):
         super().__init__("Add", lambda x, y: y + x)
 
 
 class CollapseRepeatedMul(CollapseRepeatedOp):
+    """Collapse repeated multiplier node into a single operation."""
     def __init__(self):
         super().__init__("Mul", lambda x, y: y * x)

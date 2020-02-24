@@ -4,7 +4,8 @@ from finn.transformation import Transformation
 
 
 class SetExecMode(Transformation):
-    """Set attribute sim_mode in all fpgadataflow nodes"""
+    """Set attribute exec_mode in all fpgadataflow nodes to specify which 
+    kind of execution should be used ("npysim" or "rtlsim")"""
 
     def __init__(self, mode):
         super().__init__()
