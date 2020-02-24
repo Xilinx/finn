@@ -4,7 +4,10 @@ import os
 import subprocess
 from finn.custom_op import CustomOp
 from finn.util.basic import CppBuilder
-from finn.util.fpgadataflow import IPGenBuilder
+from finn.util.fpgadataflow import (
+    IPGenBuilder,
+    pyverilate_get_liveness_threshold_cycles,
+)
 from . import templates
 
 
@@ -34,6 +37,7 @@ class HLSCustomOp(CustomOp):
             "ipgen_path": ("s", False, ""),
             "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
+            "rtlsim_trace": ("s", False, ""),
         }
 
     def node_res_estimation(self):
@@ -192,6 +196,11 @@ compilation transformations?
 
     def rtlsim(self, sim, inp):
         # import pdb; pdb.set_trace()
+        trace_file = self.get_nodeattr("rtlsim_trace")
+        if trace_file != "":
+            if trace_file == "default":
+                trace_file = self.onnx_node.name + ".vcd"
+            sim.start_vcd_trace(trace_file)
         inputs = inp
         outputs = []
         sim.io.out_V_V_TREADY = 1
@@ -206,6 +215,7 @@ compilation transformations?
         # output values after 100 cycles
         no_change_count = 0
         old_outputs = outputs
+        liveness_threshold = pyverilate_get_liveness_threshold_cycles()
 
         while not (output_observed):
             sim.io.in0_V_V_TVALID = 1 if len(inputs) > 0 else 0
@@ -224,15 +234,22 @@ compilation transformations?
                 self.set_nodeattr("sim_cycles", observation_count)
                 output_observed = True
 
-            if no_change_count == 100:
+            if no_change_count == liveness_threshold:
                 if old_outputs == outputs:
+                    if trace_file != "":
+                        sim.flush_vcd_trace()
+                        sim.stop_vcd_trace()
                     raise Exception(
-                        "Error in simulation! Takes too long to produce output."
+                        "Error in simulation! Takes too long to produce output. "
+                        "Consider setting the LIVENESS_THRESHOLD env.var. to a "
+                        "larger value."
                     )
                 else:
                     no_change_count = 0
                     old_outputs = outputs
-
+        if trace_file != "":
+            sim.flush_vcd_trace()
+            sim.stop_vcd_trace()
         return outputs
 
     def execute_node(self, context, graph):

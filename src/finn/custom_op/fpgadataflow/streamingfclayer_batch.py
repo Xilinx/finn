@@ -297,6 +297,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         # create SIMD as innermost dimension and add a dummy outer dim
         ret = ret.reshape(1, pe, wmem, simd)
+        # reverse the SIMD dimension
+        ret = np.flip(ret, axis=-1)
         return ret
 
     def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
@@ -479,9 +481,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(1, mh)
         elif mode == "rtlsim":
+            prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, node.name
+                code_gen_dir, node.name, prefixed_top_name
             )
             if os.path.isfile(verilog_file):
                 nbits = self.get_instream_width()
@@ -568,7 +571,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0, true);'
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
             % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
         )
 
