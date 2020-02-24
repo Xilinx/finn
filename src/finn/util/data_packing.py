@@ -106,7 +106,7 @@ def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner
 
 
 def unpack_innermost_dim_from_hex_string(
-    ndarray, dtype, out_shape, reverse_inner=False
+    ndarray, dtype, out_shape, packedBits, reverse_inner=False
 ):
     """Convert a NumPy array of hex strings into a FINN NumPy array by unpacking
     the hex strings into the specified data type. out_shape can be specified
@@ -125,7 +125,6 @@ def unpack_innermost_dim_from_hex_string(
         )
     # convert ndarray into flattened list
     data = ndarray.flatten().tolist()
-    packedBits = len(data[0]) * 8
     targetBits = dtype.bitwidth()
     # calculate outer and inner dim shapes
     outer_dim_elems = 1
@@ -253,7 +252,7 @@ def rtlsim_output_to_npy(
     # TODO should have its own testbench?
     output = np.asarray([hex(int(x)) for x in output])
     out_array = unpack_innermost_dim_from_hex_string(
-        output, dtype, shape, reverse_inner=reverse_inner
+        output, dtype, shape, packedBits=packedBits, reverse_inner=reverse_inner
     )
     np.save(path, out_array)
     return out_array
@@ -326,7 +325,7 @@ def packed_bytearray_to_finnpy(
         npbytearray2hexstring, packed_dim, packed_bytearray
     )
     ret = unpack_innermost_dim_from_hex_string(
-        packed_hexstring, dtype, output_shape, reverse_inner
+        packed_hexstring, dtype, output_shape, packed_bits, reverse_inner
     )
 
     return ret
