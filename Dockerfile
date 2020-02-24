@@ -14,6 +14,8 @@ RUN pip install matplotlib
 RUN pip install pytest-dependency
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
 RUN apt install verilator
+RUN apt-get -y install sshpass
+RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
@@ -32,6 +34,7 @@ ARG UNAME
 ARG UID
 ARG PASSWD
 ARG JUPYTER_PORT
+ARG NETRON_PORT
 
 RUN groupadd -g $GID $GNAME
 RUN useradd -M -u $UID $UNAME -g $GNAME
@@ -45,4 +48,5 @@ USER $UNAME
 RUN echo "source \$VIVADO_PATH/settings64.sh" >> /home/$UNAME/.bashrc
 RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /home/$UNAME/.bashrc
 EXPOSE $JUPYTER_PORT
+EXPOSE $NETRON_PORT
 WORKDIR /home/$UNAME/finn

@@ -65,6 +65,7 @@ open_solution sol1
 set_part $config_proj_part
 
 config_interface -m_axi_addr64
+config_rtl -auto_prefix
 
 create_clock -period $config_clkperiod -name default
 csynth_design

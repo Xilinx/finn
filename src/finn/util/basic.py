@@ -5,9 +5,26 @@ import subprocess
 import tempfile
 
 import numpy as np
-import onnx
 
 from finn.core.datatype import DataType
+
+# mapping from PYNQ board names to FPGA part names
+pynq_part_map = dict()
+pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
+pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
+
+
+def get_finn_root():
+    "Return the root directory that FINN is cloned into."
+
+    try:
+        return os.environ["FINN_ROOT"]
+    except KeyError:
+        raise Exception(
+            """Environment variable FINN_ROOT must be set
+        correctly. Please ensure you have launched the Docker contaier correctly.
+        """
+        )
 
 
 def make_build_dir(prefix=""):
@@ -23,15 +40,6 @@ def make_build_dir(prefix=""):
         correctly. Please ensure you have launched the Docker contaier correctly.
         """
         )
-
-
-def valueinfo_to_tensor(vi):
-    """Creates an all-zeroes numpy tensor from a ValueInfoProto."""
-
-    dims = [x.dim_value for x in vi.type.tensor_type.shape.dim]
-    return np.zeros(
-        dims, dtype=onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[vi.type.tensor_type.elem_type]
-    )
 
 
 def get_by_name(container, name, name_field="name"):
@@ -126,6 +134,8 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
 
 def gen_finn_dt_tensor(finn_dt, tensor_shape):
     """Generates random tensor in given shape and with given FINN DataType"""
+    if type(tensor_shape) == list:
+        tensor_shape = tuple(tensor_shape)
     if finn_dt == DataType.BIPOLAR:
         tensor_values = np.random.randint(2, size=tensor_shape)
         tensor_values = 2 * tensor_values - 1

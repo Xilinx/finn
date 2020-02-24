@@ -9,6 +9,7 @@ variable config_ip_axis_name_out
 variable config_ip_use_axilite
 variable config_ip_project_dir
 variable config_output_products_dir
+variable config_remote_cache
 
 # for arguments involving paths below: use absolute paths or relative to the
 # platform/overlay/bitstream folder
@@ -36,6 +37,8 @@ set config_ip_clk_name %s
 set config_ip_nrst_name %s
 # whether the IP needs an AXI Lite interface for control
 set config_ip_use_axilite 0
+# Vivado OOC IP cache
+set config_remote_cache "%s"
 """
 
 call_pynqshell_makefile_template = """
@@ -51,28 +54,59 @@ pynq_driver_template = """
 from pynq import Overlay
 import numpy as np
 from pynq import allocate
+from finn.util.data_packing import (
+    finnpy_to_packed_bytearray,
+    packed_bytearray_to_finnpy
+)
+from finn.core.datatype import DataType
 
-bitfile_path = "/home/xilinx/finn/resizer.bit"
+bitfile_path = "resizer.bit"
 ol = Overlay(bitfile_path)
 dma=ol.axi_dma_0
 
-ibuf = np.load("input.npy")
-idt = DataType.INT2
-ishape_packed = (1,)
-ibuf_packed = npy2packedbytes(ibuf, idt)
-ibuf_packed_device = allocate(shape=ishape_packed, dtype=np.int8)
+# declare input/output types and shapes for the accelerator
+# input FINN DataType
+idt = $INPUT_FINN_DATATYPE$
+# normal, folded and packed input shapes
+ishape_normal = $INPUT_SHAPE_NORMAL$
+ishape_folded = $INPUT_SHAPE_FOLDED$
+ishape_packed = $INPUT_SHAPE_PACKED$
+# output FINN DataType
+odt = $OUTPUT_FINN_DATATYPE$
+# normal, folded and packed output shapes
+oshape_normal = $OUTPUT_SHAPE_NORMAL$
+oshape_folded = $OUTPUT_SHAPE_FOLDED$
+oshape_packed = $OUTPUT_SHAPE_PACKED$
 
+# load desired input .npy file
+ibuf_normal = np.load("input.npy")
+# ensure that shape is as expected
+assert ibuf_normal.shape == ishape_normal
+# convert to folded form
+ibuf_folded = ibuf_normal.reshape(ishape_folded)
+
+# pack the input buffer
+ibuf_packed = finnpy_to_packed_bytearray(ibuf_folded, idt)
+# allocate a PYNQ buffer for the packed input buffer
+ibuf_packed_device = allocate(shape=ishape_packed, dtype=np.uint8)
+# copy the packed data into the PYNQ buffer
+# TODO optimization: pack directly into the PYNQ buffer?
 np.copyto(ibuf_packed_device, ibuf_packed)
 
-odt = DataType.INT32
-oshape_packed = (16,)
-obuf_packed = allocate(shape=oshape_packed, dtype=np.int8)
+# allocate a PYNQ buffer for the returned packed output buffer
+obuf_packed = allocate(shape=oshape_packed, dtype=np.uint8)
 
+# set up the DMA and wait until all transfers complete
 dma.sendchannel.transfer(ibuf_packed_device)
 dma.recvchannel.transfer(obuf_packed)
 dma.sendchannel.wait()
 dma.recvchannel.wait()
 
-obuf = packedbytes2npy(obuf_packed, odt)
-np.save("output.npy", obuf)
+# unpack the packed output buffer from accelerator
+obuf_folded = packed_bytearray_to_finnpy(
+    obuf_packed, odt, oshape_folded, reverse_endian=True
+)
+# convert to normal reshape and save
+obuf_normal = obuf_folded.reshape(oshape_normal)
+np.save("output.npy", obuf_normal)
 """

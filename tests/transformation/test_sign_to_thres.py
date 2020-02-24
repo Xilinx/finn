@@ -4,14 +4,13 @@ from pkgutil import get_data
 import brevitas.onnx as bo
 import onnx
 import onnx.numpy_helper as nph
-import torch
-from models.LFC import LFC
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import ConvertSignToThres
+from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_lfc.onnx"
 transformed_onnx_path = "test_output_lfc_transformed.onnx"
@@ -22,9 +21,7 @@ trained_lfc_checkpoint = (
 
 
 def test_sign_to_thres():
-    lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
-    checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
-    lfc.load_state_dict(checkpoint["state_dict"])
+    lfc = get_test_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())

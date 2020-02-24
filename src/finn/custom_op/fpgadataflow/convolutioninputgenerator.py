@@ -60,7 +60,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         return out_pix * k * k * ifm_ch
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("sim_mode")
+        mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
         k = self.get_nodeattr("ConvKernelDim")
         ifm_dim = self.get_nodeattr("IFMDim")
@@ -98,9 +98,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
             )
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, node.name
+                code_gen_dir, node.name, prefixed_top_name
             )
             if os.path.isfile(verilog_file):
                 inp = context[node.input[0]]
@@ -151,7 +152,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 )
         else:
             raise Exception(
-                """Invalid value for attribute sim_mode! Is currently set to: {}
+                """Invalid value for attribute exec_mode! Is currently set to: {}
             has to be set to one of the following value ("npysim", "rtlsim")""".format(
                     mode
                 )
@@ -209,7 +210,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
                 OFMDim1, SIMD1, Stride1> (in0, out, numReps);""".format(
-                node.op_type,
+                node.op_type
             )
         ]
 

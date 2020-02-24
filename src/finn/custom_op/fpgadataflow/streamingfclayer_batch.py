@@ -13,6 +13,12 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 
+# ONNX i/o tensor shape assumptions for StreamingFCLayer:
+# input 0 is the input vector, shape (1, i_size) = (1, MW)
+# input 1 is the weight vector, shape (i_size, o_size) = (MW, MH)
+# (optional) input 2 is the threshold vector, shape (o_size, n_thres)
+# output 0 is the output vector, shape (1, o_size) = (1, MH)
+
 
 class StreamingFCLayer_Batch(HLSCustomOp):
     def __init__(self, onnx_node):
@@ -35,6 +41,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "binaryXnorMode": ("i", False, 0),
             # no-activation mode (produce accumulators)
             "noActivation": ("i", False, 0),
+            # input and output FIFO depths
+            "inFIFODepth": ("i", False, 0),
+            "outFIFODepth": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -93,6 +102,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             info_messages.append('Attribute backend should be set to "fpgadataflow"')
 
         # verify that all necessary attributes exist
+        # TODO collect automatically from get_nodeattr_types
         try:
             self.get_nodeattr("code_gen_dir_npysim")
             self.get_nodeattr("executable_path")
@@ -155,6 +165,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         Y. Umuroglu, M. Leeser and K. Vissers
         - 12. Sep 2018
         """
+        # TODO add in/out FIFO contributions
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
         wdt = self.get_weight_datatype()
@@ -172,6 +183,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         Y. Umuroglu, M. Leeser and K. Vissers
         - 12. Sep 2018
         """
+        # TODO add in/out FIFO contributions
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
         wdt = self.get_weight_datatype()
@@ -202,10 +214,21 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
-    def get_number_output_values(self):
+    def get_folded_input_shape(self):
+        mw = self.get_nodeattr("MW")
+        simd = self.get_nodeattr("SIMD")
+        sf = mw // simd
+        return (1, sf, simd)
+
+    def get_folded_output_shape(self):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
-        return mh // pe
+        nf = mh // pe
+        return (1, nf, pe)
+
+    def get_number_output_values(self):
+        nf = self.get_folded_output_shape()[1]
+        return nf
 
     def get_template_param_values(self):
         ret = dict()
@@ -274,6 +297,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         # create SIMD as innermost dimension and add a dummy outer dim
         ret = ret.reshape(1, pe, wmem, simd)
+        # reverse the SIMD dimension
+        ret = np.flip(ret, axis=-1)
         return ret
 
     def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
@@ -396,7 +421,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 f_thresh.close()
 
     def execute_node(self, context, graph):
-        mode = self.get_nodeattr("sim_mode")
+        mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
         mw = self.get_nodeattr("MW")
         mh = self.get_nodeattr("MH")
@@ -412,7 +437,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
             raise Exception(
-                """Invalid value for attribute sim_mode! Is currently set to: {}
+                """Invalid value for attribute exec_mode! Is currently set to: {}
             has to be set to one of the following value ("npysim", "rtlsim")""".format(
                     mode
                 )
@@ -428,9 +453,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 assert str(context[inputs].dtype) == "float32"
                 expected_inp_shape = (1, sf, simd)
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
-                # flip SIMD (innermost) dimension of input tensor, there's some reversal
-                # going on somewhere with a mistmatch between npy and hls...
-                reshaped_input = np.flip(reshaped_input, -1)
                 if self.get_input_datatype() == DataType.BIPOLAR:
                     # store bipolar activations as binary
                     reshaped_input = (reshaped_input + 1) / 2
@@ -459,9 +481,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(1, mh)
         elif mode == "rtlsim":
+            prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, node.name
+                code_gen_dir, node.name, prefixed_top_name
             )
             if os.path.isfile(verilog_file):
                 nbits = self.get_instream_width()
@@ -500,7 +523,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         else:
             raise Exception(
-                """Invalid value for attribute sim_mode! Is currently set to: {}
+                """Invalid value for attribute exec_mode! Is currently set to: {}
             has to be set to one of the following value ("npysim", "rtlsim")""".format(
                     mode
                 )
@@ -546,8 +569,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         npy_type = "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
+        # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
             % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
         )
 
@@ -596,8 +620,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         shape = (1, nf, self.get_nodeattr("PE"))
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
+        # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -625,21 +650,41 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        in_fifo_depth = self.get_nodeattr("inFIFODepth")
+        out_fifo_depth = self.get_nodeattr("outFIFODepth")
+        # insert depth pragmas only if specified
+        if in_fifo_depth != 0:
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS stream depth=%d variable=in0" % in_fifo_depth
+            )
+        if out_fifo_depth != 0:
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS stream depth=%d variable=out" % out_fifo_depth
+            )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+        # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
+        # partition for parallel access along the PE dimension (dim 1)
         self.code_gen_dict["$PRAGMAS$"].append(
-            "DO_PRAGMA(HLS ARRAY_PARTITION variable=weights complete dim=1)"
+            (
+                "DO_PRAGMA(HLS ARRAY_PARTITION "
+                "variable=weights.m_weights complete dim=1)"
+            )
         )
-
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "DO_PRAGMA(HLS ARRAY_PARTITION variable=weights complete dim=2)"
-        )
+        # the threshold tensor is acc_type [PE][TMEM][N_THRES]
+        # partition for parallel access along PE and N_THRES dimensions (dims 1 and 3)
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$PRAGMAS$"].append(
-                "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs complete dim=1)"
+                (
+                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=1)"
+                )
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs complete dim=3)"
+                (
+                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=3)"
+                )
             )

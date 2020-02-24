@@ -6,34 +6,28 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-from models.LFC import LFC
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
 from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.fpgadataflow.streamingfclayer_batch import StreamingFCLayer_Batch
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
-from finn.transformation.fpgadataflow.set_sim_mode import SetSimMode
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.test import get_test_model_trained
 
-export_onnx_path = "test_output_lfc.onnx"
-# TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_checkpoint = (
-    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
-)
+export_onnx_path = "test_output_tfc.onnx"
 
 
-def test_convert_to_hls_layers_lfc_w1a1():
-    lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
-    checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
-    lfc.load_state_dict(checkpoint["state_dict"])
+def test_convert_to_hls_layers_tfc_w1a1():
+    lfc = get_test_model_trained("TFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
@@ -49,43 +43,43 @@ def test_convert_to_hls_layers_lfc_w1a1():
     fc0 = model.graph.node[2]
     assert fc0.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
-    assert model.get_tensor_shape(fc0.input[1]) == [784, 1024]
-    assert model.get_tensor_shape(fc0.input[2]) == [1024, 1]
+    assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
+    assert model.get_tensor_shape(fc0.input[2]) == [64, 1]
     fc1 = model.graph.node[3]
     assert fc1.op_type == "StreamingFCLayer_Batch"
-    assert model.get_tensor_shape(fc1.input[0]) == [1, 1024]
-    assert model.get_tensor_shape(fc1.input[1]) == [1024, 1024]
-    assert model.get_tensor_shape(fc1.input[2]) == [1024, 1]
+    assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
+    assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
+    assert model.get_tensor_shape(fc1.input[2]) == [64, 1]
     fc2 = model.graph.node[4]
     assert fc2.op_type == "StreamingFCLayer_Batch"
-    assert model.get_tensor_shape(fc2.input[0]) == [1, 1024]
-    assert model.get_tensor_shape(fc2.input[1]) == [1024, 1024]
-    assert model.get_tensor_shape(fc2.input[2]) == [1024, 1]
+    assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
+    assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
+    assert model.get_tensor_shape(fc2.input[2]) == [64, 1]
     fc3 = model.graph.node[5]
     assert fc3.op_type == "StreamingFCLayer_Batch"
-    assert model.get_tensor_shape(fc3.input[0]) == [1, 1024]
-    assert model.get_tensor_shape(fc3.input[1]) == [1024, 10]
+    assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
+    assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
     os.remove(export_onnx_path)
 
-    fc0w = StreamingFCLayer_Batch(fc0)
+    fc0w = getCustomOp(fc0)
     fc0w.set_nodeattr("SIMD", 784)
-    fc0w.set_nodeattr("PE", 32)
+    fc0w.set_nodeattr("PE", 16)
 
-    fc1w = StreamingFCLayer_Batch(fc1)
-    fc1w.set_nodeattr("SIMD", 1024)
-    fc1w.set_nodeattr("PE", 32)
+    fc1w = getCustomOp(fc1)
+    fc1w.set_nodeattr("SIMD", 16)
+    fc1w.set_nodeattr("PE", 16)
 
-    fc2w = StreamingFCLayer_Batch(fc2)
-    fc2w.set_nodeattr("SIMD", 1024)
-    fc2w.set_nodeattr("PE", 32)
+    fc2w = getCustomOp(fc2)
+    fc2w.set_nodeattr("SIMD", 16)
+    fc2w.set_nodeattr("PE", 16)
 
-    fc3w = StreamingFCLayer_Batch(fc3)
-    fc3w.set_nodeattr("SIMD", 1024)
+    fc3w = getCustomOp(fc3)
+    fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
 
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
-    model = model.transform(SetSimMode("npysim"))
+    model = model.transform(SetExecMode("npysim"))
 
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)

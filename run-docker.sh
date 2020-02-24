@@ -14,8 +14,21 @@ DOCKER_PASSWD="finn"
 # containers from the same user
 DOCKER_RND=$(shuf -i0-32768 -n1)
 DOCKER_TAG="finn_${DOCKER_UNAME}"
-DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
+# uncomment to run multiple instances with different names
+# DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
+DOCKER_INST_NAME="finn_${DOCKER_UNAME}"
+# ensure Docker tag and inst. name are all lowercase
+DOCKER_TAG=$(echo "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')
+DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
+# the settings below will be taken from environment variables if available,
+# otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
+: ${NETRON_PORT=8081}
+: ${PYNQ_BOARD="Pynq-Z1"}
+: ${PYNQ_IP="192.168.3.1"}
+: ${PYNQ_USERNAME="xilinx"}
+: ${PYNQ_PASSWORD="xilinx"}
+: ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -37,6 +50,7 @@ PYVERILATOR_LOCAL=$SCRIPTPATH/pyverilator
 PYNQSHELL_LOCAL=$SCRIPTPATH/PYNQ-HelloWorld
 BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
+VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
 
 # clone dependency repos
 git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
@@ -48,6 +62,7 @@ git clone $PYNQSHELL_REPO $PYNQSHELL_LOCAL ||  git -C "$PYNQSHELL_LOCAL" pull
 
 # ensure build dir exists locally
 mkdir -p $BUILD_LOCAL
+mkdir -p $VIVADO_IP_CACHE
 
 echo "Instance is named as $DOCKER_INST_NAME"
 echo "Mounting $SCRIPTPATH into /workspace/finn"
@@ -60,6 +75,9 @@ echo "Mounting $SCRIPTPATH/PYNQ-HelloWorld into /workspace/PYNQ-HelloWorld"
 echo "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
 echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
 echo "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
+echo "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
+echo "Vivado IP cache dir is at $VIVADO_IP_CACHE"
+echo "Using default PYNQ board $PYNQ_BOARD"
 
 if [ "$1" = "test" ]; then
         echo "Running test suite"
@@ -80,6 +98,7 @@ docker build --tag=$DOCKER_TAG \
              --build-arg UID=$DOCKER_UID \
              --build-arg PASSWD=$DOCKER_PASSWD \
              --build-arg JUPYTER_PORT=$JUPYTER_PORT \
+             --build-arg NETRON_PORT=$NETRON_PORT \
              .
 # Launch container with current directory mounted
 docker run -t --rm --name $DOCKER_INST_NAME -it \
@@ -96,6 +115,14 @@ docker run -t --rm --name $DOCKER_INST_NAME -it \
 -v $BUILD_LOCAL:$BUILD_LOCAL \
 -v $VIVADO_PATH:$VIVADO_PATH \
 -e VIVADO_PATH=$VIVADO_PATH \
--e FINN_INST_NAME=$DOCKER_TAG \
+-e FINN_INST_NAME=$DOCKER_INST_NAME \
+-e FINN_ROOT="/workspace/finn" \
+-e VIVADO_IP_CACHE="$VIVADO_IP_CACHE" \
+-e PYNQ_BOARD=$PYNQ_BOARD \
+-e PYNQ_IP=$PYNQ_IP \
+-e PYNQ_USERNAME=$PYNQ_USERNAME \
+-e PYNQ_PASSWORD=$PYNQ_PASSWORD \
+-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR \
 -p $JUPYTER_PORT:$JUPYTER_PORT \
+-p $NETRON_PORT:$NETRON_PORT \
 $DOCKER_TAG bash -c "$DOCKER_CMD"
