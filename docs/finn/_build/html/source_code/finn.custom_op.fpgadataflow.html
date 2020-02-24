@@ -34,9 +34,7 @@
   <link rel="stylesheet" href="../_static/css/theme.css" type="text/css" />
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
-    <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="finn.custom_op.fpgadataflow.convolutioninputgenerator module" href="finn.custom_op.fpgadataflow.convolutioninputgenerator.html" />
-    <link rel="prev" title="finn.custom_op package" href="finn.custom_op.html" /> 
+    <link rel="search" title="Search" href="../search.html" /> 
 </head>
 
 <body class="wy-body-for-nav">
@@ -129,12 +127,6 @@
     
       <li><a href="../index.html">Docs</a> &raquo;</li>
         
-          <li><a href="../source_code.html">Source Code</a> &raquo;</li>
-        
-          <li><a href="finn.html">finn package</a> &raquo;</li>
-        
-          <li><a href="finn.custom_op.html">finn.custom_op package</a> &raquo;</li>
-        
       <li>finn.custom_op.fpgadataflow package</li>
     
     
@@ -158,15 +150,556 @@
 <h1>finn.custom_op.fpgadataflow package<a class="headerlink" href="#finn-custom-op-fpgadataflow-package" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="submodules">
 <h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
-<div class="toctree-wrapper compound">
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="finn.custom_op.fpgadataflow.convolutioninputgenerator.html">finn.custom_op.fpgadataflow.convolutioninputgenerator module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="finn.custom_op.fpgadataflow.streamingfclayer_batch.html">finn.custom_op.fpgadataflow.streamingfclayer_batch module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="finn.custom_op.fpgadataflow.streamingmaxpool_batch.html">finn.custom_op.fpgadataflow.streamingmaxpool_batch module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="finn.custom_op.fpgadataflow.templates.html">finn.custom_op.fpgadataflow.templates module</a></li>
-<li class="toctree-l1"><a class="reference internal" href="finn.custom_op.fpgadataflow.tlastmarker.html">finn.custom_op.fpgadataflow.tlastmarker module</a></li>
-</ul>
 </div>
+<div class="section" id="module-finn.custom_op.fpgadataflow.convolutioninputgenerator">
+<span id="finn-custom-op-fpgadataflow-convolutioninputgenerator-module"></span><h2>finn.custom_op.fpgadataflow.convolutioninputgenerator module<a class="headerlink" href="#module-finn.custom_op.fpgadataflow.convolutioninputgenerator" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator">
+<em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.fpgadataflow.convolutioninputgenerator.</code><code class="sig-name descname">ConvolutionInputGenerator</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#finn.custom_op.fpgadataflow.HLSCustomOp" title="finn.custom_op.fpgadataflow.HLSCustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.fpgadataflow.HLSCustomOp</span></code></a></p>
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.blackboxfunction">
+<code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.blackboxfunction" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.bram_estimation">
+<code class="sig-name descname">bram_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.bram_estimation" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.dataoutstrm">
+<code class="sig-name descname">dataoutstrm</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.dataoutstrm" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.defines">
+<code class="sig-name descname">defines</code><span class="sig-paren">(</span><em class="sig-param">var</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.defines" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.docompute">
+<code class="sig-name descname">docompute</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.docompute" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.execute_node">
+<code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.execute_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute this CustomOp instance, given the execution context and
+ONNX graph.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_input_datatype">
+<code class="sig-name descname">get_input_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_input_datatype" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_nodeattr_types">
+<code class="sig-name descname">get_nodeattr_types</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_nodeattr_types" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a dict of permitted attributes for node, where:
+returned_dict[attribute_name] = (dtype, require, default_value)
+- dtype indicates which member of the ONNX AttributeProto
+will be utilized
+- require indicates whether this attribute is required
+- default_val indicates the default value that will be used if the
+attribute is not set</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_number_output_values">
+<code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_number_output_values" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_output_datatype">
+<code class="sig-name descname">get_output_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_output_datatype" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_stream_width">
+<code class="sig-name descname">get_stream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_stream_width" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.global_includes">
+<code class="sig-name descname">global_includes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.global_includes" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.infer_node_datatype">
+<code class="sig-name descname">infer_node_datatype</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.infer_node_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the DataType annotations corresponding to the outputs of this
+node.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.lut_estimation">
+<code class="sig-name descname">lut_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.lut_estimation" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.make_shape_compatible_op">
+<code class="sig-name descname">make_shape_compatible_op</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.make_shape_compatible_op" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a standard ONNX op which is compatible with this CustomOp
+for performing shape inference.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.pragmas">
+<code class="sig-name descname">pragmas</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.pragmas" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.read_npy_data">
+<code class="sig-name descname">read_npy_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.read_npy_data" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.save_as_npy">
+<code class="sig-name descname">save_as_npy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.save_as_npy" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.strm_decl">
+<code class="sig-name descname">strm_decl</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.strm_decl" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.verify_node">
+<code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.verify_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Verifies that all attributes the node needs are there and
+that particular attributes are set correctly. Also checks if
+the number of inputs is equal to the expected number</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.custom_op.fpgadataflow.streamingfclayer_batch">
+<span id="finn-custom-op-fpgadataflow-streamingfclayer-batch-module"></span><h2>finn.custom_op.fpgadataflow.streamingfclayer_batch module<a class="headerlink" href="#module-finn.custom_op.fpgadataflow.streamingfclayer_batch" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch">
+<em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.fpgadataflow.streamingfclayer_batch.</code><code class="sig-name descname">StreamingFCLayer_Batch</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#finn.custom_op.fpgadataflow.HLSCustomOp" title="finn.custom_op.fpgadataflow.HLSCustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.fpgadataflow.HLSCustomOp</span></code></a></p>
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.blackboxfunction">
+<code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.blackboxfunction" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.bram_estimation">
+<code class="sig-name descname">bram_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.bram_estimation" title="Permalink to this definition">¶</a></dt>
+<dd><p>the calculations are based on:
+- FINN-R: An End-to-End Deep-Learning Framework for Fast
+Exploration of Quantized Neural Networks
+- M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O’Brien,
+Y. Umuroglu, M. Leeser and K. Vissers
+- 12. Sep 2018</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.calc_tmem">
+<code class="sig-name descname">calc_tmem</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.calc_tmem" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.calc_wmem">
+<code class="sig-name descname">calc_wmem</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.calc_wmem" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.dataoutstrm">
+<code class="sig-name descname">dataoutstrm</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.dataoutstrm" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.defines">
+<code class="sig-name descname">defines</code><span class="sig-paren">(</span><em class="sig-param">var</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.defines" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.docompute">
+<code class="sig-name descname">docompute</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.docompute" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.execute_node">
+<code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.execute_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute this CustomOp instance, given the execution context and
+ONNX graph.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.generate_params">
+<code class="sig-name descname">generate_params</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">path</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.generate_params" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_input_shape">
+<code class="sig-name descname">get_folded_input_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_input_shape" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_output_shape">
+<code class="sig-name descname">get_folded_output_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_output_shape" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_hls_compatible_threshold_tensor">
+<code class="sig-name descname">get_hls_compatible_threshold_tensor</code><span class="sig-paren">(</span><em class="sig-param">orig_thres_matrix</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_hls_compatible_threshold_tensor" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert the original numpy weight matrix orig_weight_matrix into
+a form suitable for passing to the hlslib call:
+* ensure MH % PE == 0
+* for bipolar weights&amp;inputs, ensure thresholds are positive
+* interleave rows between PEs
+* reshape into (PE, TMEM, n_thres_steps) and return</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_hls_compatible_weight_tensor">
+<code class="sig-name descname">get_hls_compatible_weight_tensor</code><span class="sig-paren">(</span><em class="sig-param">orig_weight_matrix</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_hls_compatible_weight_tensor" title="Permalink to this definition">¶</a></dt>
+<dd><p>Convert the original numpy weight matrix orig_weight_matrix into
+a form suitable for passing to the hlslib call:
+* ensure MH % PE == 0 and MW % SIMD == 0
+* for bipolar {-1,+1} weights, convert to binary {0, 1}
+* interleave rows between PEs
+* reshape into (1, PE, WMEM, SIMD) and return</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_input_datatype">
+<code class="sig-name descname">get_input_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_input_datatype" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_instream_width">
+<code class="sig-name descname">get_instream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_instream_width" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_nodeattr_types">
+<code class="sig-name descname">get_nodeattr_types</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_nodeattr_types" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a dict of permitted attributes for node, where:
+returned_dict[attribute_name] = (dtype, require, default_value)
+- dtype indicates which member of the ONNX AttributeProto
+will be utilized
+- require indicates whether this attribute is required
+- default_val indicates the default value that will be used if the
+attribute is not set</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_number_output_values">
+<code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_number_output_values" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_output_datatype">
+<code class="sig-name descname">get_output_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_output_datatype" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_outstream_width">
+<code class="sig-name descname">get_outstream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_outstream_width" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_template_param_values">
+<code class="sig-name descname">get_template_param_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_template_param_values" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_weight_datatype">
+<code class="sig-name descname">get_weight_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_weight_datatype" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.global_includes">
+<code class="sig-name descname">global_includes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.global_includes" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.infer_node_datatype">
+<code class="sig-name descname">infer_node_datatype</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.infer_node_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the DataType annotations corresponding to the outputs of this
+node.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.lut_estimation">
+<code class="sig-name descname">lut_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.lut_estimation" title="Permalink to this definition">¶</a></dt>
+<dd><p>the calculations are based on:
+- FINN-R: An End-to-End Deep-Learning Framework for Fast
+Exploration of Quantized Neural Networks
+- M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O’Brien,
+Y. Umuroglu, M. Leeser and K. Vissers
+- 12. Sep 2018</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.make_shape_compatible_op">
+<code class="sig-name descname">make_shape_compatible_op</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.make_shape_compatible_op" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a standard ONNX op which is compatible with this CustomOp
+for performing shape inference.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.pragmas">
+<code class="sig-name descname">pragmas</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.pragmas" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.read_npy_data">
+<code class="sig-name descname">read_npy_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.read_npy_data" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.save_as_npy">
+<code class="sig-name descname">save_as_npy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.save_as_npy" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.strm_decl">
+<code class="sig-name descname">strm_decl</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.strm_decl" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.verify_node">
+<code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.verify_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Verifies that all attributes the node needs are there and
+that particular attributes are set correctly. Also checks if
+the number of inputs is equal to the expected number</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.custom_op.fpgadataflow.streamingmaxpool_batch">
+<span id="finn-custom-op-fpgadataflow-streamingmaxpool-batch-module"></span><h2>finn.custom_op.fpgadataflow.streamingmaxpool_batch module<a class="headerlink" href="#module-finn.custom_op.fpgadataflow.streamingmaxpool_batch" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch">
+<em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.fpgadataflow.streamingmaxpool_batch.</code><code class="sig-name descname">StreamingMaxPool_Batch</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#finn.custom_op.fpgadataflow.HLSCustomOp" title="finn.custom_op.fpgadataflow.HLSCustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.fpgadataflow.HLSCustomOp</span></code></a></p>
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.blackboxfunction">
+<code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.blackboxfunction" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.bram_estimation">
+<code class="sig-name descname">bram_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.bram_estimation" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.dataoutstrm">
+<code class="sig-name descname">dataoutstrm</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.dataoutstrm" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.defines">
+<code class="sig-name descname">defines</code><span class="sig-paren">(</span><em class="sig-param">var</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.defines" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.docompute">
+<code class="sig-name descname">docompute</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.docompute" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.get_nodeattr_types">
+<code class="sig-name descname">get_nodeattr_types</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.get_nodeattr_types" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a dict of permitted attributes for node, where:
+returned_dict[attribute_name] = (dtype, require, default_value)
+- dtype indicates which member of the ONNX AttributeProto
+will be utilized
+- require indicates whether this attribute is required
+- default_val indicates the default value that will be used if the
+attribute is not set</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.get_number_output_values">
+<code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.get_number_output_values" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.global_includes">
+<code class="sig-name descname">global_includes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.global_includes" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.infer_node_datatype">
+<code class="sig-name descname">infer_node_datatype</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.infer_node_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the DataType annotations corresponding to the outputs of this
+node.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.lut_estimation">
+<code class="sig-name descname">lut_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.lut_estimation" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.make_shape_compatible_op">
+<code class="sig-name descname">make_shape_compatible_op</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.make_shape_compatible_op" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a standard ONNX op which is compatible with this CustomOp
+for performing shape inference.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.pragmas">
+<code class="sig-name descname">pragmas</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.pragmas" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.read_npy_data">
+<code class="sig-name descname">read_npy_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.read_npy_data" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.save_as_npy">
+<code class="sig-name descname">save_as_npy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.save_as_npy" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.strm_decl">
+<code class="sig-name descname">strm_decl</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.strm_decl" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.verify_node">
+<code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.verify_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Verifies that all attributes the node needs are there and
+that particular attributes are set correctly. Also checks if
+the number of inputs is equal to the expected number</p>
+</dd></dl>
+
+</dd></dl>
+
+</div>
+<div class="section" id="module-finn.custom_op.fpgadataflow.templates">
+<span id="finn-custom-op-fpgadataflow-templates-module"></span><h2>finn.custom_op.fpgadataflow.templates module<a class="headerlink" href="#module-finn.custom_op.fpgadataflow.templates" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-finn.custom_op.fpgadataflow.tlastmarker">
+<span id="finn-custom-op-fpgadataflow-tlastmarker-module"></span><h2>finn.custom_op.fpgadataflow.tlastmarker module<a class="headerlink" href="#module-finn.custom_op.fpgadataflow.tlastmarker" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker">
+<em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.fpgadataflow.tlastmarker.</code><code class="sig-name descname">TLastMarker</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="#finn.custom_op.fpgadataflow.HLSCustomOp" title="finn.custom_op.fpgadataflow.HLSCustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.fpgadataflow.HLSCustomOp</span></code></a></p>
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.blackboxfunction">
+<code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.blackboxfunction" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.dataoutstrm">
+<code class="sig-name descname">dataoutstrm</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.dataoutstrm" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.defines">
+<code class="sig-name descname">defines</code><span class="sig-paren">(</span><em class="sig-param">var</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.defines" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.docompute">
+<code class="sig-name descname">docompute</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.docompute" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.execute_node">
+<code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.execute_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Execute this CustomOp instance, given the execution context and
+ONNX graph.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_folded_input_shape">
+<code class="sig-name descname">get_folded_input_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_folded_input_shape" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_folded_output_shape">
+<code class="sig-name descname">get_folded_output_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_folded_output_shape" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_instream_width">
+<code class="sig-name descname">get_instream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_instream_width" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_nodeattr_types">
+<code class="sig-name descname">get_nodeattr_types</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_nodeattr_types" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a dict of permitted attributes for node, where:
+returned_dict[attribute_name] = (dtype, require, default_value)
+- dtype indicates which member of the ONNX AttributeProto
+will be utilized
+- require indicates whether this attribute is required
+- default_val indicates the default value that will be used if the
+attribute is not set</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_number_output_values">
+<code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_number_output_values" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_outstream_width">
+<code class="sig-name descname">get_outstream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_outstream_width" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.global_includes">
+<code class="sig-name descname">global_includes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.global_includes" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.infer_node_datatype">
+<code class="sig-name descname">infer_node_datatype</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.infer_node_datatype" title="Permalink to this definition">¶</a></dt>
+<dd><p>Set the DataType annotations corresponding to the outputs of this
+node.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.make_shape_compatible_op">
+<code class="sig-name descname">make_shape_compatible_op</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.make_shape_compatible_op" title="Permalink to this definition">¶</a></dt>
+<dd><p>Returns a standard ONNX op which is compatible with this CustomOp
+for performing shape inference.</p>
+</dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.pragmas">
+<code class="sig-name descname">pragmas</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.pragmas" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.read_npy_data">
+<code class="sig-name descname">read_npy_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.read_npy_data" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.save_as_npy">
+<code class="sig-name descname">save_as_npy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.save_as_npy" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.strm_decl">
+<code class="sig-name descname">strm_decl</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.strm_decl" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="method">
+<dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.verify_node">
+<code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.verify_node" title="Permalink to this definition">¶</a></dt>
+<dd><p>Verifies that all attributes the node needs are there and
+that particular attributes are set correctly. Also checks if
+the number of inputs is equal to the expected number</p>
+</dd></dl>
+
+</dd></dl>
+
 </div>
 <div class="section" id="module-finn.custom_op.fpgadataflow">
 <span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-finn.custom_op.fpgadataflow" title="Permalink to this headline">¶</a></h2>
@@ -343,15 +876,6 @@ attribute is not set</p>
            
           </div>
           <footer>
-  
-    <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
-      
-        <a href="finn.custom_op.fpgadataflow.convolutioninputgenerator.html" class="btn btn-neutral float-right" title="finn.custom_op.fpgadataflow.convolutioninputgenerator module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
-      
-      
-        <a href="finn.custom_op.html" class="btn btn-neutral float-left" title="finn.custom_op package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
-      
-    </div>
   
 
   <hr/>

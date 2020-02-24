@@ -11,10 +11,22 @@ Subpackages
 Submodules
 ----------
 
-.. toctree::
+finn.analysis.topology module
+-----------------------------
 
-   finn.analysis.topology
-   finn.analysis.verify_custom_nodes
+.. automodule:: finn.analysis.topology
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.analysis.verify\_custom\_nodes module
+------------------------------------------
+
+.. automodule:: finn.analysis.verify_custom_nodes
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 
 Module contents
 ---------------
