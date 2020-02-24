@@ -1,7 +1,7 @@
 finn
-===
+====
 
 .. toctree::
    :maxdepth: 4
 
-   finn
+   source_code/finn
