@@ -183,9 +183,9 @@ def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
 # input datatype
 @pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
 # neuron folding, -1 is maximum possible
-@pytest.mark.parametrize("nf", [-1, 1])
+@pytest.mark.parametrize("nf", [-1, 2, 1])
 # synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [-1, 1])
+@pytest.mark.parametrize("sf", [-1, 2, 1])
 # HLS matrix width (input features)
 @pytest.mark.parametrize("mw", [4])
 # HLS matrix height (output features)
