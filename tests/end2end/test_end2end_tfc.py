@@ -140,15 +140,23 @@ def test_end2end_tfc_verify_dataflow_part():
     model = model.transform(Compile())
     model = model.transform(SetExecMode("npysim"))
     model.save(build_dir + "/end2end_tfc_w1_a1_ipstitch_npysim.onnx")
-    res_npysim = execute_onnx(model, inp_dict)[out_name]
+    ret_npysim = execute_onnx(model, inp_dict, True)
+    res_npysim = ret_npysim[out_name]
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
+    getCustomOp(model.graph.node[0]).set_nodeattr("rtlsim_trace", "default")
+    getCustomOp(model.graph.node[1]).set_nodeattr("rtlsim_trace", "default")
+    getCustomOp(model.graph.node[2]).set_nodeattr("rtlsim_trace", "default")
+    getCustomOp(model.graph.node[3]).set_nodeattr("rtlsim_trace", "default")
     model.save(build_dir + "/end2end_tfc_w1_a1_ipstitch_nodebynode_rtlsim.onnx")
-    res_rtlsim_nodebynode = execute_onnx(model, inp_dict)[out_name]
+    ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
+    res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
     # whole-network (ip-stitched) rtlsim
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
     model.save(build_dir + "/end2end_tfc_w1_a1_ipstitch_whole_rtlsim.onnx")
-    res_rtlsim_whole = execute_onnx(model, inp_dict)[out_name]
+    ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
+    res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
     assert np.isclose(res_npysim, res_rtlsim_whole).all()
 
