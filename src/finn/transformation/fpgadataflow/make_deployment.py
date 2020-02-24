@@ -47,6 +47,7 @@ class DeployToPYNQ(Transformation):
         pynq_driver_dir = model.get_metadata_prop("pynq_driver_dir")
         copy_tree(pynq_driver_dir, deployment_dir)
         model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
+        model.set_metadata_prop("exec_mode", "remote_pynq")
 
         # create target directory on PYNQ board
         cmd = 'sshpass -p {} ssh {}@{} "mkdir -p {}"'.format(
