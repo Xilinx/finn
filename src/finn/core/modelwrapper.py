@@ -33,18 +33,22 @@ class ModelWrapper:
 
     @property
     def graph(self):
+        """Returns the graph of the model."""
         return self._model_proto.graph
 
     @graph.setter
     def graph(self, value):
+        """Sets the graph of the model according to value"""
         self._model_proto.graph = value
 
     @property
     def model(self):
+        """Returns the model."""
         return self._model_proto
 
     @model.setter
     def model(self, value):
+        """Sets the model according to value."""
         self._model_proto = value
 
     def save(self, filename):
@@ -309,6 +313,7 @@ class ModelWrapper:
             return metadata_prop.value
 
     def set_metadata_prop(self, key, value):
+        """Sets metadata property with given key to the given value."""
         metadata_prop = util.get_by_name(self.model.metadata_props, key, "key")
         if metadata_prop is None:
             metadata_prop = onnx.StringStringEntryProto()

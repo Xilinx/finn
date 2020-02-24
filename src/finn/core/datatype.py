@@ -30,6 +30,9 @@ import numpy as np
 
 
 class DataType(Enum):
+    """Enum class that contains FINN data types to set the quantization annotation. 
+    ONNX does not support data types smaller than 8-bit integers, whereas in FINN we are
+    interested in smaller integers down to ternary and bipolar."""
     # important to maintain ordering here: unsigned to signed, fewer to more
     # bits. The get_smallest_possible() member function is dependent on this.
     BINARY = auto()

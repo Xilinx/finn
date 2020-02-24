@@ -5,6 +5,9 @@ import numpy as np
 
 
 def remote_exec(model, execution_context):
+    """Executes the given model remotely on the pynq board. The metadata properties
+    related to the pynq board have to be set. The execution context contains the 
+    input values."""
     # TODO fix for multi input-output
     pynq_ip = model.get_metadata_prop("pynq_ip")
     pynq_username = model.get_metadata_prop("pynq_username")

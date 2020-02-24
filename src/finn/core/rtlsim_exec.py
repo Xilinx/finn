@@ -9,7 +9,8 @@ from finn.util.fpgadataflow import (
 
 
 def rtlsim_exec(model, execution_context):
-    "Use PyVerilator to execute given model with stitched IP."
+    """Use PyVerilator to execute given model with stitched IP. The execution 
+    context contains the input values."""
 
     # ensure stitched ip project already exists
     assert os.path.isfile(model.get_metadata_prop("wrapper_filename"))
@@ -54,6 +55,8 @@ def rtlsim_exec(model, execution_context):
 
 # TODO move the rtlsim functions below into a common location such as utils
 def _reset_rtlsim(sim):
+    """Sets reset input in pyverilator to zero, toggles the clock and set it 
+    back to one"""
     sim.io.ap_rst_n_0 = 0
     sim.io.ap_clk_0 = 1
     sim.io.ap_clk_0 = 0
@@ -61,12 +64,18 @@ def _reset_rtlsim(sim):
 
 
 def _toggle_clk(sim):
+    """Toggles the clock input in pyverilator once."""
     sim.io.ap_clk_0 = 1
     sim.io.ap_clk_0 = 0
 
 
 def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
-    # import pdb; pdb.set_trace()
+    """Runs the pyverilator simulation by passing the input values to the simulation,
+    toggle the clock and observing the execution time. Argument num_out_values contains
+    the number of expected output values, so the simulation is closed after all outputs are
+    calculated. Function contains also an observation loop that can abort the simulation if 
+    no output value is produced after a certain time (liveness_threshold from function 
+    pyverilate_get_liveness_threshold_cycles() from finn.util.fpgadataflow)"""
     inputs = inp
     outputs = []
     sim.io.out_r_0_tready = 1
