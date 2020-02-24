@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 import numpy as np
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
@@ -21,6 +23,7 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
+from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
@@ -215,3 +218,46 @@ def test_end2end_tfc_make_driver():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_synth.onnx")
     model = model.transform(MakePYNQDriver())
     model.save(build_dir + "/end2end_tfc_w1_a1_pynq_driver.onnx")
+
+
+def test_end2end_tfc_deploy_on_pynq():
+    model = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_pynq_driver.onnx")
+    try:
+        ip = os.environ["PYNQ_IP"]  # no fault for this one; skip if not defined
+        username = os.getenv("PYNQ_USERNAME", "xilinx")
+        password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
+        model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+        # save the model to be able to link it to the parent
+        model.save(build_dir + "/end2end_tfc_w1_a1_pynq_deploy.onnx")
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")
+
+
+def test_end2end_tfc_run_on_pynq():
+    # use the streamlined model as the "golden" model for right answers
+    golden = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_streamlined.onnx")
+    iname = golden.graph.input[0].name
+    oname = golden.graph.output[0].name
+    ishape = golden.get_tensor_shape(iname)
+    x = np.zeros(ishape, dtype=np.float32)
+    ret_golden = execute_onnx(golden, {iname: x}, True)
+    y_golden = ret_golden[oname]
+    # set up parent+child graph to test
+    # we'll use models from the previous step as the child model
+    parent_model = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_dataflow_parent.onnx")
+    iname = parent_model.graph.input[0].name
+    oname = parent_model.graph.output[0].name
+    try:
+        ip = os.environ["PYNQ_IP"]  # NOQA
+        # produce results with npysim
+        sdp_node = getCustomOp(parent_model.graph.node[2])
+        sdp_node.set_nodeattr(
+            "model", build_dir + "/end2end_tfc_w1_a1_pynq_deploy.onnx"
+        )
+        ret = execute_onnx(parent_model, {iname: x}, True)
+        y = ret[oname]
+        assert np.isclose(y, y_golden).all()
+
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")
