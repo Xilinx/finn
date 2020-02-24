@@ -1,7 +1,7 @@
-src
+finn
 ===
 
 .. toctree::
    :maxdepth: 4
 
-   src
+   finn
