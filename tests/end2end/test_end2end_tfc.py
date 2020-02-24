@@ -168,7 +168,8 @@ def test_end2end_tfc_verify_all():
     oname = golden.graph.output[0].name
     ishape = golden.get_tensor_shape(iname)
     x = np.zeros(ishape, dtype=np.float32)
-    y_golden = execute_onnx(golden, {iname: x})[oname]
+    ret_golden = execute_onnx(golden, {iname: x}, True)
+    y_golden = ret_golden[oname]
     # set up parent+child graph to test
     # we'll use models from the previous step as the child model
     parent_model = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_dataflow_parent.onnx")
