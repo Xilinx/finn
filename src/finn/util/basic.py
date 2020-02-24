@@ -66,6 +66,8 @@ def random_string(stringLength=6):
 
 
 def interleave_matrix_outer_dim_from_partitions(matrix, n_partitions):
+    """Interleave the outermost dimension of a matrix from given 
+    partitions (n_partitions)."""
     if type(matrix) != np.ndarray or matrix.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
         matrix = np.asarray(matrix, dtype=np.float32)
@@ -170,6 +172,8 @@ def calculate_signed_dot_prod_range(dt_a, dt_b, len):
 
 
 class CppBuilder:
+    """Builds the g++ compiler command to produces the executable of the c++ code 
+    in code_gen_dir which is passed to the function build() of this class."""
     def __init__(self):
         self.include_paths = []
         self.cpp_files = []
@@ -179,15 +183,20 @@ class CppBuilder:
         self.compile_script = ""
 
     def append_includes(self, library_path):
+        """Adds given library path to include_paths list."""
         self.include_paths.append(library_path)
 
     def append_sources(self, cpp_file):
+        """Adds given c++ file to cpp_files list."""
         self.cpp_files.append(cpp_file)
 
     def set_executable_path(self, path):
+        """Sets member variable "executable_path" to given path."""
         self.executable_path = path
 
     def build(self, code_gen_dir):
+        """Builds the g++ compiler command according to entries in include_paths 
+        and cpp_files lists. Saves it in bash script and executes it."""
         # raise error if includes are empty
         self.code_gen_dir = code_gen_dir
         self.compile_components.append("g++ -o " + str(self.executable_path))

@@ -5,6 +5,7 @@ from pyverilator import PyVerilator
 
 
 class IPGenBuilder:
+    """Builds the bash script to generate IP blocks using Vivado HLS."""
     def __init__(self):
         self.tcl_script = ""
         self.ipgen_path = ""
@@ -12,12 +13,16 @@ class IPGenBuilder:
         self.ipgen_script = ""
 
     def append_tcl(self, tcl_script):
+        """Sets member variable "tcl_script" to given tcl script."""
         self.tcl_script = tcl_script
 
     def set_ipgen_path(self, path):
+        """Sets member variable ipgen_path to given path."""
         self.ipgen_path = path
 
     def build(self, code_gen_dir):
+        """Builds the bash script with given parameters. To guarantee the 
+        generation in the correct folder the bash script contains a cd command."""
         self.code_gen_dir = code_gen_dir
         self.ipgen_script = str(self.code_gen_dir) + "/ipgen.sh"
         working_dir = os.environ["PWD"]
