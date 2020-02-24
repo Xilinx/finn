@@ -80,10 +80,32 @@
               
             
             
-              <ul>
+              <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../source_code.html">Source Code</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="finn.html">finn package</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="finn.html#subpackages">Subpackages</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="finn.analysis.html">finn.analysis package</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.core.html">finn.core package</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.custom_op.html">finn.custom_op package</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="finn.transformation.html">finn.transformation package</a><ul class="current">
+<li class="toctree-l4 current"><a class="reference internal" href="finn.transformation.html#subpackages">Subpackages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#submodules">Submodules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.batchnorm_to_affine">finn.transformation.batchnorm_to_affine module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.bipolar_to_xnor">finn.transformation.bipolar_to_xnor module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.fold_constants">finn.transformation.fold_constants module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.general">finn.transformation.general module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.infer_datatypes">finn.transformation.infer_datatypes module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.infer_shapes">finn.transformation.infer_shapes module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation">Module contents</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="finn.util.html">finn.util package</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="finn.html#module-finn">Module contents</a></li>
+</ul>
+</li>
 </ul>
 
             
@@ -128,8 +150,6 @@
   <ul class="wy-breadcrumbs">
     
       <li><a href="../index.html">Docs</a> &raquo;</li>
-        
-          <li><a href="../source_code.html">Source Code</a> &raquo;</li>
         
           <li><a href="finn.html">finn package</a> &raquo;</li>
         
@@ -180,7 +200,15 @@
 <dt id="finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.codegen_ipgen.</code><code class="sig-name descname">CodeGen_ipgen</code><span class="sig-paren">(</span><em class="sig-param">fpgapart</em>, <em class="sig-param">clk</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Code generation for all nodes in model</p>
+<p>Call custom implementation to generate code for single custom node
+and create folder that contains all the generated files.
+All nodes in the graph must have the fpgadataflow backend attribute and 
+transformation gets additional arguments:
+* fpgapart (string)
+* clk in ns (int)</p>
+<p>Outcome if succesful: Node attribute “code_gen_dir_ipgen” contains path to folder 
+that contains generated C++ code that can be used to generate a Vivado IP block. 
+The subsequent transformation is HLSSynth_IPGen</p>
 <dl class="method">
 <dt id="finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen.apply">
 <code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen.apply" title="Permalink to this definition">¶</a></dt>
@@ -218,7 +246,12 @@ The packaged block design IP can be found under the ip subdirectory.</p>
 <dt id="finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.codegen_npysim.</code><code class="sig-name descname">CodeGen_npysim</code><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Code generation for all nodes in model</p>
+<p>Call custom implementation to generate code for single custom node
+and create folder that contains all the generated files.
+All nodes in the graph must have the fpgadataflow backend attribute.</p>
+<p>Outcome if succesful: Node attribute “code_gen_dir_npysim” contains path to folder 
+that contains generated C++ code that can be used to simulate node using npysim. 
+The subsequent transformation is Compile</p>
 <dl class="method">
 <dt id="finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim.apply">
 <code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim.apply" title="Permalink to this definition">¶</a></dt>
@@ -233,7 +266,12 @@ The packaged block design IP can be found under the ip subdirectory.</p>
 <dt id="finn.transformation.fpgadataflow.compile.Compile">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.compile.</code><code class="sig-name descname">Compile</code><a class="headerlink" href="#finn.transformation.fpgadataflow.compile.Compile" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Compile for all nodes in model</p>
+<p>For every node: compile C++ code in node attribute “code_gen_dir_npysim” 
+and save path to executables in node attribute “executable_path”.
+All nodes in the graph must have the fpgadataflow backend attribute.</p>
+<p>To use these executables, exec_mode must be set to “npysim” (using transformation 
+SetExecMode) and the model has to be executed using execute_onnx() from 
+finn.core.onnx_exec</p>
 <dl class="method">
 <dt id="finn.transformation.fpgadataflow.compile.Compile.apply">
 <code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.compile.Compile.apply" title="Permalink to this definition">¶</a></dt>
@@ -284,7 +322,12 @@ dataflow nodes. No action is taken if there are no dataflow nodes.</p>
 <dt id="finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.hlssynth_ipgen.</code><code class="sig-name descname">HLSSynth_IPGen</code><a class="headerlink" href="#finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Compile for all nodes in model</p>
+<p>For each node: generate IP block from code in folder
+that is referenced in node attribute “code_gen_dir_ipgen”
+and save path of generated project in node attribute “ipgen_path”.
+All nodes in the graph must have the fpgadataflow backend attribute.</p>
+<p>This transformation calls Vivado HLS for synthesis, so it will run for 
+some time (several minutes)</p>
 <dl class="method">
 <dt id="finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen.apply">
 <code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen.apply" title="Permalink to this definition">¶</a></dt>
@@ -376,7 +419,8 @@ value.</p>
 <dt id="finn.transformation.fpgadataflow.set_exec_mode.SetExecMode">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.set_exec_mode.</code><code class="sig-name descname">SetExecMode</code><span class="sig-paren">(</span><em class="sig-param">mode</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.set_exec_mode.SetExecMode" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Set attribute sim_mode in all fpgadataflow nodes</p>
+<p>Set attribute exec_mode in all fpgadataflow nodes to specify which 
+kind of execution should be used (“npysim” or “rtlsim”)</p>
 <dl class="method">
 <dt id="finn.transformation.fpgadataflow.set_exec_mode.SetExecMode.apply">
 <code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.set_exec_mode.SetExecMode.apply" title="Permalink to this definition">¶</a></dt>
@@ -429,7 +473,7 @@ transformation must be applied prior to this transformation.</p>
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2020, Y. Umuroglu, J. Petri-Koenig
+        &copy; Copyright 2020, Y. Umuroglu and J. Petri-Koenig
 
     </p>
   </div>

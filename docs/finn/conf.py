@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.abspath('../../src/'))
 # -- Project information -----------------------------------------------------
 
 project = 'FINN'
-copyright = '2020, Y. Umuroglu, J. Petri-Koenig'
-author = 'Y. Umuroglu, J. Petri-Koenig'
+copyright = '2020, Y. Umuroglu and J. Petri-Koenig'
+author = 'Y. Umuroglu and J. Petri-Koenig'
 
 
 # -- General configuration ---------------------------------------------------

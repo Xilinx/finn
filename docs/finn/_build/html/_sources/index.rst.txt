@@ -1,5 +1,5 @@
-.. FINN documentation master file, created by
-   sphinx-quickstart on Thu Feb 20 12:08:33 2020.
+.. finn documentation master file, created by
+   sphinx-quickstart on Mon Feb 24 14:55:45 2020.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
@@ -28,6 +28,5 @@ What is FINN?
 
    end_to_end_flow
    getting_started
-   source_code
-
+   source_code/finn
 

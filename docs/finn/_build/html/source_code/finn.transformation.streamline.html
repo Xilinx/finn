@@ -80,10 +80,32 @@
               
             
             
-              <ul>
+              <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../source_code.html">Source Code</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="finn.html">finn package</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="finn.html#subpackages">Subpackages</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="finn.analysis.html">finn.analysis package</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.core.html">finn.core package</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.custom_op.html">finn.custom_op package</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="finn.transformation.html">finn.transformation package</a><ul class="current">
+<li class="toctree-l4 current"><a class="reference internal" href="finn.transformation.html#subpackages">Subpackages</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#submodules">Submodules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.batchnorm_to_affine">finn.transformation.batchnorm_to_affine module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.bipolar_to_xnor">finn.transformation.bipolar_to_xnor module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.fold_constants">finn.transformation.fold_constants module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.general">finn.transformation.general module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.infer_datatypes">finn.transformation.infer_datatypes module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.infer_shapes">finn.transformation.infer_shapes module</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation">Module contents</a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="finn.util.html">finn.util package</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="finn.html#module-finn">Module contents</a></li>
+</ul>
+</li>
 </ul>
 
             
@@ -128,8 +150,6 @@
   <ul class="wy-breadcrumbs">
     
       <li><a href="../index.html">Docs</a> &raquo;</li>
-        
-          <li><a href="../source_code.html">Source Code</a> &raquo;</li>
         
           <li><a href="finn.html">finn package</a> &raquo;</li>
         
@@ -221,12 +241,14 @@ vector of magnitudes.</p>
 <dt id="finn.transformation.streamline.collapse_repeated.CollapseRepeatedAdd">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.collapse_repeated.</code><code class="sig-name descname">CollapseRepeatedAdd</code><a class="headerlink" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedAdd" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp" title="finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp</span></code></a></p>
+<p>Collapse repeated adder node into a single operation.</p>
 </dd></dl>
 
 <dl class="class">
 <dt id="finn.transformation.streamline.collapse_repeated.CollapseRepeatedMul">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.collapse_repeated.</code><code class="sig-name descname">CollapseRepeatedMul</code><a class="headerlink" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedMul" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp" title="finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.streamline.collapse_repeated.CollapseRepeatedOp</span></code></a></p>
+<p>Collapse repeated multiplier node into a single operation.</p>
 </dd></dl>
 
 <dl class="class">
@@ -355,7 +377,7 @@ is unsigned, sets negative thresholds to zero.</p>
 
   <div role="contentinfo">
     <p>
-        &copy; Copyright 2020, Y. Umuroglu, J. Petri-Koenig
+        &copy; Copyright 2020, Y. Umuroglu and J. Petri-Koenig
 
     </p>
   </div>
