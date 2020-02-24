@@ -1,7 +1,7 @@
 Source Code
 ============
 
-.. automodule:: finn
+.. automodule:: source_code/finn
     :members:
     :undoc-members:
     :show-inheritance:
