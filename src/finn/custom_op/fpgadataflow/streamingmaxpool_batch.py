@@ -2,6 +2,7 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class StreamingMaxPool_Batch(HLSCustomOp):
+    """Class that corresponds to finn-hlslib StreamingMaxPool_batch function."""
     def get_nodeattr_types(self):
         my_attrs = {
             "ImgDim": ("i", True, 0),

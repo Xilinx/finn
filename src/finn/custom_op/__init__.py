@@ -4,6 +4,9 @@ import onnx.helper as helper
 
 
 class CustomOp(ABC):
+    """CustomOp class all custom op nodes are based on. Contains different functions 
+    every custom node should have. Some as abstract methods, these have to be filled when
+    writing a new custom op node."""
     def __init__(self, onnx_node):
         super().__init__()
         self.onnx_node = onnx_node

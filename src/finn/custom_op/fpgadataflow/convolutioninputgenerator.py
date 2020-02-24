@@ -8,6 +8,8 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class ConvolutionInputGenerator(HLSCustomOp):
+    """Class that corresponds to finn-hlslib ConvolutionInputGenerator 
+    (sliding window) function."""
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 

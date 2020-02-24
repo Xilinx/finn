@@ -13,6 +13,10 @@ def compare(x, y):
 
 
 def multithreshold(v, thresholds, out_scale=None, out_bias=None):
+    """Given a set of threshold values t={t_0, t_1 ... t_n} the successive 
+    thresholding maps any real number x to an integer in the interval [0, n],
+    where the returned integer is the number of thresholds x is greater than 
+    or equal to."""
     # the inputs are expected to be in the shape (N,C,H,W)
     # N : Batch size
     # C : Number of channels
@@ -57,6 +61,7 @@ def multithreshold(v, thresholds, out_scale=None, out_bias=None):
 
 
 class MultiThreshold(CustomOp):
+    """Class that corresponds to a multithresholding node."""
     def get_nodeattr_types(self):
         return {
             "out_dtype": ("s", True, ""),

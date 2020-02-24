@@ -6,15 +6,15 @@ from finn.custom_op import CustomOp
 
 
 def xnorpopcountmatmul(inp0, inp1):
+    """Simulates XNOR-popcount matrix multiplication as a regular bipolar
+    matrix multiplication followed by some post processing."""
     # extract the operand shapes
     (M, K0) = inp0.shape
     (K1, N) = inp1.shape
     # make sure shapes are compatible with matmul
     assert K0 == K1
     K = K0
-    # we simulate XNOR-popcount matrix multiplication as a regular bipolar
-    # matrix multiplication followed by some post processing
-    # first, convert binary inputs to bipolar
+    # convert binary inputs to bipolar
     inp0_bipolar = 2.0 * inp0 - 1.0
     inp1_bipolar = 2.0 * inp1 - 1.0
     # call regular numpy matrix multiplication
@@ -31,6 +31,8 @@ def xnorpopcountmatmul(inp0, inp1):
 
 
 class XnorPopcountMatMul(CustomOp):
+    """Class that corresponds to a XNOR-popcount matrix 
+    multiplication node."""
     def get_nodeattr_types(self):
         return {}
 

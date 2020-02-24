@@ -21,6 +21,7 @@ from finn.util.data_packing import (
 
 
 class StreamingFCLayer_Batch(HLSCustomOp):
+    """Class that corresponds to finn-hls StreamingFCLayer_Batch function."""
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 
@@ -49,6 +50,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return my_attrs
 
     def calc_wmem(self):
+        """Calculates and returns WMEM."""
         mw = self.get_nodeattr("MW")
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
@@ -59,6 +61,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return wmem
 
     def calc_tmem(self):
+        """Calculates and returns TMEM."""
         if self.get_nodeattr("noActivation") == 1:
             return 0
         else:
@@ -158,7 +161,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return info_messages
 
     def bram_estimation(self):
-        """the calculations are based on:
+        """Calculates resource estimation for BRAM based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
         Exploration of Quantized Neural Networks
         - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
@@ -176,7 +179,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return P * (math.ceil(omega / 512)) * (math.ceil((Q * W) / 36))
 
     def lut_estimation(self):
-        """the calculations are based on:
+        """Calculates resource estimations for LUTs based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
         Exploration of Quantized Neural Networks
         - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
@@ -207,30 +210,37 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_instream_width(self):
+        """Returns input stream width."""
         i_bits = self.get_input_datatype().bitwidth()
         return i_bits * self.get_nodeattr("SIMD")
 
     def get_outstream_width(self):
+        """Returns output stream width."""
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
     def get_folded_input_shape(self):
+        """Returns folded input shape (according to synapse folding)."""
         mw = self.get_nodeattr("MW")
         simd = self.get_nodeattr("SIMD")
         sf = mw // simd
         return (1, sf, simd)
 
     def get_folded_output_shape(self):
+        """Returns folded output shape (according to neuron folding)."""
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         nf = mh // pe
         return (1, nf, pe)
 
     def get_number_output_values(self):
+        """Returns the number of output values."""
         nf = self.get_folded_output_shape()[1]
         return nf
 
     def get_template_param_values(self):
+        """Returns the template parameter values according to input, output and weight 
+        data types."""
         ret = dict()
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
@@ -341,6 +351,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
     def generate_params(self, model, path):
+        """Saves weights into params.h and if existing thresholds into thresh.h."""
         code_gen_dir = path
         # weights
         weights = model.get_initializer(self.onnx_node.input[1])

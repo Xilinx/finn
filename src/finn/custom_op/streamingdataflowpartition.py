@@ -1,12 +1,10 @@
 from finn.custom_op import CustomOp
 
-# note that the StreamingDataflowPartition node is only a meta/container node,
-# it does not produce any HLS or bitfile by itself. it's a placeholder for
-# a group of fpgadataflow nodes that have been separated out into a FINN-ONNX
-# model of its own.
-
-
 class StreamingDataflowPartition(CustomOp):
+    """Class that corresponds to the meta/container node StreamingDataflowPartition 
+    which is a placeholder for a group of fpgadataflow nodes that have been separated 
+    out into a FINN-ONNX model of its own. Note that is does not produce any HLS or 
+    bitfile by itself."""
     def get_nodeattr_types(self):
         return {
             "model": ("s", True, ""),
