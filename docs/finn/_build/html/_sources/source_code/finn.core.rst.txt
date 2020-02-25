@@ -1,11 +1,12 @@
-finn.core package
-=================
+****
+Core
+****
 
-Submodules
-----------
+Modules
+=======
 
-finn.core.datatype module
--------------------------
+finn.core.datatype
+------------------
 
 .. automodule:: finn.core.datatype
    :members:
@@ -52,11 +53,3 @@ finn.core.rtlsim\_exec module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: finn.core
-   :members:
-   :undoc-members:
-   :show-inheritance:

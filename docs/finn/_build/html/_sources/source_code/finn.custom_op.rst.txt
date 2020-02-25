@@ -1,53 +1,55 @@
-finn.custom\_op package
-=======================
+*********
+Custom Op
+*********
 
-Subpackages
------------
+Submodules
+==========
 
 .. toctree::
+   :maxdepth: 2
 
    finn.custom_op.fpgadataflow
 
-Submodules
+Custom Op Nodes
+===============
+
+Base Class
 ----------
 
-finn.custom\_op.multithreshold module
--------------------------------------
+.. automodule:: finn.custom_op
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.multithreshold
+------------------------------
 
 .. automodule:: finn.custom_op.multithreshold
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.registry module
--------------------------------
+finn.custom\_op.registry
+------------------------
 
 .. automodule:: finn.custom_op.registry
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.streamingdataflowpartition module
--------------------------------------------------
+finn.custom\_op.streamingdataflowpartition
+------------------------------------------
 
 .. automodule:: finn.custom_op.streamingdataflowpartition
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.xnorpopcount module
------------------------------------
+finn.custom\_op.xnorpopcount
+----------------------------
 
 .. automodule:: finn.custom_op.xnorpopcount
    :members:
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: finn.custom_op
-   :members:
-   :undoc-members:
-   :show-inheritance:

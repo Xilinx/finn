@@ -7,11 +7,11 @@ Analysis
    :undoc-members:
    :show-inheritance:
 
-Submodule
-=========
+Submodules
+==========
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2 
 
    finn.analysis.fpgadataflow
 

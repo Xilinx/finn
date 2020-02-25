@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>finn.transformation.fpgadataflow package &mdash; FINN  documentation</title>
+  <title>Transformation - FPGADataFlow &mdash; FINN  documentation</title>
   
 
   
@@ -35,8 +35,8 @@
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="finn.transformation.streamline package" href="finn.transformation.streamline.html" />
-    <link rel="prev" title="finn.transformation package" href="finn.transformation.html" /> 
+    <link rel="next" title="Transformation - Streamline" href="finn.transformation.streamline.html" />
+    <link rel="prev" title="Transformation" href="finn.transformation.html" /> 
 </head>
 
 <body class="wy-body-for-nav">
@@ -82,28 +82,24 @@
             
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials.html">Tutorials</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="finn.html">finn package</a><ul class="current">
-<li class="toctree-l2 current"><a class="reference internal" href="finn.html#subpackages">Subpackages</a><ul class="current">
-<li class="toctree-l3"><a class="reference internal" href="finn.analysis.html">finn.analysis package</a></li>
-<li class="toctree-l3"><a class="reference internal" href="finn.core.html">finn.core package</a></li>
-<li class="toctree-l3"><a class="reference internal" href="finn.custom_op.html">finn.custom_op package</a></li>
-<li class="toctree-l3 current"><a class="reference internal" href="finn.transformation.html">finn.transformation package</a><ul class="current">
-<li class="toctree-l4 current"><a class="reference internal" href="finn.transformation.html#subpackages">Subpackages</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#submodules">Submodules</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.batchnorm_to_affine">finn.transformation.batchnorm_to_affine module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.bipolar_to_xnor">finn.transformation.bipolar_to_xnor module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.fold_constants">finn.transformation.fold_constants module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.general">finn.transformation.general module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.infer_datatypes">finn.transformation.infer_datatypes module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.infer_shapes">finn.transformation.infer_shapes module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation">Module contents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finn_internals.html">FINN - Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy_integration.html">Deployment and Integration</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="finn.html">FINN - Source Code</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="finn.html#modules">Modules</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="finn.analysis.html">Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.core.html">Core</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.custom_op.html">Custom Op</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="finn.transformation.html">Transformation</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#guide-to-writing-finn-transformations">Guide to writing FINN transformations</a></li>
+<li class="toctree-l4 current"><a class="reference internal" href="finn.transformation.html#submodules">Submodules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#transformation-passes">Transformation Passes</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="finn.util.html">finn.util package</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.util.html">Util</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="finn.html#module-finn">Module contents</a></li>
 </ul>
 </li>
 </ul>
@@ -151,11 +147,11 @@
     
       <li><a href="../index.html">Docs</a> &raquo;</li>
         
-          <li><a href="finn.html">finn package</a> &raquo;</li>
+          <li><a href="finn.html">FINN - Source Code</a> &raquo;</li>
         
-          <li><a href="finn.transformation.html">finn.transformation package</a> &raquo;</li>
+          <li><a href="finn.transformation.html">Transformation</a> &raquo;</li>
         
-      <li>finn.transformation.fpgadataflow package</li>
+      <li>Transformation - FPGADataFlow</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -174,13 +170,12 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <div class="section" id="finn-transformation-fpgadataflow-package">
-<h1>finn.transformation.fpgadataflow package<a class="headerlink" href="#finn-transformation-fpgadataflow-package" title="Permalink to this headline">¶</a></h1>
-<div class="section" id="submodules">
-<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
-</div>
+  <div class="section" id="transformation-fpgadataflow">
+<h1>Transformation - FPGADataFlow<a class="headerlink" href="#transformation-fpgadataflow" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="transformations-fpgadataflow">
+<h2>Transformations (FPGADataFlow)<a class="headerlink" href="#transformations-fpgadataflow" title="Permalink to this headline">¶</a></h2>
 <div class="section" id="module-finn.transformation.fpgadataflow.cleanup">
-<span id="finn-transformation-fpgadataflow-cleanup-module"></span><h2>finn.transformation.fpgadataflow.cleanup module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.cleanup" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-cleanup"></span><h3>finn.transformation.fpgadataflow.cleanup<a class="headerlink" href="#module-finn.transformation.fpgadataflow.cleanup" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.cleanup.CleanUp">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.cleanup.</code><code class="sig-name descname">CleanUp</code><a class="headerlink" href="#finn.transformation.fpgadataflow.cleanup.CleanUp" title="Permalink to this definition">¶</a></dt>
@@ -195,7 +190,7 @@
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.codegen_ipgen">
-<span id="finn-transformation-fpgadataflow-codegen-ipgen-module"></span><h2>finn.transformation.fpgadataflow.codegen_ipgen module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.codegen_ipgen" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-codegen-ipgen"></span><h3>finn.transformation.fpgadataflow.codegen_ipgen<a class="headerlink" href="#module-finn.transformation.fpgadataflow.codegen_ipgen" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.codegen_ipgen.</code><code class="sig-name descname">CodeGen_ipgen</code><span class="sig-paren">(</span><em class="sig-param">fpgapart</em>, <em class="sig-param">clk</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_ipgen.CodeGen_ipgen" title="Permalink to this definition">¶</a></dt>
@@ -220,7 +215,7 @@ The subsequent transformation is HLSSynth_IPGen</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.codegen_ipstitch">
-<span id="finn-transformation-fpgadataflow-codegen-ipstitch-module"></span><h2>finn.transformation.fpgadataflow.codegen_ipstitch module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.codegen_ipstitch" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-codegen-ipstitch"></span><h3>finn.transformation.fpgadataflow.codegen_ipstitch<a class="headerlink" href="#module-finn.transformation.fpgadataflow.codegen_ipstitch" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.codegen_ipstitch.CodeGen_ipstitch">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.codegen_ipstitch.</code><code class="sig-name descname">CodeGen_ipstitch</code><span class="sig-paren">(</span><em class="sig-param">fpgapart</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_ipstitch.CodeGen_ipstitch" title="Permalink to this definition">¶</a></dt>
@@ -244,7 +239,7 @@ The packaged block design IP can be found under the ip subdirectory.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.codegen_npysim">
-<span id="finn-transformation-fpgadataflow-codegen-npysim-module"></span><h2>finn.transformation.fpgadataflow.codegen_npysim module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.codegen_npysim" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-codegen-npysim"></span><h3>finn.transformation.fpgadataflow.codegen_npysim<a class="headerlink" href="#module-finn.transformation.fpgadataflow.codegen_npysim" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.codegen_npysim.</code><code class="sig-name descname">CodeGen_npysim</code><a class="headerlink" href="#finn.transformation.fpgadataflow.codegen_npysim.CodeGen_npysim" title="Permalink to this definition">¶</a></dt>
@@ -264,7 +259,7 @@ The subsequent transformation is Compile</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.compile">
-<span id="finn-transformation-fpgadataflow-compile-module"></span><h2>finn.transformation.fpgadataflow.compile module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.compile" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-compile"></span><h3>finn.transformation.fpgadataflow.compile<a class="headerlink" href="#module-finn.transformation.fpgadataflow.compile" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.compile.Compile">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.compile.</code><code class="sig-name descname">Compile</code><a class="headerlink" href="#finn.transformation.fpgadataflow.compile.Compile" title="Permalink to this definition">¶</a></dt>
@@ -284,7 +279,7 @@ finn.core.onnx_exec</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.convert_to_hls_layers">
-<span id="finn-transformation-fpgadataflow-convert-to-hls-layers-module"></span><h2>finn.transformation.fpgadataflow.convert_to_hls_layers module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.convert_to_hls_layers" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-convert-to-hls-layers"></span><h3>finn.transformation.fpgadataflow.convert_to_hls_layers<a class="headerlink" href="#module-finn.transformation.fpgadataflow.convert_to_hls_layers" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.convert_to_hls_layers.InferBinaryStreamingFCLayer">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.convert_to_hls_layers.</code><code class="sig-name descname">InferBinaryStreamingFCLayer</code><a class="headerlink" href="#finn.transformation.fpgadataflow.convert_to_hls_layers.InferBinaryStreamingFCLayer" title="Permalink to this definition">¶</a></dt>
@@ -301,7 +296,7 @@ layers will also be absorbed into the MVTU.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.create_dataflow_partition">
-<span id="finn-transformation-fpgadataflow-create-dataflow-partition-module"></span><h2>finn.transformation.fpgadataflow.create_dataflow_partition module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.create_dataflow_partition" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-create-dataflow-partition"></span><h3>finn.transformation.fpgadataflow.create_dataflow_partition<a class="headerlink" href="#module-finn.transformation.fpgadataflow.create_dataflow_partition" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.create_dataflow_partition.CreateDataflowPartition">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.create_dataflow_partition.</code><code class="sig-name descname">CreateDataflowPartition</code><a class="headerlink" href="#finn.transformation.fpgadataflow.create_dataflow_partition.CreateDataflowPartition" title="Permalink to this definition">¶</a></dt>
@@ -320,7 +315,7 @@ dataflow nodes. No action is taken if there are no dataflow nodes.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.hlssynth_ipgen">
-<span id="finn-transformation-fpgadataflow-hlssynth-ipgen-module"></span><h2>finn.transformation.fpgadataflow.hlssynth_ipgen module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.hlssynth_ipgen" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-hlssynth-ipgen"></span><h3>finn.transformation.fpgadataflow.hlssynth_ipgen<a class="headerlink" href="#module-finn.transformation.fpgadataflow.hlssynth_ipgen" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.hlssynth_ipgen.</code><code class="sig-name descname">HLSSynth_IPGen</code><a class="headerlink" href="#finn.transformation.fpgadataflow.hlssynth_ipgen.HLSSynth_IPGen" title="Permalink to this definition">¶</a></dt>
@@ -340,7 +335,7 @@ some time (several minutes)</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.insert_tlastmarker">
-<span id="finn-transformation-fpgadataflow-insert-tlastmarker-module"></span><h2>finn.transformation.fpgadataflow.insert_tlastmarker module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.insert_tlastmarker" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-insert-tlastmarker"></span><h3>finn.transformation.fpgadataflow.insert_tlastmarker<a class="headerlink" href="#module-finn.transformation.fpgadataflow.insert_tlastmarker" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.insert_tlastmarker.InsertTLastMarker">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.insert_tlastmarker.</code><code class="sig-name descname">InsertTLastMarker</code><a class="headerlink" href="#finn.transformation.fpgadataflow.insert_tlastmarker.InsertTLastMarker" title="Permalink to this definition">¶</a></dt>
@@ -356,7 +351,7 @@ one if necessary.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.make_deployment">
-<span id="finn-transformation-fpgadataflow-make-deployment-module"></span><h2>finn.transformation.fpgadataflow.make_deployment module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.make_deployment" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-make-deployment"></span><h3>finn.transformation.fpgadataflow.make_deployment<a class="headerlink" href="#module-finn.transformation.fpgadataflow.make_deployment" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.make_deployment.</code><code class="sig-name descname">DeployToPYNQ</code><span class="sig-paren">(</span><em class="sig-param">ip</em>, <em class="sig-param">username</em>, <em class="sig-param">password</em>, <em class="sig-param">target_dir</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ" title="Permalink to this definition">¶</a></dt>
@@ -374,7 +369,7 @@ the files are stored on the board</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.make_pynq_driver">
-<span id="finn-transformation-fpgadataflow-make-pynq-driver-module"></span><h2>finn.transformation.fpgadataflow.make_pynq_driver module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.make_pynq_driver" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-make-pynq-driver"></span><h3>finn.transformation.fpgadataflow.make_pynq_driver<a class="headerlink" href="#module-finn.transformation.fpgadataflow.make_pynq_driver" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.make_pynq_driver.MakePYNQDriver">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.make_pynq_driver.</code><code class="sig-name descname">MakePYNQDriver</code><a class="headerlink" href="#finn.transformation.fpgadataflow.make_pynq_driver.MakePYNQDriver" title="Permalink to this definition">¶</a></dt>
@@ -394,7 +389,7 @@ value.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.make_pynq_proj">
-<span id="finn-transformation-fpgadataflow-make-pynq-proj-module"></span><h2>finn.transformation.fpgadataflow.make_pynq_proj module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.make_pynq_proj" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-make-pynq-proj"></span><h3>finn.transformation.fpgadataflow.make_pynq_proj<a class="headerlink" href="#module-finn.transformation.fpgadataflow.make_pynq_proj" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.make_pynq_proj.MakePYNQProject">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.make_pynq_proj.</code><code class="sig-name descname">MakePYNQProject</code><span class="sig-paren">(</span><em class="sig-param">platform</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.make_pynq_proj.MakePYNQProject" title="Permalink to this definition">¶</a></dt>
@@ -416,7 +411,7 @@ value.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.replace_verilog_relpaths">
-<span id="finn-transformation-fpgadataflow-replace-verilog-relpaths-module"></span><h2>finn.transformation.fpgadataflow.replace_verilog_relpaths module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.replace_verilog_relpaths" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-replace-verilog-relpaths"></span><h3>finn.transformation.fpgadataflow.replace_verilog_relpaths<a class="headerlink" href="#module-finn.transformation.fpgadataflow.replace_verilog_relpaths" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.replace_verilog_relpaths.ReplaceVerilogRelPaths">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.replace_verilog_relpaths.</code><code class="sig-name descname">ReplaceVerilogRelPaths</code><a class="headerlink" href="#finn.transformation.fpgadataflow.replace_verilog_relpaths.ReplaceVerilogRelPaths" title="Permalink to this definition">¶</a></dt>
@@ -431,7 +426,7 @@ value.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.set_exec_mode">
-<span id="finn-transformation-fpgadataflow-set-exec-mode-module"></span><h2>finn.transformation.fpgadataflow.set_exec_mode module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.set_exec_mode" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-set-exec-mode"></span><h3>finn.transformation.fpgadataflow.set_exec_mode<a class="headerlink" href="#module-finn.transformation.fpgadataflow.set_exec_mode" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.set_exec_mode.SetExecMode">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.set_exec_mode.</code><code class="sig-name descname">SetExecMode</code><span class="sig-paren">(</span><em class="sig-param">mode</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.set_exec_mode.SetExecMode" title="Permalink to this definition">¶</a></dt>
@@ -447,7 +442,7 @@ kind of execution should be used (“npysim” or “rtlsim”)</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.synth_pynq_proj">
-<span id="finn-transformation-fpgadataflow-synth-pynq-proj-module"></span><h2>finn.transformation.fpgadataflow.synth_pynq_proj module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.synth_pynq_proj" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-synth-pynq-proj"></span><h3>finn.transformation.fpgadataflow.synth_pynq_proj<a class="headerlink" href="#module-finn.transformation.fpgadataflow.synth_pynq_proj" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.fpgadataflow.synth_pynq_proj.SynthPYNQProject">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.synth_pynq_proj.</code><code class="sig-name descname">SynthPYNQProject</code><a class="headerlink" href="#finn.transformation.fpgadataflow.synth_pynq_proj.SynthPYNQProject" title="Permalink to this definition">¶</a></dt>
@@ -463,10 +458,8 @@ transformation must be applied prior to this transformation.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.fpgadataflow.templates">
-<span id="finn-transformation-fpgadataflow-templates-module"></span><h2>finn.transformation.fpgadataflow.templates module<a class="headerlink" href="#module-finn.transformation.fpgadataflow.templates" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-fpgadataflow-templates"></span><h3>finn.transformation.fpgadataflow.templates<a class="headerlink" href="#module-finn.transformation.fpgadataflow.templates" title="Permalink to this headline">¶</a></h3>
 </div>
-<div class="section" id="module-finn.transformation.fpgadataflow">
-<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-finn.transformation.fpgadataflow" title="Permalink to this headline">¶</a></h2>
 </div>
 </div>
 
@@ -478,10 +471,10 @@ transformation must be applied prior to this transformation.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="finn.transformation.streamline.html" class="btn btn-neutral float-right" title="finn.transformation.streamline package" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+        <a href="finn.transformation.streamline.html" class="btn btn-neutral float-right" title="Transformation - Streamline" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
       
       
-        <a href="finn.transformation.html" class="btn btn-neutral float-left" title="finn.transformation package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+        <a href="finn.transformation.html" class="btn btn-neutral float-left" title="Transformation" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
       
     </div>
   

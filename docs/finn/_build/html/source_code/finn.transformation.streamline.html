@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>finn.transformation.streamline package &mdash; FINN  documentation</title>
+  <title>Transformation - Streamline &mdash; FINN  documentation</title>
   
 
   
@@ -35,8 +35,8 @@
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="finn.util package" href="finn.util.html" />
-    <link rel="prev" title="finn.transformation.fpgadataflow package" href="finn.transformation.fpgadataflow.html" /> 
+    <link rel="next" title="Util" href="finn.util.html" />
+    <link rel="prev" title="Transformation - FPGADataFlow" href="finn.transformation.fpgadataflow.html" /> 
 </head>
 
 <body class="wy-body-for-nav">
@@ -82,28 +82,24 @@
             
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials.html">Tutorials</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="finn.html">finn package</a><ul class="current">
-<li class="toctree-l2 current"><a class="reference internal" href="finn.html#subpackages">Subpackages</a><ul class="current">
-<li class="toctree-l3"><a class="reference internal" href="finn.analysis.html">finn.analysis package</a></li>
-<li class="toctree-l3"><a class="reference internal" href="finn.core.html">finn.core package</a></li>
-<li class="toctree-l3"><a class="reference internal" href="finn.custom_op.html">finn.custom_op package</a></li>
-<li class="toctree-l3 current"><a class="reference internal" href="finn.transformation.html">finn.transformation package</a><ul class="current">
-<li class="toctree-l4 current"><a class="reference internal" href="finn.transformation.html#subpackages">Subpackages</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#submodules">Submodules</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.batchnorm_to_affine">finn.transformation.batchnorm_to_affine module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.bipolar_to_xnor">finn.transformation.bipolar_to_xnor module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.fold_constants">finn.transformation.fold_constants module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.general">finn.transformation.general module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.infer_datatypes">finn.transformation.infer_datatypes module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation.infer_shapes">finn.transformation.infer_shapes module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#module-finn.transformation">Module contents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finn_internals.html">FINN - Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy_integration.html">Deployment and Integration</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="finn.html">FINN - Source Code</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="finn.html#modules">Modules</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="finn.analysis.html">Analysis</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.core.html">Core</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.custom_op.html">Custom Op</a></li>
+<li class="toctree-l3 current"><a class="reference internal" href="finn.transformation.html">Transformation</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#guide-to-writing-finn-transformations">Guide to writing FINN transformations</a></li>
+<li class="toctree-l4 current"><a class="reference internal" href="finn.transformation.html#submodules">Submodules</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.transformation.html#transformation-passes">Transformation Passes</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="finn.util.html">finn.util package</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.util.html">Util</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="finn.html#module-finn">Module contents</a></li>
 </ul>
 </li>
 </ul>
@@ -151,11 +147,11 @@
     
       <li><a href="../index.html">Docs</a> &raquo;</li>
         
-          <li><a href="finn.html">finn package</a> &raquo;</li>
+          <li><a href="finn.html">FINN - Source Code</a> &raquo;</li>
         
-          <li><a href="finn.transformation.html">finn.transformation package</a> &raquo;</li>
+          <li><a href="finn.transformation.html">Transformation</a> &raquo;</li>
         
-      <li>finn.transformation.streamline package</li>
+      <li>Transformation - Streamline</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -174,13 +170,24 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <div class="section" id="finn-transformation-streamline-package">
-<h1>finn.transformation.streamline package<a class="headerlink" href="#finn-transformation-streamline-package" title="Permalink to this headline">¶</a></h1>
-<div class="section" id="submodules">
-<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
-</div>
+  <div class="section" id="transformation-streamline">
+<h1>Transformation - Streamline<a class="headerlink" href="#transformation-streamline" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="module-finn.transformation.streamline">
+<span id="id1"></span><h2>Transformation (Streamline)<a class="headerlink" href="#module-finn.transformation.streamline" title="Permalink to this headline">¶</a></h2>
+<dl class="class">
+<dt id="finn.transformation.streamline.Streamline">
+<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.</code><code class="sig-name descname">Streamline</code><a class="headerlink" href="#finn.transformation.streamline.Streamline" title="Permalink to this definition">¶</a></dt>
+<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<p>Apply the streamlining transform, see arXiv:1709.04060.</p>
+<dl class="method">
+<dt id="finn.transformation.streamline.Streamline.apply">
+<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.Streamline.apply" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+</dd></dl>
+
 <div class="section" id="module-finn.transformation.streamline.absorb">
-<span id="finn-transformation-streamline-absorb-module"></span><h2>finn.transformation.streamline.absorb module<a class="headerlink" href="#module-finn.transformation.streamline.absorb" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-streamline-absorb"></span><h3>finn.transformation.streamline.absorb<a class="headerlink" href="#module-finn.transformation.streamline.absorb" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.streamline.absorb.Absorb1BitMulIntoMatMul">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.absorb.</code><code class="sig-name descname">Absorb1BitMulIntoMatMul</code><a class="headerlink" href="#finn.transformation.streamline.absorb.Absorb1BitMulIntoMatMul" title="Permalink to this definition">¶</a></dt>
@@ -236,7 +243,7 @@ vector of magnitudes.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.streamline.collapse_repeated">
-<span id="finn-transformation-streamline-collapse-repeated-module"></span><h2>finn.transformation.streamline.collapse_repeated module<a class="headerlink" href="#module-finn.transformation.streamline.collapse_repeated" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-streamline-collapse-repeated"></span><h3>finn.transformation.streamline.collapse_repeated<a class="headerlink" href="#module-finn.transformation.streamline.collapse_repeated" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.streamline.collapse_repeated.CollapseRepeatedAdd">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.collapse_repeated.</code><code class="sig-name descname">CollapseRepeatedAdd</code><a class="headerlink" href="#finn.transformation.streamline.collapse_repeated.CollapseRepeatedAdd" title="Permalink to this definition">¶</a></dt>
@@ -267,7 +274,7 @@ return a tensor which gives the equivalent result using a single op.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.streamline.reorder">
-<span id="finn-transformation-streamline-reorder-module"></span><h2>finn.transformation.streamline.reorder module<a class="headerlink" href="#module-finn.transformation.streamline.reorder" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-streamline-reorder"></span><h3>finn.transformation.streamline.reorder<a class="headerlink" href="#module-finn.transformation.streamline.reorder" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.streamline.reorder.MoveAddPastMul">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.reorder.</code><code class="sig-name descname">MoveAddPastMul</code><a class="headerlink" href="#finn.transformation.streamline.reorder.MoveAddPastMul" title="Permalink to this definition">¶</a></dt>
@@ -309,7 +316,7 @@ next to each other such that they can be collapsed into a single mul.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.streamline.round_thresholds">
-<span id="finn-transformation-streamline-round-thresholds-module"></span><h2>finn.transformation.streamline.round_thresholds module<a class="headerlink" href="#module-finn.transformation.streamline.round_thresholds" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-streamline-round-thresholds"></span><h3>finn.transformation.streamline.round_thresholds<a class="headerlink" href="#module-finn.transformation.streamline.round_thresholds" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.streamline.round_thresholds.RoundAndClipThresholds">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.round_thresholds.</code><code class="sig-name descname">RoundAndClipThresholds</code><a class="headerlink" href="#finn.transformation.streamline.round_thresholds.RoundAndClipThresholds" title="Permalink to this definition">¶</a></dt>
@@ -326,7 +333,7 @@ is unsigned, sets negative thresholds to zero.</p>
 
 </div>
 <div class="section" id="module-finn.transformation.streamline.sign_to_thres">
-<span id="finn-transformation-streamline-sign-to-thres-module"></span><h2>finn.transformation.streamline.sign_to_thres module<a class="headerlink" href="#module-finn.transformation.streamline.sign_to_thres" title="Permalink to this headline">¶</a></h2>
+<span id="finn-transformation-streamline-sign-to-thres"></span><h3>finn.transformation.streamline.sign_to_thres<a class="headerlink" href="#module-finn.transformation.streamline.sign_to_thres" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.transformation.streamline.sign_to_thres.ConvertSignToThres">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.sign_to_thres.</code><code class="sig-name descname">ConvertSignToThres</code><a class="headerlink" href="#finn.transformation.streamline.sign_to_thres.ConvertSignToThres" title="Permalink to this definition">¶</a></dt>
@@ -340,20 +347,6 @@ is unsigned, sets negative thresholds to zero.</p>
 </dd></dl>
 
 </div>
-<div class="section" id="module-finn.transformation.streamline">
-<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-finn.transformation.streamline" title="Permalink to this headline">¶</a></h2>
-<dl class="class">
-<dt id="finn.transformation.streamline.Streamline">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.streamline.</code><code class="sig-name descname">Streamline</code><a class="headerlink" href="#finn.transformation.streamline.Streamline" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
-<p>Apply the streamlining transform, see arXiv:1709.04060.</p>
-<dl class="method">
-<dt id="finn.transformation.streamline.Streamline.apply">
-<code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.streamline.Streamline.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
 </div>
 </div>
 
@@ -365,10 +358,10 @@ is unsigned, sets negative thresholds to zero.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="finn.util.html" class="btn btn-neutral float-right" title="finn.util package" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+        <a href="finn.util.html" class="btn btn-neutral float-right" title="Util" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
       
       
-        <a href="finn.transformation.fpgadataflow.html" class="btn btn-neutral float-left" title="finn.transformation.fpgadataflow package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+        <a href="finn.transformation.fpgadataflow.html" class="btn btn-neutral float-left" title="Transformation - FPGADataFlow" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
       
     </div>
   

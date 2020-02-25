@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>finn.core package &mdash; FINN  documentation</title>
+  <title>Core &mdash; FINN  documentation</title>
   
 
   
@@ -35,8 +35,8 @@
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="finn.custom_op package" href="finn.custom_op.html" />
-    <link rel="prev" title="finn.analysis.fpgadataflow package" href="finn.analysis.fpgadataflow.html" /> 
+    <link rel="next" title="Custom Op" href="finn.custom_op.html" />
+    <link rel="prev" title="Analysis - FPGADataFlow" href="finn.analysis.fpgadataflow.html" /> 
 </head>
 
 <body class="wy-body-for-nav">
@@ -82,27 +82,22 @@
             
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials.html">Tutorials</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="finn.html">finn package</a><ul class="current">
-<li class="toctree-l2 current"><a class="reference internal" href="finn.html#subpackages">Subpackages</a><ul class="current">
-<li class="toctree-l3"><a class="reference internal" href="finn.analysis.html">finn.analysis package</a></li>
-<li class="toctree-l3 current"><a class="current reference internal" href="#">finn.core package</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#submodules">Submodules</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#module-finn.core.datatype">finn.core.datatype module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#module-finn.core.execute_custom_node">finn.core.execute_custom_node module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#module-finn.core.modelwrapper">finn.core.modelwrapper module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#module-finn.core.onnx_exec">finn.core.onnx_exec module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#module-finn.core.remote_exec">finn.core.remote_exec module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#module-finn.core.rtlsim_exec">finn.core.rtlsim_exec module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="#module-finn.core">Module contents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finn_internals.html">FINN - Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy_integration.html">Deployment and Integration</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="finn.html">FINN - Source Code</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="finn.html#modules">Modules</a><ul class="current">
+<li class="toctree-l3"><a class="reference internal" href="finn.analysis.html">Analysis</a></li>
+<li class="toctree-l3 current"><a class="current reference internal" href="#">Core</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#modules">Modules</a></li>
 </ul>
 </li>
-<li class="toctree-l3"><a class="reference internal" href="finn.custom_op.html">finn.custom_op package</a></li>
-<li class="toctree-l3"><a class="reference internal" href="finn.transformation.html">finn.transformation package</a></li>
-<li class="toctree-l3"><a class="reference internal" href="finn.util.html">finn.util package</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.custom_op.html">Custom Op</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.transformation.html">Transformation</a></li>
+<li class="toctree-l3"><a class="reference internal" href="finn.util.html">Util</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="finn.html#module-finn">Module contents</a></li>
 </ul>
 </li>
 </ul>
@@ -150,9 +145,9 @@
     
       <li><a href="../index.html">Docs</a> &raquo;</li>
         
-          <li><a href="finn.html">finn package</a> &raquo;</li>
+          <li><a href="finn.html">FINN - Source Code</a> &raquo;</li>
         
-      <li>finn.core package</li>
+      <li>Core</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -171,13 +166,12 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <div class="section" id="finn-core-package">
-<h1>finn.core package<a class="headerlink" href="#finn-core-package" title="Permalink to this headline">¶</a></h1>
-<div class="section" id="submodules">
-<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
-</div>
+  <div class="section" id="core">
+<h1>Core<a class="headerlink" href="#core" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="modules">
+<h2>Modules<a class="headerlink" href="#modules" title="Permalink to this headline">¶</a></h2>
 <div class="section" id="module-finn.core.datatype">
-<span id="finn-core-datatype-module"></span><h2>finn.core.datatype module<a class="headerlink" href="#module-finn.core.datatype" title="Permalink to this headline">¶</a></h2>
+<span id="finn-core-datatype"></span><h3>finn.core.datatype<a class="headerlink" href="#module-finn.core.datatype" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.core.datatype.DataType">
 <em class="property">class </em><code class="sig-prename descclassname">finn.core.datatype.</code><code class="sig-name descname">DataType</code><a class="headerlink" href="#finn.core.datatype.DataType" title="Permalink to this definition">¶</a></dt>
@@ -334,7 +328,7 @@ value. Prefers unsigned integers where possible.</p>
 
 </div>
 <div class="section" id="module-finn.core.execute_custom_node">
-<span id="finn-core-execute-custom-node-module"></span><h2>finn.core.execute_custom_node module<a class="headerlink" href="#module-finn.core.execute_custom_node" title="Permalink to this headline">¶</a></h2>
+<span id="finn-core-execute-custom-node-module"></span><h3>finn.core.execute_custom_node module<a class="headerlink" href="#module-finn.core.execute_custom_node" title="Permalink to this headline">¶</a></h3>
 <dl class="function">
 <dt id="finn.core.execute_custom_node.execute_custom_node">
 <code class="sig-prename descclassname">finn.core.execute_custom_node.</code><code class="sig-name descname">execute_custom_node</code><span class="sig-paren">(</span><em class="sig-param">node</em>, <em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.execute_custom_node.execute_custom_node" title="Permalink to this definition">¶</a></dt>
@@ -344,7 +338,7 @@ Input/output provided via context.</p>
 
 </div>
 <div class="section" id="module-finn.core.modelwrapper">
-<span id="finn-core-modelwrapper-module"></span><h2>finn.core.modelwrapper module<a class="headerlink" href="#module-finn.core.modelwrapper" title="Permalink to this headline">¶</a></h2>
+<span id="finn-core-modelwrapper-module"></span><h3>finn.core.modelwrapper module<a class="headerlink" href="#module-finn.core.modelwrapper" title="Permalink to this headline">¶</a></h3>
 <dl class="class">
 <dt id="finn.core.modelwrapper.ModelWrapper">
 <em class="property">class </em><code class="sig-prename descclassname">finn.core.modelwrapper.</code><code class="sig-name descname">ModelWrapper</code><span class="sig-paren">(</span><em class="sig-param">onnx_model_proto</em>, <em class="sig-param">make_deepcopy=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper" title="Permalink to this definition">¶</a></dt>
@@ -510,7 +504,7 @@ and returns a transformed ModelWrapper instance.</p>
 
 </div>
 <div class="section" id="module-finn.core.onnx_exec">
-<span id="finn-core-onnx-exec-module"></span><h2>finn.core.onnx_exec module<a class="headerlink" href="#module-finn.core.onnx_exec" title="Permalink to this headline">¶</a></h2>
+<span id="finn-core-onnx-exec-module"></span><h3>finn.core.onnx_exec module<a class="headerlink" href="#module-finn.core.onnx_exec" title="Permalink to this headline">¶</a></h3>
 <dl class="function">
 <dt id="finn.core.onnx_exec.compare_execution">
 <code class="sig-prename descclassname">finn.core.onnx_exec.</code><code class="sig-name descname">compare_execution</code><span class="sig-paren">(</span><em class="sig-param">model_a</em>, <em class="sig-param">model_b</em>, <em class="sig-param">input_dict</em>, <em class="sig-param">compare_fxn=&lt;function &lt;lambda&gt;&gt;</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.onnx_exec.compare_execution" title="Permalink to this definition">¶</a></dt>
@@ -548,7 +542,7 @@ all the intermediate activation values.</p>
 
 </div>
 <div class="section" id="module-finn.core.remote_exec">
-<span id="finn-core-remote-exec-module"></span><h2>finn.core.remote_exec module<a class="headerlink" href="#module-finn.core.remote_exec" title="Permalink to this headline">¶</a></h2>
+<span id="finn-core-remote-exec-module"></span><h3>finn.core.remote_exec module<a class="headerlink" href="#module-finn.core.remote_exec" title="Permalink to this headline">¶</a></h3>
 <dl class="function">
 <dt id="finn.core.remote_exec.remote_exec">
 <code class="sig-prename descclassname">finn.core.remote_exec.</code><code class="sig-name descname">remote_exec</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">execution_context</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.remote_exec.remote_exec" title="Permalink to this definition">¶</a></dt>
@@ -559,7 +553,7 @@ input values.</p>
 
 </div>
 <div class="section" id="module-finn.core.rtlsim_exec">
-<span id="finn-core-rtlsim-exec-module"></span><h2>finn.core.rtlsim_exec module<a class="headerlink" href="#module-finn.core.rtlsim_exec" title="Permalink to this headline">¶</a></h2>
+<span id="finn-core-rtlsim-exec-module"></span><h3>finn.core.rtlsim_exec module<a class="headerlink" href="#module-finn.core.rtlsim_exec" title="Permalink to this headline">¶</a></h3>
 <dl class="function">
 <dt id="finn.core.rtlsim_exec.rtlsim_exec">
 <code class="sig-prename descclassname">finn.core.rtlsim_exec.</code><code class="sig-name descname">rtlsim_exec</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">execution_context</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.rtlsim_exec.rtlsim_exec" title="Permalink to this definition">¶</a></dt>
@@ -568,8 +562,6 @@ context contains the input values.</p>
 </dd></dl>
 
 </div>
-<div class="section" id="module-finn.core">
-<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-finn.core" title="Permalink to this headline">¶</a></h2>
 </div>
 </div>
 
@@ -581,10 +573,10 @@ context contains the input values.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="finn.custom_op.html" class="btn btn-neutral float-right" title="finn.custom_op package" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+        <a href="finn.custom_op.html" class="btn btn-neutral float-right" title="Custom Op" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
       
       
-        <a href="finn.analysis.fpgadataflow.html" class="btn btn-neutral float-left" title="finn.analysis.fpgadataflow package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+        <a href="finn.analysis.fpgadataflow.html" class="btn btn-neutral float-left" title="Analysis - FPGADataFlow" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
       
     </div>
   
