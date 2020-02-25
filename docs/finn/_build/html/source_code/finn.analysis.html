@@ -81,8 +81,8 @@
             
             
               <ul class="current">
-<li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
 <li class="toctree-l1 current"><a class="reference internal" href="finn.html">finn package</a><ul class="current">
 <li class="toctree-l2 current"><a class="reference internal" href="finn.html#subpackages">Subpackages</a><ul class="current">
 <li class="toctree-l3 current"><a class="current reference internal" href="#">finn.analysis package</a><ul>
@@ -193,13 +193,13 @@
 <dt id="finn.analysis.topology.all_tensors_f32">
 <code class="sig-prename descclassname">finn.analysis.topology.</code><code class="sig-name descname">all_tensors_f32</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.analysis.topology.all_tensors_f32" title="Permalink to this definition">¶</a></dt>
 <dd><p>Checks whether all tensors have a float32 dtype, extra quantization
-annotations notwithstanding.</p>
+annotations notwithstanding. Returns {“all_tensors_f32”: Bool}.</p>
 </dd></dl>
 
 <dl class="function">
 <dt id="finn.analysis.topology.get_per_tensor_fanouts">
 <code class="sig-prename descclassname">finn.analysis.topology.</code><code class="sig-name descname">get_per_tensor_fanouts</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.analysis.topology.get_per_tensor_fanouts" title="Permalink to this definition">¶</a></dt>
-<dd><p>Returns a dictionary of (tensor_name, tensor_fanout) for the model.</p>
+<dd><p>Returns a dictionary of {tensor_name: tensor_fanout} for the model.</p>
 </dd></dl>
 
 <dl class="function">
@@ -207,7 +207,7 @@ annotations notwithstanding.</p>
 <code class="sig-prename descclassname">finn.analysis.topology.</code><code class="sig-name descname">is_linear</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.analysis.topology.is_linear" title="Permalink to this definition">¶</a></dt>
 <dd><p>Checks whether the given model graph is linear. This is done by looking
 at the fan-out of each tensor. All tensors have a fan-out &lt;= 1 in a linear
-graph. Returns {“is_linear”, Bool}</p>
+graph. Returns {“is_linear”: Bool}.</p>
 </dd></dl>
 
 <dl class="function">
@@ -216,7 +216,8 @@ graph. Returns {“is_linear”, Bool}</p>
 <dd><p>Verifies that the node inputs are ordered in the way that FINN expects
 them. When a node has a mixture of static (= constant, initialized) inputs
 and dynamic inputs, the dynamic input should come first, followed by the
-static one. Only verifiable for a small subset of op_types for now.</p>
+static one. Only verifiable for a small subset of op_types for now. Returns 
+{“node_inputs_in_expected_order”: Bool}.</p>
 </dd></dl>
 
 </div>
@@ -226,8 +227,10 @@ static one. Only verifiable for a small subset of op_types for now.</p>
 <dt id="finn.analysis.verify_custom_nodes.verify_nodes">
 <code class="sig-prename descclassname">finn.analysis.verify_custom_nodes.</code><code class="sig-name descname">verify_nodes</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.analysis.verify_custom_nodes.verify_nodes" title="Permalink to this definition">¶</a></dt>
 <dd><p>Checks if custom ops in graph are correctly built, with all attributes
-and inputs. Returns {node op_type : info_messages}
-<a href="#id1"><span class="problematic" id="id2">*</span></a>info_messages is list of strings about the result of the verification</p>
+and inputs. Returns {node op_type : info_messages}</p>
+<ul class="simple">
+<li><p>info_messages: is list of strings about the result of the verification.</p></li>
+</ul>
 </dd></dl>
 
 </div>

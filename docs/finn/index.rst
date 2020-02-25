@@ -26,7 +26,7 @@ What is FINN?
    :maxdepth: 2
    :hidden:
 
-   end_to_end_flow
    getting_started
+   end_to_end_flow
    source_code/finn
 

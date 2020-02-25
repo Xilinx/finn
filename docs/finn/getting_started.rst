@@ -11,7 +11,7 @@ Requirements
 
 * Ubuntu 18.04
 * Docker
-* A working Vivado installation
+* A working Vivado 2019.1 installation
 * A `VIVADO_PATH` environment variable pointing to the Vivado installation directory (e.g. the directory where settings64.sh is located)
 
 Running FINN in Docker
