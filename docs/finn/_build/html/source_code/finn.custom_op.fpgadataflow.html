@@ -21,10 +21,10 @@
   
     
       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-        <script type="text/javascript" src="../_static/jquery.js"></script>
-        <script type="text/javascript" src="../_static/underscore.js"></script>
-        <script type="text/javascript" src="../_static/doctools.js"></script>
-        <script type="text/javascript" src="../_static/language_data.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/language_data.js"></script>
     
     <script type="text/javascript" src="../_static/js/theme.js"></script>
 
@@ -183,6 +183,8 @@
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator">
 <em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.fpgadataflow.convolutioninputgenerator.</code><code class="sig-name descname">ConvolutionInputGenerator</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#finn.custom_op.fpgadataflow.HLSCustomOp" title="finn.custom_op.fpgadataflow.HLSCustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.fpgadataflow.HLSCustomOp</span></code></a></p>
+<p>Class that corresponds to finn-hlslib ConvolutionInputGenerator 
+(sliding window) function.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.blackboxfunction">
 <code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.blackboxfunction" title="Permalink to this definition">¶</a></dt>
@@ -308,6 +310,7 @@ the number of inputs is equal to the expected number</p>
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch">
 <em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.fpgadataflow.streamingfclayer_batch.</code><code class="sig-name descname">StreamingFCLayer_Batch</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#finn.custom_op.fpgadataflow.HLSCustomOp" title="finn.custom_op.fpgadataflow.HLSCustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.fpgadataflow.HLSCustomOp</span></code></a></p>
+<p>Class that corresponds to finn-hls StreamingFCLayer_Batch function.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.blackboxfunction">
 <code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.blackboxfunction" title="Permalink to this definition">¶</a></dt>
@@ -316,7 +319,7 @@ the number of inputs is equal to the expected number</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.bram_estimation">
 <code class="sig-name descname">bram_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.bram_estimation" title="Permalink to this definition">¶</a></dt>
-<dd><p>the calculations are based on:
+<dd><p>Calculates resource estimation for BRAM based on:
 - FINN-R: An End-to-End Deep-Learning Framework for Fast
 Exploration of Quantized Neural Networks
 - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O’Brien,
@@ -327,12 +330,14 @@ Y. Umuroglu, M. Leeser and K. Vissers
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.calc_tmem">
 <code class="sig-name descname">calc_tmem</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.calc_tmem" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Calculates and returns TMEM.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.calc_wmem">
 <code class="sig-name descname">calc_wmem</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.calc_wmem" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Calculates and returns WMEM.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.dataoutstrm">
@@ -359,17 +364,20 @@ ONNX graph.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.generate_params">
 <code class="sig-name descname">generate_params</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">path</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.generate_params" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Saves weights into params.h and if existing thresholds into thresh.h.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_input_shape">
 <code class="sig-name descname">get_folded_input_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_input_shape" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns folded input shape (according to synapse folding).</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_output_shape">
 <code class="sig-name descname">get_folded_output_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_output_shape" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns folded output shape (according to neuron folding).</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_hls_compatible_threshold_tensor">
@@ -401,7 +409,8 @@ a form suitable for passing to the hlslib call:
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_instream_width">
 <code class="sig-name descname">get_instream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_instream_width" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns input stream width.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_nodeattr_types">
@@ -418,7 +427,8 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_number_output_values">
 <code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_number_output_values" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns the number of output values.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_output_datatype">
@@ -428,12 +438,15 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_outstream_width">
 <code class="sig-name descname">get_outstream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_outstream_width" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns output stream width.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_template_param_values">
 <code class="sig-name descname">get_template_param_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_template_param_values" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns the template parameter values according to input, output and weight 
+data types.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_weight_datatype">
@@ -455,7 +468,7 @@ node.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.lut_estimation">
 <code class="sig-name descname">lut_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.lut_estimation" title="Permalink to this definition">¶</a></dt>
-<dd><p>the calculations are based on:
+<dd><p>Calculates resource estimations for LUTs based on:
 - FINN-R: An End-to-End Deep-Learning Framework for Fast
 Exploration of Quantized Neural Networks
 - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O’Brien,
@@ -507,6 +520,7 @@ the number of inputs is equal to the expected number</p>
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch">
 <em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.fpgadataflow.streamingmaxpool_batch.</code><code class="sig-name descname">StreamingMaxPool_Batch</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#finn.custom_op.fpgadataflow.HLSCustomOp" title="finn.custom_op.fpgadataflow.HLSCustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.fpgadataflow.HLSCustomOp</span></code></a></p>
+<p>Class that corresponds to finn-hlslib StreamingMaxPool_batch function.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.blackboxfunction">
 <code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.blackboxfunction" title="Permalink to this definition">¶</a></dt>
@@ -613,6 +627,9 @@ the number of inputs is equal to the expected number</p>
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker">
 <em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.fpgadataflow.tlastmarker.</code><code class="sig-name descname">TLastMarker</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#finn.custom_op.fpgadataflow.HLSCustomOp" title="finn.custom_op.fpgadataflow.HLSCustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.fpgadataflow.HLSCustomOp</span></code></a></p>
+<p>Class that corresponds to the TLastMarker node that needs to be 
+inserted at the end of the model for rtlsim with stitched IP.
+It marks the end of the current image/input sample.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.blackboxfunction">
 <code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.blackboxfunction" title="Permalink to this definition">¶</a></dt>
@@ -733,6 +750,10 @@ the number of inputs is equal to the expected number</p>
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp">
 <em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.fpgadataflow.</code><code class="sig-name descname">HLSCustomOp</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="finn.custom_op.html#finn.custom_op.CustomOp" title="finn.custom_op.CustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.CustomOp</span></code></a></p>
+<p>HLSCustomOp class all custom ops that correspond to a finn-hlslib 
+function are based on. Contains different functions every fpgadataflow 
+custom node should have. Some as abstract methods, these have to be filled
+when writing a new fpgadataflow custom op node.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.blackboxfunction">
 <em class="property">abstract </em><code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.blackboxfunction" title="Permalink to this definition">¶</a></dt>
@@ -746,17 +767,21 @@ the number of inputs is equal to the expected number</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.code_generation_ipgen">
 <code class="sig-name descname">code_generation_ipgen</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">fpgapart</em>, <em class="sig-param">clk</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.code_generation_ipgen" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Generates c++ code and tcl script for ip generation.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.code_generation_npysim">
 <code class="sig-name descname">code_generation_npysim</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.code_generation_npysim" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Generates c++ code for simulation (npysim).</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.compile_singlenode_code">
 <code class="sig-name descname">compile_singlenode_code</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.compile_singlenode_code" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Builds the bash script for compilation using the CppBuilder from
+finn.util.basic and executes the script to produce the executable.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.dataoutstrm">
@@ -776,12 +801,15 @@ the number of inputs is equal to the expected number</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.dynamic_input_to_npy">
 <code class="sig-name descname">dynamic_input_to_npy</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">count</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.dynamic_input_to_npy" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Saves input (given context) into .npy files. Count indicates the number 
+of inputs that have to be saved.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.exec_precompiled_singlenode_model">
 <code class="sig-name descname">exec_precompiled_singlenode_model</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.exec_precompiled_singlenode_model" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Execute precompiled executable.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.execute_node">
@@ -840,7 +868,9 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.ipgen_singlenode_code">
 <code class="sig-name descname">ipgen_singlenode_code</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.ipgen_singlenode_code" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Builds the bash script for ip generation using the IPGenBuilder from 
+finn.util.fpgadataflow.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.lut_estimation">
@@ -850,12 +880,15 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.node_res_estimation">
 <code class="sig-name descname">node_res_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.node_res_estimation" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns resource estimation.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.npy_to_dynamic_output">
 <code class="sig-name descname">npy_to_dynamic_output</code><span class="sig-paren">(</span><em class="sig-param">context</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.npy_to_dynamic_output" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Reads the output from a .npy file and saves it at the right place in 
+the context dictionary.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.pragmas">
@@ -870,12 +903,18 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.reset_rtlsim">
 <code class="sig-name descname">reset_rtlsim</code><span class="sig-paren">(</span><em class="sig-param">sim</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.reset_rtlsim" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Sets reset input in pyverilator to zero, toggles the clock and set it
+back to one</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.rtlsim">
 <code class="sig-name descname">rtlsim</code><span class="sig-paren">(</span><em class="sig-param">sim</em>, <em class="sig-param">inp</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.rtlsim" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Runs the pyverilator simulation by passing the input values to the simulation,
+toggle the clock and observing the execution time. Function contains also an 
+observation loop that can abort the simulation if no output value is produced 
+after 100 cycles.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.save_as_npy">
@@ -890,7 +929,8 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.toggle_clk">
 <code class="sig-name descname">toggle_clk</code><span class="sig-paren">(</span><em class="sig-param">sim</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.toggle_clk" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Toggles the clock input in pyverilator once.</p>
+</dd></dl>
 
 </dd></dl>
 

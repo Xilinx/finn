@@ -100,6 +100,14 @@ finn.transformation.fpgadataflow.make\_pynq\_proj module
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.fpgadataflow.replace\_verilog\_relpaths module
+------------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.replace_verilog_relpaths
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.transformation.fpgadataflow.set\_exec\_mode module
 -------------------------------------------------------
 

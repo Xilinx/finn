@@ -21,10 +21,10 @@
   
     
       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-        <script type="text/javascript" src="../_static/jquery.js"></script>
-        <script type="text/javascript" src="../_static/underscore.js"></script>
-        <script type="text/javascript" src="../_static/doctools.js"></script>
-        <script type="text/javascript" src="../_static/language_data.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/language_data.js"></script>
     
     <script type="text/javascript" src="../_static/js/theme.js"></script>
 
@@ -182,7 +182,9 @@
 <dt id="finn.core.datatype.DataType">
 <em class="property">class </em><code class="sig-prename descclassname">finn.core.datatype.</code><code class="sig-name descname">DataType</code><a class="headerlink" href="#finn.core.datatype.DataType" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">enum.Enum</span></code></p>
-<p>An enumeration.</p>
+<p>Enum class that contains FINN data types to set the quantization annotation. 
+ONNX does not support data types smaller than 8-bit integers, whereas in FINN we are
+interested in smaller integers down to ternary and bipolar.</p>
 <dl class="attribute">
 <dt id="finn.core.datatype.DataType.BINARY">
 <code class="sig-name descname">BINARY</code><em class="property"> = 1</em><a class="headerlink" href="#finn.core.datatype.DataType.BINARY" title="Permalink to this definition">¶</a></dt>
@@ -426,7 +428,8 @@ as input.</p>
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.graph">
 <em class="property">property </em><code class="sig-name descname">graph</code><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.graph" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns the graph of the model.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.make_empty_exec_context">
@@ -446,7 +449,8 @@ account, all other tensors will be zero.</p>
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.model">
 <em class="property">property </em><code class="sig-name descname">model</code><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.model" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns the model.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.rename_tensor">
@@ -469,7 +473,8 @@ account, all other tensors will be zero.</p>
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.set_metadata_prop">
 <code class="sig-name descname">set_metadata_prop</code><span class="sig-paren">(</span><em class="sig-param">key</em>, <em class="sig-param">value</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.set_metadata_prop" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Sets metadata property with given key to the given value.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.set_tensor_datatype">
@@ -537,7 +542,10 @@ all the intermediate activation values.</p>
 <dl class="function">
 <dt id="finn.core.remote_exec.remote_exec">
 <code class="sig-prename descclassname">finn.core.remote_exec.</code><code class="sig-name descname">remote_exec</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">execution_context</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.remote_exec.remote_exec" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Executes the given model remotely on the pynq board. The metadata properties
+related to the pynq board have to be set. The execution context contains the 
+input values.</p>
+</dd></dl>
 
 </div>
 <div class="section" id="module-finn.core.rtlsim_exec">
@@ -545,7 +553,8 @@ all the intermediate activation values.</p>
 <dl class="function">
 <dt id="finn.core.rtlsim_exec.rtlsim_exec">
 <code class="sig-prename descclassname">finn.core.rtlsim_exec.</code><code class="sig-name descname">rtlsim_exec</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">execution_context</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.rtlsim_exec.rtlsim_exec" title="Permalink to this definition">¶</a></dt>
-<dd><p>Use PyVerilator to execute given model with stitched IP.</p>
+<dd><p>Use PyVerilator to execute given model with stitched IP. The execution 
+context contains the input values.</p>
 </dd></dl>
 
 </div>

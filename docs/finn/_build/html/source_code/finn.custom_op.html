@@ -21,10 +21,10 @@
   
     
       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-        <script type="text/javascript" src="../_static/jquery.js"></script>
-        <script type="text/javascript" src="../_static/underscore.js"></script>
-        <script type="text/javascript" src="../_static/doctools.js"></script>
-        <script type="text/javascript" src="../_static/language_data.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/language_data.js"></script>
     
     <script type="text/javascript" src="../_static/js/theme.js"></script>
 
@@ -198,6 +198,7 @@
 <dt id="finn.custom_op.multithreshold.MultiThreshold">
 <em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.multithreshold.</code><code class="sig-name descname">MultiThreshold</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.MultiThreshold" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#finn.custom_op.CustomOp" title="finn.custom_op.CustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.CustomOp</span></code></a></p>
+<p>Class that corresponds to a multithresholding node.</p>
 <dl class="method">
 <dt id="finn.custom_op.multithreshold.MultiThreshold.execute_node">
 <code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.MultiThreshold.execute_node" title="Permalink to this definition">¶</a></dt>
@@ -249,7 +250,11 @@ the number of inputs is equal to the expected number</p>
 <dl class="function">
 <dt id="finn.custom_op.multithreshold.multithreshold">
 <code class="sig-prename descclassname">finn.custom_op.multithreshold.</code><code class="sig-name descname">multithreshold</code><span class="sig-paren">(</span><em class="sig-param">v</em>, <em class="sig-param">thresholds</em>, <em class="sig-param">out_scale=None</em>, <em class="sig-param">out_bias=None</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.multithreshold" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Given a set of threshold values t={t_0, t_1 … t_n} the successive 
+thresholding maps any real number x to an integer in the interval [0, n],
+where the returned integer is the number of thresholds x is greater than 
+or equal to.</p>
+</dd></dl>
 
 </div>
 <div class="section" id="module-finn.custom_op.registry">
@@ -267,6 +272,10 @@ the number of inputs is equal to the expected number</p>
 <dt id="finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition">
 <em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.streamingdataflowpartition.</code><code class="sig-name descname">StreamingDataflowPartition</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#finn.custom_op.CustomOp" title="finn.custom_op.CustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.CustomOp</span></code></a></p>
+<p>Class that corresponds to the meta/container node StreamingDataflowPartition 
+which is a placeholder for a group of fpgadataflow nodes that have been separated 
+out into a FINN-ONNX model of its own. Note that is does not produce any HLS or 
+bitfile by itself.</p>
 <dl class="method">
 <dt id="finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.execute_node">
 <code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.streamingdataflowpartition.StreamingDataflowPartition.execute_node" title="Permalink to this definition">¶</a></dt>
@@ -317,6 +326,8 @@ the number of inputs is equal to the expected number</p>
 <dt id="finn.custom_op.xnorpopcount.XnorPopcountMatMul">
 <em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.xnorpopcount.</code><code class="sig-name descname">XnorPopcountMatMul</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.XnorPopcountMatMul" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="#finn.custom_op.CustomOp" title="finn.custom_op.CustomOp"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.custom_op.CustomOp</span></code></a></p>
+<p>Class that corresponds to a XNOR-popcount matrix 
+multiplication node.</p>
 <dl class="method">
 <dt id="finn.custom_op.xnorpopcount.XnorPopcountMatMul.execute_node">
 <code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.XnorPopcountMatMul.execute_node" title="Permalink to this definition">¶</a></dt>
@@ -363,7 +374,9 @@ the number of inputs is equal to the expected number</p>
 <dl class="function">
 <dt id="finn.custom_op.xnorpopcount.xnorpopcountmatmul">
 <code class="sig-prename descclassname">finn.custom_op.xnorpopcount.</code><code class="sig-name descname">xnorpopcountmatmul</code><span class="sig-paren">(</span><em class="sig-param">inp0</em>, <em class="sig-param">inp1</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.xnorpopcount.xnorpopcountmatmul" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Simulates XNOR-popcount matrix multiplication as a regular bipolar
+matrix multiplication followed by some post processing.</p>
+</dd></dl>
 
 </div>
 <div class="section" id="module-finn.custom_op">
@@ -372,6 +385,9 @@ the number of inputs is equal to the expected number</p>
 <dt id="finn.custom_op.CustomOp">
 <em class="property">class </em><code class="sig-prename descclassname">finn.custom_op.</code><code class="sig-name descname">CustomOp</code><span class="sig-paren">(</span><em class="sig-param">onnx_node</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">abc.ABC</span></code></p>
+<p>CustomOp class all custom op nodes are based on. Contains different functions 
+every custom node should have. Some as abstract methods, these have to be filled when
+writing a new custom op node.</p>
 <dl class="method">
 <dt id="finn.custom_op.CustomOp.execute_node">
 <em class="property">abstract </em><code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.CustomOp.execute_node" title="Permalink to this definition">¶</a></dt>

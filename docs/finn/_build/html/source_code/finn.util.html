@@ -21,10 +21,10 @@
   
     
       <script type="text/javascript" id="documentation_options" data-url_root="../" src="../_static/documentation_options.js"></script>
-        <script type="text/javascript" src="../_static/jquery.js"></script>
-        <script type="text/javascript" src="../_static/underscore.js"></script>
-        <script type="text/javascript" src="../_static/doctools.js"></script>
-        <script type="text/javascript" src="../_static/language_data.js"></script>
+        <script src="../_static/jquery.js"></script>
+        <script src="../_static/underscore.js"></script>
+        <script src="../_static/doctools.js"></script>
+        <script src="../_static/language_data.js"></script>
     
     <script type="text/javascript" src="../_static/js/theme.js"></script>
 
@@ -180,25 +180,32 @@
 <dt id="finn.util.basic.CppBuilder">
 <em class="property">class </em><code class="sig-prename descclassname">finn.util.basic.</code><code class="sig-name descname">CppBuilder</code><a class="headerlink" href="#finn.util.basic.CppBuilder" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Builds the g++ compiler command to produces the executable of the c++ code 
+in code_gen_dir which is passed to the function build() of this class.</p>
 <dl class="method">
 <dt id="finn.util.basic.CppBuilder.append_includes">
 <code class="sig-name descname">append_includes</code><span class="sig-paren">(</span><em class="sig-param">library_path</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.basic.CppBuilder.append_includes" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Adds given library path to include_paths list.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.util.basic.CppBuilder.append_sources">
 <code class="sig-name descname">append_sources</code><span class="sig-paren">(</span><em class="sig-param">cpp_file</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.basic.CppBuilder.append_sources" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Adds given c++ file to cpp_files list.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.util.basic.CppBuilder.build">
 <code class="sig-name descname">build</code><span class="sig-paren">(</span><em class="sig-param">code_gen_dir</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.basic.CppBuilder.build" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Builds the g++ compiler command according to entries in include_paths 
+and cpp_files lists. Saves it in bash script and executes it.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.util.basic.CppBuilder.set_executable_path">
 <code class="sig-name descname">set_executable_path</code><span class="sig-paren">(</span><em class="sig-param">path</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.basic.CppBuilder.set_executable_path" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Sets member variable “executable_path” to given path.</p>
+</dd></dl>
 
 </dd></dl>
 
@@ -230,7 +237,9 @@ types dt_a and dt_b of len elements can take.</p>
 <dl class="function">
 <dt id="finn.util.basic.interleave_matrix_outer_dim_from_partitions">
 <code class="sig-prename descclassname">finn.util.basic.</code><code class="sig-name descname">interleave_matrix_outer_dim_from_partitions</code><span class="sig-paren">(</span><em class="sig-param">matrix</em>, <em class="sig-param">n_partitions</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.basic.interleave_matrix_outer_dim_from_partitions" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Interleave the outermost dimension of a matrix from given 
+partitions (n_partitions).</p>
+</dd></dl>
 
 <dl class="function">
 <dt id="finn.util.basic.make_build_dir">
@@ -318,7 +327,7 @@ input.</p>
 
 <dl class="function">
 <dt id="finn.util.data_packing.npy_to_rtlsim_input">
-<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">npy_to_rtlsim_input</code><span class="sig-paren">(</span><em class="sig-param">input_file</em>, <em class="sig-param">input_dtype</em>, <em class="sig-param">pad_to_nbits</em>, <em class="sig-param">reverse_inner=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.npy_to_rtlsim_input" title="Permalink to this definition">¶</a></dt>
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">npy_to_rtlsim_input</code><span class="sig-paren">(</span><em class="sig-param">input_file</em>, <em class="sig-param">input_dtype</em>, <em class="sig-param">pad_to_nbits</em>, <em class="sig-param">reverse_inner=True</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.npy_to_rtlsim_input" title="Permalink to this definition">¶</a></dt>
 <dd><p>Convert the multidimensional NumPy array of integers (stored as floats)
 from input_file into a flattened sequence of Python arbitrary-precision
 integers, packing the innermost dimension. See
@@ -370,7 +379,7 @@ will be unpacked as the innermost dimension of the NumPy array.</p>
 
 <dl class="function">
 <dt id="finn.util.data_packing.unpack_innermost_dim_from_hex_string">
-<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">unpack_innermost_dim_from_hex_string</code><span class="sig-paren">(</span><em class="sig-param">ndarray</em>, <em class="sig-param">dtype</em>, <em class="sig-param">out_shape</em>, <em class="sig-param">reverse_inner=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.unpack_innermost_dim_from_hex_string" title="Permalink to this definition">¶</a></dt>
+<code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">unpack_innermost_dim_from_hex_string</code><span class="sig-paren">(</span><em class="sig-param">ndarray</em>, <em class="sig-param">dtype</em>, <em class="sig-param">out_shape</em>, <em class="sig-param">packedBits</em>, <em class="sig-param">reverse_inner=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.unpack_innermost_dim_from_hex_string" title="Permalink to this definition">¶</a></dt>
 <dd><p>Convert a NumPy array of hex strings into a FINN NumPy array by unpacking
 the hex strings into the specified data type. out_shape can be specified
 such that any padding in the packing dimension is removed. If reverse_inner
@@ -384,21 +393,33 @@ is set, the innermost unpacked dimension will be reversed.</p>
 <dt id="finn.util.fpgadataflow.IPGenBuilder">
 <em class="property">class </em><code class="sig-prename descclassname">finn.util.fpgadataflow.</code><code class="sig-name descname">IPGenBuilder</code><a class="headerlink" href="#finn.util.fpgadataflow.IPGenBuilder" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></p>
+<p>Builds the bash script to generate IP blocks using Vivado HLS.</p>
 <dl class="method">
 <dt id="finn.util.fpgadataflow.IPGenBuilder.append_tcl">
 <code class="sig-name descname">append_tcl</code><span class="sig-paren">(</span><em class="sig-param">tcl_script</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.fpgadataflow.IPGenBuilder.append_tcl" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Sets member variable “tcl_script” to given tcl script.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.util.fpgadataflow.IPGenBuilder.build">
 <code class="sig-name descname">build</code><span class="sig-paren">(</span><em class="sig-param">code_gen_dir</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.fpgadataflow.IPGenBuilder.build" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Builds the bash script with given parameters. To guarantee the 
+generation in the correct folder the bash script contains a cd command.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.util.fpgadataflow.IPGenBuilder.set_ipgen_path">
 <code class="sig-name descname">set_ipgen_path</code><span class="sig-paren">(</span><em class="sig-param">path</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.fpgadataflow.IPGenBuilder.set_ipgen_path" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Sets member variable ipgen_path to given path.</p>
+</dd></dl>
 
+</dd></dl>
+
+<dl class="function">
+<dt id="finn.util.fpgadataflow.pyverilate_get_liveness_threshold_cycles">
+<code class="sig-prename descclassname">finn.util.fpgadataflow.</code><code class="sig-name descname">pyverilate_get_liveness_threshold_cycles</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.fpgadataflow.pyverilate_get_liveness_threshold_cycles" title="Permalink to this definition">¶</a></dt>
+<dd><p>Return the number of no-output cycles rtlsim will wait before assuming
+the simulation is not finishing and throwing an exception.</p>
 </dd></dl>
 
 <dl class="function">
@@ -422,22 +443,28 @@ is set, the innermost unpacked dimension will be reversed.</p>
 <dl class="function">
 <dt id="finn.util.test.get_test_model_def_fxn">
 <code class="sig-prename descclassname">finn.util.test.</code><code class="sig-name descname">get_test_model_def_fxn</code><span class="sig-paren">(</span><em class="sig-param">netname</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.test.get_test_model_def_fxn" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns the PyTorch model instantation function related to netname.</p>
+</dd></dl>
 
 <dl class="function">
 <dt id="finn.util.test.get_test_model_trained">
 <code class="sig-prename descclassname">finn.util.test.</code><code class="sig-name descname">get_test_model_trained</code><span class="sig-paren">(</span><em class="sig-param">netname</em>, <em class="sig-param">wbits</em>, <em class="sig-param">abits</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.test.get_test_model_trained" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns the pretrained model specified by input arguments loaded with weights 
+and activations from the FINN Brevitas test networks.</p>
+</dd></dl>
 
 <dl class="function">
 <dt id="finn.util.test.get_test_model_untrained">
 <code class="sig-prename descclassname">finn.util.test.</code><code class="sig-name descname">get_test_model_untrained</code><span class="sig-paren">(</span><em class="sig-param">netname</em>, <em class="sig-param">wbits</em>, <em class="sig-param">abits</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.test.get_test_model_untrained" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns untrained model specified by input arguments.</p>
+</dd></dl>
 
 <dl class="function">
 <dt id="finn.util.test.get_trained_checkpoint">
 <code class="sig-prename descclassname">finn.util.test.</code><code class="sig-name descname">get_trained_checkpoint</code><span class="sig-paren">(</span><em class="sig-param">netname</em>, <em class="sig-param">wbits</em>, <em class="sig-param">abits</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.test.get_trained_checkpoint" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns the weights and activations from the FINN Brevitas test networks
+for given netname and the number of bits for weights and activations</p>
+</dd></dl>
 
 </div>
 <div class="section" id="module-finn.util">
