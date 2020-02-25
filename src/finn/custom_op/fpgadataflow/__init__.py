@@ -327,10 +327,9 @@ compilation transformations?
         for npysim or rtlsim, is member function of HLSCustomOp class but has to 
         be filled by every node.
         
-        * var: makes it possible to reuse the function for different c++ code generation.
+        var: makes it possible to reuse the function for different c++ code generation.
         I.e. if set to "ipgen" in StreamingFCLayer_Batch additional PRAGMA defines are
-        added.
-        """
+        added."""
         pass
 
     @abstractmethod

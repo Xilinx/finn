@@ -41,8 +41,7 @@ def execute_node(node, context, graph):
     """Executes a single node by using onnxruntime, with custom function or
     if dataflow partition by using remote execution or rtlsim.
     
-    * Input/output provided via context.
-    """
+    Input/output provided via context."""
 
     if node.op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(node)
@@ -98,13 +97,12 @@ def execute_node(node, context, graph):
 def execute_onnx(model, input_dict, return_full_exec_context=False):
     """Executes given ONNX ModelWrapper with given named inputs.
     
-    * If return_full_exec_context is False, a dict of named outputs is returned
+    If return_full_exec_context is False, a dict of named outputs is returned
     as indicated by the model.graph.output.
-    
-    * If return return_full_exec_context is True, the full set of tensors used by
+   
+    If return return_full_exec_context is True, the full set of tensors used by
     the execution (including inputs, weights, activations and final outputs)
-    will be returned as a dict.
-    """
+    will be returned as a dict."""
 
     if not model.check_all_tensor_shapes_specified():
         raise Exception("Found unspecified tensor shapes, try infer_shapes")
@@ -194,7 +192,7 @@ def compare_execution(
 ):
     """Executes two ONNX models and compare their outputs using given function.
     
-    * compare_fxn should take in two tensors and return a Boolean"""
+    compare_fxn should take in two tensors and return a Boolean"""
     # compare values from first output tensors produced
     res_a = list(execute_onnx(model_a, input_dict).items())[0][1]
     res_b = list(execute_onnx(model_b, input_dict).items())[0][1]
