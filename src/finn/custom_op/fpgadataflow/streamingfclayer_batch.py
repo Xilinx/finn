@@ -201,12 +201,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return c0 + c1 * (P * Q) * (W * A)
 
     def get_input_datatype(self):
+        """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
     def get_weight_datatype(self):
+        """Returns FINN DataType of weights."""
         return DataType[self.get_nodeattr("weightDataType")]
 
     def get_output_datatype(self):
+        """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_instream_width(self):

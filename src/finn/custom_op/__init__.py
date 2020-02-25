@@ -86,5 +86,5 @@ class CustomOp(ABC):
     def verify_node(self):
         """Verifies that all attributes the node needs are there and
         that particular attributes are set correctly. Also checks if
-        the number of inputs is equal to the expected number"""
+        the number of inputs is equal to the expected number."""
         pass

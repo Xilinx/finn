@@ -45,12 +45,16 @@ class ConvolutionInputGenerator(HLSCustomOp):
         pass
 
     def get_input_datatype(self):
+        """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
     def get_output_datatype(self):
+        """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_stream_width(self):
+        """Returns stream width, input and output stream width are equal for 
+        the sliding window function"""
         return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
 
     def get_number_output_values(self):
