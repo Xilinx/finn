@@ -24,7 +24,6 @@ from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import (
     calculate_signed_dot_prod_range,
     gen_finn_dt_tensor,
-    make_build_dir,
     pynq_part_map,
 )
 from finn.util.fpgadataflow import pyverilate_stitched_ip
@@ -32,7 +31,7 @@ from finn.util.fpgadataflow import pyverilate_stitched_ip
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
 
-ip_stitch_model_dir = make_build_dir("test_fpgadataflow_ipstitch_")
+ip_stitch_model_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 
 
 def create_one_fc_model():
@@ -184,7 +183,6 @@ def create_two_fc_model():
     return model
 
 
-@pytest.mark.dependency()
 # exec_mode of StreamingDataflowPartition
 # @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
 def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
@@ -204,7 +202,6 @@ def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx")
 
 
-@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_gen_model"])
 def test_fpgadataflow_ipstitch_do_stitch():
     model = ModelWrapper(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
@@ -220,7 +217,6 @@ def test_fpgadataflow_ipstitch_do_stitch():
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
 
 
-@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_do_stitch"])
 def test_fpgadataflow_ipstitch_rtlsim():
     model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
     sim = pyverilate_stitched_ip(model)
@@ -245,7 +241,6 @@ def test_fpgadataflow_ipstitch_rtlsim():
     assert (rtlsim_res == x).all()
 
 
-@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_do_stitch"])
 def test_fpgadataflow_ipstitch_pynq_projgen():
     model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
     model = model.transform(MakePYNQProject(test_pynq_board))
@@ -255,7 +250,6 @@ def test_fpgadataflow_ipstitch_pynq_projgen():
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
 
 
-@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_projgen"])
 def test_fpgadataflow_ipstitch_pynq_synth():
     model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
     model = model.transform(SynthPYNQProject())
@@ -265,7 +259,6 @@ def test_fpgadataflow_ipstitch_pynq_synth():
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_synth.onnx")
 
 
-@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_projgen"])
 def test_fpgadataflow_ipstitch_pynq_driver():
     model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
     model = model.transform(MakePYNQDriver())
@@ -275,40 +268,47 @@ def test_fpgadataflow_ipstitch_pynq_driver():
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_driver.onnx")
 
 
-@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_driver"])
 def test_fpgadataflow_ipstitch_pynq_deployment_folder():
     model = ModelWrapper(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_driver.onnx"
     )
-    ip = os.getenv("PYNQ_IP", "192.168.3.1")
-    username = os.getenv("PYNQ_USERNAME", "xilinx")
-    password = os.getenv("PYNQ_PASSWORD", "xilinx")
-    target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-    model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
-    pynq_ip = model.get_metadata_prop("pynq_ip")
-    pynq_username = model.get_metadata_prop("pynq_username")
-    pynq_password = model.get_metadata_prop("pynq_password")
-    pynq_target_dir = model.get_metadata_prop("pynq_target_dir")
+    try:
+        ip = os.environ["PYNQ_IP"]  # no default for this one; skip if not defined
+        username = os.getenv("PYNQ_USERNAME", "xilinx")
+        password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
+        model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+        pynq_ip = model.get_metadata_prop("pynq_ip")
+        pynq_username = model.get_metadata_prop("pynq_username")
+        pynq_password = model.get_metadata_prop("pynq_password")
+        pynq_target_dir = model.get_metadata_prop("pynq_target_dir")
 
-    assert pynq_ip == ip
-    assert pynq_username == username
-    assert pynq_password == password
-    assert pynq_target_dir == target_dir
+        assert pynq_ip == ip
+        assert pynq_username == username
+        assert pynq_password == password
+        assert pynq_target_dir == target_dir
 
-    deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
-    assert deployment_dir is not None
-    assert os.path.isdir(deployment_dir)
+        deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
+        assert deployment_dir is not None
+        assert os.path.isdir(deployment_dir)
 
-    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx")
+        model.save(
+            ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx"
+        )
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")
 
 
-@pytest.mark.dependency(depends=["test_fpgadataflow_ipstitch_pynq_deployment_folder"])
 def test_fpgadataflow_ipstitch_remote_execution():
     model = ModelWrapper(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx"
     )
-    idt = DataType.INT2
-    x = gen_finn_dt_tensor(idt, (1, 4))
-    input_dict = {"inp": x}
-    outp = execute_onnx(model, input_dict)
-    print(outp)
+    try:
+        ip = os.environ["PYNQ_IP"]  # NOQA
+        idt = DataType.INT2
+        x = gen_finn_dt_tensor(idt, (1, 4))
+        input_dict = {"inp": x}
+        outp = execute_onnx(model, input_dict)
+        assert np.isclose(outp["outp"], x).all()
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")
