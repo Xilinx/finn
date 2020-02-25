@@ -53,7 +53,7 @@ def get_by_name(container, name, name_field="name"):
 
 
 def remove_by_name(container, name, name_field="name"):
-    """Remove item from container by .name field if it exists"""
+    """Remove item from container by .name field if it exists."""
     item = get_by_name(container, name, name_field)
     if item is not None:
         container.remove(item)
@@ -135,7 +135,7 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
 
 
 def gen_finn_dt_tensor(finn_dt, tensor_shape):
-    """Generates random tensor in given shape and with given FINN DataType"""
+    """Generates random tensor in given shape and with given FINN DataType."""
     if type(tensor_shape) == list:
         tensor_shape = tuple(tensor_shape)
     if finn_dt == DataType.BIPOLAR:
@@ -196,7 +196,8 @@ class CppBuilder:
 
     def build(self, code_gen_dir):
         """Builds the g++ compiler command according to entries in include_paths 
-        and cpp_files lists. Saves it in bash script and executes it."""
+        and cpp_files lists. Saves it in bash script in given folder and 
+        executes it."""
         # raise error if includes are empty
         self.code_gen_dir = code_gen_dir
         self.compile_components.append("g++ -o " + str(self.executable_path))

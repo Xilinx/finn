@@ -21,9 +21,13 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     packing.
 
     Examples:
+    
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = "0xe"
+    
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = "0x0e"
+    
     array2hexstring([1, 1, 0, 1], DataType.BINARY, 4, reverse=True) = "0xb"
+    
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 8, reverse=True) = "0x07"
     """
     if pad_to_nbits < 4:
@@ -63,7 +67,9 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
 
 
 def hexstring2npbytearray(hexstring, remove_prefix="0x"):
-    """Convert a hex string into a NumPy array of dtype uint8. Examples:
+    """Convert a hex string into a NumPy array of dtype uint8. 
+    
+    Example:
 
     hexstring2npbytearray("0f01") = array([15,  1], dtype=uint8)
     """
@@ -76,7 +82,9 @@ def hexstring2npbytearray(hexstring, remove_prefix="0x"):
 
 
 def npbytearray2hexstring(npbytearray, prefix="0x"):
-    """Convert a NumPy array of uint8 dtype into a hex string. Examples:
+    """Convert a NumPy array of uint8 dtype into a hex string. 
+    
+    Example:
 
     npbytearray2hexstring(array([15,  1], dtype=uint8)) = "0x0f01"
     """
@@ -85,13 +93,20 @@ def npbytearray2hexstring(npbytearray, prefix="0x"):
 
 def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner=False):
     """Pack the innermost dimension of the given numpy ndarray into hex
-    strings using array2hexstring. Examples:
+    strings using array2hexstring. 
+    
+    Examples:
 
     A = [[1, 1, 1, 0], [0, 1, 1, 0]]
+    
     eA = ["0e", "06"]
+    
     pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA
+    
     B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
+    
     eB = [[ "0f", "0f"], ["07", "0d"]]
+    
     pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB
     """
 
@@ -295,7 +310,9 @@ def packed_bytearray_to_finnpy(
     reverse_endian=False,
 ):
     """Given a packed numpy uint8 ndarray, unpack it into a FINN array of
-    given DataType. output_shape can be specified to remove padding from the
+    given DataType. 
+    
+    output_shape can be specified to remove padding from the
     packed dimension, or set to None to be inferred from the input."""
 
     if (

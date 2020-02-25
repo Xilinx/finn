@@ -21,8 +21,9 @@ class IPGenBuilder:
         self.ipgen_path = path
 
     def build(self, code_gen_dir):
-        """Builds the bash script with given parameters. To guarantee the 
-        generation in the correct folder the bash script contains a cd command."""
+        """Builds the bash script with given parameters and saves it in given folder.
+        To guarantee the generation in the correct folder the bash script contains a 
+        cd command."""
         self.code_gen_dir = code_gen_dir
         self.ipgen_script = str(self.code_gen_dir) + "/ipgen.sh"
         working_dir = os.environ["PWD"]
