@@ -85,8 +85,8 @@ assert ibuf_normal.shape == ishape_normal
 # convert to folded form
 ibuf_folded = ibuf_normal.reshape(ishape_folded)
 
-# pack the input buffer
-ibuf_packed = finnpy_to_packed_bytearray(ibuf_folded, idt)
+# pack the input buffer, reversing both SIMD dim and endianness
+ibuf_packed = finnpy_to_packed_bytearray(ibuf_folded, idt, True, True)
 # allocate a PYNQ buffer for the packed input buffer
 ibuf_packed_device = allocate(shape=ishape_packed, dtype=np.uint8)
 # copy the packed data into the PYNQ buffer

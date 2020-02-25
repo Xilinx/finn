@@ -258,7 +258,7 @@ def rtlsim_output_to_npy(
     return out_array
 
 
-def finnpy_to_packed_bytearray(ndarray, dtype, reverse_inner=False):
+def finnpy_to_packed_bytearray(ndarray, dtype, reverse_inner=False, reverse_endian=False):
     """Given a numpy ndarray with FINN DataType dtype, pack the innermost
     dimension and return the packed representation as an ndarray of uint8.
     The packed innermost dimension will be padded to the nearest multiple
@@ -281,10 +281,14 @@ def finnpy_to_packed_bytearray(ndarray, dtype, reverse_inner=False):
 
     if packed_hexstring.ndim == 0:
         # scalar, call hexstring2npbytearray directly
-        return hexstring2npbytearray(np.asscalar(packed_hexstring))
+        ret = hexstring2npbytearray(np.asscalar(packed_hexstring))
     else:
         # convert ndarray of hex strings to byte array
-        return np.apply_along_axis(fn, packed_hexstring.ndim - 1, packed_hexstring)
+        ret = np.apply_along_axis(fn, packed_hexstring.ndim - 1, packed_hexstring)
+    if reverse_endian:
+        # reverse the endianness of packing dimension
+        ret = np.flip(ret, axis=-1)
+    return ret
 
 
 def packed_bytearray_to_finnpy(
