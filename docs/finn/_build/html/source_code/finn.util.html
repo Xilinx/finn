@@ -198,7 +198,8 @@ in code_gen_dir which is passed to the function build() of this class.</p>
 <dt id="finn.util.basic.CppBuilder.build">
 <code class="sig-name descname">build</code><span class="sig-paren">(</span><em class="sig-param">code_gen_dir</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.basic.CppBuilder.build" title="Permalink to this definition">¶</a></dt>
 <dd><p>Builds the g++ compiler command according to entries in include_paths 
-and cpp_files lists. Saves it in bash script and executes it.</p>
+and cpp_files lists. Saves it in bash script in given folder and 
+executes it.</p>
 </dd></dl>
 
 <dl class="method">
@@ -219,7 +220,7 @@ types dt_a and dt_b of len elements can take.</p>
 <dl class="function">
 <dt id="finn.util.basic.gen_finn_dt_tensor">
 <code class="sig-prename descclassname">finn.util.basic.</code><code class="sig-name descname">gen_finn_dt_tensor</code><span class="sig-paren">(</span><em class="sig-param">finn_dt</em>, <em class="sig-param">tensor_shape</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.basic.gen_finn_dt_tensor" title="Permalink to this definition">¶</a></dt>
-<dd><p>Generates random tensor in given shape and with given FINN DataType</p>
+<dd><p>Generates random tensor in given shape and with given FINN DataType.</p>
 </dd></dl>
 
 <dl class="function">
@@ -269,7 +270,7 @@ inserted after if the padding amount is not divisible by two.</p>
 <dl class="function">
 <dt id="finn.util.basic.remove_by_name">
 <code class="sig-prename descclassname">finn.util.basic.</code><code class="sig-name descname">remove_by_name</code><span class="sig-paren">(</span><em class="sig-param">container</em>, <em class="sig-param">name</em>, <em class="sig-param">name_field='name'</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.basic.remove_by_name" title="Permalink to this definition">¶</a></dt>
-<dd><p>Remove item from container by .name field if it exists</p>
+<dd><p>Remove item from container by .name field if it exists.</p>
 </dd></dl>
 
 <dl class="function">
@@ -294,11 +295,11 @@ pad_to_nbits is used to prepend leading zeros to ensure packed strings of
 fixed width. The minimum value for pad_to_nbits is 4, since a single hex
 digit is four bits. reverse can be used to reverse the array prior to
 packing.</p>
-<p>Examples:
-array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = “0xe”
-array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = “0x0e”
-array2hexstring([1, 1, 0, 1], DataType.BINARY, 4, reverse=True) = “0xb”
-array2hexstring([1, 1, 1, 0], DataType.BINARY, 8, reverse=True) = “0x07”</p>
+<p>Examples:</p>
+<p>array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = “0xe”</p>
+<p>array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = “0x0e”</p>
+<p>array2hexstring([1, 1, 0, 1], DataType.BINARY, 4, reverse=True) = “0xb”</p>
+<p>array2hexstring([1, 1, 1, 0], DataType.BINARY, 8, reverse=True) = “0x07”</p>
 </dd></dl>
 
 <dl class="function">
@@ -314,14 +315,16 @@ input.</p>
 <dl class="function">
 <dt id="finn.util.data_packing.hexstring2npbytearray">
 <code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">hexstring2npbytearray</code><span class="sig-paren">(</span><em class="sig-param">hexstring</em>, <em class="sig-param">remove_prefix='0x'</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.hexstring2npbytearray" title="Permalink to this definition">¶</a></dt>
-<dd><p>Convert a hex string into a NumPy array of dtype uint8. Examples:</p>
+<dd><p>Convert a hex string into a NumPy array of dtype uint8.</p>
+<p>Example:</p>
 <p>hexstring2npbytearray(“0f01”) = array([15,  1], dtype=uint8)</p>
 </dd></dl>
 
 <dl class="function">
 <dt id="finn.util.data_packing.npbytearray2hexstring">
 <code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">npbytearray2hexstring</code><span class="sig-paren">(</span><em class="sig-param">npbytearray</em>, <em class="sig-param">prefix='0x'</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.npbytearray2hexstring" title="Permalink to this definition">¶</a></dt>
-<dd><p>Convert a NumPy array of uint8 dtype into a hex string. Examples:</p>
+<dd><p>Convert a NumPy array of uint8 dtype into a hex string.</p>
+<p>Example:</p>
 <p>npbytearray2hexstring(array([15,  1], dtype=uint8)) = “0x0f01”</p>
 </dd></dl>
 
@@ -351,20 +354,22 @@ emitted string.</p>
 <dt id="finn.util.data_packing.pack_innermost_dim_as_hex_string">
 <code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">pack_innermost_dim_as_hex_string</code><span class="sig-paren">(</span><em class="sig-param">ndarray</em>, <em class="sig-param">dtype</em>, <em class="sig-param">pad_to_nbits</em>, <em class="sig-param">reverse_inner=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.pack_innermost_dim_as_hex_string" title="Permalink to this definition">¶</a></dt>
 <dd><p>Pack the innermost dimension of the given numpy ndarray into hex
-strings using array2hexstring. Examples:</p>
-<p>A = [[1, 1, 1, 0], [0, 1, 1, 0]]
-eA = [“0e”, “06”]
-pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA
-B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
-eB = [[ “0f”, “0f”], [“07”, “0d”]]
-pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB</p>
+strings using array2hexstring.</p>
+<p>Examples:</p>
+<p>A = [[1, 1, 1, 0], [0, 1, 1, 0]]</p>
+<p>eA = [“0e”, “06”]</p>
+<p>pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA</p>
+<p>B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]</p>
+<p>eB = [[ “0f”, “0f”], [“07”, “0d”]]</p>
+<p>pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB</p>
 </dd></dl>
 
 <dl class="function">
 <dt id="finn.util.data_packing.packed_bytearray_to_finnpy">
 <code class="sig-prename descclassname">finn.util.data_packing.</code><code class="sig-name descname">packed_bytearray_to_finnpy</code><span class="sig-paren">(</span><em class="sig-param">packed_bytearray</em>, <em class="sig-param">dtype</em>, <em class="sig-param">output_shape=None</em>, <em class="sig-param">reverse_inner=False</em>, <em class="sig-param">reverse_endian=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.data_packing.packed_bytearray_to_finnpy" title="Permalink to this definition">¶</a></dt>
 <dd><p>Given a packed numpy uint8 ndarray, unpack it into a FINN array of
-given DataType. output_shape can be specified to remove padding from the
+given DataType.</p>
+<p>output_shape can be specified to remove padding from the
 packed dimension, or set to None to be inferred from the input.</p>
 </dd></dl>
 
@@ -403,8 +408,9 @@ is set, the innermost unpacked dimension will be reversed.</p>
 <dl class="method">
 <dt id="finn.util.fpgadataflow.IPGenBuilder.build">
 <code class="sig-name descname">build</code><span class="sig-paren">(</span><em class="sig-param">code_gen_dir</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.util.fpgadataflow.IPGenBuilder.build" title="Permalink to this definition">¶</a></dt>
-<dd><p>Builds the bash script with given parameters. To guarantee the 
-generation in the correct folder the bash script contains a cd command.</p>
+<dd><p>Builds the bash script with given parameters and saves it in given folder.
+To guarantee the generation in the correct folder the bash script contains a 
+cd command.</p>
 </dd></dl>
 
 <dl class="method">

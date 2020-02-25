@@ -236,7 +236,8 @@ by every node.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_input_datatype">
 <code class="sig-name descname">get_input_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_input_datatype" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns FINN DataType of input.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_nodeattr_types">
@@ -261,12 +262,15 @@ by every node.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_output_datatype">
 <code class="sig-name descname">get_output_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_output_datatype" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns FINN DataType of output.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_stream_width">
 <code class="sig-name descname">get_stream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_stream_width" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns stream width, input and output stream width are equal for 
+the sliding window function</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.global_includes">
@@ -331,7 +335,7 @@ by every node.</p>
 <code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.verify_node" title="Permalink to this definition">¶</a></dt>
 <dd><p>Verifies that all attributes the node needs are there and
 that particular attributes are set correctly. Also checks if
-the number of inputs is equal to the expected number</p>
+the number of inputs is equal to the expected number.</p>
 </dd></dl>
 
 </dd></dl>
@@ -451,7 +455,8 @@ a form suitable for passing to the hlslib call:
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_input_datatype">
 <code class="sig-name descname">get_input_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_input_datatype" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns FINN DataType of input.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_instream_width">
@@ -482,7 +487,8 @@ by every node.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_output_datatype">
 <code class="sig-name descname">get_output_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_output_datatype" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns FINN DataType of output.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_outstream_width">
@@ -500,7 +506,8 @@ data types.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_weight_datatype">
 <code class="sig-name descname">get_weight_datatype</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_weight_datatype" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns FINN DataType of weights.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.global_includes">
@@ -569,7 +576,7 @@ by every node.</p>
 <code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.verify_node" title="Permalink to this definition">¶</a></dt>
 <dd><p>Verifies that all attributes the node needs are there and
 that particular attributes are set correctly. Also checks if
-the number of inputs is equal to the expected number</p>
+the number of inputs is equal to the expected number.</p>
 </dd></dl>
 
 </dd></dl>
@@ -707,7 +714,7 @@ by every node.</p>
 <code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.verify_node" title="Permalink to this definition">¶</a></dt>
 <dd><p>Verifies that all attributes the node needs are there and
 that particular attributes are set correctly. Also checks if
-the number of inputs is equal to the expected number</p>
+the number of inputs is equal to the expected number.</p>
 </dd></dl>
 
 </dd></dl>
@@ -866,7 +873,7 @@ by every node.</p>
 <code class="sig-name descname">verify_node</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.verify_node" title="Permalink to this definition">¶</a></dt>
 <dd><p>Verifies that all attributes the node needs are there and
 that particular attributes are set correctly. Also checks if
-the number of inputs is equal to the expected number</p>
+the number of inputs is equal to the expected number.</p>
 </dd></dl>
 
 </dd></dl>

@@ -203,9 +203,11 @@
 <p>Call custom implementation to generate code for single custom node
 and create folder that contains all the generated files.
 All nodes in the graph must have the fpgadataflow backend attribute and 
-transformation gets additional arguments:
-* fpgapart (string)
-* clk in ns (int)</p>
+transformation gets additional arguments:</p>
+<ul class="simple">
+<li><p>fpgapart (string)</p></li>
+<li><p>clk in ns (int)</p></li>
+</ul>
 <p>Outcome if succesful: Node attribute “code_gen_dir_ipgen” contains path to folder 
 that contains generated C++ code that can be used to generate a Vivado IP block. 
 The subsequent transformation is HLSSynth_IPGen</p>
@@ -226,7 +228,8 @@ The subsequent transformation is HLSSynth_IPGen</p>
 <p>Create a Vivado IP Block Design project from all the generated IPs of a
 graph. All nodes in the graph must have the fpgadataflow backend attribute,
 and the CodeGen_ipgen transformation must have been previously run on
-the graph. The resulting block design is also packaged as IP.</p>
+the graph. The resulting block design is also packaged as IP. The 
+transformation gets the fpgapart as a string.</p>
 <p>Outcome if successful: sets the vivado_stitch_proj attribute in the ONNX
 ModelProto’s metadata_props field, with the created project dir as the
 value. A make_project.tcl script is also placed under the same folder,
@@ -359,10 +362,9 @@ one if necessary.</p>
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fpgadataflow.make_deployment.</code><code class="sig-name descname">DeployToPYNQ</code><span class="sig-paren">(</span><em class="sig-param">ip</em>, <em class="sig-param">username</em>, <em class="sig-param">password</em>, <em class="sig-param">target_dir</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ" title="Permalink to this definition">¶</a></dt>
 <dd><p>Bases: <a class="reference internal" href="finn.transformation.html#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
 <p>Collects all necessary files for deployment and copies them to the PYNQ board.
-Expects information about PYNQ board to make scp possible:
-* ip address of board
-* username and password for board
-* target directory where the files are stored on the board</p>
+Expects information about PYNQ board to make scp possible:</p>
+<p>IP address of board, username and password for board and target directory where 
+the files are stored on the board</p>
 <dl class="method">
 <dt id="finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ.apply">
 <code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ.apply" title="Permalink to this definition">¶</a></dt>
