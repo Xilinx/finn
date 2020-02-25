@@ -4,7 +4,7 @@ import finn.util.basic as util
 
 def res_estimation(model):
     """Estimates the resources needed for the given model.
-    Returns {node name : resource estimation}"""
+    Returns {node name : resource estimation}."""
 
     res_dict = {}
     for node in model.graph.node:
