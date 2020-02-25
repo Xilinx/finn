@@ -1,26 +1,33 @@
-finn.analysis package
-=====================
+********
+Analysis 
+********
 
-Subpackages
------------
+.. automodule:: finn.analysis
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+Submodule
+=========
 
 .. toctree::
+   :maxdepth: 1
 
    finn.analysis.fpgadataflow
 
-Submodules
-----------
+Analysis Passes
+===============
 
-finn.analysis.topology module
------------------------------
+finn.analysis.topology
+----------------------
 
 .. automodule:: finn.analysis.topology
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.analysis.verify\_custom\_nodes module
-------------------------------------------
+finn.analysis.verify\_custom\_nodes
+-----------------------------------
 
 .. automodule:: finn.analysis.verify_custom_nodes
    :members:
@@ -28,10 +35,3 @@ finn.analysis.verify\_custom\_nodes module
    :show-inheritance:
 
 
-Module contents
----------------
-
-.. automodule:: finn.analysis
-   :members:
-   :undoc-members:
-   :show-inheritance:

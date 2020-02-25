@@ -1,21 +1,16 @@
-finn package
-============
+******************
+FINN - Source Code
+******************
+The FINN sources are divided into different modules. They are listed below.
 
-Subpackages
------------
+Modules
+=======
 
 .. toctree::
+   :maxdepth: 1
 
    finn.analysis
    finn.core
    finn.custom_op
    finn.transformation
    finn.util
-
-Module contents
----------------
-
-.. automodule:: finn
-   :members:
-   :undoc-members:
-   :show-inheritance:
