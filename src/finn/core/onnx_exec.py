@@ -41,7 +41,8 @@ def execute_node(node, context, graph):
     """Executes a single node by using onnxruntime, with custom function or
     if dataflow partition by using remote execution or rtlsim.
     
-    * Input/output provided via context."""
+    * Input/output provided via context.
+    """
 
     if node.op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(node)
@@ -102,7 +103,8 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
     
     * If return return_full_exec_context is True, the full set of tensors used by
     the execution (including inputs, weights, activations and final outputs)
-    will be returned as a dict."""
+    will be returned as a dict.
+    """
 
     if not model.check_all_tensor_shapes_specified():
         raise Exception("Found unspecified tensor shapes, try infer_shapes")

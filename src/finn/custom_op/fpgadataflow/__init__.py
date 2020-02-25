@@ -329,7 +329,8 @@ compilation transformations?
         
         * var: makes it possible to reuse the function for different c++ code generation.
         I.e. if set to "ipgen" in StreamingFCLayer_Batch additional PRAGMA defines are
-        added."""
+        added.
+        """
         pass
 
     @abstractmethod
