@@ -185,6 +185,12 @@
 <p>Enum class that contains FINN data types to set the quantization annotation. 
 ONNX does not support data types smaller than 8-bit integers, whereas in FINN we are
 interested in smaller integers down to ternary and bipolar.</p>
+<p>Assignment of DataTypes to indices based on following ordering:</p>
+<ul class="simple">
+<li><p>unsigned to signed</p></li>
+<li><p>fewer to more bits</p></li>
+</ul>
+<p>Currently supported DataTypes:</p>
 <dl class="attribute">
 <dt id="finn.core.datatype.DataType.BINARY">
 <code class="sig-name descname">BINARY</code><em class="property"> = 1</em><a class="headerlink" href="#finn.core.datatype.DataType.BINARY" title="Permalink to this definition">¶</a></dt>
@@ -269,7 +275,9 @@ interested in smaller integers down to ternary and bipolar.</p>
 <dt id="finn.core.datatype.DataType.allowed">
 <code class="sig-name descname">allowed</code><span class="sig-paren">(</span><em class="sig-param">value</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.datatype.DataType.allowed" title="Permalink to this definition">¶</a></dt>
 <dd><p>Check whether given value is allowed for this DataType.</p>
-<p>value (float32): value to be checked</p>
+<ul class="simple">
+<li><p>value (float32): value to be checked</p></li>
+</ul>
 </dd></dl>
 
 <dl class="method">
@@ -281,27 +289,27 @@ interested in smaller integers down to ternary and bipolar.</p>
 <dl class="method">
 <dt id="finn.core.datatype.DataType.get_hls_datatype_str">
 <code class="sig-name descname">get_hls_datatype_str</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.datatype.DataType.get_hls_datatype_str" title="Permalink to this definition">¶</a></dt>
-<dd><p>Return the corresponding Vivado HLS datatype name.</p>
+<dd><p>Returns the corresponding Vivado HLS datatype name.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.datatype.DataType.get_num_possible_values">
 <code class="sig-name descname">get_num_possible_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.datatype.DataType.get_num_possible_values" title="Permalink to this definition">¶</a></dt>
-<dd><p>Return the number of possible values this DataType can take. Only
+<dd><p>Returns the number of possible values this DataType can take. Only
 implemented for integer types for now.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.datatype.DataType.get_smallest_possible">
 <code class="sig-name descname">get_smallest_possible</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.datatype.DataType.get_smallest_possible" title="Permalink to this definition">¶</a></dt>
-<dd><p>Return smallest (fewest bits) possible DataType that can represent
+<dd><p>Returns smallest (fewest bits) possible DataType that can represent
 value. Prefers unsigned integers where possible.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.datatype.DataType.is_integer">
 <code class="sig-name descname">is_integer</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.datatype.DataType.is_integer" title="Permalink to this definition">¶</a></dt>
-<dd><p>Return whether this DataType represents integer values only.</p>
+<dd><p>Returns whether this DataType represents integer values only.</p>
 </dd></dl>
 
 <dl class="method">
@@ -319,7 +327,7 @@ value. Prefers unsigned integers where possible.</p>
 <dl class="method">
 <dt id="finn.core.datatype.DataType.signed">
 <code class="sig-name descname">signed</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.datatype.DataType.signed" title="Permalink to this definition">¶</a></dt>
-<dd><p>Return whether this DataType can represent negative numbers.</p>
+<dd><p>Returns whether this DataType can represent negative numbers.</p>
 </dd></dl>
 
 </dd></dl>
@@ -346,7 +354,7 @@ functions for graph manipulation and exploration.</p>
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.analysis">
 <code class="sig-name descname">analysis</code><span class="sig-paren">(</span><em class="sig-param">analysis_fxn</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.analysis" title="Permalink to this definition">¶</a></dt>
-<dd><p>Run given anaylsis_fxn on this model and return resulting dict.</p>
+<dd><p>Runs given anaylsis_fxn on this model and return resulting dict.</p>
 </dd></dl>
 
 <dl class="method">
@@ -360,37 +368,39 @@ associated ValueInfo, but FINN expects this.</p>
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.check_compatibility">
 <code class="sig-name descname">check_compatibility</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.check_compatibility" title="Permalink to this definition">¶</a></dt>
-<dd><p>Checks this model for FINN compatibility:
-* no embedded subgraphs
-* all tensor shapes are specified, including activations
-* all constants are initializers</p>
+<dd><p>Checks this model for FINN compatibility:</p>
+<ul class="simple">
+<li><p>no embedded subgraphs</p></li>
+<li><p>all tensor shapes are specified, including activations</p></li>
+<li><p>all constants are initializers</p></li>
+</ul>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.find_consumer">
 <code class="sig-name descname">find_consumer</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.find_consumer" title="Permalink to this definition">¶</a></dt>
-<dd><p>Find and return the node that consumes the tensor with given name.
+<dd><p>Finds and returns the node that consumes the tensor with given name.
 Currently only works for linear graphs.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.find_producer">
 <code class="sig-name descname">find_producer</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.find_producer" title="Permalink to this definition">¶</a></dt>
-<dd><p>Find and return the node that produces the tensor with given name.
+<dd><p>Finds and returns the node that produces the tensor with given name.
 Currently only works for linear graphs.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.get_all_tensor_names">
 <code class="sig-name descname">get_all_tensor_names</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_all_tensor_names" title="Permalink to this definition">¶</a></dt>
-<dd><p>Return a list of all (input, output and value_info) tensor names
+<dd><p>Returns a list of all (input, output and value_info) tensor names
 in the graph.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.get_initializer">
 <code class="sig-name descname">get_initializer</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_initializer" title="Permalink to this definition">¶</a></dt>
-<dd><p>Get the initializer value for tensor with given name, if any.</p>
+<dd><p>Gets the initializer value for tensor with given name, if any.</p>
 </dd></dl>
 
 <dl class="method">
@@ -409,7 +419,7 @@ or None otherwise.</p>
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.get_tensor_fanout">
 <code class="sig-name descname">get_tensor_fanout</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.get_tensor_fanout" title="Permalink to this definition">¶</a></dt>
-<dd><p>Return the number of nodes for which the tensor with given name is
+<dd><p>Returns the number of nodes for which the tensor with given name is
 as input.</p>
 </dd></dl>
 
@@ -434,8 +444,8 @@ as input.</p>
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.make_empty_exec_context">
 <code class="sig-name descname">make_empty_exec_context</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.make_empty_exec_context" title="Permalink to this definition">¶</a></dt>
-<dd><p>Creates an empty execution context for this model.
-The execution context is a dictionary of all tensors used for the
+<dd><p>Creates an empty execution context for this model.</p>
+<p>The execution context is a dictionary of all tensors used for the
 inference computation. Any initializer values will be taken into
 account, all other tensors will be zero.</p>
 </dd></dl>
@@ -455,19 +465,19 @@ account, all other tensors will be zero.</p>
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.rename_tensor">
 <code class="sig-name descname">rename_tensor</code><span class="sig-paren">(</span><em class="sig-param">old_name</em>, <em class="sig-param">new_name</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.rename_tensor" title="Permalink to this definition">¶</a></dt>
-<dd><p>Rename a tensor from old_name to new_name.</p>
+<dd><p>Renames a tensor from old_name to new_name.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.save">
 <code class="sig-name descname">save</code><span class="sig-paren">(</span><em class="sig-param">filename</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.save" title="Permalink to this definition">¶</a></dt>
-<dd><p>Save the wrapper ONNX ModelProto into a file with given name.</p>
+<dd><p>Saves the wrapper ONNX ModelProto into a file with given name.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.set_initializer">
 <code class="sig-name descname">set_initializer</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em>, <em class="sig-param">tensor_value</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.set_initializer" title="Permalink to this definition">¶</a></dt>
-<dd><p>Set the initializer value for tensor with given name.</p>
+<dd><p>Sets the initializer value for tensor with given name.</p>
 </dd></dl>
 
 <dl class="method">
@@ -485,15 +495,15 @@ account, all other tensors will be zero.</p>
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.set_tensor_shape">
 <code class="sig-name descname">set_tensor_shape</code><span class="sig-paren">(</span><em class="sig-param">tensor_name</em>, <em class="sig-param">tensor_shape</em>, <em class="sig-param">dtype=1</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.set_tensor_shape" title="Permalink to this definition">¶</a></dt>
-<dd><p>Assign shape in ValueInfoProto for tensor with given name.</p>
+<dd><p>Assigns shape in ValueInfoProto for tensor with given name.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.core.modelwrapper.ModelWrapper.transform">
 <code class="sig-name descname">transform</code><span class="sig-paren">(</span><em class="sig-param">transformation</em>, <em class="sig-param">make_deepcopy=True</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.modelwrapper.ModelWrapper.transform" title="Permalink to this definition">¶</a></dt>
 <dd><p>Applies given Transformation repeatedly until no more changes can be made
-and returns a transformed ModelWrapper instance.
-If make_deepcopy is specified, operates on a new (deep)copy of model.</p>
+and returns a transformed ModelWrapper instance.</p>
+<p>If make_deepcopy is specified, operates on a new (deep)copy of model.</p>
 </dd></dl>
 
 </dd></dl>
@@ -504,25 +514,25 @@ If make_deepcopy is specified, operates on a new (deep)copy of model.</p>
 <dl class="function">
 <dt id="finn.core.onnx_exec.compare_execution">
 <code class="sig-prename descclassname">finn.core.onnx_exec.</code><code class="sig-name descname">compare_execution</code><span class="sig-paren">(</span><em class="sig-param">model_a</em>, <em class="sig-param">model_b</em>, <em class="sig-param">input_dict</em>, <em class="sig-param">compare_fxn=&lt;function &lt;lambda&gt;&gt;</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.onnx_exec.compare_execution" title="Permalink to this definition">¶</a></dt>
-<dd><p>Execute two ONNX models and compare their outputs using given function.
-compare_fxn should take in two tensors and return a Boolean</p>
+<dd><p>Executes two ONNX models and compare their outputs using given function.</p>
+<p>compare_fxn should take in two tensors and return a Boolean</p>
 </dd></dl>
 
 <dl class="function">
 <dt id="finn.core.onnx_exec.execute_node">
 <code class="sig-prename descclassname">finn.core.onnx_exec.</code><code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">node</em>, <em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.onnx_exec.execute_node" title="Permalink to this definition">¶</a></dt>
-<dd><p>Execute a single node by using onnxruntime, with custom function or
-if dataflow partition by using remote execution or rtlsim.
-Input/output provided via context.</p>
+<dd><p>Executes a single node by using onnxruntime, with custom function or
+if dataflow partition by using remote execution or rtlsim.</p>
+<p>Input/output provided via context.</p>
 </dd></dl>
 
 <dl class="function">
 <dt id="finn.core.onnx_exec.execute_onnx">
 <code class="sig-prename descclassname">finn.core.onnx_exec.</code><code class="sig-name descname">execute_onnx</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">input_dict</em>, <em class="sig-param">return_full_exec_context=False</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.onnx_exec.execute_onnx" title="Permalink to this definition">¶</a></dt>
-<dd><p>Execute given ONNX ModelWrapper with given named inputs.
-If return_full_exec_context is False, a dict of named outputs is returned
-as indicated by the model.graph.output.
-If return return_full_exec_context is True, the full set of tensors used by
+<dd><p>Executes given ONNX ModelWrapper with given named inputs.</p>
+<p>If return_full_exec_context is False, a dict of named outputs is returned
+as indicated by the model.graph.output.</p>
+<p>If return return_full_exec_context is True, the full set of tensors used by
 the execution (including inputs, weights, activations and final outputs)
 will be returned as a dict.</p>
 </dd></dl>
@@ -530,7 +540,7 @@ will be returned as a dict.</p>
 <dl class="function">
 <dt id="finn.core.onnx_exec.execute_onnx_and_make_model">
 <code class="sig-prename descclassname">finn.core.onnx_exec.</code><code class="sig-name descname">execute_onnx_and_make_model</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">input_dict</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.core.onnx_exec.execute_onnx_and_make_model" title="Permalink to this definition">¶</a></dt>
-<dd><p>Execute given ONNX ModelWrapper with given named inputs and return a new
+<dd><p>Executes given ONNX ModelWrapper with given named inputs and return a new
 ModelWrapper where an initializer is provided for each tensor as taken from
 the execution. This new model is useful for debugging, since it contains
 all the intermediate activation values.</p>

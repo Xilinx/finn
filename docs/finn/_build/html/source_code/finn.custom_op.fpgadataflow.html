@@ -188,33 +188,49 @@
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.blackboxfunction">
 <code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.blackboxfunction" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate a blackbock function in c++ from which an IP block 
+will be generated, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.bram_estimation">
 <code class="sig-name descname">bram_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.bram_estimation" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function for BRAM resource estimation, is member function of 
+HLSCustomOp class but has to be filled by every node</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.dataoutstrm">
 <code class="sig-name descname">dataoutstrm</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.dataoutstrm" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading out data from c++ and convert 
+into npy format, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.defines">
 <code class="sig-name descname">defines</code><span class="sig-paren">(</span><em class="sig-param">var</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.defines" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the define commands for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+<p>var: makes it possible to reuse the function for different c++ code generation.
+I.e. if set to “ipgen” in StreamingFCLayer_Batch additional PRAGMA defines are
+added.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.docompute">
 <code class="sig-name descname">docompute</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.docompute" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the computational part of the 
+c++ code, is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.execute_node">
 <code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.execute_node" title="Permalink to this definition">¶</a></dt>
-<dd><p>Execute this CustomOp instance, given the execution context and
-ONNX graph.</p>
+<dd><p>Executes single node using npysim or rtlsim.</p>
 </dd></dl>
 
 <dl class="method">
@@ -237,7 +253,10 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_number_output_values">
 <code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_number_output_values" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to get the number of expected output values, 
+is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.get_output_datatype">
@@ -252,7 +271,10 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.global_includes">
 <code class="sig-name descname">global_includes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.global_includes" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the global includes for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.infer_node_datatype">
@@ -264,7 +286,9 @@ node.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.lut_estimation">
 <code class="sig-name descname">lut_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.lut_estimation" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function for LUT resource estimation, is member function of
+HLSCustomOp class but has to be filled by every node</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.make_shape_compatible_op">
@@ -276,22 +300,31 @@ for performing shape inference.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.pragmas">
 <code class="sig-name descname">pragmas</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.pragmas" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the pragma commands in c++, is member function of 
+HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.read_npy_data">
 <code class="sig-name descname">read_npy_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.read_npy_data" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading data from .npy file in c++, 
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.save_as_npy">
 <code class="sig-name descname">save_as_npy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.save_as_npy" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for saving data in .npy file in c++,
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.strm_decl">
 <code class="sig-name descname">strm_decl</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.strm_decl" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the stream declaration in c++,
+is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.convolutioninputgenerator.ConvolutionInputGenerator.verify_node">
@@ -314,7 +347,10 @@ the number of inputs is equal to the expected number</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.blackboxfunction">
 <code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.blackboxfunction" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate a blackbock function in c++ from which an IP block 
+will be generated, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.bram_estimation">
@@ -342,23 +378,34 @@ Y. Umuroglu, M. Leeser and K. Vissers
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.dataoutstrm">
 <code class="sig-name descname">dataoutstrm</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.dataoutstrm" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading out data from c++ and convert 
+into npy format, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.defines">
 <code class="sig-name descname">defines</code><span class="sig-paren">(</span><em class="sig-param">var</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.defines" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the define commands for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+<p>var: makes it possible to reuse the function for different c++ code generation.
+I.e. if set to “ipgen” in StreamingFCLayer_Batch additional PRAGMA defines are
+added.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.docompute">
 <code class="sig-name descname">docompute</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.docompute" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the computational part of the 
+c++ code, is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.execute_node">
 <code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.execute_node" title="Permalink to this definition">¶</a></dt>
-<dd><p>Execute this CustomOp instance, given the execution context and
-ONNX graph.</p>
+<dd><p>Executes single node using npysim or rtlsim.</p>
 </dd></dl>
 
 <dl class="method">
@@ -370,13 +417,13 @@ ONNX graph.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_input_shape">
 <code class="sig-name descname">get_folded_input_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_input_shape" title="Permalink to this definition">¶</a></dt>
-<dd><p>Returns folded input shape (according to synapse folding).</p>
+<dd><p>Returns folded input shape (according to synapse folding), if implemented.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_output_shape">
 <code class="sig-name descname">get_folded_output_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_folded_output_shape" title="Permalink to this definition">¶</a></dt>
-<dd><p>Returns folded output shape (according to neuron folding).</p>
+<dd><p>Returns folded output shape (according to neuron folding), if implemented.</p>
 </dd></dl>
 
 <dl class="method">
@@ -409,7 +456,7 @@ a form suitable for passing to the hlslib call:
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_instream_width">
 <code class="sig-name descname">get_instream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_instream_width" title="Permalink to this definition">¶</a></dt>
-<dd><p>Returns input stream width.</p>
+<dd><p>Returns input stream width, if implemented.</p>
 </dd></dl>
 
 <dl class="method">
@@ -427,7 +474,9 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_number_output_values">
 <code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_number_output_values" title="Permalink to this definition">¶</a></dt>
-<dd><p>Returns the number of output values.</p>
+<dd><p>Function to get the number of expected output values, 
+is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
 </dd></dl>
 
 <dl class="method">
@@ -438,7 +487,7 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_outstream_width">
 <code class="sig-name descname">get_outstream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.get_outstream_width" title="Permalink to this definition">¶</a></dt>
-<dd><p>Returns output stream width.</p>
+<dd><p>Returns output stream width, if implemented.</p>
 </dd></dl>
 
 <dl class="method">
@@ -456,7 +505,10 @@ data types.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.global_includes">
 <code class="sig-name descname">global_includes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.global_includes" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the global includes for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.infer_node_datatype">
@@ -486,22 +538,31 @@ for performing shape inference.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.pragmas">
 <code class="sig-name descname">pragmas</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.pragmas" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the pragma commands in c++, is member function of 
+HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.read_npy_data">
 <code class="sig-name descname">read_npy_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.read_npy_data" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading data from .npy file in c++, 
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.save_as_npy">
 <code class="sig-name descname">save_as_npy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.save_as_npy" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for saving data in .npy file in c++,
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.strm_decl">
 <code class="sig-name descname">strm_decl</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.strm_decl" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the stream declaration in c++,
+is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingfclayer_batch.StreamingFCLayer_Batch.verify_node">
@@ -524,27 +585,44 @@ the number of inputs is equal to the expected number</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.blackboxfunction">
 <code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.blackboxfunction" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate a blackbock function in c++ from which an IP block 
+will be generated, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.bram_estimation">
 <code class="sig-name descname">bram_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.bram_estimation" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function for BRAM resource estimation, is member function of 
+HLSCustomOp class but has to be filled by every node</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.dataoutstrm">
 <code class="sig-name descname">dataoutstrm</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.dataoutstrm" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading out data from c++ and convert 
+into npy format, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.defines">
 <code class="sig-name descname">defines</code><span class="sig-paren">(</span><em class="sig-param">var</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.defines" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the define commands for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+<p>var: makes it possible to reuse the function for different c++ code generation.
+I.e. if set to “ipgen” in StreamingFCLayer_Batch additional PRAGMA defines are
+added.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.docompute">
 <code class="sig-name descname">docompute</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.docompute" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the computational part of the 
+c++ code, is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.get_nodeattr_types">
@@ -561,12 +639,18 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.get_number_output_values">
 <code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.get_number_output_values" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to get the number of expected output values, 
+is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.global_includes">
 <code class="sig-name descname">global_includes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.global_includes" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the global includes for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.infer_node_datatype">
@@ -578,7 +662,9 @@ node.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.lut_estimation">
 <code class="sig-name descname">lut_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.lut_estimation" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function for LUT resource estimation, is member function of
+HLSCustomOp class but has to be filled by every node</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.make_shape_compatible_op">
@@ -590,22 +676,31 @@ for performing shape inference.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.pragmas">
 <code class="sig-name descname">pragmas</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.pragmas" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the pragma commands in c++, is member function of 
+HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.read_npy_data">
 <code class="sig-name descname">read_npy_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.read_npy_data" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading data from .npy file in c++, 
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.save_as_npy">
 <code class="sig-name descname">save_as_npy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.save_as_npy" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for saving data in .npy file in c++,
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.strm_decl">
 <code class="sig-name descname">strm_decl</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.strm_decl" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the stream declaration in c++,
+is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.streamingmaxpool_batch.StreamingMaxPool_Batch.verify_node">
@@ -633,44 +728,61 @@ It marks the end of the current image/input sample.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.blackboxfunction">
 <code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.blackboxfunction" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate a blackbock function in c++ from which an IP block 
+will be generated, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.dataoutstrm">
 <code class="sig-name descname">dataoutstrm</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.dataoutstrm" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading out data from c++ and convert 
+into npy format, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.defines">
 <code class="sig-name descname">defines</code><span class="sig-paren">(</span><em class="sig-param">var</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.defines" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the define commands for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+<p>var: makes it possible to reuse the function for different c++ code generation.
+I.e. if set to “ipgen” in StreamingFCLayer_Batch additional PRAGMA defines are
+added.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.docompute">
 <code class="sig-name descname">docompute</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.docompute" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the computational part of the 
+c++ code, is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.execute_node">
 <code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.execute_node" title="Permalink to this definition">¶</a></dt>
-<dd><p>Execute this CustomOp instance, given the execution context and
-ONNX graph.</p>
+<dd><p>Executes single node using npysim or rtlsim.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_folded_input_shape">
 <code class="sig-name descname">get_folded_input_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_folded_input_shape" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns folded input shape (according to synapse folding), if implemented.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_folded_output_shape">
 <code class="sig-name descname">get_folded_output_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_folded_output_shape" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns folded output shape (according to neuron folding), if implemented.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_instream_width">
 <code class="sig-name descname">get_instream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_instream_width" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns input stream width, if implemented.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_nodeattr_types">
@@ -687,17 +799,24 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_number_output_values">
 <code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_number_output_values" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to get the number of expected output values, 
+is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_outstream_width">
 <code class="sig-name descname">get_outstream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.get_outstream_width" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns output stream width, if implemented.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.global_includes">
 <code class="sig-name descname">global_includes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.global_includes" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the global includes for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.infer_node_datatype">
@@ -716,22 +835,31 @@ for performing shape inference.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.pragmas">
 <code class="sig-name descname">pragmas</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.pragmas" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the pragma commands in c++, is member function of 
+HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.read_npy_data">
 <code class="sig-name descname">read_npy_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.read_npy_data" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading data from .npy file in c++, 
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.save_as_npy">
 <code class="sig-name descname">save_as_npy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.save_as_npy" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for saving data in .npy file in c++,
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.strm_decl">
 <code class="sig-name descname">strm_decl</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.strm_decl" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the stream declaration in c++,
+is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.tlastmarker.TLastMarker.verify_node">
@@ -757,12 +885,17 @@ when writing a new fpgadataflow custom op node.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.blackboxfunction">
 <em class="property">abstract </em><code class="sig-name descname">blackboxfunction</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.blackboxfunction" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate a blackbock function in c++ from which an IP block 
+will be generated, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.bram_estimation">
 <code class="sig-name descname">bram_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.bram_estimation" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function for BRAM resource estimation, is member function of 
+HLSCustomOp class but has to be filled by every node</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.code_generation_ipgen">
@@ -786,57 +919,74 @@ finn.util.basic and executes the script to produce the executable.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.dataoutstrm">
 <em class="property">abstract </em><code class="sig-name descname">dataoutstrm</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.dataoutstrm" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading out data from c++ and convert 
+into npy format, is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.defines">
 <em class="property">abstract </em><code class="sig-name descname">defines</code><span class="sig-paren">(</span><em class="sig-param">var</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.defines" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the define commands for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+<p>var: makes it possible to reuse the function for different c++ code generation.
+I.e. if set to “ipgen” in StreamingFCLayer_Batch additional PRAGMA defines are
+added.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.docompute">
 <em class="property">abstract </em><code class="sig-name descname">docompute</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.docompute" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the computational part of the 
+c++ code, is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.dynamic_input_to_npy">
 <code class="sig-name descname">dynamic_input_to_npy</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">count</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.dynamic_input_to_npy" title="Permalink to this definition">¶</a></dt>
-<dd><p>Saves input (given context) into .npy files. Count indicates the number 
-of inputs that have to be saved.</p>
+<dd><p>Saves input (given context) into .npy files.</p>
+<p>Count indicates the number of inputs that have to be saved.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.exec_precompiled_singlenode_model">
 <code class="sig-name descname">exec_precompiled_singlenode_model</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.exec_precompiled_singlenode_model" title="Permalink to this definition">¶</a></dt>
-<dd><p>Execute precompiled executable.</p>
+<dd><p>Executes precompiled executable.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.execute_node">
 <code class="sig-name descname">execute_node</code><span class="sig-paren">(</span><em class="sig-param">context</em>, <em class="sig-param">graph</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.execute_node" title="Permalink to this definition">¶</a></dt>
-<dd><p>Execute this CustomOp instance, given the execution context and
-ONNX graph.</p>
+<dd><p>Executes single node using npysim or rtlsim.</p>
 </dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.generate_params">
 <code class="sig-name descname">generate_params</code><span class="sig-paren">(</span><em class="sig-param">model</em>, <em class="sig-param">path</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.generate_params" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate parameters (i.e. weights and thresholds), 
+is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.get_folded_input_shape">
 <code class="sig-name descname">get_folded_input_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.get_folded_input_shape" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns folded input shape (according to synapse folding), if implemented.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.get_folded_output_shape">
 <code class="sig-name descname">get_folded_output_shape</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.get_folded_output_shape" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns folded output shape (according to neuron folding), if implemented.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.get_instream_width">
 <code class="sig-name descname">get_instream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.get_instream_width" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns input stream width, if implemented.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.get_nodeattr_types">
@@ -853,17 +1003,24 @@ attribute is not set</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.get_number_output_values">
 <em class="property">abstract </em><code class="sig-name descname">get_number_output_values</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.get_number_output_values" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to get the number of expected output values, 
+is member function of HLSCustomOp class but has to be filled 
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.get_outstream_width">
 <code class="sig-name descname">get_outstream_width</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.get_outstream_width" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Returns output stream width, if implemented.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.global_includes">
 <em class="property">abstract </em><code class="sig-name descname">global_includes</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.global_includes" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to set the global includes for c++ code that has to be generated
+for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.ipgen_singlenode_code">
@@ -875,12 +1032,15 @@ finn.util.fpgadataflow.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.lut_estimation">
 <code class="sig-name descname">lut_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.lut_estimation" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function for LUT resource estimation, is member function of
+HLSCustomOp class but has to be filled by every node</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.node_res_estimation">
 <code class="sig-name descname">node_res_estimation</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.node_res_estimation" title="Permalink to this definition">¶</a></dt>
-<dd><p>Returns resource estimation.</p>
+<dd><p>Returns summarized resource estimation of BRAMs and LUTs 
+of the node.</p>
 </dd></dl>
 
 <dl class="method">
@@ -893,12 +1053,16 @@ the context dictionary.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.pragmas">
 <em class="property">abstract </em><code class="sig-name descname">pragmas</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.pragmas" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the pragma commands in c++, is member function of 
+HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.read_npy_data">
 <em class="property">abstract </em><code class="sig-name descname">read_npy_data</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.read_npy_data" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for reading data from .npy file in c++, 
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.reset_rtlsim">
@@ -919,12 +1083,17 @@ after 100 cycles.</p>
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.save_as_npy">
 <em class="property">abstract </em><code class="sig-name descname">save_as_npy</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.save_as_npy" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for saving data in .npy file in c++,
+is member function of HLSCustomOp class but has to be filled by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.strm_decl">
 <em class="property">abstract </em><code class="sig-name descname">strm_decl</code><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.fpgadataflow.HLSCustomOp.strm_decl" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Function to generate the commands for the stream declaration in c++,
+is member function of HLSCustomOp class but has to be filled
+by every node.</p>
+</dd></dl>
 
 <dl class="method">
 <dt id="finn.custom_op.fpgadataflow.HLSCustomOp.toggle_clk">

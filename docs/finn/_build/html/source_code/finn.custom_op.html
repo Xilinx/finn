@@ -245,7 +245,9 @@ the number of inputs is equal to the expected number</p>
 <dl class="function">
 <dt id="finn.custom_op.multithreshold.compare">
 <code class="sig-prename descclassname">finn.custom_op.multithreshold.</code><code class="sig-name descname">compare</code><span class="sig-paren">(</span><em class="sig-param">x</em>, <em class="sig-param">y</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.custom_op.multithreshold.compare" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
+<dd><p>Comparison helper function for multithresholding.</p>
+<p>Gets two values and returns 1.0 if x&gt;=y otherwise 0.0.</p>
+</dd></dl>
 
 <dl class="function">
 <dt id="finn.custom_op.multithreshold.multithreshold">
@@ -254,6 +256,7 @@ the number of inputs is equal to the expected number</p>
 thresholding maps any real number x to an integer in the interval [0, n],
 where the returned integer is the number of thresholds x is greater than 
 or equal to.</p>
+<p>The output tensor will be scaled by out_scale and biased by out_bias.</p>
 </dd></dl>
 
 </div>
