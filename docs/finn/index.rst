@@ -27,6 +27,9 @@ What is FINN?
    :hidden:
 
    getting_started
+   tutorials
    end_to_end_flow
+   finn_internals
+   deploy_integration
    source_code/finn
 
