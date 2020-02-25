@@ -8,7 +8,7 @@
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   
-  <title>finn.analysis.fpgadataflow package &mdash; FINN  documentation</title>
+  <title>Analysis - FPGADataFlow &mdash; FINN  documentation</title>
   
 
   
@@ -36,7 +36,7 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="finn.core package" href="finn.core.html" />
-    <link rel="prev" title="finn.analysis package" href="finn.analysis.html" /> 
+    <link rel="prev" title="Analysis" href="finn.analysis.html" /> 
 </head>
 
 <body class="wy-body-for-nav">
@@ -82,15 +82,16 @@
             
               <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="../getting_started.html">Getting Started</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../tutorials.html">Tutorials</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../end_to_end_flow.html">FINN - End-to-End Flow</a></li>
-<li class="toctree-l1 current"><a class="reference internal" href="finn.html">finn package</a><ul class="current">
-<li class="toctree-l2 current"><a class="reference internal" href="finn.html#subpackages">Subpackages</a><ul class="current">
-<li class="toctree-l3 current"><a class="reference internal" href="finn.analysis.html">finn.analysis package</a><ul class="current">
-<li class="toctree-l4 current"><a class="reference internal" href="finn.analysis.html#subpackages">Subpackages</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.analysis.html#submodules">Submodules</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.analysis.html#module-finn.analysis.topology">finn.analysis.topology module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.analysis.html#module-finn.analysis.verify_custom_nodes">finn.analysis.verify_custom_nodes module</a></li>
-<li class="toctree-l4"><a class="reference internal" href="finn.analysis.html#module-finn.analysis">Module contents</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../finn_internals.html">FINN - Internals</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../deploy_integration.html">Deployment and Integration</a></li>
+<li class="toctree-l1 current"><a class="reference internal" href="finn.html">FINN - Source Code</a><ul class="current">
+<li class="toctree-l2 current"><a class="reference internal" href="finn.html#modules">Modules</a><ul class="current">
+<li class="toctree-l3 current"><a class="reference internal" href="finn.analysis.html">Analysis</a><ul class="current">
+<li class="toctree-l4"><a class="reference internal" href="finn.analysis.html#how-to-write-an-analysis-pass-for-finn">How to write an analysis pass for FINN</a></li>
+<li class="toctree-l4 current"><a class="reference internal" href="finn.analysis.html#submodule">Submodule</a></li>
+<li class="toctree-l4"><a class="reference internal" href="finn.analysis.html#analysis-passes">Analysis Passes</a></li>
 </ul>
 </li>
 <li class="toctree-l3"><a class="reference internal" href="finn.core.html">finn.core package</a></li>
@@ -99,7 +100,6 @@
 <li class="toctree-l3"><a class="reference internal" href="finn.util.html">finn.util package</a></li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="finn.html#module-finn">Module contents</a></li>
 </ul>
 </li>
 </ul>
@@ -147,11 +147,11 @@
     
       <li><a href="../index.html">Docs</a> &raquo;</li>
         
-          <li><a href="finn.html">finn package</a> &raquo;</li>
+          <li><a href="finn.html">FINN - Source Code</a> &raquo;</li>
         
-          <li><a href="finn.analysis.html">finn.analysis package</a> &raquo;</li>
+          <li><a href="finn.analysis.html">Analysis</a> &raquo;</li>
         
-      <li>finn.analysis.fpgadataflow package</li>
+      <li>Analysis - FPGADataFlow</li>
     
     
       <li class="wy-breadcrumbs-aside">
@@ -170,13 +170,12 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <div class="section" id="finn-analysis-fpgadataflow-package">
-<h1>finn.analysis.fpgadataflow package<a class="headerlink" href="#finn-analysis-fpgadataflow-package" title="Permalink to this headline">¶</a></h1>
-<div class="section" id="submodules">
-<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
-</div>
+  <div class="section" id="analysis-fpgadataflow">
+<h1>Analysis - FPGADataFlow<a class="headerlink" href="#analysis-fpgadataflow" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="analysis-passes-fpgadataflow">
+<h2>Analysis Passes (FPGADataFlow)<a class="headerlink" href="#analysis-passes-fpgadataflow" title="Permalink to this headline">¶</a></h2>
 <div class="section" id="module-finn.analysis.fpgadataflow.hls_synth_res_estimation">
-<span id="finn-analysis-fpgadataflow-hls-synth-res-estimation-module"></span><h2>finn.analysis.fpgadataflow.hls_synth_res_estimation module<a class="headerlink" href="#module-finn.analysis.fpgadataflow.hls_synth_res_estimation" title="Permalink to this headline">¶</a></h2>
+<span id="finn-analysis-fpgadataflow-hls-synth-res-estimation-module"></span><h3>finn.analysis.fpgadataflow.hls_synth_res_estimation module<a class="headerlink" href="#module-finn.analysis.fpgadataflow.hls_synth_res_estimation" title="Permalink to this headline">¶</a></h3>
 <dl class="function">
 <dt id="finn.analysis.fpgadataflow.hls_synth_res_estimation.hls_synth_res_estimation">
 <code class="sig-prename descclassname">finn.analysis.fpgadataflow.hls_synth_res_estimation.</code><code class="sig-name descname">hls_synth_res_estimation</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.analysis.fpgadataflow.hls_synth_res_estimation.hls_synth_res_estimation" title="Permalink to this definition">¶</a></dt>
@@ -186,7 +185,7 @@
 
 </div>
 <div class="section" id="module-finn.analysis.fpgadataflow.res_estimation">
-<span id="finn-analysis-fpgadataflow-res-estimation-module"></span><h2>finn.analysis.fpgadataflow.res_estimation module<a class="headerlink" href="#module-finn.analysis.fpgadataflow.res_estimation" title="Permalink to this headline">¶</a></h2>
+<span id="finn-analysis-fpgadataflow-res-estimation-module"></span><h3>finn.analysis.fpgadataflow.res_estimation module<a class="headerlink" href="#module-finn.analysis.fpgadataflow.res_estimation" title="Permalink to this headline">¶</a></h3>
 <dl class="function">
 <dt id="finn.analysis.fpgadataflow.res_estimation.res_estimation">
 <code class="sig-prename descclassname">finn.analysis.fpgadataflow.res_estimation.</code><code class="sig-name descname">res_estimation</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.analysis.fpgadataflow.res_estimation.res_estimation" title="Permalink to this definition">¶</a></dt>
@@ -195,8 +194,6 @@
 </dd></dl>
 
 </div>
-<div class="section" id="module-finn.analysis.fpgadataflow">
-<span id="module-contents"></span><h2>Module contents<a class="headerlink" href="#module-finn.analysis.fpgadataflow" title="Permalink to this headline">¶</a></h2>
 </div>
 </div>
 
@@ -211,7 +208,7 @@
         <a href="finn.core.html" class="btn btn-neutral float-right" title="finn.core package" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
       
       
-        <a href="finn.analysis.html" class="btn btn-neutral float-left" title="finn.analysis package" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+        <a href="finn.analysis.html" class="btn btn-neutral float-left" title="Analysis" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
       
     </div>
   

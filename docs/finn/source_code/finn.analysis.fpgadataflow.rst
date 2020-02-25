@@ -1,8 +1,9 @@
-finn.analysis.fpgadataflow package
-==================================
+***********************
+Analysis - FPGADataFlow
+***********************
 
-Submodules
-----------
+Analysis Passes (FPGADataFlow)
+==============================
 
 finn.analysis.fpgadataflow.hls\_synth\_res\_estimation module
 -------------------------------------------------------------
@@ -20,11 +21,3 @@ finn.analysis.fpgadataflow.res\_estimation module
    :undoc-members:
    :show-inheritance:
 
-
-Module contents
----------------
-
-.. automodule:: finn.analysis.fpgadataflow
-   :members:
-   :undoc-members:
-   :show-inheritance:
