@@ -1,4 +1,5 @@
 import os
+from pkgutil import get_data
 
 import pytest
 
@@ -6,6 +7,7 @@ import numpy as np
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
+import onnx.numpy_helper as nph
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -170,7 +172,10 @@ def test_end2end_tfc_verify_all():
     iname = golden.graph.input[0].name
     oname = golden.graph.output[0].name
     ishape = golden.get_tensor_shape(iname)
-    x = np.zeros(ishape, dtype=np.float32)
+    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    input_tensor = onnx.load_tensor_from_string(raw_i)
+    x = nph.to_array(input_tensor)
+    # x = np.zeros(ishape, dtype=np.float32)
     ret_golden = execute_onnx(golden, {iname: x}, True)
     y_golden = ret_golden[oname]
     # set up parent+child graph to test
@@ -240,7 +245,11 @@ def test_end2end_tfc_run_on_pynq():
     iname = golden.graph.input[0].name
     oname = golden.graph.output[0].name
     ishape = golden.get_tensor_shape(iname)
-    x = np.zeros(ishape, dtype=np.float32)
+    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    input_tensor = onnx.load_tensor_from_string(raw_i)
+    x = nph.to_array(input_tensor)
+    # x = np.zeros(ishape, dtype=np.float32)
+    # run using FINN-based execution
     ret_golden = execute_onnx(golden, {iname: x}, True)
     y_golden = ret_golden[oname]
     # set up parent+child graph to test
