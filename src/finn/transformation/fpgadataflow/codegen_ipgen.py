@@ -33,7 +33,9 @@ class CodeGen_ipgen(Transformation):
     and create folder that contains all the generated files.
     All nodes in the graph must have the fpgadataflow backend attribute and 
     transformation gets additional arguments:
+    
     * fpgapart (string)
+    
     * clk in ns (int)
 
     Outcome if succesful: Node attribute "code_gen_dir_ipgen" contains path to folder 

@@ -23,6 +23,8 @@ from abc import ABC, abstractmethod
 
 
 class Transformation(ABC):
+    """Transformation class all transformations are based on. Contains only 
+    abstract method apply() every transformation has to fill."""
     def __init__(self):
         super().__init__()
 

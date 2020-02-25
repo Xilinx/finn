@@ -9,7 +9,8 @@ class CodeGen_ipstitch(Transformation):
     """Create a Vivado IP Block Design project from all the generated IPs of a
     graph. All nodes in the graph must have the fpgadataflow backend attribute,
     and the CodeGen_ipgen transformation must have been previously run on
-    the graph. The resulting block design is also packaged as IP.
+    the graph. The resulting block design is also packaged as IP. The 
+    transformation gets the fpgapart as a string.
 
     Outcome if successful: sets the vivado_stitch_proj attribute in the ONNX
     ModelProto's metadata_props field, with the created project dir as the
