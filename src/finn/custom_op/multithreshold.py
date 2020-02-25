@@ -6,6 +6,9 @@ from finn.custom_op import CustomOp
 
 
 def compare(x, y):
+    """Comparison helper function for multithresholding. 
+    
+    Gets two values and returns 1.0 if x>=y otherwise 0.0."""
     if x >= y:
         return 1.0
     else:
@@ -16,7 +19,9 @@ def multithreshold(v, thresholds, out_scale=None, out_bias=None):
     """Given a set of threshold values t={t_0, t_1 ... t_n} the successive 
     thresholding maps any real number x to an integer in the interval [0, n],
     where the returned integer is the number of thresholds x is greater than 
-    or equal to."""
+    or equal to. 
+    
+    The output tensor will be scaled by out_scale and biased by out_bias."""
     # the inputs are expected to be in the shape (N,C,H,W)
     # N : Batch size
     # C : Number of channels
@@ -31,7 +36,8 @@ def multithreshold(v, thresholds, out_scale=None, out_bias=None):
     # the output tensor will be scaled by out_scale and biased by out_bias
     # assert threshold shape
     is_global_threshold = thresholds.shape[0] == 1
-    assert (v.shape[1] == thresholds.shape[0]) or is_global_threshold
+    assert (v.shape[1] == thresholds.shape[0]) or is_global_threshold, """"Threshold 
+    shape incorrect"""
     # save the required shape sizes for the loops (N, C and B)
     num_batch = v.shape[0]
     num_channel = v.shape[1]

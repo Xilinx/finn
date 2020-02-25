@@ -210,31 +210,26 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_instream_width(self):
-        """Returns input stream width."""
         i_bits = self.get_input_datatype().bitwidth()
         return i_bits * self.get_nodeattr("SIMD")
 
     def get_outstream_width(self):
-        """Returns output stream width."""
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
     def get_folded_input_shape(self):
-        """Returns folded input shape (according to synapse folding)."""
         mw = self.get_nodeattr("MW")
         simd = self.get_nodeattr("SIMD")
         sf = mw // simd
         return (1, sf, simd)
 
     def get_folded_output_shape(self):
-        """Returns folded output shape (according to neuron folding)."""
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         nf = mh // pe
         return (1, nf, pe)
 
     def get_number_output_values(self):
-        """Returns the number of output values."""
         nf = self.get_folded_output_shape()[1]
         return nf
 

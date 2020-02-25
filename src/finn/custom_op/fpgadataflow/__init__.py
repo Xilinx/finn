@@ -45,16 +45,21 @@ class HLSCustomOp(CustomOp):
         }
 
     def node_res_estimation(self):
-        """Returns resource estimation."""
+        """Returns summarized resource estimation of BRAMs and LUTs 
+        of the node."""
         resources = []
         resources.append("BRAMs: " + str(self.bram_estimation()))
         resources.append("LUTs: " + str(self.lut_estimation()))
         return resources
 
     def bram_estimation(self):
+        """Function for BRAM resource estimation, is member function of 
+        HLSCustomOp class but has to be filled by every node"""
         return 0
 
     def lut_estimation(self):
+        """Function for LUT resource estimation, is member function of
+        HLSCustomOp class but has to be filled by every node"""
         return 0
 
     def code_generation_ipgen(self, model, fpgapart, clk):
@@ -158,8 +163,9 @@ class HLSCustomOp(CustomOp):
         self.set_nodeattr("executable_path", builder.executable_path)
 
     def dynamic_input_to_npy(self, context, count):
-        """Saves input (given context) into .npy files. Count indicates the number 
-        of inputs that have to be saved."""
+        """Saves input (given context) into .npy files. 
+        
+        Count indicates the number of inputs that have to be saved."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         if code_gen_dir == "":
@@ -187,7 +193,7 @@ Found no codegen dir for this node, did you run the codegen_npysim transformatio
         context[node.output[0]] = output
 
     def exec_precompiled_singlenode_model(self):
-        """Execute precompiled executable."""
+        """Executes precompiled executable."""
         executable_path = self.get_nodeattr("executable_path")
         if executable_path == "":
             raise Exception(
@@ -275,6 +281,7 @@ compilation transformations?
         return outputs
 
     def execute_node(self, context, graph):
+        """Executes single node using npysim or rtlsim."""
         mode = self.get_nodeattr("exec_mode")
         if mode == "npysim":
             # save input(s)
@@ -295,56 +302,94 @@ compilation transformations?
             )
 
     def generate_params(self, model, path):
+        """Function to generate parameters (i.e. weights and thresholds), 
+        is member function of HLSCustomOp class but has to be filled 
+        by every node."""
         pass
 
     @abstractmethod
     def get_number_output_values(self):
+        """Function to get the number of expected output values, 
+        is member function of HLSCustomOp class but has to be filled 
+        by every node."""
         pass
 
     @abstractmethod
     def global_includes(self):
+        """Function to set the global includes for c++ code that has to be generated
+        for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+        be filled by every node."""
         pass
 
     @abstractmethod
     def defines(self, var):
+        """Function to set the define commands for c++ code that has to be generated
+        for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+        be filled by every node.
+        
+        * var: makes it possible to reuse the function for different c++ code generation.
+        I.e. if set to "ipgen" in StreamingFCLayer_Batch additional PRAGMA defines are
+        added."""
         pass
 
     @abstractmethod
     def read_npy_data(self):
+        """Function to generate the commands for reading data from .npy file in c++, 
+        is member function of HLSCustomOp class but has to be filled by every node."""
         pass
 
     @abstractmethod
     def strm_decl(self):
+        """Function to generate the commands for the stream declaration in c++,
+        is member function of HLSCustomOp class but has to be filled
+        by every node."""
         pass
 
     @abstractmethod
     def docompute(self):
+        """Function to generate the commands for the computational part of the 
+        c++ code, is member function of HLSCustomOp class but has to be filled
+        by every node."""
         pass
 
     @abstractmethod
     def dataoutstrm(self):
+        """Function to generate the commands for reading out data from c++ and convert 
+        into npy format, is member function of HLSCustomOp class but has to be filled 
+        by every node."""
         pass
 
     @abstractmethod
     def save_as_npy(self):
+        """Function to generate the commands for saving data in .npy file in c++,
+        is member function of HLSCustomOp class but has to be filled by every node."""
         pass
 
     @abstractmethod
     def blackboxfunction(self):
+        """Function to generate a blackbock function in c++ from which an IP block 
+        will be generated, is member function of HLSCustomOp class but has to be filled 
+        by every node."""
         pass
 
     @abstractmethod
     def pragmas(self):
+        """Function to generate the pragma commands in c++, is member function of 
+        HLSCustomOp class but has to be filled by every node."""
         pass
 
     def get_folded_input_shape(self):
+        """Returns folded input shape (according to synapse folding), if implemented."""
         raise Exception("get_folded_input_shape not implemented for this op")
 
     def get_folded_output_shape(self):
+        """Returns folded output shape (according to neuron folding), if implemented."""
         raise Exception("get_folded_output_shape not implemented for this op")
 
     def get_instream_width(self):
+        """Returns input stream width, if implemented."""
         raise Exception("get_instream_width not implemented for this op")
 
     def get_outstream_width(self):
+        """Returns output stream width, if implemented."""
         raise Exception("get_outstream_width not implemented for this op")
