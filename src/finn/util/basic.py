@@ -74,9 +74,11 @@ def interleave_matrix_outer_dim_from_partitions(matrix, n_partitions):
     shp = matrix.shape
     ndim = matrix.ndim
     # ensure # partitions evenly divide the outermost dimension
-    assert shp[0] % n_partitions == 0
+    assert shp[0] % n_partitions == 0, """The outermost dimension is not divisable
+    by the number of partitions."""
     # only tested for matrices
-    assert ndim == 2
+    assert ndim == 2, """The dimension of the matrix is not 2. Currently this function 
+    only works for matrices."""
     # interleave rows between PEs using reshape + transpose
     matrix_r = matrix.reshape(-1, n_partitions, shp[1]).transpose((1, 0, 2))
     matrix_r = matrix_r.reshape(n_partitions, -1, shp[1])
@@ -88,13 +90,13 @@ def roundup_to_integer_multiple(x, factor):
     Returns x if factor is set to -1. Both x and factor must otherwise be
     positive."""
     # ensure integers
-    assert int(x) == x
-    assert int(factor) == factor
+    assert int(x) == x, "The input x is not an integer."
+    assert int(factor) == factor, "The input factor is not an integer."
     # use -1 to indicate no padding needed
     if factor == -1:
         return x
     # ensure positive values
-    assert factor > 0 and x > 0
+    assert factor > 0 and x > 0, "Factor and x are <= 0."
     if x < factor:
         return factor
     else:
@@ -114,7 +116,8 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
     if type(ndarray) != np.ndarray or ndarray.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
         ndarray = np.asarray(ndarray, dtype=np.float32)
-    assert ndarray.ndim == len(pad_to_dims)
+    assert ndarray.ndim == len(pad_to_dims), """The dimensions of the input 
+    array don't match the length of the pad_to_dims value."""
     # compute the desired shape
     desired = zip(list(ndarray.shape), list(pad_to_dims))
     desired = map(lambda x: roundup_to_integer_multiple(x[0], x[1]), desired)
@@ -130,7 +133,8 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
         # all padding is added after the existing values
         pad_amt = list(map(lambda x: (0, x), pad_amt))
     ret = np.pad(ndarray, pad_amt, mode="constant", constant_values=val)
-    assert (np.asarray(ret.shape, dtype=np.int32) == desired).all()
+    assert (np.asarray(ret.shape, dtype=np.int32) == desired).all(), """The 
+    calculated output array doesn't match the desired/expected one."""
     return ret
 
 
@@ -158,7 +162,8 @@ def gen_finn_dt_tensor(finn_dt, tensor_shape):
 def calculate_signed_dot_prod_range(dt_a, dt_b, len):
     """Returns the (min,max) values a dot product between two signed vectors of
     types dt_a and dt_b of len elements can take."""
-    assert dt_a.signed() and dt_b.signed()
+    assert dt_a.signed() and dt_b.signed(), """The input values are not both 
+    signed vectors."""
     min_prod = 2 ** 30
     max_prod = -(2 ** 30)
     for a_val in [dt_a.min(), dt_a.max()]:

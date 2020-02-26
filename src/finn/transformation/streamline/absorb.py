@@ -22,8 +22,8 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     threshold_name = consumer.input[1]
                     A = model.get_initializer(add_weight_name)
                     T = model.get_initializer(threshold_name)
-                    assert A is not None
-                    assert T is not None
+                    assert A is not None, "Initializer for add weights is not set."
+                    assert T is not None, "Initializer for thresholds is not set."
                     start_name = n.input[0]
                     # we can only absorb 0d or 1d adds
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
@@ -54,7 +54,7 @@ class AbsorbMulIntoMultiThreshold(Transformation):
             if n.op_type == "Mul":
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
-                assert A is not None
+                assert A is not None, "Initializer for mul weights is not set."
                 is_signed = (A < 0).any()
                 is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
                 is_1d = A.ndim > 0 and np.prod(A.shape) == A.shape[-1]
@@ -63,7 +63,7 @@ class AbsorbMulIntoMultiThreshold(Transformation):
                     if not is_signed and (is_1d or is_scalar):
                         threshold_name = consumer.input[1]
                         T = model.get_initializer(threshold_name)
-                        assert T is not None
+                        assert T is not None, "Initializer for thresholds is not set."
                         start_name = n.input[0]
                         # compute new thresholds and set initializer
                         Tnew = T / A.reshape(-1, 1)
@@ -92,7 +92,7 @@ class FactorOutMulSignMagnitude(Transformation):
             if n.op_type == "Mul":
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
-                assert A is not None
+                assert A is not None, "Initializer for mul weights is not set."
                 is_scalar = np.prod(A.shape) == 1
                 is_1d = len(A.shape) == 2 and A.shape[0] == 1
                 is_not_bipolar = (
@@ -133,16 +133,17 @@ class Absorb1BitMulIntoMatMul(Transformation):
             if n.op_type == "MatMul":
                 matmul_weight_name = n.input[1]
                 W = model.get_initializer(matmul_weight_name)
-                assert W is not None
+                assert W is not None, "Initializer for matmul weights is not set."
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
                     mul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    assert A is not None
+                    assert A is not None, "Initializer for mul weights is not set."
                     is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
                     if is_1bit:
                         Wnew = A * W
-                        assert Wnew.shape == W.shape
+                        assert Wnew.shape == W.shape, """Shape of new weights is not
+                        the same as the shape of the weight matrix before."""
                         model.set_initializer(matmul_weight_name, Wnew)
                         n.output[0] = consumer.output[0]
                         graph.node.remove(consumer)

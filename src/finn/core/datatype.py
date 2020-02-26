@@ -134,7 +134,8 @@ class DataType(Enum):
     def get_num_possible_values(self):
         """Returns the number of possible values this DataType can take. Only
         implemented for integer types for now."""
-        assert self.is_integer()
+        assert self.is_integer(), """This function only works for integers for now, 
+        not for the DataType you used this function with."""
         if "INT" in self.name:
             return abs(self.min()) + abs(self.max()) + 1
         elif self.name == "BINARY" or self.name == "BIPOLAR":

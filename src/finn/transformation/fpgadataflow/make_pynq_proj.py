@@ -43,10 +43,12 @@ class MakePYNQProject(Transformation):
         ip_dirs = ["list"]
         for node in model.graph.node:
             ip_dir_attribute = get_by_name(node.attribute, "ipgen_path")
-            assert ip_dir_attribute is not None
+            assert ip_dir_attribute is not None, """Node attribute "ipgen_path" is 
+            empty. Please run transformation HLSSynth_ipgen first."""
             ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
             ip_dir_value += "/sol1/impl/ip"
-            assert os.path.isdir(ip_dir_value)
+            assert os.path.isdir(ip_dir_value), """The directory that should 
+            contain the generated ip blocks doesn't exist."""
             ip_dirs += [ip_dir_value]
         ip_dirs += [ipstitch_path + "/ip"]
         ip_dirs_str = "[%s]" % (" ".join(ip_dirs))
@@ -61,8 +63,10 @@ class MakePYNQProject(Transformation):
         # ensure i/o is padded to bytes
         i_bits_per_cycle_padded = roundup_to_integer_multiple(i_bits_per_cycle, 8)
         o_bits_per_cycle_padded = roundup_to_integer_multiple(o_bits_per_cycle, 8)
-        assert i_bits_per_cycle_padded % 8 == 0
-        assert i_bits_per_cycle_padded % 8 == 0
+        assert i_bits_per_cycle_padded % 8 == 0, """Padded input bits are not a 
+        multiple of 8."""
+        assert o_bits_per_cycle_padded % 8 == 0, """Padded output bits are not a 
+        multiple of 8."""
         in_bytes = i_bits_per_cycle_padded / 8
         out_bytes = o_bits_per_cycle_padded / 8
         in_if_name = "in0_V_V_0"

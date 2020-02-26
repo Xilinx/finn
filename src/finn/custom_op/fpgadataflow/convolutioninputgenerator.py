@@ -85,8 +85,9 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # create a npy file for input of the node
 
             inp = context[node.input[0]]
-            assert str(inp.dtype) == "float32"
-            assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim)
+            assert str(inp.dtype) == "float32", "Input datatype is not float32"
+            assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim), """Input shape doesn't 
+            match expected shape (1, ifm_ch, ifm_dim, ifm_dim)."""
             reshaped_inp = inp.transpose(0, 2, 3, 1)
             np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
             # execute the precompiled model
@@ -97,7 +98,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
-            assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch)
+            assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch), """Output 
+            shape doesn't match expected shape (1, out_pix, k*k, ifm_ch)."""
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(
                 1, out_pix, k * k * ifm_ch

@@ -37,7 +37,7 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
         # try to convert to a float numpy array (container dtype is float)
         array = np.asarray(array, dtype=np.float32)
     # ensure one-dimensional array to pack
-    assert array.ndim == 1
+    assert array.ndim == 1, "The given array is not one-dimensional."
     if dtype == DataType.BIPOLAR:
         # convert bipolar values to binary
         array = (array + 1) / 2
@@ -49,7 +49,7 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     bw = dtype.bitwidth()
     for val in array:
         # ensure that this value is permitted by chosen dtype
-        assert dtype.allowed(val)
+        assert dtype.allowed(val), "This value is not permitted by chosen dtype."
         if dtype.is_integer():
             if dtype.signed():
                 lineval.append(BitArray(int=int(val), length=bw))
@@ -326,13 +326,14 @@ def packed_bytearray_to_finnpy(
     target_bits = dtype.bitwidth()
     if output_shape is None:
         # determine output shape from input shape
-        assert packed_bits % target_bits == 0
+        assert packed_bits % target_bits == 0, """packed_bits are not divisable by 
+        target_bits."""
         n_target_elems = packed_bits // target_bits
         output_shape = packed_bytearray.shape[:-1] + (n_target_elems,)
     if reverse_endian and target_bits > 8:
         # revse the endianness of each element
         orig_shape = packed_bytearray.shape
-        assert target_bits % 8 == 0
+        assert target_bits % 8 == 0, "target_bits are not a multiple of 8."
         target_bytes = target_bits // 8
         new_shape = orig_shape[:-1] + (-1, target_bytes)
         packed_bytearray = np.flip(packed_bytearray.reshape(new_shape), axis=-1)

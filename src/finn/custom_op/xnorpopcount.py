@@ -12,7 +12,7 @@ def xnorpopcountmatmul(inp0, inp1):
     (M, K0) = inp0.shape
     (K1, N) = inp1.shape
     # make sure shapes are compatible with matmul
-    assert K0 == K1
+    assert K0 == K1, "Matrix shapes are not compatible with matmul."
     K = K0
     # convert binary inputs to bipolar
     inp0_bipolar = 2.0 * inp0 - 1.0
@@ -45,8 +45,10 @@ class XnorPopcountMatMul(CustomOp):
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # ensure inputs are binary
-        assert model.get_tensor_datatype(node.input[0]) == DataType["BINARY"]
-        assert model.get_tensor_datatype(node.input[1]) == DataType["BINARY"]
+        assert model.get_tensor_datatype(node.input[0]) == DataType["BINARY"], """FINN 
+        DataType of first input is not set to BINARY as it should be."""
+        assert model.get_tensor_datatype(node.input[1]) == DataType["BINARY"], """FINN 
+        DataTypes of second input is not set to BINARY as it should be."""
         # XNOR-popcount produces unsigned integers, assume uint32
         model.set_tensor_datatype(node.output[0], DataType["UINT32"])
 

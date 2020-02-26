@@ -8,7 +8,7 @@ from finn.transformation import Transformation
 def _make_shape_compatible_op(node):
     """Return a shape-compatible non-FINN op for a given FINN op. Used for
     shape inference with custom ops."""
-    assert node.domain == "finn"
+    assert node.domain == "finn", 'Node domain is not set to "finn".'
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps

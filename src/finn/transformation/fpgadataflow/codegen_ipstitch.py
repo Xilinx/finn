@@ -29,16 +29,18 @@ class CodeGen_ipstitch(Transformation):
         connect_cmds = []
         # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
-            assert node.domain == "finn"
+            assert node.domain == "finn", 'Node domain is not set to "finn"'
             backend_attribute = get_by_name(node.attribute, "backend")
-            assert backend_attribute is not None
+            assert backend_attribute is not None, "Backend node attribute is not set."
             backend_value = backend_attribute.s.decode("UTF-8")
-            assert backend_value == "fpgadataflow"
+            assert backend_value == "fpgadataflow", """Backend node attribute is not
+            set to "fpgadataflow"."""
             ip_dir_attribute = get_by_name(node.attribute, "ipgen_path")
-            assert ip_dir_attribute is not None
+            assert ip_dir_attribute is not None, """Node attribute "ipgen_path" is not set. 
+            Please run transformation CodeGen_ipgen first."""
             ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
             ip_dir_value += "/sol1/impl/ip"
-            assert os.path.isdir(ip_dir_value)
+            assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
             vlnv = "xilinx.com:hls:%s:1.0" % node.name
             inst_name = node.name
@@ -82,7 +84,8 @@ class CodeGen_ipstitch(Transformation):
             if model.find_consumer(node.output[0]) is None:
                 # last node in graph
                 # ensure it is a TLastMarker to have a valid TLast signal
-                assert node.op_type == "TLastMarker"
+                assert node.op_type == "TLastMarker", """Last node is not TLastMarker. 
+                Please run transformation InsertTLastMarker to ensure a valid TLast signal"""
                 # make output external
                 connect_cmds.append(
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/out_r]" % inst_name

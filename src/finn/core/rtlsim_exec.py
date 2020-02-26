@@ -13,8 +13,10 @@ def rtlsim_exec(model, execution_context):
     context contains the input values."""
 
     # ensure stitched ip project already exists
-    assert os.path.isfile(model.get_metadata_prop("wrapper_filename"))
-    assert os.path.isdir(model.get_metadata_prop("vivado_stitch_proj"))
+    assert os.path.isfile(model.get_metadata_prop("wrapper_filename")), """The 
+    file name from metadata property "wrapper_filename" doesn't exist."""
+    assert os.path.isdir(model.get_metadata_prop("vivado_stitch_proj")), """The 
+    directory from metadata property "vivado_stitch_proj" doesn't exist"""
     trace_file = model.get_metadata_prop("rtlsim_trace")
     # extract input shape
     # TODO extend for multiple inputs

@@ -55,8 +55,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
-        assert mh % pe == 0
-        assert mw % simd == 0
+        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
+        assert mw % simd == 0, "Requirement MW divisable by SIMD is violated."
         wmem = mw * mh // (pe * simd)
         return wmem
 
@@ -289,9 +289,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
         wmem = self.calc_wmem()
-        assert orig_weight_matrix.shape == (mw, mh)
-        assert mw % simd == 0
-        assert mh % pe == 0
+        assert orig_weight_matrix.shape == (mw, mh), """Weights matrix doesn't 
+        have expected shape (mw, mh)"""
+        assert mw % simd == 0, "Requirement MH divisable by SIMD is violated." 
+        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
         # start by transposing the original weight matrix, since ONNX and
         # finn-hlslib use different assumptions
         # ONNX uses (in_features, out_features) and matmul(x, W)
@@ -320,8 +321,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         tmem = mh // pe
-        assert mh % pe == 0
-        assert orig_thres_matrix.ndim == 2
+        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
+        assert orig_thres_matrix.ndim == 2, """Threshold matrix dimension is 
+        not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
         inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
@@ -340,12 +342,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))
-        assert ret.shape[0] == mh
+        assert ret.shape[0] == mh, "Channels of threshold matrix are not as expected (mh)"
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        assert ret.shape[0] == pe
-        assert ret.shape[1] == tmem
-        assert ret.shape[2] == n_thres_steps
+        assert ret.shape[0] == pe, """First dimension after distribution of the 
+        rows between PEs is not as expected (pe)"""
+        assert ret.shape[1] == tmem, """Second dimension after distribution of the 
+        rows between PEs is not as expected (tmem)"""
+        assert ret.shape[2] == n_thres_steps, """Third dimension after distribution of the 
+        rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
     def generate_params(self, model, path):
@@ -459,7 +464,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # the second input are the weights
             # the third input are the thresholds
             if in_ind == 0:
-                assert str(context[inputs].dtype) == "float32"
+                assert str(context[inputs].dtype) == "float32", """Input datatype is 
+                not float32 as expected."""
                 expected_inp_shape = (1, sf, simd)
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
                 if self.get_input_datatype() == DataType.BIPOLAR:
@@ -486,7 +492,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
-            assert context[node.output[0]].shape == (1, nf, pe)
+            assert context[node.output[0]].shape == (1, nf, pe), """Output shape is not
+            as expected (1, nf, pe)"""
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(1, mh)
         elif mode == "rtlsim":

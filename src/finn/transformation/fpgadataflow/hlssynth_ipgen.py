@@ -29,11 +29,15 @@ class HLSSynth_IPGen(Transformation):
                         # lookup op_type in registry of CustomOps
                         inst = registry.custom_op[op_type](node)
                         # ensure that code is generated
-                        assert inst.get_nodeattr("code_gen_dir_ipgen") != ""
+                        assert inst.get_nodeattr("code_gen_dir_ipgen") != "", """Node 
+                        attribute "code_gen_dir_ipgen" is empty. Please run 
+                        transformation CodeGen_ipgen first."""
                         # call the compilation function for this node
                         inst.ipgen_singlenode_code()
                         # ensure that executable path is now set
-                        assert inst.get_nodeattr("ipgen_path") != ""
+                        assert inst.get_nodeattr("ipgen_path") != "", """Transformation
+                        HLSSynth_IPGen was not successful. Node attribute "ipgen_path" 
+                        is empty."""
                     except KeyError:
                         # exception if op_type is not supported
                         raise Exception(

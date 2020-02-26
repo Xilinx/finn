@@ -26,7 +26,8 @@ class SetExecMode(Transformation):
                         # set sim_mode accordingly to argument mode
                         inst.set_nodeattr("exec_mode", self.mode)
                         # ensure that sim_mode is now set
-                        assert inst.get_nodeattr("exec_mode") != ""
+                        assert inst.get_nodeattr("exec_mode") != "", """Transformation 
+                        was not successful. Node attribute "exec_mode" is not set"""
                     except KeyError:
                         # exception if op_type is not supported
                         raise Exception(
