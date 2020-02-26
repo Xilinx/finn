@@ -36,4 +36,5 @@ What is FINN?
    pynq_deploy
    verification
    source_code/finn
+   genindex
 
