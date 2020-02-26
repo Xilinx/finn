@@ -22,6 +22,15 @@ What is FINN?
 
 * The repository, this Read the Docs website corresponds to. It is about the FINN compiler, which is the centerpiece of the FINN project. Details can be looked up directly in the `FINN GitHub repository <https://github.com/Xilinx/finn>`_. To learn more about the FINN compiler, use this website and for a hands-on experience the repository contains some Jupyter notebooks which can be found under this `link <https://github.com/Xilinx/finn/tree/dev/notebooks>`_.
 
+More FINN Resources
+===================
+
+* `List of publications <https://github.com/Xilinx/finn/blob/dev/docs/publications.md>`_
+ 
+* `Roadmap <https://github.com/Xilinx/finn/projects/1>`_
+ 
+* `Status of example networks <https://github.com/Xilinx/finn/blob/dev/docs/example-networks.md>`_
+
 .. toctree::
    :maxdepth: 5
    :hidden:
@@ -37,4 +46,3 @@ What is FINN?
    verification
    source_code/finn
    genindex
-

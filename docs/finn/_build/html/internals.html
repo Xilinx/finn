@@ -86,6 +86,7 @@
 <li class="toctree-l1"><a class="reference internal" href="end_to_end_flow.html">End-to-End Flow</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Internals</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#intermediate-representation-finn-onnx">Intermediate Representation: FINN-ONNX</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#custom-quantization-annotations">Custom Quantization Annotations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#modelwrapper">ModelWrapper</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#analysis-pass">Analysis Pass</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#transformation-pass">Transformation Pass</a></li>
@@ -170,6 +171,12 @@
 </div>
 <div class="section" id="intermediate-representation-finn-onnx">
 <h2>Intermediate Representation: FINN-ONNX<a class="headerlink" href="#intermediate-representation-finn-onnx" title="Permalink to this headline">¶</a></h2>
+<p>FINN uses <a class="reference external" href="https://github.com/onnx/onnx">ONNX</a> as an intermediate representation (IR) for neural networks. As such, almost every component inside FINN uses ONNX and its <a class="reference external" href="https://github.com/onnx/onnx/blob/master/docs/PythonAPIOverview.md">Python API</a>, so you may want to familiarize yourself with how ONNX represents DNNs. Specifically, the <a class="reference external" href="https://github.com/onnx/onnx/blob/master/onnx/onnx.proto">ONNX protobuf description</a> (or its <a class="reference external" href="https://github.com/onnx/onnx/blob/master/docs/IR.md">human-readable documentation</a> and the <a class="reference external" href="https://github.com/onnx/onnx/blob/master/docs/Operators.md">operator schemas</a> are useful as reference documents.</p>
+<p>FINN uses ONNX is a specific way that we refer to as FINN-ONNX, and not all ONNX graphs are supported by FINN (and vice versa).</p>
+</div>
+<div class="section" id="custom-quantization-annotations">
+<h2>Custom Quantization Annotations<a class="headerlink" href="#custom-quantization-annotations" title="Permalink to this headline">¶</a></h2>
+<p>ONNX does not support datatypes smaller than 8-bit integers, whereas in FINN we are interested in smaller integers down to ternary and bipolar. To make this work, FINN uses the quantization_annotation field in ONNX to annotate tensors with their FINN DataType (<a class="reference internal" href="source_code/finn.core.html#finn.core.datatype.DataType" title="finn.core.datatype.DataType"><code class="xref py py-mod docutils literal notranslate"><span class="pre">finn.core.datatype.DataType</span></code></a>) information. However, all tensors are expected to use single-precision floating point (float32) storage in FINN. This means we store even a 1-bit value as floating point for the purposes of representation. The FINN compiler flow is responsible for eventually producing a packed representation for the target hardware, where the 1-bit is actually stored as 1-bit.</p>
 </div>
 <div class="section" id="modelwrapper">
 <h2>ModelWrapper<a class="headerlink" href="#modelwrapper" title="Permalink to this headline">¶</a></h2>
