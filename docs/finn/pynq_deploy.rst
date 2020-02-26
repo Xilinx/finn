@@ -1,3 +1,5 @@
+.. _pynq_deploy:
+
 ***************
 PYNQ Deployment
 ***************

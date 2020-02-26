@@ -1,6 +1,8 @@
-*******************************
-Vivado HLS and Vivado Synthesis
-*******************************
+.. _vivado_synth:
+
+*************************
+Vivado HLS and Vivado IPI 
+*************************
 
 .. note:: **Here will be soon a detailed description of how Vivado is used in FINN.**
 
