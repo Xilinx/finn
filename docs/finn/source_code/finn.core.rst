@@ -24,6 +24,8 @@ finn.core.execute\_custom\_node
 finn.core.modelwrapper
 ----------------------
 
+If you want to have more details about the module ModelWrapper, please have a look at section ":ref:`modelwrapper`" in chapter *Internals*.
+
 .. automodule:: finn.core.modelwrapper
    :members:
    :undoc-members:

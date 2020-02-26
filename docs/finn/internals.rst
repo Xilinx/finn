@@ -26,6 +26,8 @@ To verify correct operation of FINN-ONNX graphs, FINN provides its own ONNX exec
 
 .. warning:: This execution flow is only meant for checking the correctness of models after applying transformations, and not for high performance inference.
 
+.. _modelwrapper:
+
 ModelWrapper
 ============
 
