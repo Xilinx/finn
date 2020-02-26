@@ -13,40 +13,40 @@ finn.core.datatype
    :undoc-members:
    :show-inheritance:
 
-finn.core.execute\_custom\_node module
---------------------------------------
+finn.core.execute\_custom\_node
+-------------------------------
 
 .. automodule:: finn.core.execute_custom_node
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.core.modelwrapper module
------------------------------
+finn.core.modelwrapper
+----------------------
 
 .. automodule:: finn.core.modelwrapper
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.core.onnx\_exec module
----------------------------
+finn.core.onnx\_exec
+--------------------
 
 .. automodule:: finn.core.onnx_exec
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.core.remote\_exec module
------------------------------
+finn.core.remote\_exec
+----------------------
 
 .. automodule:: finn.core.remote_exec
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.core.rtlsim\_exec module
------------------------------
+finn.core.rtlsim\_exec
+----------------------
 
 .. automodule:: finn.core.rtlsim_exec
    :members:

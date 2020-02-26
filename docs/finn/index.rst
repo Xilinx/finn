@@ -20,7 +20,7 @@ What is FINN?
    :scale: 40%
    :align: center
 
-* The repository, this Read the Docs website corresponds to. It is about the FINN compiler, which is the centerpiece of the FINN project. The GitHub repository can be viewed using the link in the upper right corner. To learn more about the FINN compiler, use this website and for a hands-on experience the repository contains some Jupyter notebooks which can be found under this `link <https://github.com/Xilinx/finn/tree/dev/notebooks>`_.
+* The repository, this Read the Docs website corresponds to. It is about the FINN compiler, which is the centerpiece of the FINN project. The GitHub repository can be viewed using the link for the `dev branch <https://github.com/Xilinx/finn/tree/dev>`_. To learn more about the FINN compiler, use this website and for a hands-on experience the repository contains some Jupyter notebooks which can be found under this `link <https://github.com/Xilinx/finn/tree/dev/notebooks>`_.
 
 .. toctree::
    :maxdepth: 5
