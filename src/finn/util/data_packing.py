@@ -106,7 +106,7 @@ def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner
 
 
 def unpack_innermost_dim_from_hex_string(
-    ndarray, dtype, out_shape, reverse_inner=False
+    ndarray, dtype, out_shape, packedBits, reverse_inner=False
 ):
     """Convert a NumPy array of hex strings into a FINN NumPy array by unpacking
     the hex strings into the specified data type. out_shape can be specified
@@ -125,7 +125,6 @@ def unpack_innermost_dim_from_hex_string(
         )
     # convert ndarray into flattened list
     data = ndarray.flatten().tolist()
-    packedBits = len(data[0]) * 8
     targetBits = dtype.bitwidth()
     # calculate outer and inner dim shapes
     outer_dim_elems = 1
@@ -221,7 +220,7 @@ def numpy_to_hls_code(
     return ret
 
 
-def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=False):
+def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=True):
     """Convert the multidimensional NumPy array of integers (stored as floats)
     from input_file into a flattened sequence of Python arbitrary-precision
     integers, packing the innermost dimension. See
@@ -253,13 +252,15 @@ def rtlsim_output_to_npy(
     # TODO should have its own testbench?
     output = np.asarray([hex(int(x)) for x in output])
     out_array = unpack_innermost_dim_from_hex_string(
-        output, dtype, shape, reverse_inner=reverse_inner
+        output, dtype, shape, packedBits=packedBits, reverse_inner=reverse_inner
     )
     np.save(path, out_array)
     return out_array
 
 
-def finnpy_to_packed_bytearray(ndarray, dtype, reverse_inner=False):
+def finnpy_to_packed_bytearray(
+    ndarray, dtype, reverse_inner=False, reverse_endian=False
+):
     """Given a numpy ndarray with FINN DataType dtype, pack the innermost
     dimension and return the packed representation as an ndarray of uint8.
     The packed innermost dimension will be padded to the nearest multiple
@@ -282,10 +283,14 @@ def finnpy_to_packed_bytearray(ndarray, dtype, reverse_inner=False):
 
     if packed_hexstring.ndim == 0:
         # scalar, call hexstring2npbytearray directly
-        return hexstring2npbytearray(np.asscalar(packed_hexstring))
+        ret = hexstring2npbytearray(np.asscalar(packed_hexstring))
     else:
         # convert ndarray of hex strings to byte array
-        return np.apply_along_axis(fn, packed_hexstring.ndim - 1, packed_hexstring)
+        ret = np.apply_along_axis(fn, packed_hexstring.ndim - 1, packed_hexstring)
+    if reverse_endian:
+        # reverse the endianness of packing dimension
+        ret = np.flip(ret, axis=-1)
+    return ret
 
 
 def packed_bytearray_to_finnpy(
@@ -313,20 +318,22 @@ def packed_bytearray_to_finnpy(
         assert packed_bits % target_bits == 0
         n_target_elems = packed_bits // target_bits
         output_shape = packed_bytearray.shape[:-1] + (n_target_elems,)
-    if reverse_endian and target_bits > 8:
-        # revse the endianness of each element
-        orig_shape = packed_bytearray.shape
-        assert target_bits % 8 == 0
-        target_bytes = target_bits // 8
-        new_shape = orig_shape[:-1] + (-1, target_bytes)
-        packed_bytearray = np.flip(packed_bytearray.reshape(new_shape), axis=-1)
-        packed_bytearray = packed_bytearray.reshape(orig_shape)
+    # if reverse_endian and target_bits > 8:
+    #     # revse the endianness of each element
+    #     orig_shape = packed_bytearray.shape
+    #     assert target_bits % 8 == 0
+    #     target_bytes = target_bits // 8
+    #     new_shape = orig_shape[:-1] + (-1, target_bytes)
+    #     packed_bytearray = np.flip(packed_bytearray.reshape(new_shape), axis=-1)
+    #     packed_bytearray = packed_bytearray.reshape(orig_shape)
+    if reverse_endian:
+        packed_bytearray = np.flip(packed_bytearray, axis=-1)
     # convert innermost dim of byte array to hex strings
     packed_hexstring = np.apply_along_axis(
         npbytearray2hexstring, packed_dim, packed_bytearray
     )
     ret = unpack_innermost_dim_from_hex_string(
-        packed_hexstring, dtype, output_shape, reverse_inner
+        packed_hexstring, dtype, output_shape, packed_bits, reverse_inner
     )
 
     return ret

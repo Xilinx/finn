@@ -5,6 +5,14 @@ if [ -z "$VIVADO_PATH" ];then
         exit 1
 fi
 
+if [ -z "$PYNQ_IP" ];then
+        echo "Please set the PYNQ_IP env.var. to enable PYNQ deployment tests."
+fi
+
+if [ -z "$PYNQ_BOARD" ];then
+        echo "Please set the PYNQ_BOARD env.var. to enable PYNQ deployment tests."
+fi
+
 DOCKER_GID=$(id -g)
 DOCKER_GNAME=$(id -gn)
 DOCKER_UNAME=$(id -un)
@@ -24,8 +32,6 @@ DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
 # otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
 : ${NETRON_PORT=8081}
-: ${PYNQ_BOARD="Pynq-Z1"}
-: ${PYNQ_IP="192.168.3.1"}
 : ${PYNQ_USERNAME="xilinx"}
 : ${PYNQ_PASSWORD="xilinx"}
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
