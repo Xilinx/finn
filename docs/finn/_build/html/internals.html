@@ -89,7 +89,11 @@
 <li class="toctree-l2"><a class="reference internal" href="#custom-quantization-annotations">Custom Quantization Annotations</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#custom-operations-nodes">Custom Operations/Nodes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#custom-onnx-execution-flow">Custom ONNX Execution Flow</a></li>
-<li class="toctree-l2"><a class="reference internal" href="#modelwrapper">ModelWrapper</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#modelwrapper">ModelWrapper</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#create-a-modelwrapper-instance">Create a ModelWrapper instance</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#access-the-onnx-graphproto-through-modelwrapper">Access the ONNX GraphProto through ModelWrapper</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#analysis-pass">Analysis Pass</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#transformation-pass">Transformation Pass</a></li>
 </ul>
@@ -197,7 +201,41 @@
 </div>
 <div class="section" id="modelwrapper">
 <h2>ModelWrapper<a class="headerlink" href="#modelwrapper" title="Permalink to this headline">¶</a></h2>
-<p>FINN provides a <cite>ModelWrapper class &lt;:py:mod:`finn.core.modelwrapper.ModelWrapper</cite>&gt;`_ as a thin wrapper around ONNX to make it easier to analyze and manipulate ONNX graphs. This wrapper provides many helper functions, while still giving full access to the ONNX protobuf representation.</p>
+<p>FINN provides a ModelWrapper class (<a class="reference internal" href="source_code/finn.core.html#finn.core.modelwrapper.ModelWrapper" title="finn.core.modelwrapper.ModelWrapper"><code class="xref py py-mod docutils literal notranslate"><span class="pre">finn.core.modelwrapper.ModelWrapper</span></code></a>) as a thin wrapper around ONNX to make it easier to analyze and manipulate ONNX graphs. This wrapper provides many helper functions, while still giving full access to the ONNX protobuf representation.</p>
+<p>Some of the helper functions are described in more detail below.</p>
+<div class="section" id="create-a-modelwrapper-instance">
+<h3>Create a ModelWrapper instance<a class="headerlink" href="#create-a-modelwrapper-instance" title="Permalink to this headline">¶</a></h3>
+<p>The ModelWrapper instance can be created using a model in .onnx format or by directly passing a ModelProto instance to the wrapper. The code block below gives an example of how to use the wrapper on a model in .onnx format.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span> <span class="nn">finn.core.modelwrapper</span> <span class="k">import</span> <span class="n">ModelWrapper</span>
+<span class="n">model</span> <span class="o">=</span> <span class="n">ModelWrapper</span><span class="p">(</span><span class="s2">&quot;model.onnx&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+<div class="section" id="access-the-onnx-graphproto-through-modelwrapper">
+<h3>Access the ONNX GraphProto through ModelWrapper<a class="headerlink" href="#access-the-onnx-graphproto-through-modelwrapper" title="Permalink to this headline">¶</a></h3>
+<p>The ONNX ModelProto can be accessed with following command:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">modelproto</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">model</span>
+</pre></div>
+</div>
+<p>The graph can be accessed using:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">graphproto</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">graph</span>
+</pre></div>
+</div>
+<p>The node list is accessed by:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">nodes</span> <span class="o">=</span> <span class="n">model</span><span class="o">.</span><span class="n">graph</span><span class="o">.</span><span class="n">node</span>
+</pre></div>
+</div>
+<p>The individual nodes can be selected via their indices.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># first node</span>
+<span class="n">nodes</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+</pre></div>
+</div>
+<p>The number of all nodes can be determined with the len() function in Python.</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="c1"># number of nodes in the graph</span>
+<span class="nb">len</span><span class="p">(</span><span class="n">nodes</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
 </div>
 <div class="section" id="analysis-pass">
 <h2>Analysis Pass<a class="headerlink" href="#analysis-pass" title="Permalink to this headline">¶</a></h2>

@@ -31,7 +31,46 @@ To verify correct operation of FINN-ONNX graphs, FINN provides its own ONNX exec
 ModelWrapper
 ============
 
-FINN provides a `ModelWrapper class <:py:mod:`finn.core.modelwrapper.ModelWrapper`>`_ as a thin wrapper around ONNX to make it easier to analyze and manipulate ONNX graphs. This wrapper provides many helper functions, while still giving full access to the ONNX protobuf representation.
+FINN provides a ModelWrapper class (:py:mod:`finn.core.modelwrapper.ModelWrapper`) as a thin wrapper around ONNX to make it easier to analyze and manipulate ONNX graphs. This wrapper provides many helper functions, while still giving full access to the ONNX protobuf representation.
+
+Some of the helper functions are described in more detail below.
+
+Create a ModelWrapper instance
+------------------------------
+The ModelWrapper instance can be created using a model in .onnx format or by directly passing a ModelProto instance to the wrapper. The code block below gives an example of how to use the wrapper on a model in .onnx format. 
+::
+
+  from finn.core.modelwrapper import ModelWrapper
+  model = ModelWrapper("model.onnx")
+
+Access the ONNX GraphProto through ModelWrapper
+-----------------------------------------------
+The ONNX ModelProto can be accessed with following command:
+::
+  
+  modelproto = model.model
+
+The graph can be accessed using:
+::
+
+  graphproto = model.graph
+
+The node list is accessed by:
+::
+
+  nodes = model.graph.node
+
+The individual nodes can be selected via their indices. 
+::
+
+  # first node
+  nodes[0]
+
+The number of all nodes can be determined with the len() function in Python.
+::
+
+  # number of nodes in the graph
+  len(nodes)
 
 Analysis Pass
 =============
