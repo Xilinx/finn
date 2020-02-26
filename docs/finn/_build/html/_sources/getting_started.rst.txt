@@ -36,7 +36,7 @@ Running the Jupyter notebooks
 
   sh run-docker.sh notebook
 
-This will launch the Jupyter notebook server inside a Docker container, and print a link on the terminal that you can open in your browser to run the FINN notebooks or create new ones. 
+This will launch the `Jupyter notebook <https://jupyter.org/>`_ server inside a Docker container, and print a link on the terminal that you can open in your browser to run the FINN notebooks or create new ones. 
 .. note:: The link will look something like this (the token you get will be different):
 http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc
 
@@ -52,10 +52,8 @@ FINN comes with a set of tests which can be launched using the command above. No
 
 Running the test suite using Jenkins
 ************************************
-`Jenkins <https://jenkins.io/>`_ is an open source automation server that can be used as support when building, deploying and automating a project.
-
 ::
 
   sh run-docker.sh jenkins
 
-This will launch Jenkins inside a Docker container and print an initial password for the user to use together with the username "admin" to open Jenkins in the webbrowser. The script forwards port 8080 for Jenkins and also configures a smee client to access port 8080. `Smee <https://smee.io/>`_ is a webhook payload delivery service and the FINN GitHub repository has a webhook set up to trigger the smee client (that is set in the run_docker script) when a push event is happening. Through Jenkins the user can set up a test for FINN, which is started at every push event.
+This will launch `Jenkins <https://jenkins.io/>`_ inside a Docker container and print an initial password for the user to use together with the username "admin" to open Jenkins in the webbrowser. The script forwards port 8080 for Jenkins and also configures a smee client to access port 8080. `Smee <https://smee.io/>`_ is a webhook payload delivery service and the FINN GitHub repository has a webhook set up to trigger the smee client (that is set in the run_docker script) when a push event is happening. Through Jenkins the user can set up a test for FINN, which is started at every push event.
