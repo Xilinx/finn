@@ -35,7 +35,7 @@
   <link rel="stylesheet" href="../_static/pygments.css" type="text/css" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Transformation - FPGADataFlow" href="finn.transformation.fpgadataflow.html" />
+    <link rel="next" title="Transformation - fpgadataflow" href="finn.transformation.fpgadataflow.html" />
     <link rel="prev" title="Custom Op - FPGADataFlow" href="finn.custom_op.fpgadataflow.html" /> 
 </head>
 
@@ -96,7 +96,6 @@
 <li class="toctree-l3"><a class="reference internal" href="finn.core.html">Core</a></li>
 <li class="toctree-l3"><a class="reference internal" href="finn.custom_op.html">Custom Op</a></li>
 <li class="toctree-l3 current"><a class="current reference internal" href="#">Transformation</a><ul>
-<li class="toctree-l4"><a class="reference internal" href="#guide-to-writing-finn-transformations">Guide to writing FINN transformations</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#submodules">Submodules</a></li>
 <li class="toctree-l4"><a class="reference internal" href="#transformation-passes">Transformation Passes</a></li>
 </ul>
@@ -173,47 +172,14 @@
           <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
            <div itemprop="articleBody">
             
-  <div class="section" id="module-finn.transformation">
-<span id="transformation"></span><h1>Transformation<a class="headerlink" href="#module-finn.transformation" title="Permalink to this headline">¶</a></h1>
-<div class="section" id="guide-to-writing-finn-transformations">
-<h2>Guide to writing FINN transformations<a class="headerlink" href="#guide-to-writing-finn-transformations" title="Permalink to this headline">¶</a></h2>
-<ul class="simple">
-<li><p>Your transformation must inherit the Transformation abstract base class.</p></li>
-<li><p>Your transformation’s apply function should take in a ModelWrapper, and return
-a tuple with (transformed_model: ModelWrapper, model_was_changed: Bool)</p></li>
-<li><p>The transformations are meant to be applied using the .transform function
-in ModelWrapper. This makes a deep copy of the input model by default, so
-you don’t have to.</p></li>
-<li><p>model_was_changed indicates whether your transformation made any changes to
-the model. If you know your transformation needs to be called only once and
-repeated calls have no further effect, you can return False even if the model
-was changed.</p></li>
-<li><p>You MUST return model_was_changed=False at some point when your transformation
-is called multiple times, otherwise apply_repeated() will loop infinitely.</p></li>
-<li><p>If you cannot guarantee that the transformation will reach a fixed point,
-you must declare this, return model_was_changed = False and let the user
-manually re-apply the transform.</p></li>
-</ul>
-<dl class="class">
-<dt id="finn.transformation.Transformation">
-<em class="property">class </em><code class="sig-prename descclassname">finn.transformation.</code><code class="sig-name descname">Transformation</code><a class="headerlink" href="#finn.transformation.Transformation" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">abc.ABC</span></code></p>
-<p>Transformation class all transformations are based on. Contains only 
-abstract method apply() every transformation has to fill.</p>
-<dl class="method">
-<dt id="finn.transformation.Transformation.apply">
-<em class="property">abstract </em><code class="sig-name descname">apply</code><span class="sig-paren">(</span><em class="sig-param">model</em><span class="sig-paren">)</span><a class="headerlink" href="#finn.transformation.Transformation.apply" title="Permalink to this definition">¶</a></dt>
-<dd></dd></dl>
-
-</dd></dl>
-
-</div>
+  <div class="section" id="transformation">
+<h1>Transformation<a class="headerlink" href="#transformation" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="submodules">
 <h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
 <div class="toctree-wrapper compound">
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="finn.transformation.fpgadataflow.html">Transformation - FPGADataFlow</a><ul>
-<li class="toctree-l2"><a class="reference internal" href="finn.transformation.fpgadataflow.html#transformations-fpgadataflow">Transformations (FPGADataFlow)</a></li>
+<li class="toctree-l1"><a class="reference internal" href="finn.transformation.fpgadataflow.html">Transformation - fpgadataflow</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="finn.transformation.fpgadataflow.html#transformations-fpgadataflow">Transformations (fpgadataflow)</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="finn.transformation.streamline.html">Transformation - Streamline</a><ul>
@@ -230,7 +196,7 @@ abstract method apply() every transformation has to fill.</p>
 <dl class="class">
 <dt id="finn.transformation.batchnorm_to_affine.BatchNormToAffine">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.batchnorm_to_affine.</code><code class="sig-name descname">BatchNormToAffine</code><a class="headerlink" href="#finn.transformation.batchnorm_to_affine.BatchNormToAffine" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></p>
 <p>Replaces any test-time BatchNorm layers with Mul-Add layers.</p>
 <dl class="method">
 <dt id="finn.transformation.batchnorm_to_affine.BatchNormToAffine.apply">
@@ -245,7 +211,7 @@ abstract method apply() every transformation has to fill.</p>
 <dl class="class">
 <dt id="finn.transformation.bipolar_to_xnor.ConvertBipolarMatMulToXnorPopcount">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.bipolar_to_xnor.</code><code class="sig-name descname">ConvertBipolarMatMulToXnorPopcount</code><a class="headerlink" href="#finn.transformation.bipolar_to_xnor.ConvertBipolarMatMulToXnorPopcount" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></p>
 <p>Convert MatMul nodes with all-bipolar inputs to XnorPopcountMatMul
 and associated result correction.</p>
 <dl class="method">
@@ -261,7 +227,7 @@ and associated result correction.</p>
 <dl class="class">
 <dt id="finn.transformation.fold_constants.FoldConstants">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.fold_constants.</code><code class="sig-name descname">FoldConstants</code><a class="headerlink" href="#finn.transformation.fold_constants.FoldConstants" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></p>
 <p>Replace the output of a node with const-only inputs with a precomputed
 result.</p>
 <dl class="method">
@@ -277,7 +243,7 @@ result.</p>
 <dl class="class">
 <dt id="finn.transformation.general.ConvertSubToAdd">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.general.</code><code class="sig-name descname">ConvertSubToAdd</code><a class="headerlink" href="#finn.transformation.general.ConvertSubToAdd" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></p>
 <p>Convert sub nodes to add nodes of appropriate sign.</p>
 <dl class="method">
 <dt id="finn.transformation.general.ConvertSubToAdd.apply">
@@ -289,7 +255,7 @@ result.</p>
 <dl class="class">
 <dt id="finn.transformation.general.GiveRandomTensorNames">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.general.</code><code class="sig-name descname">GiveRandomTensorNames</code><a class="headerlink" href="#finn.transformation.general.GiveRandomTensorNames" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></p>
 <p>Give random tensor names to all tensors.</p>
 <dl class="method">
 <dt id="finn.transformation.general.GiveRandomTensorNames.apply">
@@ -301,7 +267,7 @@ result.</p>
 <dl class="class">
 <dt id="finn.transformation.general.GiveReadableTensorNames">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.general.</code><code class="sig-name descname">GiveReadableTensorNames</code><a class="headerlink" href="#finn.transformation.general.GiveReadableTensorNames" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></p>
 <p>Give more human-readable names to all internal tensors. It’s recommended
 to apply give_unique_node_names prior to this transform.</p>
 <dl class="method">
@@ -314,7 +280,7 @@ to apply give_unique_node_names prior to this transform.</p>
 <dl class="class">
 <dt id="finn.transformation.general.GiveUniqueNodeNames">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.general.</code><code class="sig-name descname">GiveUniqueNodeNames</code><a class="headerlink" href="#finn.transformation.general.GiveUniqueNodeNames" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></p>
 <p>Give unique names to each node in the graph using enumeration.</p>
 <dl class="method">
 <dt id="finn.transformation.general.GiveUniqueNodeNames.apply">
@@ -329,7 +295,7 @@ to apply give_unique_node_names prior to this transform.</p>
 <dl class="class">
 <dt id="finn.transformation.infer_datatypes.InferDataTypes">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.infer_datatypes.</code><code class="sig-name descname">InferDataTypes</code><a class="headerlink" href="#finn.transformation.infer_datatypes.InferDataTypes" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></p>
 <p>Infer FINN DataType info for all intermediate/output tensors based on
 inputs and node type.</p>
 <dl class="method">
@@ -345,7 +311,7 @@ inputs and node type.</p>
 <dl class="class">
 <dt id="finn.transformation.infer_shapes.InferShapes">
 <em class="property">class </em><code class="sig-prename descclassname">finn.transformation.infer_shapes.</code><code class="sig-name descname">InferShapes</code><a class="headerlink" href="#finn.transformation.infer_shapes.InferShapes" title="Permalink to this definition">¶</a></dt>
-<dd><p>Bases: <a class="reference internal" href="#finn.transformation.Transformation" title="finn.transformation.Transformation"><code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></a></p>
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">finn.transformation.Transformation</span></code></p>
 <p>Ensure every tensor in the model has a specified shape (ValueInfo).</p>
 <dl class="method">
 <dt id="finn.transformation.infer_shapes.InferShapes.apply">
@@ -366,7 +332,7 @@ inputs and node type.</p>
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="finn.transformation.fpgadataflow.html" class="btn btn-neutral float-right" title="Transformation - FPGADataFlow" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+        <a href="finn.transformation.fpgadataflow.html" class="btn btn-neutral float-right" title="Transformation - fpgadataflow" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
       
       
         <a href="finn.custom_op.fpgadataflow.html" class="btn btn-neutral float-left" title="Custom Op - FPGADataFlow" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>

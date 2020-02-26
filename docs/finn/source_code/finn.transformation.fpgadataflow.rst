@@ -1,8 +1,8 @@
 *****************************
-Transformation - FPGADataFlow
+Transformation - fpgadataflow 
 *****************************
 
-Transformations (FPGADataFlow)
+Transformations (fpgadataflow)
 ==============================
 
 finn.transformation.fpgadataflow.cleanup

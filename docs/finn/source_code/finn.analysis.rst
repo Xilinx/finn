@@ -2,11 +2,6 @@
 Analysis 
 ********
 
-.. automodule:: finn.analysis
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Submodules
 ==========
 

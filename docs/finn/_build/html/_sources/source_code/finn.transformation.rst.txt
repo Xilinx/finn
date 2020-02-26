@@ -2,11 +2,6 @@
 Transformation
 **************
 
-.. automodule:: finn.transformation
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 Submodules
 ==========
 
