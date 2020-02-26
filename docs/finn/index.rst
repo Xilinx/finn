@@ -33,7 +33,7 @@ What is FINN?
    brevitas_export
    nw_prep
    vivado_synth
-   deploy_integration
+   pynq_deploy
    verification
    source_code/finn
 
