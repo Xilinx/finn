@@ -72,8 +72,62 @@ The number of all nodes can be determined with the len() function in Python.
   # number of nodes in the graph
   len(nodes)
 
+Helper functions for tensors
+----------------------------
+
+A list of all tensors (names) can easily be accessed using:
+::
+  
+  tensor_list = model.get_all_tensor_names()
+
+If we take a single tensor from that list (by index), we can determine their producer or consumer node by using one of the following functions. Note that it may be that a tensor does not have a producer or consumer node, for example if the tensor represents a constant that is already set. In that case `None` will be returned.
+::
+
+  # find producer of third tensor in model tensor list
+  model.find_producer(tensor_list[2])
+
+  # find consumer of third tensor in model tensor list
+  model.find_consumer(tensor_list[2])
+
+Every tensor has a specific shape, to get or to set this shape these functions can be used:
+::
+
+  # get tensor shape of third tensor in model tensor list
+  model.get_tensor_shape(tensor_list[2])
+
+  # set tensor shape of third tensor in model tensor list
+  tensor_shape = [1, 1, 28, 28]
+  model.set_tensor_shape(tensor_list[2], tensor_shape)
+
+Optionally, the dtype (container datatype) of the tensor can also be specified as third argument in the set function. By default it is set to TensorProto.FLOAT.
+
+As mentioned above there are FINN DataTypes additional to the container datatype, these can be accessed and set for a tensor with the following functions:
+::
+  
+  # get tensor dataype of third tensor in model tensor list
+  model.get_tensor_datatype(tensor_list[2])
+
+  # set tensor datatype of third tensor in model tensor list
+  from finn.core.datatype import DataType
+  
+  finn_dtype = DataType.BIPOLAR
+  model.set_tensor_datatype(tensor_list[2], finn_dtype)
+
+ModelWrapper contains two helper functions for tensor initializers, one to determine the current initializer and one to set the initializer of a tensor. If there is no initializer, None is returned.
+::
+
+  # get tensor initializer of third tensor in model tensor list
+  model.get_initializer(tensor_list[2])
+
+ModelWrapper contains more useful functions, if you are interested please have a look at the ModelWrapper module (:py:mod:`finn.core.modelwrapper.ModelWrapper`) directly.
+
 Analysis Pass
 =============
 
+An analysis pass traverses the graph structure and produces information about certain properties. It gets the model in the ModelWrapper as input and returns a dictionary of the properties the analysis extracts. If you are interested in how to write an analysis pass for FINN, please take a look at the Jupyter notebook `4-FINN-HowToAnalysisPass <https://github.com/Xilinx/finn/blob/dev/notebooks/4-FINN-HowToAnalysisPass.ipynb>`_. For more details about existing analysis passes in FINN, see module :py:mod:`finn.analysis`.
+
 Transformation Pass
 ===================
+
+A transformation passes changes (transforms) the given model, it gets the model in the ModelWrapper as input and returns the changed model (ModelWrapper) to the FINN flow. Additional the flag *model_was_changed* which indicates if a transformation has to be performed more than once, is returned. If you are interested in how to write a transformation pass for FINN, please take a look at the Jupyter notebook `5-FINN-HowToTransformationPass <https://github.com/Xilinx/finn/blob/dev/notebooks/5-FINN-HowToTransformationPass.ipynb>`_. For more details about existing transformation passes in FINN, see module :py:mod:`finn.transformation`.
+
