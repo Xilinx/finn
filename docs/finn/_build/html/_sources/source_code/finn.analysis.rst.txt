@@ -2,7 +2,7 @@
 Analysis 
 ********
 
-:ref:`analysis_pass`
+If you want to know more details about analysis passes, please take a look at section ":ref:`analysis_pass`" in chapter *Internals*.
 
 Submodules
 ==========

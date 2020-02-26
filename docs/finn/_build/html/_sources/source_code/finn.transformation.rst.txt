@@ -2,7 +2,7 @@
 Transformation
 **************
 
-:ref:`transformation_pass`
+If you want to know more details about transformation passes, please take a look at section ":ref:`transformation_pass`" in chapter *Internals*.
 
 Submodules
 ==========

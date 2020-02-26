@@ -172,10 +172,6 @@
             
   <div class="section" id="internals">
 <h1>Internals<a class="headerlink" href="#internals" title="Permalink to this headline">¶</a></h1>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p><strong>Here will be soon an overview of the internals that are used in FINN.</strong></p>
-</div>
 <div class="section" id="intermediate-representation-finn-onnx">
 <h2>Intermediate Representation: FINN-ONNX<a class="headerlink" href="#intermediate-representation-finn-onnx" title="Permalink to this headline">¶</a></h2>
 <p>FINN uses <a class="reference external" href="https://github.com/onnx/onnx">ONNX</a> as an intermediate representation (IR) for neural networks. As such, almost every component inside FINN uses ONNX and its <a class="reference external" href="https://github.com/onnx/onnx/blob/master/docs/PythonAPIOverview.md">Python API</a>, so you may want to familiarize yourself with how ONNX represents DNNs. Specifically, the <a class="reference external" href="https://github.com/onnx/onnx/blob/master/onnx/onnx.proto">ONNX protobuf description</a> (or its <a class="reference external" href="https://github.com/onnx/onnx/blob/master/docs/IR.md">human-readable documentation</a> and the <a class="reference external" href="https://github.com/onnx/onnx/blob/master/docs/Operators.md">operator schemas</a> are useful as reference documents. We also provide a Jupyter notebook (<a class="reference external" href="https://github.com/Xilinx/finn/blob/dev/notebooks/1-FINN-HowToWorkWithONNX.ipynb">1-FINN-HowToWorkWithONNX</a>) that can help to get familiar with ONNX by showing how to work with a simple ONNX model in FINN.</p>
