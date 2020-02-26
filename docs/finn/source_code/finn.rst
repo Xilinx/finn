@@ -1,6 +1,6 @@
-***********
-Source Code
-***********
+********
+FINN API
+********
 The FINN sources are divided into different modules. They are listed below.
 
 Modules
