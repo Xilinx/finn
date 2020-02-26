@@ -2,6 +2,8 @@
 Analysis 
 ********
 
+:ref:`analysis_pass`
+
 Submodules
 ==========
 

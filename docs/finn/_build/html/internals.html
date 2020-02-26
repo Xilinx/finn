@@ -281,11 +281,11 @@
 </div>
 </div>
 <div class="section" id="analysis-pass">
-<h2>Analysis Pass<a class="headerlink" href="#analysis-pass" title="Permalink to this headline">¶</a></h2>
+<span id="id1"></span><h2>Analysis Pass<a class="headerlink" href="#analysis-pass" title="Permalink to this headline">¶</a></h2>
 <p>An analysis pass traverses the graph structure and produces information about certain properties. It gets the model in the ModelWrapper as input and returns a dictionary of the properties the analysis extracts. If you are interested in how to write an analysis pass for FINN, please take a look at the Jupyter notebook <a class="reference external" href="https://github.com/Xilinx/finn/blob/dev/notebooks/4-FINN-HowToAnalysisPass.ipynb">4-FINN-HowToAnalysisPass</a>. For more details about existing analysis passes in FINN, see module <code class="xref py py-mod docutils literal notranslate"><span class="pre">finn.analysis</span></code>.</p>
 </div>
 <div class="section" id="transformation-pass">
-<h2>Transformation Pass<a class="headerlink" href="#transformation-pass" title="Permalink to this headline">¶</a></h2>
+<span id="id2"></span><h2>Transformation Pass<a class="headerlink" href="#transformation-pass" title="Permalink to this headline">¶</a></h2>
 <p>A transformation passes changes (transforms) the given model, it gets the model in the ModelWrapper as input and returns the changed model (ModelWrapper) to the FINN flow. Additional the flag <em>model_was_changed</em> which indicates if a transformation has to be performed more than once, is returned. If you are interested in how to write a transformation pass for FINN, please take a look at the Jupyter notebook <a class="reference external" href="https://github.com/Xilinx/finn/blob/dev/notebooks/5-FINN-HowToTransformationPass.ipynb">5-FINN-HowToTransformationPass</a>. For more details about existing transformation passes in FINN, see module <code class="xref py py-mod docutils literal notranslate"><span class="pre">finn.transformation</span></code>.</p>
 </div>
 </div>

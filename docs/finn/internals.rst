@@ -121,10 +121,15 @@ ModelWrapper contains two helper functions for tensor initializers, one to deter
 
 ModelWrapper contains more useful functions, if you are interested please have a look at the ModelWrapper module (:py:mod:`finn.core.modelwrapper.ModelWrapper`) directly.
 
+
+.. _analysis_pass:
+
 Analysis Pass
 =============
 
 An analysis pass traverses the graph structure and produces information about certain properties. It gets the model in the ModelWrapper as input and returns a dictionary of the properties the analysis extracts. If you are interested in how to write an analysis pass for FINN, please take a look at the Jupyter notebook `4-FINN-HowToAnalysisPass <https://github.com/Xilinx/finn/blob/dev/notebooks/4-FINN-HowToAnalysisPass.ipynb>`_. For more details about existing analysis passes in FINN, see module :py:mod:`finn.analysis`.
+
+.. _transformation_pass:
 
 Transformation Pass
 ===================

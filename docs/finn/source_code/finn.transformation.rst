@@ -2,6 +2,8 @@
 Transformation
 **************
 
+:ref:`transformation_pass`
+
 Submodules
 ==========
 
