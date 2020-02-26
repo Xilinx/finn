@@ -102,6 +102,7 @@
 <li class="toctree-l1"><a class="reference internal" href="pynq_deploy.html">PYNQ Deployment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="verification.html">Functional Verification</a></li>
 <li class="toctree-l1"><a class="reference internal" href="source_code/finn.html">Source Code</a></li>
+<li class="toctree-l1"><a class="reference internal" href="genindex.html">Index</a></li>
 </ul>
 
             
@@ -218,9 +219,11 @@
 </div>
 <div class="section" id="running-the-test-suite-using-jenkins">
 <h3>Running the test suite using Jenkins<a class="headerlink" href="#running-the-test-suite-using-jenkins" title="Permalink to this headline">¶</a></h3>
+<p><a class="reference external" href="https://jenkins.io/">Jenkins</a> is an open source automation server that can be used as support when building, deploying and automating a project.</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">sh</span> <span class="n">run</span><span class="o">-</span><span class="n">docker</span><span class="o">.</span><span class="n">sh</span> <span class="n">jenkins</span>
 </pre></div>
 </div>
+<p>This will launch Jenkins inside a Docker container and print an initial password for the user to use together with the username “admin” to open Jenkins in the webbrowser. The script forwards port 8080 for Jenkins and also configures a smee client to access port 8080. <a class="reference external" href="https://smee.io/">Smee</a> is a webhook payload delivery service and the FINN GitHub repository has a webhook set up to trigger the smee client (that is set in the run_docker script) when a push event is happening. Through Jenkins the user can set up a test for FINN, which is started at every push event.</p>
 </div>
 </div>
 </div>

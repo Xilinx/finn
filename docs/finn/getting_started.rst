@@ -52,7 +52,10 @@ FINN comes with a set of tests which can be launched using the command above. No
 
 Running the test suite using Jenkins
 ************************************
+`Jenkins <https://jenkins.io/>`_ is an open source automation server that can be used as support when building, deploying and automating a project.
+
 ::
 
   sh run-docker.sh jenkins
 
+This will launch Jenkins inside a Docker container and print an initial password for the user to use together with the username "admin" to open Jenkins in the webbrowser. The script forwards port 8080 for Jenkins and also configures a smee client to access port 8080. `Smee <https://smee.io/>`_ is a webhook payload delivery service and the FINN GitHub repository has a webhook set up to trigger the smee client (that is set in the run_docker script) when a push event is happening. Through Jenkins the user can set up a test for FINN, which is started at every push event.
