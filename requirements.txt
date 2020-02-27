@@ -1,7 +1,11 @@
+bitstring
+docrep
 future
 numpy
 onnx
 onnxruntime
 pre-commit
+scipy
 sphinx
 wget
+pyverilator

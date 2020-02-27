@@ -21,7 +21,7 @@ Depending on what you would like to do, we have different suggestions on where t
 * **I want to try out prebuilt QNN accelerators on real hardware.** Head over to <a href="https://github.com/Xilinx/BNN-PYNQ" target="_blank">BNN-PYNQ</a> repository to try out some image
 classification accelerators, or to <a href="https://github.com/Xilinx/LSTM-PYNQ" target="_blank">LSTM-PYNQ</a>
 to try optical character recognition with LSTMs.
-* **I want to train new quantized networks for FINN.** Check out <a href="https://github.com/Xilinx/brevitas">Brevitas</a>, 
+* **I want to train new quantized networks for FINN.** Check out <a href="https://github.com/Xilinx/brevitas">Brevitas</a>,
 our PyTorch library for training quantized networks. The Brevitas-to-FINN part of the flow is coming soon!
 * **I want to understand the computations involved in quantized inference.** Check out these Jupyter notebooks on <a href="https://github.com/maltanar/qnn-inference-examples">QNN inference</a>. This repo contains simple Numpy/Python layer implementations and a few pretrained QNNs for instructive purposes.
 * **I want to understand how it all fits together.** Check out our [publications](#publications),
