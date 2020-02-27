@@ -8,6 +8,8 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class ConvolutionInputGenerator(HLSCustomOp):
+    """Class that corresponds to finn-hlslib ConvolutionInputGenerator 
+    (sliding window) function."""
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 
@@ -43,12 +45,16 @@ class ConvolutionInputGenerator(HLSCustomOp):
         pass
 
     def get_input_datatype(self):
+        """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
     def get_output_datatype(self):
+        """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_stream_width(self):
+        """Returns stream width, input and output stream width are equal for 
+        the sliding window function"""
         return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
 
     def get_number_output_values(self):
@@ -79,8 +85,9 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # create a npy file for input of the node
 
             inp = context[node.input[0]]
-            assert str(inp.dtype) == "float32"
-            assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim)
+            assert str(inp.dtype) == "float32", "Input datatype is not float32"
+            assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim), """Input shape doesn't 
+            match expected shape (1, ifm_ch, ifm_dim, ifm_dim)."""
             reshaped_inp = inp.transpose(0, 2, 3, 1)
             np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
             # execute the precompiled model
@@ -91,7 +98,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
-            assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch)
+            assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch), """Output 
+            shape doesn't match expected shape (1, out_pix, k*k, ifm_ch)."""
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(
                 1, out_pix, k * k * ifm_ch

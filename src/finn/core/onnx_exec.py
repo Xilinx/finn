@@ -38,8 +38,9 @@ from finn.custom_op.registry import getCustomOp
 
 
 def execute_node(node, context, graph):
-    """Execute a single node by using onnxruntime, with custom function or
+    """Executes a single node by using onnxruntime, with custom function or
     if dataflow partition by using remote execution or rtlsim.
+    
     Input/output provided via context."""
 
     if node.op_type == "StreamingDataflowPartition":
@@ -94,9 +95,11 @@ def execute_node(node, context, graph):
 
 
 def execute_onnx(model, input_dict, return_full_exec_context=False):
-    """Execute given ONNX ModelWrapper with given named inputs.
+    """Executes given ONNX ModelWrapper with given named inputs.
+    
     If return_full_exec_context is False, a dict of named outputs is returned
     as indicated by the model.graph.output.
+   
     If return return_full_exec_context is True, the full set of tensors used by
     the execution (including inputs, weights, activations and final outputs)
     will be returned as a dict."""
@@ -164,7 +167,7 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
 
 
 def execute_onnx_and_make_model(model, input_dict):
-    """Execute given ONNX ModelWrapper with given named inputs and return a new
+    """Executes given ONNX ModelWrapper with given named inputs and return a new
     ModelWrapper where an initializer is provided for each tensor as taken from
     the execution. This new model is useful for debugging, since it contains
     all the intermediate activation values."""
@@ -187,7 +190,8 @@ def compare_execution(
     input_dict,
     compare_fxn=lambda x, y: np.isclose(x, y, atol=1e-3).all(),
 ):
-    """Execute two ONNX models and compare their outputs using given function.
+    """Executes two ONNX models and compare their outputs using given function.
+    
     compare_fxn should take in two tensors and return a Boolean"""
     # compare values from first output tensors produced
     res_a = list(execute_onnx(model_a, input_dict).items())[0][1]

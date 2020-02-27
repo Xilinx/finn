@@ -4,6 +4,9 @@ import onnx.helper as helper
 
 
 class CustomOp(ABC):
+    """CustomOp class all custom op nodes are based on. Contains different functions 
+    every custom node should have. Some as abstract methods, these have to be filled when
+    writing a new custom op node."""
     def __init__(self, onnx_node):
         super().__init__()
         self.onnx_node = onnx_node
@@ -83,5 +86,5 @@ class CustomOp(ABC):
     def verify_node(self):
         """Verifies that all attributes the node needs are there and
         that particular attributes are set correctly. Also checks if
-        the number of inputs is equal to the expected number"""
+        the number of inputs is equal to the expected number."""
         pass

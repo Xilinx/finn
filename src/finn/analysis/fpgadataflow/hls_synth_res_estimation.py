@@ -7,7 +7,8 @@ import finn.util.basic as util
 
 def hls_synth_res_estimation(model):
     """Extracts the results from the vivado synthesis.
-    Returns {node name : resource estimation}"""
+    
+    Returns {node name : resource estimation}."""
 
     res_dict = {}
     for node in model.graph.node:

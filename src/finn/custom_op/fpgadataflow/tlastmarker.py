@@ -2,6 +2,9 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class TLastMarker(HLSCustomOp):
+    """Class that corresponds to the TLastMarker node that needs to be 
+    inserted at the end of the model for rtlsim with stitched IP.
+    It marks the end of the current image/input sample."""
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 

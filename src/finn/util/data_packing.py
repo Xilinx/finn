@@ -21,9 +21,13 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     packing.
 
     Examples:
+    
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = "0xe"
+    
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = "0x0e"
+    
     array2hexstring([1, 1, 0, 1], DataType.BINARY, 4, reverse=True) = "0xb"
+    
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 8, reverse=True) = "0x07"
     """
     if pad_to_nbits < 4:
@@ -33,7 +37,7 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
         # try to convert to a float numpy array (container dtype is float)
         array = np.asarray(array, dtype=np.float32)
     # ensure one-dimensional array to pack
-    assert array.ndim == 1
+    assert array.ndim == 1, "The given array is not one-dimensional."
     if dtype == DataType.BIPOLAR:
         # convert bipolar values to binary
         array = (array + 1) / 2
@@ -45,7 +49,7 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     bw = dtype.bitwidth()
     for val in array:
         # ensure that this value is permitted by chosen dtype
-        assert dtype.allowed(val)
+        assert dtype.allowed(val), "This value is not permitted by chosen dtype."
         if dtype.is_integer():
             if dtype.signed():
                 lineval.append(BitArray(int=int(val), length=bw))
@@ -63,7 +67,9 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
 
 
 def hexstring2npbytearray(hexstring, remove_prefix="0x"):
-    """Convert a hex string into a NumPy array of dtype uint8. Examples:
+    """Convert a hex string into a NumPy array of dtype uint8. 
+    
+    Example:
 
     hexstring2npbytearray("0f01") = array([15,  1], dtype=uint8)
     """
@@ -76,7 +82,9 @@ def hexstring2npbytearray(hexstring, remove_prefix="0x"):
 
 
 def npbytearray2hexstring(npbytearray, prefix="0x"):
-    """Convert a NumPy array of uint8 dtype into a hex string. Examples:
+    """Convert a NumPy array of uint8 dtype into a hex string. 
+    
+    Example:
 
     npbytearray2hexstring(array([15,  1], dtype=uint8)) = "0x0f01"
     """
@@ -85,13 +93,20 @@ def npbytearray2hexstring(npbytearray, prefix="0x"):
 
 def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner=False):
     """Pack the innermost dimension of the given numpy ndarray into hex
-    strings using array2hexstring. Examples:
+    strings using array2hexstring. 
+    
+    Examples:
 
     A = [[1, 1, 1, 0], [0, 1, 1, 0]]
+    
     eA = ["0e", "06"]
+    
     pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA
+    
     B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
+    
     eB = [[ "0f", "0f"], ["07", "0d"]]
+    
     pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB
     """
 
@@ -301,7 +316,9 @@ def packed_bytearray_to_finnpy(
     reverse_endian=False,
 ):
     """Given a packed numpy uint8 ndarray, unpack it into a FINN array of
-    given DataType. output_shape can be specified to remove padding from the
+    given DataType. 
+    
+    output_shape can be specified to remove padding from the
     packed dimension, or set to None to be inferred from the input."""
 
     if (
@@ -315,13 +332,14 @@ def packed_bytearray_to_finnpy(
     target_bits = dtype.bitwidth()
     if output_shape is None:
         # determine output shape from input shape
-        assert packed_bits % target_bits == 0
+        assert packed_bits % target_bits == 0, """packed_bits are not divisable by 
+        target_bits."""
         n_target_elems = packed_bits // target_bits
         output_shape = packed_bytearray.shape[:-1] + (n_target_elems,)
     # if reverse_endian and target_bits > 8:
     #     # revse the endianness of each element
     #     orig_shape = packed_bytearray.shape
-    #     assert target_bits % 8 == 0
+    #     assert target_bits % 8 == 0, "target_bits are not a multiple of 8."
     #     target_bytes = target_bits // 8
     #     new_shape = orig_shape[:-1] + (-1, target_bytes)
     #     packed_bytearray = np.flip(packed_bytearray.reshape(new_shape), axis=-1)

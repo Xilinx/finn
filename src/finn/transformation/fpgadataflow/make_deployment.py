@@ -10,9 +10,9 @@ from finn.util.basic import make_build_dir
 class DeployToPYNQ(Transformation):
     """Collects all necessary files for deployment and copies them to the PYNQ board.
     Expects information about PYNQ board to make scp possible:
-    * ip address of board
-    * username and password for board
-    * target directory where the files are stored on the board"""
+    
+    IP address of board, username and password for board and target directory where 
+    the files are stored on the board"""
 
     def __init__(self, ip, username, password, target_dir):
         super().__init__()

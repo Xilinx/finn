@@ -8,3 +8,4 @@ pre-commit
 scipy
 sphinx
 wget
+pyverilator

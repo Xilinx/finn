@@ -18,8 +18,10 @@ class InferBinaryStreamingFCLayer(Transformation):
             if n.op_type == "XnorPopcountMatMul":
                 mm_input = n.input[0]
                 mm_weight = n.input[1]
-                assert model.get_tensor_datatype(mm_input) == DataType.BINARY
-                assert model.get_tensor_datatype(mm_weight) == DataType.BINARY
+                assert model.get_tensor_datatype(mm_input) == DataType.BINARY, """First 
+                input for xnorpopcount is not set to FINN DataType BINARY."""
+                assert model.get_tensor_datatype(mm_weight) == DataType.BINARY, """Second 
+                input (weights) for xnorpopcount is not set to FINN DataType BINARY."""
                 idt = DataType.BINARY
                 wdt = DataType.BINARY
                 mm_output = n.output[0]
@@ -33,10 +35,11 @@ class InferBinaryStreamingFCLayer(Transformation):
                 # create node with no parallelization first
                 pe = 1
                 simd = 1
-                assert mh % pe == 0
-                assert mw % simd == 0
+                assert mh % pe == 0, "Requirement MH divisable by PE is violated."
+                assert mw % simd == 0, "Requirement MW divisable by SIMD is violated."
                 wmem = mw * mh // (pe * simd)
-                assert mw * mh == wmem * pe * simd
+                assert mw * mh == wmem * pe * simd, """Requirement (MW * MH) divisiable by
+                (WMEM * PE * SIMD) is violated."""
                 # see if we have any following thresholds
                 consumer = model.find_consumer(mm_output)
                 if consumer is not None and consumer.op_type == "MultiThreshold":
@@ -45,7 +48,8 @@ class InferBinaryStreamingFCLayer(Transformation):
                     mt_output = consumer.output[0]
                     mt_thres = consumer.input[1]
                     T = model.get_initializer(mt_thres)
-                    assert T.shape[0] == 1 or T.shape[0] == mh
+                    assert T.shape[0] == 1 or T.shape[0] == mh, """First dimension of 
+                    thresholds neither 1 nor MH."""
                     odt = model.get_tensor_datatype(mt_output)
                     if odt.bitwidth() == 1:
                         # covers both bipolar and binary

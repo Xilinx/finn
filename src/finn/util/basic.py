@@ -53,7 +53,7 @@ def get_by_name(container, name, name_field="name"):
 
 
 def remove_by_name(container, name, name_field="name"):
-    """Remove item from container by .name field if it exists"""
+    """Remove item from container by .name field if it exists."""
     item = get_by_name(container, name, name_field)
     if item is not None:
         container.remove(item)
@@ -66,15 +66,19 @@ def random_string(stringLength=6):
 
 
 def interleave_matrix_outer_dim_from_partitions(matrix, n_partitions):
+    """Interleave the outermost dimension of a matrix from given 
+    partitions (n_partitions)."""
     if type(matrix) != np.ndarray or matrix.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
         matrix = np.asarray(matrix, dtype=np.float32)
     shp = matrix.shape
     ndim = matrix.ndim
     # ensure # partitions evenly divide the outermost dimension
-    assert shp[0] % n_partitions == 0
+    assert shp[0] % n_partitions == 0, """The outermost dimension is not divisable
+    by the number of partitions."""
     # only tested for matrices
-    assert ndim == 2
+    assert ndim == 2, """The dimension of the matrix is not 2. Currently this function 
+    only works for matrices."""
     # interleave rows between PEs using reshape + transpose
     matrix_r = matrix.reshape(-1, n_partitions, shp[1]).transpose((1, 0, 2))
     matrix_r = matrix_r.reshape(n_partitions, -1, shp[1])
@@ -86,13 +90,13 @@ def roundup_to_integer_multiple(x, factor):
     Returns x if factor is set to -1. Both x and factor must otherwise be
     positive."""
     # ensure integers
-    assert int(x) == x
-    assert int(factor) == factor
+    assert int(x) == x, "The input x is not an integer."
+    assert int(factor) == factor, "The input factor is not an integer."
     # use -1 to indicate no padding needed
     if factor == -1:
         return x
     # ensure positive values
-    assert factor > 0 and x > 0
+    assert factor > 0 and x > 0, "Factor and x are <= 0."
     if x < factor:
         return factor
     else:
@@ -112,7 +116,8 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
     if type(ndarray) != np.ndarray or ndarray.dtype != np.float32:
         # try to convert to a float numpy array (container dtype is float)
         ndarray = np.asarray(ndarray, dtype=np.float32)
-    assert ndarray.ndim == len(pad_to_dims)
+    assert ndarray.ndim == len(pad_to_dims), """The dimensions of the input 
+    array don't match the length of the pad_to_dims value."""
     # compute the desired shape
     desired = zip(list(ndarray.shape), list(pad_to_dims))
     desired = map(lambda x: roundup_to_integer_multiple(x[0], x[1]), desired)
@@ -128,12 +133,13 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
         # all padding is added after the existing values
         pad_amt = list(map(lambda x: (0, x), pad_amt))
     ret = np.pad(ndarray, pad_amt, mode="constant", constant_values=val)
-    assert (np.asarray(ret.shape, dtype=np.int32) == desired).all()
+    assert (np.asarray(ret.shape, dtype=np.int32) == desired).all(), """The 
+    calculated output array doesn't match the desired/expected one."""
     return ret
 
 
 def gen_finn_dt_tensor(finn_dt, tensor_shape):
-    """Generates random tensor in given shape and with given FINN DataType"""
+    """Generates random tensor in given shape and with given FINN DataType."""
     if type(tensor_shape) == list:
         tensor_shape = tuple(tensor_shape)
     if finn_dt == DataType.BIPOLAR:
@@ -156,7 +162,8 @@ def gen_finn_dt_tensor(finn_dt, tensor_shape):
 def calculate_signed_dot_prod_range(dt_a, dt_b, len):
     """Returns the (min,max) values a dot product between two signed vectors of
     types dt_a and dt_b of len elements can take."""
-    assert dt_a.signed() and dt_b.signed()
+    assert dt_a.signed() and dt_b.signed(), """The input values are not both 
+    signed vectors."""
     min_prod = 2 ** 30
     max_prod = -(2 ** 30)
     for a_val in [dt_a.min(), dt_a.max()]:
@@ -170,6 +177,8 @@ def calculate_signed_dot_prod_range(dt_a, dt_b, len):
 
 
 class CppBuilder:
+    """Builds the g++ compiler command to produces the executable of the c++ code 
+    in code_gen_dir which is passed to the function build() of this class."""
     def __init__(self):
         self.include_paths = []
         self.cpp_files = []
@@ -179,15 +188,21 @@ class CppBuilder:
         self.compile_script = ""
 
     def append_includes(self, library_path):
+        """Adds given library path to include_paths list."""
         self.include_paths.append(library_path)
 
     def append_sources(self, cpp_file):
+        """Adds given c++ file to cpp_files list."""
         self.cpp_files.append(cpp_file)
 
     def set_executable_path(self, path):
+        """Sets member variable "executable_path" to given path."""
         self.executable_path = path
 
     def build(self, code_gen_dir):
+        """Builds the g++ compiler command according to entries in include_paths 
+        and cpp_files lists. Saves it in bash script in given folder and 
+        executes it."""
         # raise error if includes are empty
         self.code_gen_dir = code_gen_dir
         self.compile_components.append("g++ -o " + str(self.executable_path))

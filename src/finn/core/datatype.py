@@ -30,8 +30,18 @@ import numpy as np
 
 
 class DataType(Enum):
-    # important to maintain ordering here: unsigned to signed, fewer to more
-    # bits. The get_smallest_possible() member function is dependent on this.
+    """Enum class that contains FINN data types to set the quantization annotation. 
+    ONNX does not support data types smaller than 8-bit integers, whereas in FINN we are
+    interested in smaller integers down to ternary and bipolar.
+    
+    Assignment of DataTypes to indices based on following ordering: 
+
+    * unsigned to signed
+    
+    * fewer to more bits
+
+    Currently supported DataTypes: """
+    # important: the get_smallest_possible() member function is dependent on ordering.
     BINARY = auto()
     UINT2 = auto()
     UINT3 = auto()
@@ -102,7 +112,7 @@ class DataType(Enum):
     def allowed(self, value):
         """Check whether given value is allowed for this DataType.
 
-    value (float32): value to be checked"""
+        * value (float32): value to be checked"""
 
         if "FLOAT" in self.name:
             return True
@@ -122,9 +132,10 @@ class DataType(Enum):
             raise Exception("Unrecognized data type: %s" % self.name)
 
     def get_num_possible_values(self):
-        """Return the number of possible values this DataType can take. Only
+        """Returns the number of possible values this DataType can take. Only
         implemented for integer types for now."""
-        assert self.is_integer()
+        assert self.is_integer(), """This function only works for integers for now, 
+        not for the DataType you used this function with."""
         if "INT" in self.name:
             return abs(self.min()) + abs(self.max()) + 1
         elif self.name == "BINARY" or self.name == "BIPOLAR":
@@ -133,7 +144,7 @@ class DataType(Enum):
             return 3
 
     def get_smallest_possible(value):
-        """Return smallest (fewest bits) possible DataType that can represent
+        """Returns smallest (fewest bits) possible DataType that can represent
       value. Prefers unsigned integers where possible."""
         if not int(value) == value:
             return DataType["FLOAT32"]
@@ -143,16 +154,16 @@ class DataType(Enum):
                 return dt
 
     def signed(self):
-        """Return whether this DataType can represent negative numbers."""
+        """Returns whether this DataType can represent negative numbers."""
         return self.min() < 0
 
     def is_integer(self):
-        """Return whether this DataType represents integer values only."""
+        """Returns whether this DataType represents integer values only."""
         # only FLOAT32 is noninteger for now
         return self != DataType.FLOAT32
 
     def get_hls_datatype_str(self):
-        """Return the corresponding Vivado HLS datatype name."""
+        """Returns the corresponding Vivado HLS datatype name."""
         if self.is_integer():
             if self.signed():
                 return "ap_int<%d>" % self.bitwidth()

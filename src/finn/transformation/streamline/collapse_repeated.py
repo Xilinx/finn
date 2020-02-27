@@ -27,8 +27,10 @@ class CollapseRepeatedOp(Transformation):
                     op1_param_name = consumer.input[1]
                     op0_param = model.get_initializer(op0_param_name)
                     op1_param = model.get_initializer(op1_param_name)
-                    assert op0_param is not None
-                    assert op1_param is not None
+                    assert op0_param is not None, """Initializer for parameters for 
+                    op0 is not set."""
+                    assert op1_param is not None, """Initializer for parameters for 
+                    op1 is not set."""
                     start_name = n.input[0]
                     end_name = consumer.output[0]
                     # compute the new parameter
@@ -50,10 +52,12 @@ class CollapseRepeatedOp(Transformation):
 
 
 class CollapseRepeatedAdd(CollapseRepeatedOp):
+    """Collapse repeated adder node into a single operation."""
     def __init__(self):
         super().__init__("Add", lambda x, y: y + x)
 
 
 class CollapseRepeatedMul(CollapseRepeatedOp):
+    """Collapse repeated multiplier node into a single operation."""
     def __init__(self):
         super().__init__("Mul", lambda x, y: y * x)

@@ -6,8 +6,9 @@ from finn.util.basic import get_by_name, make_build_dir
 
 
 def _codegen_single_node(node, model):
-    """Call custom implementation to generate code for single custom node
-    and create folder that contains all the generated files"""
+    """Calls C++ code generation for one node. Resulting code can be used 
+    to simulate node using npysim."""
+
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
@@ -28,7 +29,14 @@ def _codegen_single_node(node, model):
 
 
 class CodeGen_npysim(Transformation):
-    """Code generation for all nodes in model"""
+    """Call custom implementation to generate code for single custom node
+    and create folder that contains all the generated files.
+    All nodes in the graph must have the fpgadataflow backend attribute.
+
+    Outcome if succesful: Node attribute "code_gen_dir_npysim" contains path to folder 
+    that contains generated C++ code that can be used to simulate node using npysim. 
+    The subsequent transformation is Compile"""
+    
 
     def apply(self, model):
         for node in model.graph.node:

@@ -33,31 +33,36 @@ class ModelWrapper:
 
     @property
     def graph(self):
+        """Returns the graph of the model."""
         return self._model_proto.graph
 
     @graph.setter
     def graph(self, value):
+        """Sets the graph of the model according to value"""
         self._model_proto.graph = value
 
     @property
     def model(self):
+        """Returns the model."""
         return self._model_proto
 
     @model.setter
     def model(self, value):
+        """Sets the model according to value."""
         self._model_proto = value
 
     def save(self, filename):
-        """Save the wrapper ONNX ModelProto into a file with given name."""
+        """Saves the wrapper ONNX ModelProto into a file with given name."""
         onnx.save(self._model_proto, filename)
 
     def analysis(self, analysis_fxn):
-        """Run given anaylsis_fxn on this model and return resulting dict."""
+        """Runs given anaylsis_fxn on this model and return resulting dict."""
         return analysis_fxn(self)
 
     def transform(self, transformation, make_deepcopy=True):
         """Applies given Transformation repeatedly until no more changes can be made
         and returns a transformed ModelWrapper instance.
+        
         If make_deepcopy is specified, operates on a new (deep)copy of model.
         """
         transformed_model = self
@@ -72,8 +77,11 @@ class ModelWrapper:
 
     def check_compatibility(self):
         """Checks this model for FINN compatibility:
+        
         * no embedded subgraphs
+        
         * all tensor shapes are specified, including activations
+        
         * all constants are initializers
         """
         # TODO check for no embedded subgraphs
@@ -143,7 +151,7 @@ class ModelWrapper:
             return None
 
     def set_tensor_shape(self, tensor_name, tensor_shape, dtype=TensorProto.FLOAT):
-        """Assign shape in ValueInfoProto for tensor with given name."""
+        """Assigns shape in ValueInfoProto for tensor with given name."""
         new_vi = oh.make_tensor_value_info(tensor_name, dtype, tensor_shape)
         # find what container tis tensor's ValueInfo lives in
         # if not found anywhere, we assume it's a new value_info
@@ -157,7 +165,7 @@ class ModelWrapper:
         target_container.append(new_vi)
 
     def set_initializer(self, tensor_name, tensor_value):
-        """Set the initializer value for tensor with given name."""
+        """Sets the initializer value for tensor with given name."""
         graph = self._model_proto.graph
         # convert tensor_value (numpy array) into TensorProto w/ correct name
         tensor_init_proto = np_helper.from_array(tensor_value)
@@ -177,7 +185,7 @@ class ModelWrapper:
         self.set_tensor_shape(tensor_name, list(tensor_value.shape), dtype)
 
     def rename_tensor(self, old_name, new_name):
-        """Rename a tensor from old_name to new_name."""
+        """Renames a tensor from old_name to new_name."""
         graph = self.graph
         # sweep over inputs
         if util.get_by_name(graph.input, old_name) is not None:
@@ -207,7 +215,7 @@ class ModelWrapper:
                 n.output[list(n.output).index(old_name)] = new_name
 
     def get_initializer(self, tensor_name):
-        """Get the initializer value for tensor with given name, if any."""
+        """Gets the initializer value for tensor with given name, if any."""
         graph = self._model_proto.graph
         init_names = [x.name for x in graph.initializer]
         try:
@@ -217,7 +225,7 @@ class ModelWrapper:
             return None
 
     def find_producer(self, tensor_name):
-        """Find and return the node that produces the tensor with given name.
+        """Finds and returns the node that produces the tensor with given name.
         Currently only works for linear graphs."""
         all_outputs = [x.output[0] for x in self._model_proto.graph.node]
         try:
@@ -227,7 +235,7 @@ class ModelWrapper:
             return None
 
     def find_consumer(self, tensor_name):
-        """Find and return the node that consumes the tensor with given name.
+        """Finds and returns the node that consumes the tensor with given name.
         Currently only works for linear graphs."""
         all_inputs = [x.input[0] for x in self._model_proto.graph.node]
         try:
@@ -237,7 +245,7 @@ class ModelWrapper:
             return None
 
     def get_all_tensor_names(self):
-        """Return a list of all (input, output and value_info) tensor names
+        """Returns a list of all (input, output and value_info) tensor names
         in the graph."""
         graph = self.graph
         names = [x.name for x in graph.value_info]
@@ -255,6 +263,7 @@ class ModelWrapper:
 
     def make_empty_exec_context(self):
         """Creates an empty execution context for this model.
+        
         The execution context is a dictionary of all tensors used for the
         inference computation. Any initializer values will be taken into
         account, all other tensors will be zero."""
@@ -290,7 +299,7 @@ class ModelWrapper:
         return ret
 
     def get_tensor_fanout(self, tensor_name):
-        """Return the number of nodes for which the tensor with given name is
+        """Returns the number of nodes for which the tensor with given name is
         as input."""
         graph = self.graph
         fanout = 0
@@ -309,6 +318,7 @@ class ModelWrapper:
             return metadata_prop.value
 
     def set_metadata_prop(self, key, value):
+        """Sets metadata property with given key to the given value."""
         metadata_prop = util.get_by_name(self.model.metadata_props, key, "key")
         if metadata_prop is None:
             metadata_prop = onnx.StringStringEntryProto()

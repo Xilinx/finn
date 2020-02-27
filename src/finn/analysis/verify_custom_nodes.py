@@ -3,8 +3,11 @@ import finn.custom_op.registry as registry
 
 def verify_nodes(model):
     """Checks if custom ops in graph are correctly built, with all attributes
-    and inputs. Returns {node op_type : info_messages}
-    *info_messages is list of strings about the result of the verification"""
+    and inputs. 
+    
+    Returns {node op_type : info_messages}
+    
+    * info_messages: is list of strings about the result of the verification."""
 
     verification_dict = {}
     for node in model.graph.node:
