@@ -4,6 +4,7 @@ from pkgutil import get_data
 import pytest
 
 import numpy as np
+
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
@@ -171,7 +172,6 @@ def test_end2end_tfc_verify_all():
     golden = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_streamlined.onnx")
     iname = golden.graph.input[0].name
     oname = golden.graph.output[0].name
-    ishape = golden.get_tensor_shape(iname)
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     x = nph.to_array(input_tensor)
@@ -229,6 +229,8 @@ def test_end2end_tfc_deploy_on_pynq():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_pynq_driver.onnx")
     try:
         ip = os.environ["PYNQ_IP"]  # no fault for this one; skip if not defined
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
@@ -244,7 +246,6 @@ def test_end2end_tfc_run_on_pynq():
     golden = ModelWrapper(build_dir + "/end2end_tfc_w1_a1_streamlined.onnx")
     iname = golden.graph.input[0].name
     oname = golden.graph.output[0].name
-    ishape = golden.get_tensor_shape(iname)
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     x = nph.to_array(input_tensor)
@@ -259,6 +260,8 @@ def test_end2end_tfc_run_on_pynq():
     oname = parent_model.graph.output[0].name
     try:
         ip = os.environ["PYNQ_IP"]  # NOQA
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
         # produce results with npysim
         sdp_node = getCustomOp(parent_model.graph.node[2])
         sdp_node.set_nodeattr(
