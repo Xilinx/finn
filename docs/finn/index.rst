@@ -39,10 +39,5 @@ More FINN Resources
    tutorials
    end_to_end_flow
    internals
-   brevitas_export
-   nw_prep
-   vivado_synth
-   pynq_deploy
-   verification
    source_code/finn
    genindex

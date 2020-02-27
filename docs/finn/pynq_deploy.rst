@@ -4,8 +4,8 @@
 PYNQ Deployment
 ***************
 
-.. note:: **On this page you can find soon more details about the PYNQ deployment in FINN.**
+.. note:: **This website is currently under construction.**
 
-.. image:: /img/pynq-deploy.svg
-   :scale: 50%
+.. image:: /img/pynq-deploy.png
+   :scale: 70%
    :align: center

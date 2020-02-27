@@ -2,10 +2,12 @@
 Internals
 *********
 
+.. note:: **This website is currently under construction.**
+
 Intermediate Representation: FINN-ONNX
 ======================================
 
-FINN uses `ONNX <https://github.com/onnx/onnx>`_ as an intermediate representation (IR) for neural networks. As such, almost every component inside FINN uses ONNX and its `Python API <https://github.com/onnx/onnx/blob/master/docs/PythonAPIOverview.md>`_, so you may want to familiarize yourself with how ONNX represents DNNs. Specifically, the `ONNX protobuf description <https://github.com/onnx/onnx/blob/master/onnx/onnx.proto>`_ (or its `human-readable documentation <https://github.com/onnx/onnx/blob/master/docs/IR.md>`_ and the `operator schemas <https://github.com/onnx/onnx/blob/master/docs/Operators.md>`_ are useful as reference documents. We also provide a Jupyter notebook (`1-FINN-HowToWorkWithONNX <https://github.com/Xilinx/finn/blob/dev/notebooks/1-FINN-HowToWorkWithONNX.ipynb>`_) that can help to get familiar with ONNX by showing how to work with a simple ONNX model in FINN.
+FINN uses `ONNX <https://github.com/onnx/onnx>`_ as an intermediate representation (IR) for neural networks. As such, almost every component inside FINN uses ONNX and its `Python API <https://github.com/onnx/onnx/blob/master/docs/PythonAPIOverview.md>`_, so you may want to familiarize yourself with how ONNX represents DNNs. Specifically, the `ONNX protobuf description <https://github.com/onnx/onnx/blob/master/onnx/onnx.proto>`_ (or its `human-readable documentation <https://github.com/onnx/onnx/blob/master/docs/IR.md>`_ and the `operator schemas <https://github.com/onnx/onnx/blob/master/docs/Operators.md>`_ are useful as reference documents. We also provide a Jupyter notebook that can help to get familiar with ONNX by showing how to work with a simple ONNX model in FINN, see chapter :ref:`tutorials` for details.
 
 .. note:: FINN uses ONNX is a specific way that we refer to as FINN-ONNX, and not all ONNX graphs are supported by FINN (and vice versa).
 
@@ -17,7 +19,7 @@ ONNX does not support datatypes smaller than 8-bit integers, whereas in FINN we 
 Custom Operations/Nodes
 =======================
 
-FINN uses many custom operations (op_type in ONNX NodeProto) that are not defined in the ONNX operator schema. These custom nodes are marked with domain="finn" in the protobuf to identify them as such. These nodes can represent specific operations that we need for low-bit networks, or operations that are specific to a particular hardware backend. To get more familiar with custom operations and how they are created, please take a look in the Jupyter notebook `7-FINN-CustomOps <https://github.com/Xilinx/finn/blob/dev/notebooks/7-FINN-CustomOps.ipynb>`_ or directly in the module :py:mod:`finn.custom_op`.
+FINN uses many custom operations (op_type in ONNX NodeProto) that are not defined in the ONNX operator schema. These custom nodes are marked with domain="finn" in the protobuf to identify them as such. These nodes can represent specific operations that we need for low-bit networks, or operations that are specific to a particular hardware backend. To get more familiar with custom operations and how they are created, please take a look in the Jupyter notebook about CustomOps (see chapter :ref:`tutorials` for details) or directly in the module :py:mod:`finn.custom_op`.
 
 Custom ONNX Execution Flow
 ==========================
@@ -127,12 +129,12 @@ ModelWrapper contains more useful functions, if you are interested please have a
 Analysis Pass
 =============
 
-An analysis pass traverses the graph structure and produces information about certain properties. It gets the model in the ModelWrapper as input and returns a dictionary of the properties the analysis extracts. If you are interested in how to write an analysis pass for FINN, please take a look at the Jupyter notebook `4-FINN-HowToAnalysisPass <https://github.com/Xilinx/finn/blob/dev/notebooks/4-FINN-HowToAnalysisPass.ipynb>`_. For more details about existing analysis passes in FINN, see module :py:mod:`finn.analysis`.
+An analysis pass traverses the graph structure and produces information about certain properties. It gets the model in the ModelWrapper as input and returns a dictionary of the properties the analysis extracts. If you are interested in how to write an analysis pass for FINN, please take a look at the Jupyter notebook about how to write an analysis pass, see chapter :ref:`tutorials` for details. For more information about existing analysis passes in FINN, see module :py:mod:`finn.analysis`.
 
 .. _transformation_pass:
 
 Transformation Pass
 ===================
 
-A transformation passes changes (transforms) the given model, it gets the model in the ModelWrapper as input and returns the changed model (ModelWrapper) to the FINN flow. Additional the flag *model_was_changed* which indicates if a transformation has to be performed more than once, is returned. If you are interested in how to write a transformation pass for FINN, please take a look at the Jupyter notebook `5-FINN-HowToTransformationPass <https://github.com/Xilinx/finn/blob/dev/notebooks/5-FINN-HowToTransformationPass.ipynb>`_. For more details about existing transformation passes in FINN, see module :py:mod:`finn.transformation`.
+A transformation passes changes (transforms) the given model, it gets the model in the ModelWrapper as input and returns the changed model (ModelWrapper) to the FINN flow. Additional the flag *model_was_changed* which indicates if a transformation has to be performed more than once, is returned. If you are interested in how to write a transformation pass for FINN, please take a look at the Jupyter notebook about how to write a transformation pass, see chapter :ref:`tutorials` for details. For more information about existing transformation passes in FINN, see module :py:mod:`finn.transformation`.
 

@@ -2,6 +2,8 @@
 Getting Started
 ***************
 
+.. note:: **This website is currently under construction.**
+
 How to use the FINN compiler
 ============================
 The FINN compiler should not be thought of a single pushbutton tool that does everything for you, but rather as a collection of scripts/tools that will help you convert a QNN into a custom FPGA accelerator that performs high-performance inference. We do provide several examples of taking trained networks all the way down to FPGA bitfiles, but if you are trying to do this for custom networks you will have to write your own Python scripts that call the appropriate FINN Compiler functions that process your design correctly, or adding new functions as required.

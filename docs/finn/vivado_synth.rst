@@ -4,8 +4,8 @@
 Vivado HLS and Vivado IPI 
 *************************
 
-.. note:: **Here will be soon a detailed description of how Vivado is used in FINN.**
+.. note:: **This website is currently under construction.**
 
-.. image:: /img/vivado-synth.svg
-   :scale: 50%
+.. image:: /img/vivado-synth.png
+   :scale: 70%
    :align: center

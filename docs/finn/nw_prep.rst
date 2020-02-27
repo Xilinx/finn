@@ -4,8 +4,8 @@
 Network Preparation
 *******************
 
-.. note:: **Here will be soon a detailed description of how the network preparation in FINN works.**
+.. note:: **This website is currently under construction.**
 
-.. image:: /img/nw-prep.svg
-   :scale: 50%
+.. image:: /img/nw-prep.png
+   :scale: 70%
    :align: center
