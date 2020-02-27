@@ -274,6 +274,8 @@ def test_fpgadataflow_ipstitch_pynq_deployment_folder():
     )
     try:
         ip = os.environ["PYNQ_IP"]  # no default for this one; skip if not defined
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
@@ -305,6 +307,8 @@ def test_fpgadataflow_ipstitch_remote_execution():
     )
     try:
         ip = os.environ["PYNQ_IP"]  # NOQA
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
         idt = DataType.INT2
         x = gen_finn_dt_tensor(idt, (1, 4))
         input_dict = {"inp": x}

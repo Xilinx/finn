@@ -26,10 +26,8 @@ More FINN Resources
 ===================
 
 * `List of publications <https://github.com/Xilinx/finn/blob/dev/docs/publications.md>`_
- 
+
 * `Roadmap <https://github.com/Xilinx/finn/projects/1>`_
- 
-* `Status of example networks <https://github.com/Xilinx/finn/blob/dev/docs/example-networks.md>`_
 
 .. toctree::
    :maxdepth: 5
@@ -38,6 +36,7 @@ More FINN Resources
    getting_started
    tutorials
    end_to_end_flow
+   example_networks
    internals
    source_code/finn
    genindex
