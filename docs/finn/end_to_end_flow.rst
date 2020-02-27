@@ -2,6 +2,8 @@
 End-to-End Flow
 ***************
 
+.. note:: **This website is currently under construction.**
+
 The following image shows the end-to-end flow of FINN. As you can see in the picture, FINN has a high modularity and has the property that the flow can be stopped at any point and the intermediate result can be used for further processing or other purposes. This enables a wide range of users to benefit from FINN, even if they do not use the whole flow.
 
 .. image:: ../../notebooks/end2end_example/finn-design-flow-example.svg

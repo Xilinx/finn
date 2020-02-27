@@ -4,7 +4,7 @@
 Functional Verification
 ***********************
 
-.. note:: **Here will be soon a detailed description of the methods used in FINN to functionally verify a model.**
+.. note:: **This website is currently under construction.**
 
 .. image:: /img/verification.png
    :scale: 70%
