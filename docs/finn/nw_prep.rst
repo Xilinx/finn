@@ -6,6 +6,6 @@ Network Preparation
 
 .. note:: **Here will be soon a detailed description of how the network preparation in FINN works.**
 
-.. image:: /img/nw-prep.svg
-   :scale: 50%
+.. image:: /img/nw-prep.png
+   :scale: 70%
    :align: center
