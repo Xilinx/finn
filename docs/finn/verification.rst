@@ -10,12 +10,14 @@ Functional Verification
    :scale: 70%
    :align: center
 
-When the network is transformed it is important to verify the functionality to make sure the transformation did not change the behaviour of the model. There are multiple ways of verification that can be applied in different stages of the network inside FINN. All can be accessed using the execution function in module :py:mod:`finn.core.onnx_exec`. The execution happens in most cases node by node, which supports networks that have a mixture of standard ONNX nodes, custom nodes and HLS custom nodes. Because the single node can be executed using one of the following methods.
+"* This part of the flow is covered by the `this notebook <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/tfc_end2end_verification.ipynb>`_. *"
+
+When the network is transformed it is important to verify the functionality to make sure the transformation did not change the behaviour of the model. There are multiple ways of verification that can be applied in different stages of the network inside FINN. All can be accessed using the execution function in module :py:mod:`finn.core.onnx_exec`. The execution happens in most cases node by node, which supports networks that have a mixture of standard ONNX nodes, custom nodes and HLS custom nodes. A single node can be executed using one or more of the following methods:
 
 Simulation using Python
 =======================
 
-This simulation can be used right after the :ref:`brevitas_export` or when the network does not contain any HLS custom nodes, so right after the streamlining transformations and before the nodes are converted into HLS layers. 
+This simulation can be used right after the :ref:`brevitas_export` or when the network does not contain any HLS custom nodes, so right after the streamlining transformations and before the nodes are converted into HLS layers.
 
 Simulation using C++
 ====================

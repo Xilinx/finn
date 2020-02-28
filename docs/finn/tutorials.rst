@@ -56,3 +56,6 @@ End-to-End Flow
 This notebook shows the FINN end-to-end flow step by step using an example of a simple, binarized, fully-connected network trained on the MNIST data set. Starting with the brevitas export and taking this particular network all the way down to hardware by using a specific sequence of transformations.
 
 * `tfc_end2end_example <https://github.com/Xilinx/finn/blob/master/notebooks/end2end_example/tfc_end2end_example.ipynb>`_
+  * This notebook takes the model step-by-step from a trained Brevitas net to a running FPGA bitfile.
+* `tfc_end2end_verification <https://github.com/Xilinx/finn/blob/master/notebooks/end2end_example/tfc_end2end_verification.ipynb>`_
+  * This notebook runs parellel to the tfc_end2end_example notebook above, and shows how the output of each step can be verified.
