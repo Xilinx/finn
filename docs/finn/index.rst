@@ -25,7 +25,7 @@ What is FINN?
 More FINN Resources
 ===================
 
-* `List of publications <https://github.com/Xilinx/finn/blob/dev/docs/publications.md>`_
+* `List of publications <https://github.com/Xilinx/finn/blob/master/docs/publications.md>`_
 
 * `Roadmap <https://github.com/Xilinx/finn/projects/1>`_
 
