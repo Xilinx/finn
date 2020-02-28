@@ -225,5 +225,8 @@ def test_packed_bytearray_to_finnpy():
     eF = np.asarray(eE, dtype=np.float32)
     shapeF = eF.shape
     assert (
-        packed_bytearray_to_finnpy(F, DataType.INT32, shapeF, reverse_endian=True) == eF
+        packed_bytearray_to_finnpy(
+            F, DataType.INT32, shapeF, reverse_inner=True, reverse_endian=True
+        )
+        == eF
     ).all()
