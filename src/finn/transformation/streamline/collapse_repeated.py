@@ -1,3 +1,31 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 from onnx import helper as oh
 
 from finn.transformation import Transformation
@@ -27,9 +55,13 @@ class CollapseRepeatedOp(Transformation):
                     op1_param_name = consumer.input[1]
                     op0_param = model.get_initializer(op0_param_name)
                     op1_param = model.get_initializer(op1_param_name)
-                    assert op0_param is not None, """Initializer for parameters for 
+                    assert (
+                        op0_param is not None
+                    ), """Initializer for parameters for
                     op0 is not set."""
-                    assert op1_param is not None, """Initializer for parameters for 
+                    assert (
+                        op1_param is not None
+                    ), """Initializer for parameters for
                     op1 is not set."""
                     start_name = n.input[0]
                     end_name = consumer.output[0]
@@ -53,11 +85,13 @@ class CollapseRepeatedOp(Transformation):
 
 class CollapseRepeatedAdd(CollapseRepeatedOp):
     """Collapse repeated adder node into a single operation."""
+
     def __init__(self):
         super().__init__("Add", lambda x, y: y + x)
 
 
 class CollapseRepeatedMul(CollapseRepeatedOp):
     """Collapse repeated multiplier node into a single operation."""
+
     def __init__(self):
         super().__init__("Mul", lambda x, y: y * x)

@@ -1,3 +1,31 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import binascii
 import os
 import sys
@@ -21,13 +49,13 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
     packing.
 
     Examples:
-    
+
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 4) = "0xe"
-    
+
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 8) = "0x0e"
-    
+
     array2hexstring([1, 1, 0, 1], DataType.BINARY, 4, reverse=True) = "0xb"
-    
+
     array2hexstring([1, 1, 1, 0], DataType.BINARY, 8, reverse=True) = "0x07"
     """
     if pad_to_nbits < 4:
@@ -67,8 +95,8 @@ def array2hexstring(array, dtype, pad_to_nbits, prefix="0x", reverse=False):
 
 
 def hexstring2npbytearray(hexstring, remove_prefix="0x"):
-    """Convert a hex string into a NumPy array of dtype uint8. 
-    
+    """Convert a hex string into a NumPy array of dtype uint8.
+
     Example:
 
     hexstring2npbytearray("0f01") = array([15,  1], dtype=uint8)
@@ -82,8 +110,8 @@ def hexstring2npbytearray(hexstring, remove_prefix="0x"):
 
 
 def npbytearray2hexstring(npbytearray, prefix="0x"):
-    """Convert a NumPy array of uint8 dtype into a hex string. 
-    
+    """Convert a NumPy array of uint8 dtype into a hex string.
+
     Example:
 
     npbytearray2hexstring(array([15,  1], dtype=uint8)) = "0x0f01"
@@ -93,20 +121,20 @@ def npbytearray2hexstring(npbytearray, prefix="0x"):
 
 def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner=False):
     """Pack the innermost dimension of the given numpy ndarray into hex
-    strings using array2hexstring. 
-    
+    strings using array2hexstring.
+
     Examples:
 
     A = [[1, 1, 1, 0], [0, 1, 1, 0]]
-    
+
     eA = ["0e", "06"]
-    
+
     pack_innermost_dim_as_hex_string(A, DataType.BINARY, 8) == eA
-    
+
     B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
-    
+
     eB = [[ "0f", "0f"], ["07", "0d"]]
-    
+
     pack_innermost_dim_as_hex_string(B, DataType.UINT2, 8) == eB
     """
 
@@ -316,8 +344,8 @@ def packed_bytearray_to_finnpy(
     reverse_endian=False,
 ):
     """Given a packed numpy uint8 ndarray, unpack it into a FINN array of
-    given DataType. 
-    
+    given DataType.
+
     output_shape can be specified to remove padding from the
     packed dimension, or set to None to be inferred from the input."""
 
@@ -332,7 +360,9 @@ def packed_bytearray_to_finnpy(
     target_bits = dtype.bitwidth()
     if output_shape is None:
         # determine output shape from input shape
-        assert packed_bits % target_bits == 0, """packed_bits are not divisable by 
+        assert (
+            packed_bits % target_bits == 0
+        ), """packed_bits are not divisable by
         target_bits."""
         n_target_elems = packed_bits // target_bits
         output_shape = packed_bytearray.shape[:-1] + (n_target_elems,)

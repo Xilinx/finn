@@ -1,3 +1,31 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 from abc import abstractmethod
 import numpy as np
 import os
@@ -12,10 +40,11 @@ from . import templates
 
 
 class HLSCustomOp(CustomOp):
-    """HLSCustomOp class all custom ops that correspond to a finn-hlslib 
-    function are based on. Contains different functions every fpgadataflow 
+    """HLSCustomOp class all custom ops that correspond to a finn-hlslib
+    function are based on. Contains different functions every fpgadataflow
     custom node should have. Some as abstract methods, these have to be filled
     when writing a new fpgadataflow custom op node."""
+
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 
@@ -45,7 +74,7 @@ class HLSCustomOp(CustomOp):
         }
 
     def node_res_estimation(self):
-        """Returns summarized resource estimation of BRAMs and LUTs 
+        """Returns summarized resource estimation of BRAMs and LUTs
         of the node."""
         resources = []
         resources.append("BRAMs: " + str(self.bram_estimation()))
@@ -53,7 +82,7 @@ class HLSCustomOp(CustomOp):
         return resources
 
     def bram_estimation(self):
-        """Function for BRAM resource estimation, is member function of 
+        """Function for BRAM resource estimation, is member function of
         HLSCustomOp class but has to be filled by every node"""
         return 0
 
@@ -108,7 +137,7 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict.clear()
 
     def ipgen_singlenode_code(self):
-        """Builds the bash script for ip generation using the IPGenBuilder from 
+        """Builds the bash script for ip generation using the IPGenBuilder from
         finn.util.fpgadataflow."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -163,8 +192,8 @@ class HLSCustomOp(CustomOp):
         self.set_nodeattr("executable_path", builder.executable_path)
 
     def dynamic_input_to_npy(self, context, count):
-        """Saves input (given context) into .npy files. 
-        
+        """Saves input (given context) into .npy files.
+
         Count indicates the number of inputs that have to be saved."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
@@ -184,7 +213,7 @@ Found no codegen dir for this node, did you run the codegen_npysim transformatio
             )
 
     def npy_to_dynamic_output(self, context):
-        """Reads the output from a .npy file and saves it at the right place in 
+        """Reads the output from a .npy file and saves it at the right place in
         the context dictionary."""
         # TODO support multi-output nodes as needed
         node = self.onnx_node
@@ -220,10 +249,10 @@ compilation transformations?
 
     def rtlsim(self, sim, inp):
         """Runs the pyverilator simulation by passing the input values to the simulation,
-        toggle the clock and observing the execution time. Function contains also an 
-        observation loop that can abort the simulation if no output value is produced 
+        toggle the clock and observing the execution time. Function contains also an
+        observation loop that can abort the simulation if no output value is produced
         after 100 cycles."""
-        
+
         trace_file = self.get_nodeattr("rtlsim_trace")
         if trace_file != "":
             if trace_file == "default":
@@ -302,31 +331,31 @@ compilation transformations?
             )
 
     def generate_params(self, model, path):
-        """Function to generate parameters (i.e. weights and thresholds), 
-        is member function of HLSCustomOp class but has to be filled 
+        """Function to generate parameters (i.e. weights and thresholds),
+        is member function of HLSCustomOp class but has to be filled
         by every node."""
         pass
 
     @abstractmethod
     def get_number_output_values(self):
-        """Function to get the number of expected output values, 
-        is member function of HLSCustomOp class but has to be filled 
+        """Function to get the number of expected output values,
+        is member function of HLSCustomOp class but has to be filled
         by every node."""
         pass
 
     @abstractmethod
     def global_includes(self):
         """Function to set the global includes for c++ code that has to be generated
-        for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+        for npysim or rtlsim, is member function of HLSCustomOp class but has to
         be filled by every node."""
         pass
 
     @abstractmethod
     def defines(self, var):
         """Function to set the define commands for c++ code that has to be generated
-        for npysim or rtlsim, is member function of HLSCustomOp class but has to 
+        for npysim or rtlsim, is member function of HLSCustomOp class but has to
         be filled by every node.
-        
+
         var: makes it possible to reuse the function for different c++ code generation.
         I.e. if set to "ipgen" in StreamingFCLayer_Batch additional PRAGMA defines are
         added."""
@@ -334,7 +363,7 @@ compilation transformations?
 
     @abstractmethod
     def read_npy_data(self):
-        """Function to generate the commands for reading data from .npy file in c++, 
+        """Function to generate the commands for reading data from .npy file in c++,
         is member function of HLSCustomOp class but has to be filled by every node."""
         pass
 
@@ -347,15 +376,15 @@ compilation transformations?
 
     @abstractmethod
     def docompute(self):
-        """Function to generate the commands for the computational part of the 
+        """Function to generate the commands for the computational part of the
         c++ code, is member function of HLSCustomOp class but has to be filled
         by every node."""
         pass
 
     @abstractmethod
     def dataoutstrm(self):
-        """Function to generate the commands for reading out data from c++ and convert 
-        into npy format, is member function of HLSCustomOp class but has to be filled 
+        """Function to generate the commands for reading out data from c++ and convert
+        into npy format, is member function of HLSCustomOp class but has to be filled
         by every node."""
         pass
 
@@ -367,14 +396,14 @@ compilation transformations?
 
     @abstractmethod
     def blackboxfunction(self):
-        """Function to generate a blackbock function in c++ from which an IP block 
-        will be generated, is member function of HLSCustomOp class but has to be filled 
+        """Function to generate a blackbock function in c++ from which an IP block
+        will be generated, is member function of HLSCustomOp class but has to be filled
         by every node."""
         pass
 
     @abstractmethod
     def pragmas(self):
-        """Function to generate the pragma commands in c++, is member function of 
+        """Function to generate the pragma commands in c++, is member function of
         HLSCustomOp class but has to be filled by every node."""
         pass
 

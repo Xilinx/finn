@@ -26,39 +26,49 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 from pkgutil import get_data
 
 import brevitas.onnx as bo
+import numpy as np
 import onnx
 import onnx.numpy_helper as nph
+import pytest
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.streamline import ConvertSignToThres
+from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
+from finn.util.basic import make_build_dir
 
-export_onnx_path = "test_output_lfc.onnx"
-transformed_onnx_path = "test_output_lfc_transformed.onnx"
-# TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_checkpoint = (
-    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
-)
+export_onnx_path = make_build_dir("test_streamline_fc_")
 
-
-def test_sign_to_thres():
-    lfc = get_test_model_trained("LFC", 1, 1)
-    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
+# activation: None or DataType
+@pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
+# weight bits
+@pytest.mark.parametrize("wbits", [1])
+# act bits
+@pytest.mark.parametrize("abits", [1, 2])
+def test_streamline_fc(size, wbits, abits):
+    nname = "%s_%dW%dA" % (size, wbits, abits)
+    finn_onnx = export_onnx_path + "/%s.onnx" % nname
+    fc = get_test_model_trained(size, wbits, abits)
+    bo.export_finn_onnx(fc, (1, 1, 28, 28), finn_onnx)
+    model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
-    new_model = model.transform(ConvertSignToThres())
-    assert new_model.graph.node[3].op_type == "MultiThreshold"
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
-    input_dict = {"0": nph.to_array(input_tensor)}
-    assert oxe.compare_execution(model, new_model, input_dict)
-    os.remove(export_onnx_path)
+    # run using FINN-based execution
+    input_dict = {"global_in": nph.to_array(input_tensor)}
+    expected_ctx = oxe.execute_onnx(model, input_dict, True)
+    expected = expected_ctx[model.graph.output[0].name]
+    model = model.transform(Streamline())
+    produced_ctx = oxe.execute_onnx(model, input_dict, True)
+    produced = produced_ctx[model.graph.output[0].name]
+    assert np.isclose(expected, produced, atol=1e-3).all()

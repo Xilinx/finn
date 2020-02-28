@@ -1,4 +1,4 @@
-Copyright (c) 2019, Xilinx
+Copyright (c) 2020, Xilinx
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without
