@@ -1,10 +1,10 @@
-import os
 from pkgutil import get_data
 
 import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
+import pytest
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
@@ -13,14 +13,22 @@ from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeN
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
+from finn.util.basic import make_build_dir
 
-export_onnx_path = "test_output_lfc.onnx"
+export_onnx_path = make_build_dir("test_streamline_fc_")
 
-
-def test_streamline_lfc_w1a2():
-    lfc = get_test_model_trained("LFC", 1, 1)
-    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
+# activation: None or DataType
+@pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
+# weight bits
+@pytest.mark.parametrize("wbits", [1])
+# act bits
+@pytest.mark.parametrize("abits", [1, 2])
+def test_streamline_fc(size, wbits, abits):
+    nname = "%s_%dW%dA" % (size, wbits, abits)
+    finn_onnx = export_onnx_path + "/%s.onnx" % nname
+    fc = get_test_model_trained(size, wbits, abits)
+    bo.export_finn_onnx(fc, (1, 1, 28, 28), finn_onnx)
+    model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
@@ -36,4 +44,3 @@ def test_streamline_lfc_w1a2():
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
     assert np.isclose(expected, produced, atol=1e-3).all()
-    os.remove(export_onnx_path)

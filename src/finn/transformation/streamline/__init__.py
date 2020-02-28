@@ -37,6 +37,7 @@ class Streamline(Transformation):
             ConvertSubToAdd(),
             BatchNormToAffine(),
             ConvertSignToThres(),
+            MoveAddPastMul(),
             MoveScalarAddPastMatMul(),
             MoveScalarMulPastMatMul(),
             MoveAddPastMul(),
