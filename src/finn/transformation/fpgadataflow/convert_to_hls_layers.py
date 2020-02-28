@@ -2,6 +2,7 @@ from onnx import helper
 
 from finn.core.datatype import DataType
 from finn.transformation import Transformation
+from finn.custom_op.registry import getCustomOp
 
 
 class InferBinaryStreamingFCLayer(Transformation):
@@ -176,11 +177,18 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         ), """First dimension of
                         thresholds neither 1 nor MH."""
                         odt = model.get_tensor_datatype(mt_output)
-                        if odt.bitwidth() == 1:
-                            # covers both bipolar and binary
-                            actval = 0
-                        else:
-                            actval = odt.min()
+                        scale = getCustomOp(consumer).get_nodeattr("out_scale")
+                        assert (
+                            scale == 1.0
+                        ), "out_scale must be equal to 1.0 for HLS conversion."
+                        actval = getCustomOp(consumer).get_nodeattr("out_bias")
+                        assert (
+                            int(actval) == actval
+                        ), "out_bias must be integer for HLS conversion."
+                        actval = int(actval)
+                        assert (not odt.signed()) or (
+                            actval < 0
+                        ), "Signed output requres actval < 0"
                         in_shape = [1, mw]
                         out_shape = [1, mh]
                         model.set_tensor_shape(mm_input, in_shape)
