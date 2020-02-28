@@ -211,7 +211,7 @@ def test_end2end_tfc_w1a1_make_pynq_proj():
     model.save(build_dir + "/end2end_tfc_w1a1_pynq_project.onnx")
 
 
-def test_end2end_synth_pynq_project():
+def test_end2end_tfc_w1a1_synth_pynq_project():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_pynq_project.onnx")
     model = model.transform(SynthPYNQProject())
     model.save(build_dir + "/end2end_tfc_w1a1_synth.onnx")
