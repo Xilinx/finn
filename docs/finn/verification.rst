@@ -10,7 +10,7 @@ Functional Verification
    :scale: 70%
    :align: center
 
-There are three ways to verify a network in FINN functionally. These ways of verification can be applied in different stages of the network inside FINN. All can be accessed using the execution function in module :py:mod:`finn.core.onnx_exec`. The execution happens in most cases node by node, which supports networks that have a mixture of standard ONNX nodes, custom nodes and HLS custom nodes. Because the single node can be executed using one of the following methods.
+When the network is transformed it is important to verify the functionality to make sure the transformation did not change the behaviour of the model. There are multiple ways of verification that can be applied in different stages of the network inside FINN. All can be accessed using the execution function in module :py:mod:`finn.core.onnx_exec`. The execution happens in most cases node by node, which supports networks that have a mixture of standard ONNX nodes, custom nodes and HLS custom nodes. Because the single node can be executed using one of the following methods.
 
 Simulation using Python
 =======================
