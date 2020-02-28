@@ -1,8 +1,8 @@
 .. _example_networks:
 
-***************
+****************
 Example Networks
-***************
+****************
 
 FINN uses `several pre-trained QNNs <https://github.com/maltanar/brevitas_cnv_lfc>`_ that serve as examples and testcases.
 You can find a status summary below for each network.
