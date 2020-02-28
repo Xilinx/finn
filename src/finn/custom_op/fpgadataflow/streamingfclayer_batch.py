@@ -1,3 +1,31 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import math
 import os
 
@@ -22,6 +50,7 @@ from finn.util.data_packing import (
 
 class StreamingFCLayer_Batch(HLSCustomOp):
     """Class that corresponds to finn-hls StreamingFCLayer_Batch function."""
+
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 
@@ -237,7 +266,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return nf
 
     def get_template_param_values(self):
-        """Returns the template parameter values according to input, output and weight 
+        """Returns the template parameter values according to input, output and weight
         data types."""
         ret = dict()
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
@@ -289,9 +318,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
         wmem = self.calc_wmem()
-        assert orig_weight_matrix.shape == (mw, mh), """Weights matrix doesn't 
+        assert orig_weight_matrix.shape == (
+            mw,
+            mh,
+        ), """Weights matrix doesn't
         have expected shape (mw, mh)"""
-        assert mw % simd == 0, "Requirement MH divisable by SIMD is violated." 
+        assert mw % simd == 0, "Requirement MH divisable by SIMD is violated."
         assert mh % pe == 0, "Requirement MH divisable by PE is violated."
         # start by transposing the original weight matrix, since ONNX and
         # finn-hlslib use different assumptions
@@ -322,7 +354,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         pe = self.get_nodeattr("PE")
         tmem = mh // pe
         assert mh % pe == 0, "Requirement MH divisable by PE is violated."
-        assert orig_thres_matrix.ndim == 2, """Threshold matrix dimension is 
+        assert (
+            orig_thres_matrix.ndim == 2
+        ), """Threshold matrix dimension is
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
         inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
@@ -342,14 +376,22 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))
-        assert ret.shape[0] == mh, "Channels of threshold matrix are not as expected (mh)"
+        assert (
+            ret.shape[0] == mh
+        ), "Channels of threshold matrix are not as expected (mh)"
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        assert ret.shape[0] == pe, """First dimension after distribution of the 
+        assert (
+            ret.shape[0] == pe
+        ), """First dimension after distribution of the
         rows between PEs is not as expected (pe)"""
-        assert ret.shape[1] == tmem, """Second dimension after distribution of the 
+        assert (
+            ret.shape[1] == tmem
+        ), """Second dimension after distribution of the
         rows between PEs is not as expected (tmem)"""
-        assert ret.shape[2] == n_thres_steps, """Third dimension after distribution of the 
+        assert (
+            ret.shape[2] == n_thres_steps
+        ), """Third dimension after distribution of the
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
@@ -464,7 +506,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # the second input are the weights
             # the third input are the thresholds
             if in_ind == 0:
-                assert str(context[inputs].dtype) == "float32", """Input datatype is 
+                assert (
+                    str(context[inputs].dtype) == "float32"
+                ), """Input datatype is
                 not float32 as expected."""
                 expected_inp_shape = (1, sf, simd)
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
@@ -492,7 +536,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
-            assert context[node.output[0]].shape == (1, nf, pe), """Output shape is not
+            assert context[node.output[0]].shape == (
+                1,
+                nf,
+                pe,
+            ), """Output shape is not
             as expected (1, nf, pe)"""
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(1, mh)

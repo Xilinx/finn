@@ -1,3 +1,31 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import os
 
 from finn.custom_op.registry import getCustomOp
@@ -9,13 +37,17 @@ from finn.util.fpgadataflow import (
 
 
 def rtlsim_exec(model, execution_context):
-    """Use PyVerilator to execute given model with stitched IP. The execution 
+    """Use PyVerilator to execute given model with stitched IP. The execution
     context contains the input values."""
 
     # ensure stitched ip project already exists
-    assert os.path.isfile(model.get_metadata_prop("wrapper_filename")), """The 
+    assert os.path.isfile(
+        model.get_metadata_prop("wrapper_filename")
+    ), """The
     file name from metadata property "wrapper_filename" doesn't exist."""
-    assert os.path.isdir(model.get_metadata_prop("vivado_stitch_proj")), """The 
+    assert os.path.isdir(
+        model.get_metadata_prop("vivado_stitch_proj")
+    ), """The
     directory from metadata property "vivado_stitch_proj" doesn't exist"""
     trace_file = model.get_metadata_prop("rtlsim_trace")
     # extract input shape
@@ -57,7 +89,7 @@ def rtlsim_exec(model, execution_context):
 
 # TODO move the rtlsim functions below into a common location such as utils
 def _reset_rtlsim(sim):
-    """Sets reset input in pyverilator to zero, toggles the clock and set it 
+    """Sets reset input in pyverilator to zero, toggles the clock and set it
     back to one"""
     sim.io.ap_rst_n_0 = 0
     sim.io.ap_clk_0 = 1
@@ -74,10 +106,11 @@ def _toggle_clk(sim):
 def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
     """Runs the pyverilator simulation by passing the input values to the simulation,
     toggle the clock and observing the execution time. Argument num_out_values contains
-    the number of expected output values, so the simulation is closed after all outputs are
-    calculated. Function contains also an observation loop that can abort the simulation if 
-    no output value is produced after a certain time (liveness_threshold from function 
-    pyverilate_get_liveness_threshold_cycles() from finn.util.fpgadataflow)"""
+    the number of expected output values, so the simulation is closed after all
+    outputs are calculated. Function contains also an observation loop that can
+    abort the simulation if no output value is produced after a certain time
+    (liveness_threshold from function pyverilate_get_liveness_threshold_cycles()
+    from finn.util.fpgadataflow)"""
     inputs = inp
     outputs = []
     sim.io.out_r_0_tready = 1

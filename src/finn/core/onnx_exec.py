@@ -1,28 +1,31 @@
-# Copyright (c) 2019, Xilinx
+# Copyright (c) 2020, Xilinx
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions are met:
 #
-#    1. Redistributions of source code must retain the above copyright
-#       notice, this list of conditions and the following disclaimer.
-#    2. Redistributions in binary form must reproduce the above copyright
-#       notice, this list of conditions and the following disclaimer in the
-#       documentation and/or other materials provided with the distribution.
-#    3. Neither the name of the <organization> nor the
-#       names of its contributors may be used to endorse or promote products
-#       derived from this software without specific prior written permission.
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
 #
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-# ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED
-# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-# DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-# (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-# LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-# ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-# (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-# SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 
 import copy
 
@@ -40,7 +43,7 @@ from finn.custom_op.registry import getCustomOp
 def execute_node(node, context, graph):
     """Executes a single node by using onnxruntime, with custom function or
     if dataflow partition by using remote execution or rtlsim.
-    
+
     Input/output provided via context."""
 
     if node.op_type == "StreamingDataflowPartition":
@@ -96,10 +99,10 @@ def execute_node(node, context, graph):
 
 def execute_onnx(model, input_dict, return_full_exec_context=False):
     """Executes given ONNX ModelWrapper with given named inputs.
-    
+
     If return_full_exec_context is False, a dict of named outputs is returned
     as indicated by the model.graph.output.
-   
+
     If return return_full_exec_context is True, the full set of tensors used by
     the execution (including inputs, weights, activations and final outputs)
     will be returned as a dict."""
@@ -191,7 +194,7 @@ def compare_execution(
     compare_fxn=lambda x, y: np.isclose(x, y, atol=1e-3).all(),
 ):
     """Executes two ONNX models and compare their outputs using given function.
-    
+
     compare_fxn should take in two tensors and return a Boolean"""
     # compare values from first output tensors produced
     res_a = list(execute_onnx(model_a, input_dict).items())[0][1]

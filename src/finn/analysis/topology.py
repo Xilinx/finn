@@ -1,11 +1,39 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import numpy as np
 
 
 def is_linear(model):
     """Checks whether the given model graph is linear. This is done by looking
     at the fan-out of each tensor. All tensors have a fan-out <= 1 in a linear
-    graph. 
-    
+    graph.
+
     Returns {"is_linear": Bool}."""
     per_tensor_fanouts = get_per_tensor_fanouts(model)
     # check for tensors that have fanout > 1
@@ -25,8 +53,8 @@ def get_per_tensor_fanouts(model):
 
 def all_tensors_f32(model):
     """Checks whether all tensors have a float32 dtype, extra quantization
-    annotations notwithstanding. 
-    
+    annotations notwithstanding.
+
     Returns {"all_tensors_f32": Bool}."""
     all_tensors = model.make_empty_exec_context().items()
     non_f32_tensors = filter(lambda x: x[1].dtype != np.float32, all_tensors)
@@ -37,8 +65,8 @@ def node_inputs_in_expected_order(model):
     """Verifies that the node inputs are ordered in the way that FINN expects
     them. When a node has a mixture of static (= constant, initialized) inputs
     and dynamic inputs, the dynamic input should come first, followed by the
-    static one. Only verifiable for a small subset of op_types for now. 
-    
+    static one. Only verifiable for a small subset of op_types for now.
+
     Returns {"node_inputs_in_expected_order": Bool}."""
     op_types = ["MatMul", "Conv", "Add", "Mul"]
     nodes = filter(lambda x: x.op_type in op_types, model.graph.node)
