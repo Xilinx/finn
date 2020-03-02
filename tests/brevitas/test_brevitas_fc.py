@@ -45,13 +45,17 @@ from finn.util.test import get_test_model_trained
 
 export_onnx_path = make_build_dir("test_brevitas_fc_")
 
-# activation: None or DataType
-@pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
-# weight bits
-@pytest.mark.parametrize("wbits", [1])
 # act bits
 @pytest.mark.parametrize("abits", [1, 2])
+# weight bits
+@pytest.mark.parametrize("wbits", [1, 2])
+# activation: None or DataType
+@pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
 def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
+    if size == "LFC" and wbits == 2 and abits == 2:
+        pytest.skip("No LFC-w2a2 present at the moment")
+    if wbits > abits:
+        pytest.skip("No wbits > abits cases at the moment")
     nname = "%s_%dW%dA" % (size, wbits, abits)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
     fc = get_test_model_trained(size, wbits, abits)
