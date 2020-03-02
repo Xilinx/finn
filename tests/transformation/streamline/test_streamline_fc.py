@@ -45,13 +45,17 @@ from finn.util.basic import make_build_dir
 
 export_onnx_path = make_build_dir("test_streamline_fc_")
 
-# activation: None or DataType
-@pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
-# weight bits
-@pytest.mark.parametrize("wbits", [1])
 # act bits
 @pytest.mark.parametrize("abits", [1, 2])
+# weight bits
+@pytest.mark.parametrize("wbits", [1, 2])
+# network topology / size
+@pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
 def test_streamline_fc(size, wbits, abits):
+    if size == "LFC" and wbits == 2 and abits == 2:
+        pytest.skip("No LFC-w2a2 present at the moment")
+    if wbits > abits:
+        pytest.skip("No wbits > abits cases at the moment")
     nname = "%s_%dW%dA" % (size, wbits, abits)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
     fc = get_test_model_trained(size, wbits, abits)

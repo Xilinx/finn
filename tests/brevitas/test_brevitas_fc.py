@@ -49,7 +49,7 @@ export_onnx_path = make_build_dir("test_brevitas_fc_")
 @pytest.mark.parametrize("abits", [1, 2])
 # weight bits
 @pytest.mark.parametrize("wbits", [1, 2])
-# activation: None or DataType
+# network topology / size
 @pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
 def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
     if size == "LFC" and wbits == 2 and abits == 2:
