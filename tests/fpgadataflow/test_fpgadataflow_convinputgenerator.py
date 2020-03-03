@@ -1,3 +1,31 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import pytest
 
 import numpy as np
@@ -6,10 +34,13 @@ from onnx import TensorProto, helper
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.core.utils import gen_finn_dt_tensor
-from finn.transformation.fpgadataflow.cleanup import CleanUp
-from finn.transformation.fpgadataflow.codegen import CodeGen
+from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
+from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.util.basic import gen_finn_dt_tensor
 
 
 def get_im2col_indices(x_shape, k, stride):
@@ -39,7 +70,6 @@ def im2col_indices(x, k, stride):
 
     cols = x[:, l, i, j]
     C = x.shape[1]
-    # cols = cols.transpose(0, 2, 1)
     cols = cols.transpose(1, 2, 0).reshape(k * k * C, -1)
     cols = cols.transpose(1, 0)
 
@@ -131,21 +161,19 @@ def prepare_inputs(input_tensor, idt):
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [4, 6, 8])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [1, 2, 3, 4])
+@pytest.mark.parametrize("ifm_ch", [1])  # , 2, 3, 4])
 # Stride
 @pytest.mark.parametrize("stride", [1, 2])
 def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
     simd = ifm_ch
-
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
 
     x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
-    # x_values = np
     model = make_single_slidingwindow_modelwrapper(
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
-
-    model = model.transform(CodeGen())
+    model = model.transform(SetExecMode("npysim"))
+    model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
 
     # prepare input data
@@ -158,5 +186,11 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
     oshape = y_produced.shape
     y_expected = y_expected.reshape(oshape)
 
-    assert (y_produced == y_expected).all()
-    model = model.transform(CleanUp())
+    assert (y_produced == y_expected).all(), "npysim failed"
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+    model = model.transform(HLSSynth_IPGen())
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced == y_expected).all(), "rtlsim failed"

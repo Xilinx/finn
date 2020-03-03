@@ -1,3 +1,31 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import numpy as np
 import onnx.helper as helper
 
@@ -6,6 +34,9 @@ from finn.custom_op import CustomOp
 
 
 def compare(x, y):
+    """Comparison helper function for multithresholding.
+
+    Gets two values and returns 1.0 if x>=y otherwise 0.0."""
     if x >= y:
         return 1.0
     else:
@@ -13,6 +44,12 @@ def compare(x, y):
 
 
 def multithreshold(v, thresholds, out_scale=None, out_bias=None):
+    """Given a set of threshold values t={t_0, t_1 ... t_n} the successive
+    thresholding maps any real number x to an integer in the interval [0, n],
+    where the returned integer is the number of thresholds x is greater than
+    or equal to.
+
+    The output tensor will be scaled by out_scale and biased by out_bias."""
     # the inputs are expected to be in the shape (N,C,H,W)
     # N : Batch size
     # C : Number of channels
@@ -27,7 +64,10 @@ def multithreshold(v, thresholds, out_scale=None, out_bias=None):
     # the output tensor will be scaled by out_scale and biased by out_bias
     # assert threshold shape
     is_global_threshold = thresholds.shape[0] == 1
-    assert (v.shape[1] == thresholds.shape[0]) or is_global_threshold
+    assert (
+        v.shape[1] == thresholds.shape[0]
+    ) or is_global_threshold, """"Threshold
+    shape incorrect"""
     # save the required shape sizes for the loops (N, C and B)
     num_batch = v.shape[0]
     num_channel = v.shape[1]
@@ -57,6 +97,8 @@ def multithreshold(v, thresholds, out_scale=None, out_bias=None):
 
 
 class MultiThreshold(CustomOp):
+    """Class that corresponds to a multithresholding node."""
+
     def get_nodeattr_types(self):
         return {
             "out_dtype": ("s", True, ""),

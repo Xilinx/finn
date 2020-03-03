@@ -1,3 +1,31 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import copy
 
 import onnx
@@ -5,7 +33,8 @@ import onnx.helper as oh
 import onnx.numpy_helper as np_helper
 from onnx import TensorProto
 
-import finn.core.utils as util
+import finn.util.basic as util
+import finn.util.onnx as onnxutil
 from finn.core.datatype import DataType
 
 
@@ -32,31 +61,36 @@ class ModelWrapper:
 
     @property
     def graph(self):
+        """Returns the graph of the model."""
         return self._model_proto.graph
 
     @graph.setter
     def graph(self, value):
+        """Sets the graph of the model according to value"""
         self._model_proto.graph = value
 
     @property
     def model(self):
+        """Returns the model."""
         return self._model_proto
 
     @model.setter
     def model(self, value):
+        """Sets the model according to value."""
         self._model_proto = value
 
     def save(self, filename):
-        """Save the wrapper ONNX ModelProto into a file with given name."""
+        """Saves the wrapper ONNX ModelProto into a file with given name."""
         onnx.save(self._model_proto, filename)
 
     def analysis(self, analysis_fxn):
-        """Run given anaylsis_fxn on this model and return resulting dict."""
+        """Runs given anaylsis_fxn on this model and return resulting dict."""
         return analysis_fxn(self)
 
     def transform(self, transformation, make_deepcopy=True):
         """Applies given Transformation repeatedly until no more changes can be made
         and returns a transformed ModelWrapper instance.
+
         If make_deepcopy is specified, operates on a new (deep)copy of model.
         """
         transformed_model = self
@@ -71,8 +105,11 @@ class ModelWrapper:
 
     def check_compatibility(self):
         """Checks this model for FINN compatibility:
+
         * no embedded subgraphs
+
         * all tensor shapes are specified, including activations
+
         * all constants are initializers
         """
         # TODO check for no embedded subgraphs
@@ -114,6 +151,19 @@ class ModelWrapper:
             qa.quant_parameter_tensor_names.append(dt)
             qnt_annotations.append(qa)
 
+    def get_tensor_valueinfo(self, tensor_name):
+        """Returns ValueInfoProto of tensor with given name, if it has one."""
+        graph = self._model_proto.graph
+        vi_names = [(x.name, x) for x in graph.input]
+        vi_names += [(x.name, x) for x in graph.output]
+        vi_names += [(x.name, x) for x in graph.value_info]
+        try:
+            vi_ind = [x[0] for x in vi_names].index(tensor_name)
+            vi = vi_names[vi_ind][1]
+            return vi
+        except ValueError:
+            return None
+
     def get_tensor_shape(self, tensor_name):
         """Returns the shape of tensor with given name, if it has ValueInfoProto."""
         graph = self._model_proto.graph
@@ -129,7 +179,7 @@ class ModelWrapper:
             return None
 
     def set_tensor_shape(self, tensor_name, tensor_shape, dtype=TensorProto.FLOAT):
-        """Assign shape in ValueInfoProto for tensor with given name."""
+        """Assigns shape in ValueInfoProto for tensor with given name."""
         new_vi = oh.make_tensor_value_info(tensor_name, dtype, tensor_shape)
         # find what container tis tensor's ValueInfo lives in
         # if not found anywhere, we assume it's a new value_info
@@ -143,7 +193,7 @@ class ModelWrapper:
         target_container.append(new_vi)
 
     def set_initializer(self, tensor_name, tensor_value):
-        """Set the initializer value for tensor with given name."""
+        """Sets the initializer value for tensor with given name."""
         graph = self._model_proto.graph
         # convert tensor_value (numpy array) into TensorProto w/ correct name
         tensor_init_proto = np_helper.from_array(tensor_value)
@@ -163,7 +213,7 @@ class ModelWrapper:
         self.set_tensor_shape(tensor_name, list(tensor_value.shape), dtype)
 
     def rename_tensor(self, old_name, new_name):
-        """Rename a tensor from old_name to new_name."""
+        """Renames a tensor from old_name to new_name."""
         graph = self.graph
         # sweep over inputs
         if util.get_by_name(graph.input, old_name) is not None:
@@ -193,7 +243,7 @@ class ModelWrapper:
                 n.output[list(n.output).index(old_name)] = new_name
 
     def get_initializer(self, tensor_name):
-        """Get the initializer value for tensor with given name, if any."""
+        """Gets the initializer value for tensor with given name, if any."""
         graph = self._model_proto.graph
         init_names = [x.name for x in graph.initializer]
         try:
@@ -203,7 +253,7 @@ class ModelWrapper:
             return None
 
     def find_producer(self, tensor_name):
-        """Find and return the node that produces the tensor with given name.
+        """Finds and returns the node that produces the tensor with given name.
         Currently only works for linear graphs."""
         all_outputs = [x.output[0] for x in self._model_proto.graph.node]
         try:
@@ -213,7 +263,7 @@ class ModelWrapper:
             return None
 
     def find_consumer(self, tensor_name):
-        """Find and return the node that consumes the tensor with given name.
+        """Finds and returns the node that consumes the tensor with given name.
         Currently only works for linear graphs."""
         all_inputs = [x.input[0] for x in self._model_proto.graph.node]
         try:
@@ -223,7 +273,7 @@ class ModelWrapper:
             return None
 
     def get_all_tensor_names(self):
-        """Return a list of all (input, output and value_info) tensor names
+        """Returns a list of all (input, output and value_info) tensor names
         in the graph."""
         graph = self.graph
         names = [x.name for x in graph.value_info]
@@ -241,6 +291,7 @@ class ModelWrapper:
 
     def make_empty_exec_context(self):
         """Creates an empty execution context for this model.
+
         The execution context is a dictionary of all tensors used for the
         inference computation. Any initializer values will be taken into
         account, all other tensors will be zero."""
@@ -248,14 +299,14 @@ class ModelWrapper:
         graph = self._model_proto.graph
         # make empty tensors for all the graph inputs and outputs
         for vi in graph.input:
-            new_tensor = util.valueinfo_to_tensor(vi)
+            new_tensor = onnxutil.valueinfo_to_tensor(vi)
             execution_context[vi.name] = new_tensor
         for vi in graph.output:
-            new_tensor = util.valueinfo_to_tensor(vi)
+            new_tensor = onnxutil.valueinfo_to_tensor(vi)
             execution_context[vi.name] = new_tensor
         # make empty tensors for all intermediate buffers
         for vi in graph.value_info:
-            new_tensor = util.valueinfo_to_tensor(vi)
+            new_tensor = onnxutil.valueinfo_to_tensor(vi)
             execution_context[vi.name] = new_tensor
         # fill in the constants provided by the initializers (TensorProto to npy)
         for t in graph.initializer:
@@ -276,7 +327,7 @@ class ModelWrapper:
         return ret
 
     def get_tensor_fanout(self, tensor_name):
-        """Return the number of nodes for which the tensor with given name is
+        """Returns the number of nodes for which the tensor with given name is
         as input."""
         graph = self.graph
         fanout = 0
@@ -285,40 +336,22 @@ class ModelWrapper:
                 fanout += 1
         return fanout
 
-    def set_attribute(self, node, attribute_name, value):
-        """Sets a custom node attribute of given name with given value"""
-        """Data types of attributes in onnx are encoded:
-            2 : integer
-            3 : string
-            so in the beginning a dictionary is introduced with the keys
-            to this encryption"""
-        # TO DO: Add additional encryption (i.e. float)
-        data_type_dict = {}
-        data_type_dict["string"] = 3
-        data_type_dict["int"] = 2
-
-        attribute = util.get_by_name(node.attribute, attribute_name)
-        # check if attribute is integer
-        # For encryption see data_type_dict
-        if attribute.type == data_type_dict["int"]:
-            if type(value) is int:
-                attribute.i = value
-            else:
-                raise ValueError(
-                    "Attribute expects integer! {} is of type {}!".format(
-                        value, type(value)
-                    )
-                )
-        elif attribute.type == data_type_dict["string"]:
-            if type(value) is str:
-                attribute.s = value.encode("UTF-8")
-            else:
-                raise ValueError(
-                    "Attribute expects string! {} is of type {}!".format(
-                        value, type(value)
-                    )
-                )
+    def get_metadata_prop(self, key):
+        """Returns the value associated with metadata_prop with given key,
+        or None otherwise."""
+        metadata_prop = util.get_by_name(self.model.metadata_props, key, "key")
+        if metadata_prop is None:
+            return None
         else:
-            raise Exception("This datatype is not supported, please add to encryption")
+            return metadata_prop.value
 
-        return attribute
+    def set_metadata_prop(self, key, value):
+        """Sets metadata property with given key to the given value."""
+        metadata_prop = util.get_by_name(self.model.metadata_props, key, "key")
+        if metadata_prop is None:
+            metadata_prop = onnx.StringStringEntryProto()
+            metadata_prop.key = key
+            metadata_prop.value = value
+            self.model.metadata_props.append(metadata_prop)
+        else:
+            metadata_prop.value = value

@@ -1,24 +1,45 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import os
 from collections import Counter
 
 import brevitas.onnx as bo
 import numpy as np
-import torch
-from models.LFC import LFC
 
 from finn.core.modelwrapper import ModelWrapper
+from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_lfc.onnx"
-# TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_checkpoint = (
-    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
-)
 
 
 def test_modelwrapper():
-    lfc = LFC(weight_bit_width=1, act_bit_width=1, in_bit_width=1)
-    checkpoint = torch.load(trained_lfc_checkpoint, map_location="cpu")
-    lfc.load_state_dict(checkpoint["state_dict"])
+    lfc = get_test_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     assert model.check_all_tensor_shapes_specified() is False

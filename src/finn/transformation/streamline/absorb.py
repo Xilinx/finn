@@ -1,3 +1,31 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import numpy as np
 from onnx import helper as oh
 
@@ -22,8 +50,8 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     threshold_name = consumer.input[1]
                     A = model.get_initializer(add_weight_name)
                     T = model.get_initializer(threshold_name)
-                    assert A is not None
-                    assert T is not None
+                    assert A is not None, "Initializer for add weights is not set."
+                    assert T is not None, "Initializer for thresholds is not set."
                     start_name = n.input[0]
                     # we can only absorb 0d or 1d adds
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
@@ -54,7 +82,7 @@ class AbsorbMulIntoMultiThreshold(Transformation):
             if n.op_type == "Mul":
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
-                assert A is not None
+                assert A is not None, "Initializer for mul weights is not set."
                 is_signed = (A < 0).any()
                 is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
                 is_1d = A.ndim > 0 and np.prod(A.shape) == A.shape[-1]
@@ -63,7 +91,7 @@ class AbsorbMulIntoMultiThreshold(Transformation):
                     if not is_signed and (is_1d or is_scalar):
                         threshold_name = consumer.input[1]
                         T = model.get_initializer(threshold_name)
-                        assert T is not None
+                        assert T is not None, "Initializer for thresholds is not set."
                         start_name = n.input[0]
                         # compute new thresholds and set initializer
                         Tnew = T / A.reshape(-1, 1)
@@ -92,7 +120,7 @@ class FactorOutMulSignMagnitude(Transformation):
             if n.op_type == "Mul":
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
-                assert A is not None
+                assert A is not None, "Initializer for mul weights is not set."
                 is_scalar = np.prod(A.shape) == 1
                 is_1d = len(A.shape) == 2 and A.shape[0] == 1
                 is_not_bipolar = (
@@ -133,16 +161,19 @@ class Absorb1BitMulIntoMatMul(Transformation):
             if n.op_type == "MatMul":
                 matmul_weight_name = n.input[1]
                 W = model.get_initializer(matmul_weight_name)
-                assert W is not None
+                assert W is not None, "Initializer for matmul weights is not set."
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
                     mul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    assert A is not None
+                    assert A is not None, "Initializer for mul weights is not set."
                     is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
                     if is_1bit:
                         Wnew = A * W
-                        assert Wnew.shape == W.shape
+                        assert (
+                            Wnew.shape == W.shape
+                        ), """Shape of new weights is not
+                        the same as the shape of the weight matrix before."""
                         model.set_initializer(matmul_weight_name, Wnew)
                         n.output[0] = consumer.output[0]
                         graph.node.remove(consumer)

@@ -1,12 +1,39 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import os
 
 from onnx import TensorProto, helper
 
-import finn.core.utils as util
+import finn.util.basic as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.cleanup import CleanUp
-from finn.transformation.fpgadataflow.codegen import CodeGen
+from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 
 
@@ -51,7 +78,7 @@ def test_compilation_trafo():
     W = util.gen_finn_dt_tensor(wdt, (mw, mh))
     model.set_initializer("weights", W)
 
-    model = model.transform(CodeGen())
+    model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
     for node in model.graph.node:
         compilation_attribute = util.get_by_name(node.attribute, "executable_path")
@@ -63,4 +90,3 @@ def test_compilation_trafo():
             op type {} does not exist!""".format(
             node.op_type
         )
-    model = model.transform(CleanUp())

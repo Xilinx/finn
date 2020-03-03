@@ -1,12 +1,44 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import os
 
 import numpy as np
+from pyverilator import PyVerilator
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
 
 
 class ConvolutionInputGenerator(HLSCustomOp):
+    """Class that corresponds to finn-hlslib ConvolutionInputGenerator
+    (sliding window) function."""
+
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 
@@ -35,54 +67,148 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def verify_node(self):
         pass
 
+    def bram_estimation(self):
+        pass
+
+    def lut_estimation(self):
+        pass
+
     def get_input_datatype(self):
+        """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
     def get_output_datatype(self):
+        """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_stream_width(self):
+        """Returns stream width, input and output stream width are equal for
+        the sliding window function"""
         return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
 
+    def get_number_output_values(self):
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ofm_dim = self.get_nodeattr("OFMDim")
+        out_pix = ofm_dim * ofm_dim
+
+        return out_pix * k * k * ifm_ch
+
     def execute_node(self, context, graph):
+        mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
         k = self.get_nodeattr("ConvKernelDim")
         ifm_dim = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         ofm_dim = self.get_nodeattr("OFMDim")
         out_pix = ofm_dim * ofm_dim
-        idt = self.get_input_datatype()
-        if idt == DataType.BIPOLAR:
-            # use binary for bipolar storage
-            idt = DataType.BINARY
 
-        # TODO ensure codegen dir exists
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
-        # create a npy file for input of the node
+        if mode == "npysim":
+            idt = self.get_input_datatype()
+            if idt == DataType.BIPOLAR:
+                # use binary for bipolar storage
+                idt = DataType.BINARY
 
-        inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32"
-        assert inp.shape == (1, ifm_ch, ifm_dim, ifm_dim)
-        reshaped_inp = inp.transpose(0, 2, 3, 1)
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
-        # execute the precompiled model
-        super().exec_precompiled_singlenode_model()
-        # load output npy file
-        super().npy_to_dynamic_output(context)
-        if self.get_output_datatype() == DataType.BIPOLAR:
-            out = context[node.output[0]]
-            out = 2 * out - 1
-            context[node.output[0]] = out
-        assert context[node.output[0]].shape == (1, out_pix, k * k, ifm_ch)
-        # reshape output to have expected shape
-        context[node.output[0]] = context[node.output[0]].reshape(
-            1, out_pix, k * k * ifm_ch
-        )
+            # TODO ensure codegen dir exists
+            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+            # create a npy file for input of the node
+
+            inp = context[node.input[0]]
+            assert str(inp.dtype) == "float32", "Input datatype is not float32"
+            assert inp.shape == (
+                1,
+                ifm_ch,
+                ifm_dim,
+                ifm_dim,
+            ), """Input shape doesn't
+            match expected shape (1, ifm_ch, ifm_dim, ifm_dim)."""
+            reshaped_inp = inp.transpose(0, 2, 3, 1)
+            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
+            # execute the precompiled model
+            super().exec_precompiled_singlenode_model()
+            # load output npy file
+            super().npy_to_dynamic_output(context)
+            if self.get_output_datatype() == DataType.BIPOLAR:
+                out = context[node.output[0]]
+                out = 2 * out - 1
+                context[node.output[0]] = out
+            assert context[node.output[0]].shape == (
+                1,
+                out_pix,
+                k * k,
+                ifm_ch,
+            ), """Output
+            shape doesn't match expected shape (1, out_pix, k*k, ifm_ch)."""
+            # reshape output to have expected shape
+            context[node.output[0]] = context[node.output[0]].reshape(
+                1, out_pix, k * k * ifm_ch
+            )
+        elif mode == "rtlsim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            prefixed_top_name = "%s_%s" % (node.name, node.name)
+            # check if needed file exists
+            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
+                code_gen_dir, node.name, prefixed_top_name
+            )
+            if os.path.isfile(verilog_file):
+                inp = context[node.input[0]]
+                inp = inp.transpose(0, 2, 3, 1)
+                inp = inp.flatten()
+
+                # TODO: check how to sort inputs for multichannel inputs
+                # a = []
+                # for i in range(len(inp)):
+                #     if (i+1) % 2 == 0:
+                #         a.append((int(inp[i-1]) << 1) + int(inp[i]))
+                # inp = a
+                sim = PyVerilator.build(
+                    verilog_file,
+                    verilog_path=[
+                        "{}/project_{}/sol1/impl/verilog/".format(
+                            code_gen_dir, node.name
+                        )
+                    ],
+                )
+                super().reset_rtlsim(sim)
+                super().toggle_clk(sim)
+                output = self.rtlsim(sim, inp)
+                output = [int(x) for x in output]
+                odt = self.get_output_datatype()
+                if odt == DataType.BIPOLAR:
+                    output = [2 * x - 1 for x in output]
+
+                # pyverilator interprets int2 as uint2, so output has to be corrected
+                elif odt == DataType.INT2:
+                    mask = 2 ** (odt.bitwidth() - 1)
+                    output = [-(x & mask) + (x & ~mask) for x in output]
+                # TODO: check how to sort inputs for multichannel inputs
+                # output = [bin(x)[2:].zfill(ifm_ch) for x in output]
+                # output_ch1 = [int(x[:1]) for x in output]
+                # output_ch2 = [int(x[1:]) for x in output]
+
+                # reshape output
+                output = np.asarray([output], dtype=np.float32).reshape(
+                    1, out_pix, k * k * ifm_ch
+                )
+                context[node.output[0]] = output
+
+            else:
+                raise Exception(
+                    """Found no verilog files for this node,
+                    did you run the codegen_ipgen transformation?"""
+                )
+        else:
+            raise Exception(
+                """Invalid value for attribute exec_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
 
-    def defines(self):
+    def defines(self, var):
         numReps = 1
         self.code_gen_dict["$DEFINES$"] = [
             """#define ConvKernelDim1 {}\n #define IFMChannels1 {}
@@ -100,7 +226,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ]
 
     def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         dtype = self.get_input_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage
@@ -131,12 +257,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
                 OFMDim1, SIMD1, Stride1> (in0, out, numReps);""".format(
-                node.op_type,
+                node.op_type
             )
         ]
 
     def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         dtype = self.get_output_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage
@@ -168,3 +294,18 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
     def save_as_npy(self):
         self.code_gen_dict["$SAVEASCNPY$"] = []
+
+    def blackboxfunction(self):
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0,
+                hls::stream<ap_uint<SIMD1*Input_precision1>> &out)""".format(
+                self.onnx_node.name
+            )
+        ]
+
+    def pragmas(self):
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE ap_ctrl_none port=return"
+        )
