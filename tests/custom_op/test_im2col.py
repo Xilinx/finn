@@ -24,14 +24,13 @@ def check_two_dict_for_equality(dict1, dict2):
 
 def execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim):
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
 
     # set up onnx model
     inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim]
+        "inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
     )
     outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, out_pix, k * k * ifm_ch]
+        "outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, k * k * ifm_ch]
     )
 
     Im2Col_node = helper.make_node(
@@ -41,7 +40,7 @@ def execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim):
         domain="finn",
         stride=stride,
         kernel_size=k,
-        input_shape="(1,{},{},{})".format(ifm_ch, ifm_dim, ifm_dim),
+        input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
     )
 
     graph = helper.make_graph(
@@ -55,7 +54,7 @@ def execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim):
 
     # test shape inference
     model.transform(InferShapes())
-    assert model.get_tensor_shape("outp") == [1, out_pix, k * k * ifm_ch]
+    assert model.get_tensor_shape("outp") == [1, ofm_dim, ofm_dim, k * k * ifm_ch]
 
     # test datatype inference
     assert model.get_tensor_datatype("outp") is DataType.FLOAT32
@@ -94,7 +93,6 @@ def test_im2col():
     ifm_ch = 1
     ifm_dim = 4
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
 
     x = np.asarray(
         [
@@ -116,7 +114,7 @@ def test_im2col():
             1.0,
         ],
         dtype=np.float32,
-    ).reshape(1, ifm_ch, ifm_dim, ifm_dim)
+    ).reshape(1, ifm_dim, ifm_dim, ifm_ch)
 
     expected = np.asarray(
         [
@@ -158,629 +156,7 @@ def test_im2col():
             1.0,
         ],
         dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
-
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
-    assert (produced == expected).all()
-
-    # bipolar inputs with following im2col parameters
-    idt = DataType.BIPOLAR
-    k = 3
-    stride = 1
-    ifm_ch = 1
-    ifm_dim = 4
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
-
-    expected = np.asarray(
-        [
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
-
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
-    assert (produced == expected).all()
-
-    # bipolar inputs with following im2col parameters
-    idt = DataType.BIPOLAR
-    k = 2
-    stride = 2
-    ifm_ch = 1
-    ifm_dim = 4
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
-
-    expected = np.asarray(
-        [
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
-
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
-    assert (produced == expected).all()
-
-    # TO DO: check multiple channel result
-    # bipolar inputs with following im2col parameters
-    idt = DataType.BIPOLAR
-    k = 2
-    stride = 2
-    ifm_ch = 2
-    ifm_dim = 4
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
-
-    x = np.asarray(
-        [
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, ifm_ch, ifm_dim, ifm_dim)
-
-    expected = np.asarray(
-        [
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
-
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
-    assert (produced == expected).all()
-
-    # bipolar inputs with following im2col parameters
-    idt = DataType.BIPOLAR
-    k = 2
-    stride = 2
-    ifm_ch = 1
-    ifm_dim = 6
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
-
-    x = np.asarray(
-        [
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, ifm_ch, ifm_dim, ifm_dim)
-
-    expected = np.asarray(
-        [
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -1.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
-
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
-    assert (produced == expected).all()
-
-    # int2 inputs with following im2col parameters
-    idt = DataType.INT2
-    k = 2
-    stride = 1
-    ifm_ch = 1
-    ifm_dim = 4
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
-
-    x = np.asarray(
-        [
-            1.0,
-            -1.0,
-            -2.0,
-            0.0,
-            1.0,
-            1.0,
-            -2.0,
-            0.0,
-            0.0,
-            -2.0,
-            1.0,
-            -2.0,
-            -1.0,
-            -1.0,
-            0.0,
-            -2.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, ifm_ch, ifm_dim, ifm_dim)
-
-    expected = np.asarray(
-        [
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -1.0,
-            -2.0,
-            1.0,
-            -2.0,
-            -2.0,
-            0.0,
-            -2.0,
-            0.0,
-            1.0,
-            1.0,
-            0.0,
-            -2.0,
-            1.0,
-            -2.0,
-            -2.0,
-            1.0,
-            -2.0,
-            0.0,
-            1.0,
-            -2.0,
-            0.0,
-            -2.0,
-            -1.0,
-            -1.0,
-            -2.0,
-            1.0,
-            -1.0,
-            0.0,
-            1.0,
-            -2.0,
-            0.0,
-            -2.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
-
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
-    assert (produced == expected).all()
-
-    # int2 inputs with following im2col parameters
-    idt = DataType.INT2
-    k = 3
-    stride = 1
-    ifm_ch = 1
-    ifm_dim = 4
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
-
-    expected = np.asarray(
-        [
-            1.0,
-            -1.0,
-            -2.0,
-            1.0,
-            1.0,
-            -2.0,
-            0.0,
-            -2.0,
-            1.0,
-            -1.0,
-            -2.0,
-            0.0,
-            1.0,
-            -2.0,
-            0.0,
-            -2.0,
-            1.0,
-            -2.0,
-            1.0,
-            1.0,
-            -2.0,
-            0.0,
-            -2.0,
-            1.0,
-            -1.0,
-            -1.0,
-            0.0,
-            1.0,
-            -2.0,
-            0.0,
-            -2.0,
-            1.0,
-            -2.0,
-            -1.0,
-            0.0,
-            -2.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
-
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
-    assert (produced == expected).all()
-
-    # int2 inputs with following im2col parameters
-    idt = DataType.INT2
-    k = 2
-    stride = 2
-    ifm_ch = 1
-    ifm_dim = 4
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
-
-    expected = np.asarray(
-        [
-            1.0,
-            -1.0,
-            1.0,
-            1.0,
-            -2.0,
-            0.0,
-            -2.0,
-            0.0,
-            0.0,
-            -2.0,
-            -1.0,
-            -1.0,
-            1.0,
-            -2.0,
-            0.0,
-            -2.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
-
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
-    assert (produced == expected).all()
-
-    # TO DO: check multiple channel result
-    # int2 inputs with following im2col parameters
-    idt = DataType.INT2
-    k = 2
-    stride = 2
-    ifm_ch = 2
-    ifm_dim = 4
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
-
-    x = np.asarray(
-        [
-            1.0,
-            -1.0,
-            -2.0,
-            0.0,
-            1.0,
-            1.0,
-            -2.0,
-            0.0,
-            0.0,
-            -2.0,
-            1.0,
-            -2.0,
-            -1.0,
-            -1.0,
-            0.0,
-            -2.0,
-            -2.0,
-            -1.0,
-            -1.0,
-            -2.0,
-            1.0,
-            -2.0,
-            0.0,
-            -1.0,
-            -1.0,
-            0.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            1.0,
-            0.0,
-            1.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, ifm_ch, ifm_dim, ifm_dim)
-
-    expected = np.asarray(
-        [
-            1.0,
-            -2.0,
-            -1.0,
-            -1.0,
-            1.0,
-            1.0,
-            1.0,
-            -2.0,
-            -2.0,
-            -1.0,
-            0.0,
-            -2.0,
-            -2.0,
-            0.0,
-            0.0,
-            -1.0,
-            0.0,
-            -1.0,
-            -2.0,
-            0.0,
-            -1.0,
-            -2.0,
-            -1.0,
-            1.0,
-            1.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            0.0,
-            0.0,
-            -2.0,
-            1.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
-
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
-    assert (produced == expected).all()
-
-    # int2 inputs with following im2col parameters
-    idt = DataType.INT2
-    k = 2
-    stride = 2
-    ifm_ch = 1
-    ifm_dim = 6
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
-
-    x = np.asarray(
-        [
-            0.0,
-            -1.0,
-            -2.0,
-            -1.0,
-            1.0,
-            0.0,
-            1.0,
-            0.0,
-            1.0,
-            0.0,
-            -2.0,
-            -1.0,
-            0.0,
-            -1.0,
-            0.0,
-            -2.0,
-            -2.0,
-            0.0,
-            1.0,
-            -2.0,
-            -2.0,
-            -1.0,
-            -1.0,
-            -1.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            0.0,
-            -1.0,
-            0.0,
-            0.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, ifm_ch, ifm_dim, ifm_dim)
-
-    expected = np.asarray(
-        [
-            0.0,
-            -1.0,
-            1.0,
-            0.0,
-            -2.0,
-            -1.0,
-            1.0,
-            0.0,
-            1.0,
-            0.0,
-            -2.0,
-            -1.0,
-            0.0,
-            -1.0,
-            1.0,
-            -2.0,
-            0.0,
-            -2.0,
-            -2.0,
-            -1.0,
-            -2.0,
-            0.0,
-            -1.0,
-            -1.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            -2.0,
-            0.0,
-            -1.0,
-            -2.0,
-            -2.0,
-            0.0,
-            0.0,
-        ],
-        dtype=np.float32,
-    ).reshape(1, out_pix, k * k * ifm_ch)
+    ).reshape(1, ofm_dim, ofm_dim, k * k * ifm_ch)
 
     produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
     assert (produced == expected).all()
@@ -793,14 +169,13 @@ def test_im2col_infer_shapes():
     ifm_ch = 1
     ifm_dim = 4
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    out_pix = ofm_dim * ofm_dim
 
     # set up onnx model
     inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim]
+        "inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
     )
     outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, out_pix, k * k * ifm_ch]
+        "outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, k * k * ifm_ch]
     )
 
     abs_node = helper.make_node("Abs", inputs=["inp"], outputs=["abs"],)
@@ -812,7 +187,7 @@ def test_im2col_infer_shapes():
         domain="finn",
         stride=stride,
         kernel_size=k,
-        input_shape="(1,{},{},{})".format(ifm_ch, ifm_dim, ifm_dim),
+        input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
     )
 
     abs1_node = helper.make_node("Abs", inputs=["im2col"], outputs=["outp"],)
@@ -824,10 +199,10 @@ def test_im2col_infer_shapes():
         outputs=[outp],
         value_info=[
             helper.make_tensor_value_info(
-                "abs", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim]
+                "abs", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
             ),
             helper.make_tensor_value_info(
-                "im2col", TensorProto.FLOAT, [1, out_pix, k * k * ifm_ch]
+                "im2col", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, k * k * ifm_ch]
             ),
         ],
     )
@@ -839,4 +214,4 @@ def test_im2col_infer_shapes():
 
     # test shape inference
     model.transform(InferShapes())
-    assert model.get_tensor_shape("im2col") == [1, out_pix, k * k * ifm_ch]
+    assert model.get_tensor_shape("im2col") == [1, ofm_dim, ofm_dim, k * k * ifm_ch]
