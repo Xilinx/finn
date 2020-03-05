@@ -161,6 +161,7 @@ class Absorb1BitMulIntoMatMul(Transformation):
             if n.op_type == "MatMul":
                 matmul_weight_name = n.input[1]
                 W = model.get_initializer(matmul_weight_name)
+                Wdt = model.get_tensor_datatype(matmul_weight_name)
                 assert W is not None, "Initializer for matmul weights is not set."
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
@@ -174,8 +175,11 @@ class Absorb1BitMulIntoMatMul(Transformation):
                             Wnew.shape == W.shape
                         ), """Shape of new weights is not
                         the same as the shape of the weight matrix before."""
-                        model.set_initializer(matmul_weight_name, Wnew)
-                        n.output[0] = consumer.output[0]
-                        graph.node.remove(consumer)
-                        graph_modified = True
+                        check_fxn = np.vectorize(lambda x: Wdt.allowed(x))
+                        # only absorb if permitted by W datatype
+                        if check_fxn(Wnew).all():
+                            model.set_initializer(matmul_weight_name, Wnew)
+                            n.output[0] = consumer.output[0]
+                            graph.node.remove(consumer)
+                            graph_modified = True
         return (model, graph_modified)
