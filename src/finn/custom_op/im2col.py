@@ -142,7 +142,7 @@ class Im2Col(CustomOp):
         # call NCHW im2col implementation
         ret = im2col_indices_nchw(x, k, k, pad, stride, stride, pad_val=pad_val)
         # result shape is (k*k*N, out_dim*out_dim), convert to NCHW
-        ret = ret.reshape(N, k * k * N, out_dim, out_dim)
+        ret = ret.reshape(N, k * k * C, out_dim, out_dim)
         # convert output back to NHWC
         ret = ret.transpose(0, 2, 3, 1)
         context[node.output[0]] = ret
