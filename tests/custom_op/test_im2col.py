@@ -2,11 +2,11 @@ import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
-from finn.analysis.verify_custom_nodes import verify_nodes
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
+from finn.custom_op.im2col import compute_conv_output_dim
 
 
 def check_two_dict_for_equality(dict1, dict2):
@@ -22,8 +22,8 @@ def check_two_dict_for_equality(dict1, dict2):
     return True
 
 
-def execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim):
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
+def execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim, pad_amt=0, pad_val=0):
+    ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad_amt)
 
     # set up onnx model
     inp = helper.make_tensor_value_info(
@@ -40,6 +40,8 @@ def execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim):
         domain="finn",
         stride=stride,
         kernel_size=k,
+        pad_amount=pad_amt,
+        pad_value=pad_val,
         input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
     )
 
@@ -61,21 +63,6 @@ def execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim):
     model = model.transform(InferDataTypes())
     assert model.get_tensor_datatype("outp") is idt
 
-    # test node verification
-    produced = model.analysis(verify_nodes)
-    expected = {
-        "Im2Col": [
-            "The number of attributes is correct",
-            "Attribute domain is set correctly",
-            "All necessary attributes exist",
-            "The number of inputs is correct",
-        ],
-    }
-    assert check_two_dict_for_equality(
-        produced, expected
-    ), """The produced output of
-    the verification analysis pass is not equal to the expected one"""
-
     # prepare input data
     input_dict = {"inp": x}
 
@@ -92,7 +79,9 @@ def test_im2col():
     stride = 1
     ifm_ch = 1
     ifm_dim = 4
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
+    pad_amt = 0
+    pad_val = 0
+    ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad_amt)
 
     x = np.asarray(
         [
@@ -158,7 +147,7 @@ def test_im2col():
         dtype=np.float32,
     ).reshape(1, ofm_dim, ofm_dim, k * k * ifm_ch)
 
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
+    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim, pad_amt, pad_val)
     assert (produced == expected).all()
 
     idt = DataType.INT8
@@ -166,7 +155,9 @@ def test_im2col():
     stride = 1
     ifm_ch = 2
     ifm_dim = 4
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
+    pad_amt = 0
+    pad_val = 0
+    ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad_amt)
 
     x = np.asarray(
         [
@@ -203,7 +194,74 @@ def test_im2col():
         dtype=np.float32,
     )
 
-    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
+    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim, pad_amt, pad_val)
+    assert (produced == expected).all()
+
+    idt = DataType.INT8
+    k = 2
+    stride = 1
+    ifm_ch = 2
+    ifm_dim = 4
+    pad_amt = 1
+    pad_val = 0
+    ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad_amt)
+
+    x = np.asarray(
+        [
+            [
+                [[1, -1], [2, -2], [3, -3], [4, -4]],
+                [[5, -5], [6, -6], [7, -7], [8, -8]],
+                [[9, -9], [10, -10], [11, -11], [12, -12]],
+                [[13, -13], [14, -14], [15, -15], [16, -16]],
+            ]
+        ],
+        dtype=np.float32,
+    )
+
+    expected = np.asarray(
+        [
+            [
+                [
+                    [0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, -1.0],
+                    [0.0, 0.0, 1.0, 2.0, 0.0, 0.0, -1.0, -2.0],
+                    [0.0, 0.0, 2.0, 3.0, 0.0, 0.0, -2.0, -3.0],
+                    [0.0, 0.0, 3.0, 4.0, 0.0, 0.0, -3.0, -4.0],
+                    [0.0, 0.0, 4.0, 0.0, 0.0, 0.0, -4.0, 0.0],
+                ],
+                [
+                    [0.0, 1.0, 0.0, 5.0, 0.0, -1.0, 0.0, -5.0],
+                    [1.0, 2.0, 5.0, 6.0, -1.0, -2.0, -5.0, -6.0],
+                    [2.0, 3.0, 6.0, 7.0, -2.0, -3.0, -6.0, -7.0],
+                    [3.0, 4.0, 7.0, 8.0, -3.0, -4.0, -7.0, -8.0],
+                    [4.0, 0.0, 8.0, 0.0, -4.0, 0.0, -8.0, 0.0],
+                ],
+                [
+                    [0.0, 5.0, 0.0, 9.0, 0.0, -5.0, 0.0, -9.0],
+                    [5.0, 6.0, 9.0, 10.0, -5.0, -6.0, -9.0, -10.0],
+                    [6.0, 7.0, 10.0, 11.0, -6.0, -7.0, -10.0, -11.0],
+                    [7.0, 8.0, 11.0, 12.0, -7.0, -8.0, -11.0, -12.0],
+                    [8.0, 0.0, 12.0, 0.0, -8.0, 0.0, -12.0, 0.0],
+                ],
+                [
+                    [0.0, 9.0, 0.0, 13.0, 0.0, -9.0, 0.0, -13.0],
+                    [9.0, 10.0, 13.0, 14.0, -9.0, -10.0, -13.0, -14.0],
+                    [10.0, 11.0, 14.0, 15.0, -10.0, -11.0, -14.0, -15.0],
+                    [11.0, 12.0, 15.0, 16.0, -11.0, -12.0, -15.0, -16.0],
+                    [12.0, 0.0, 16.0, 0.0, -12.0, 0.0, -16.0, 0.0],
+                ],
+                [
+                    [0.0, 13.0, 0.0, 0.0, 0.0, -13.0, 0.0, 0.0],
+                    [13.0, 14.0, 0.0, 0.0, -13.0, -14.0, 0.0, 0.0],
+                    [14.0, 15.0, 0.0, 0.0, -14.0, -15.0, 0.0, 0.0],
+                    [15.0, 16.0, 0.0, 0.0, -15.0, -16.0, 0.0, 0.0],
+                    [16.0, 0.0, 0.0, 0.0, -16.0, 0.0, 0.0, 0.0],
+                ],
+            ]
+        ],
+        dtype=np.float32,
+    )
+
+    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim, pad_amt, pad_val)
     assert (produced == expected).all()
 
 
