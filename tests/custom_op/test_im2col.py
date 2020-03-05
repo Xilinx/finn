@@ -161,6 +161,51 @@ def test_im2col():
     produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
     assert (produced == expected).all()
 
+    idt = DataType.INT8
+    k = 2
+    stride = 1
+    ifm_ch = 2
+    ifm_dim = 4
+    ofm_dim = int(((ifm_dim - k) / stride) + 1)
+
+    x = np.asarray(
+        [
+            [
+                [[1, -1], [2, -2], [3, -3], [4, -4]],
+                [[5, -5], [6, -6], [7, -7], [8, -8]],
+                [[9, -9], [10, -10], [11, -11], [12, -12]],
+                [[13, -13], [14, -14], [15, -15], [16, -16]],
+            ]
+        ],
+        dtype=np.float32,
+    )
+
+    expected = np.asarray(
+        [
+            [
+                [
+                    [1.0, 2.0, 5.0, 6.0, -1.0, -2.0, -5.0, -6.0],
+                    [2.0, 3.0, 6.0, 7.0, -2.0, -3.0, -6.0, -7.0],
+                    [3.0, 4.0, 7.0, 8.0, -3.0, -4.0, -7.0, -8.0],
+                ],
+                [
+                    [5.0, 6.0, 9.0, 10.0, -5.0, -6.0, -9.0, -10.0],
+                    [6.0, 7.0, 10.0, 11.0, -6.0, -7.0, -10.0, -11.0],
+                    [7.0, 8.0, 11.0, 12.0, -7.0, -8.0, -11.0, -12.0],
+                ],
+                [
+                    [9.0, 10.0, 13.0, 14.0, -9.0, -10.0, -13.0, -14.0],
+                    [10.0, 11.0, 14.0, 15.0, -10.0, -11.0, -14.0, -15.0],
+                    [11.0, 12.0, 15.0, 16.0, -11.0, -12.0, -15.0, -16.0],
+                ],
+            ]
+        ],
+        dtype=np.float32,
+    )
+
+    produced = execution_im2col(x, idt, k, stride, ifm_ch, ifm_dim)
+    assert (produced == expected).all()
+
 
 def test_im2col_infer_shapes():
     idt = DataType.BIPOLAR
