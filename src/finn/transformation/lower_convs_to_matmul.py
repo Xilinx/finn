@@ -49,9 +49,9 @@ class LowerConvsToMatMul(Transformation):
                 cnv_input = n.input[0]
                 cnv_output = n.output[0]
                 # extract conv parameters
-                k = get_by_name(n.attribute, "kernel_shape")[-1]
-                pad = get_by_name(n.attribute, "pads")[-1]
-                stride = get_by_name(n.attribute, "strides")[-1]
+                k = get_by_name(n.attribute, "kernel_shape").ints[-1]
+                pad = get_by_name(n.attribute, "pads").ints[-1]
+                stride = get_by_name(n.attribute, "strides").ints[-1]
                 weight_name = n.input[1]
                 W_conv = model.get_initializer(weight_name)
                 ifm_ch = W_conv.shape[1]
