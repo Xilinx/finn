@@ -31,6 +31,7 @@ import pytest
 import numpy as np
 from onnx import TensorProto, helper
 
+from finn.custom_op.registry import getCustomOp
 import finn.core.onnx_exec as oxe
 import finn.custom_op.xnorpopcount as xp
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
@@ -128,21 +129,23 @@ def prepare_inputs(input_tensor, idt, wdt):
         return {"inp": input_tensor}
 
 
+# mem_mode: const or decoupled
+@pytest.mark.parametrize("mem_mode", ["decoupled"]) # add "const"
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT2])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("wdt", [DataType.INT2])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("idt", [DataType.INT2])
 # neuron folding, -1 is maximum possible
-@pytest.mark.parametrize("nf", [-1, 1])
+@pytest.mark.parametrize("nf", [-1]) #, 1])
 # synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [-1, 1])
+@pytest.mark.parametrize("sf", [1])
 # HLS matrix width (input features)
 @pytest.mark.parametrize("mw", [4])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [4])
-def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -152,9 +155,13 @@ def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
     assert mh % pe == 0
     assert mw % sf == 0
     # generate weights
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    #W = gen_finn_dt_tensor(wdt, (mw, mh))
+    #W = np.eye(mw, mh)
+    W = np.asarray([-2., -2.,  1., -2., 0., -1., -2.,  0., -1., -1.,  0.,  0., -2., -1.,  1., -1.], dtype=np.float32).reshape(mw, mh)
+    #import pdb; pdb.set_trace()
     # generate input data
-    x = gen_finn_dt_tensor(idt, (1, mw))
+    #x = gen_finn_dt_tensor(idt, (1, mw))
+    x = np.asarray([[-2, -1, 0, 1]], dtype=np.float32)
     if act is None:
         # no activation, produce accumulators
         T = None
@@ -179,6 +186,10 @@ def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
         else:
             tdt = DataType.INT32
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", mem_mode)
     model = model.transform(SetExecMode("npysim"))
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
@@ -201,6 +212,16 @@ def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    if (y_produced.reshape(y_expected.shape) == y_expected).all():
+        test = "passed"
+    else:
+        test = "failed"
+    import csv
+    with open('decoupled_test.csv', 'a+', newline='') as file:
+            if act == None:
+                act = "None"
+            writer = csv.writer(file)
+            writer.writerow([act, wdt, idt, nf, sf, mw, mh, test, y_expected, y_produced])
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "npysim failed"
 
 
