@@ -297,6 +297,8 @@ def rtlsim_output_to_npy(
     out_array = unpack_innermost_dim_from_hex_string(
         output, dtype, shape, packedBits=packedBits, reverse_inner=reverse_inner
     )
+    # make copy before saving the array
+    out_array = out_array.copy()
     np.save(path, out_array)
     return out_array
 
