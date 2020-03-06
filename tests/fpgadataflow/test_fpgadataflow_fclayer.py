@@ -130,7 +130,7 @@ def prepare_inputs(input_tensor, idt, wdt):
 
 
 # mem_mode: const or decoupled
-@pytest.mark.parametrize("mem_mode", ["decoupled"]) # add "const"
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"]) 
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT2])
 # weight datatype
@@ -138,9 +138,9 @@ def prepare_inputs(input_tensor, idt, wdt):
 # input datatype
 @pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
 # neuron folding, -1 is maximum possible
-@pytest.mark.parametrize("nf", [-1]) #, 1])
+@pytest.mark.parametrize("nf", [-1, 2, 1])
 # synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [1]) #, 1])
+@pytest.mark.parametrize("sf", [-1, 2, 1])
 # HLS matrix width (input features)
 @pytest.mark.parametrize("mw", [4])
 # HLS matrix height (output features)
@@ -156,12 +156,8 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert mw % sf == 0
     # generate weights
     W = gen_finn_dt_tensor(wdt, (mw, mh))
-    #W = np.eye(mw, mh)
-    #W = np.asarray([-2., -2.,  1., -2., 0., -1., -2.,  0., -1., -1.,  0.,  0., -2., -1.,  1., -1.], dtype=np.float32).reshape(mw, mh)
-    #import pdb; pdb.set_trace()
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, mw))
-    #x = np.asarray([[-2, -1, 0, 1]], dtype=np.float32)
     if act is None:
         # no activation, produce accumulators
         T = None
@@ -213,18 +209,6 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     y_produced =y_produced.reshape(y_expected.shape)
-    if simd > pe:
-        y_produced = np.flip(y_produced,axis=1)
-    if (y_produced == y_expected).all():
-        test = "passed"
-    else:
-        test = "failed"
-    import csv
-    with open('decoupled_test.csv', 'a+', newline='') as file:
-            if act == None:
-                act = "None"
-            writer = csv.writer(file)
-            writer.writerow([act, wdt, idt, nf, sf, mw, mh, test, y_expected, y_produced])
     assert (y_produced == y_expected).all(), "npysim failed"
 
 
