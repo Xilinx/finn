@@ -469,6 +469,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # reshape weight tensor to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
+            if simd > pe:
+                weight_tensor = np.flip(weight_tensor, axis=-3)
+                #weight_tensor = np.flip(weight_tensor, axis=-2)
+
             weight_tensor = weight_tensor.reshape(1, -1, pe*simd)
             np.save(
                     os.path.join(code_gen_dir, "weights.npy"),

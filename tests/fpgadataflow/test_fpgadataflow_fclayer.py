@@ -134,13 +134,13 @@ def prepare_inputs(input_tensor, idt, wdt):
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT2])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType.INT2])
+@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.INT2])
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
 # neuron folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1]) #, 1])
 # synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [1])
+@pytest.mark.parametrize("sf", [1]) #, 1])
 # HLS matrix width (input features)
 @pytest.mark.parametrize("mw", [4])
 # HLS matrix height (output features)
@@ -155,13 +155,13 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert mh % pe == 0
     assert mw % sf == 0
     # generate weights
-    #W = gen_finn_dt_tensor(wdt, (mw, mh))
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
     #W = np.eye(mw, mh)
-    W = np.asarray([-2., -2.,  1., -2., 0., -1., -2.,  0., -1., -1.,  0.,  0., -2., -1.,  1., -1.], dtype=np.float32).reshape(mw, mh)
+    #W = np.asarray([-2., -2.,  1., -2., 0., -1., -2.,  0., -1., -1.,  0.,  0., -2., -1.,  1., -1.], dtype=np.float32).reshape(mw, mh)
     #import pdb; pdb.set_trace()
     # generate input data
-    #x = gen_finn_dt_tensor(idt, (1, mw))
-    x = np.asarray([[-2, -1, 0, 1]], dtype=np.float32)
+    x = gen_finn_dt_tensor(idt, (1, mw))
+    #x = np.asarray([[-2, -1, 0, 1]], dtype=np.float32)
     if act is None:
         # no activation, produce accumulators
         T = None
@@ -212,7 +212,10 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    if (y_produced.reshape(y_expected.shape) == y_expected).all():
+    y_produced =y_produced.reshape(y_expected.shape)
+    if simd > pe:
+        y_produced = np.flip(y_produced,axis=1)
+    if (y_produced == y_expected).all():
         test = "passed"
     else:
         test = "failed"
@@ -222,7 +225,7 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
                 act = "None"
             writer = csv.writer(file)
             writer.writerow([act, wdt, idt, nf, sf, mw, mh, test, y_expected, y_produced])
-    assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "npysim failed"
+    assert (y_produced == y_expected).all(), "npysim failed"
 
 
 # activation: None or DataType
