@@ -272,13 +272,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
         inp_is_binary = self.get_input_datatype() == DataType.BINARY
-        out_is_binary = self.get_output_datatype() == DataType.BINARY
+        # out_is_binary = self.get_output_datatype() == DataType.BINARY
         wt_is_binary = self.get_weight_datatype() == DataType.BINARY
         bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
         if (inp_is_binary or wt_is_binary) and (not bin_xnor_mode):
             raise Exception("True binary (non-bipolar) inputs not yet supported")
         inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
+        # out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
         # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
@@ -299,10 +299,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ret["TSrcI"] = "Slice<%s>" % inp_hls_str
             ret["TWeightI"] = "Identity"
         # fill in TDstI
-        if out_is_bipolar or out_is_binary:
-            ret["TDstI"] = "Identity"
-        else:
-            ret["TDstI"] = "Slice<%s>" % out_hls_str
+        ret["TDstI"] = "Slice<%s>" % out_hls_str
         return ret
 
     def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
