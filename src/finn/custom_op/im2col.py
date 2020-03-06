@@ -103,7 +103,7 @@ class Im2Col(CustomOp):
         return helper.make_node(
             "Constant",
             inputs=[],
-            outputs=["values"],
+            outputs=[self.onnx_node.output[0]],
             value=helper.make_tensor(
                 name="const_tensor",
                 data_type=TensorProto.FLOAT,
