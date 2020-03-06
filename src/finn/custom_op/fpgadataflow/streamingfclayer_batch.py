@@ -469,11 +469,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # reshape weight tensor to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
-            if simd > pe:
-                weight_tensor = np.flip(weight_tensor, axis=-3)
-                #weight_tensor = np.flip(weight_tensor, axis=-2)
-
             weight_tensor = weight_tensor.reshape(1, -1, pe*simd)
+            weight_tensor = weight_tensor.copy()
             np.save(
                     os.path.join(code_gen_dir, "weights.npy"),
                     weight_tensor,
@@ -568,6 +565,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     export_idt = DataType.BINARY
                 else:
                     export_idt = self.get_input_datatype()
+                # make copy before saving the array
+                reshaped_input = reshaped_input.copy()
                 np.save(
                     os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
                     reshaped_input,
