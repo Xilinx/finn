@@ -280,13 +280,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
         wt_hls_str = self.get_weight_datatype().get_hls_datatype_str()
         inp_is_binary = self.get_input_datatype() == DataType.BINARY
-        out_is_binary = self.get_output_datatype() == DataType.BINARY
+        # out_is_binary = self.get_output_datatype() == DataType.BINARY
         wt_is_binary = self.get_weight_datatype() == DataType.BINARY
         bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
         if (inp_is_binary or wt_is_binary) and (not bin_xnor_mode):
             raise Exception("True binary (non-bipolar) inputs not yet supported")
         inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
+        # out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
         # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
@@ -312,19 +312,19 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         elif mem_mode == "decoupled":
             if inp_is_bipolar and wt_is_bipolar:
                 ret["TSrcI"] = "Recast<XnorMul>"
-                ret["TWeightI"] = "Identity" 
+                ret["TWeightI"] = "Identity"
             elif (not inp_is_bipolar) and wt_is_bipolar:
                 ret["TSrcI"] = "Slice<%s>" % inp_hls_str
                 ret["TWeightI"] = "Recast<Binary>"
-                #ret["TWeightI"] = "Recast<Binary>"
+                # ret["TWeightI"] = "Recast<Binary>"
             elif inp_is_bipolar and (not wt_is_bipolar):
                 ret["TSrcI"] = "Recast<Binary>"
-                ret["TWeightI"] = "Slice<%s>" % wt_hls_str 
-                #ret["TWeightI"] = "Slice<%s>" % wt_hls_str
+                ret["TWeightI"] = "Slice<%s>" % wt_hls_str
+                # ret["TWeightI"] = "Slice<%s>" % wt_hls_str
             elif (not inp_is_bipolar) and (not wt_is_bipolar):
                 ret["TSrcI"] = "Slice<%s>" % inp_hls_str
                 ret["TWeightI"] = "Slice<%s>" % wt_hls_str
-        
+
         # fill in TDstI
         ret["TDstI"] = "Slice<%s>" % out_hls_str
 
@@ -453,7 +453,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             else:
                 f_weights.write(
                     "static BinaryWeights<{},{},{}> weights = ".format(
-                        self.get_nodeattr("SIMD"), self.get_nodeattr("PE"), self.calc_wmem()
+                        self.get_nodeattr("SIMD"),
+                        self.get_nodeattr("PE"),
+                        self.calc_wmem(),
                     )
                 )
             f_weights.write(weight_hls_code)
@@ -469,16 +471,16 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # reshape weight tensor to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
-            weight_tensor = weight_tensor.reshape(1, -1, pe*simd)
+            weight_tensor = weight_tensor.reshape(1, -1, pe * simd)
             weight_tensor = weight_tensor.copy()
             np.save(
-                    os.path.join(code_gen_dir, "weights.npy"),
-                    weight_tensor,
-                )
+                os.path.join(code_gen_dir, "weights.npy"), weight_tensor,
+            )
         else:
-            raise Exception("""Please set mem_mode to "const"i or "decoupled", currently no other
-                    parameter value is supported!""")
-
+            raise Exception(
+                """Please set mem_mode to "const"i or "decoupled", currently no other
+                    parameter value is supported!"""
+            )
 
         # save thresholds in thresh.h
         if len(self.onnx_node.input) > 2:
@@ -645,19 +647,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
-        
+
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
             self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
         elif mem_mode == "decoupled":
             self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
         else:
-            raise Exception("""Please set mem_mode to "const" or "decoupled", currently no other
-                    parameter value is supported!""")
+            raise Exception(
+                """Please set mem_mode to "const" or "decoupled", currently no other
+                    parameter value is supported!"""
+            )
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
-
 
     def defines(self, var):
         mem_mode = self.get_nodeattr("mem_mode")
@@ -682,9 +685,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         if mem_mode == "decoupled":
             wdt = self.get_weight_datatype()
             self.code_gen_dict["$DEFINES$"].append(
-                "#define WP1 {}\n".format(
-                    wdt.bitwidth()
-                )
+                "#define WP1 {}\n".format(wdt.bitwidth())
             )
 
     def read_npy_data(self):
@@ -734,10 +735,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         if mem_mode == "decoupled":
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<ap_uint<{}>> weights ("weights");'.format(
-                    self.get_weightstream_width()    
+                    self.get_weightstream_width()
                 )
             )
-        
 
     def docompute(self):
         mem_mode = self.get_nodeattr("mem_mode")
@@ -770,13 +770,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     threshs,
                     self.get_nodeattr("resType"),
                 )
-            ]            
+            ]
 
         else:
-            raise Exception("""Please set mem_mode to "const" or "decoupled", currently no other
-                    parameter value is supported!""")
-
-
+            raise Exception(
+                """Please set mem_mode to "const" or "decoupled", currently no other
+                    parameter value is supported!"""
+            )
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
@@ -823,14 +823,18 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
             ]
         else:
-            raise Exception("""Please set mem_mode to "const", currently no other
-                    parameter value is supported!""")
+            raise Exception(
+                """Please set mem_mode to "const", currently no other
+                    parameter value is supported!"""
+            )
 
     def pragmas(self):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
             self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS INTERFACE axis port=out"
+            )
             in_fifo_depth = self.get_nodeattr("inFIFODepth")
             out_fifo_depth = self.get_nodeattr("outFIFODepth")
             # insert depth pragmas only if specified
@@ -854,7 +858,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
             )
             # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-            # partition for parallel access along PE and N_THRES dimensions (dims 1 and 3)
+            # partition for parallel access along PE and N_THRES
+            # dimensions (dims 1 and 3)
             if self.calc_tmem() != 0:
                 # TODO find a better way of checking for no pregenerated thresholds
                 self.code_gen_dict["$PRAGMAS$"].append(
@@ -870,5 +875,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     )
                 )
         else:
-            raise Exception("""Please set mem_mode to "const", currently no other
-                    parameter value is supported!""")
+            raise Exception(
+                """Please set mem_mode to "const", currently no other
+                    parameter value is supported!"""
+            )
