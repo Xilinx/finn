@@ -280,13 +280,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
         wt_hls_str = self.get_weight_datatype().get_hls_datatype_str()
         inp_is_binary = self.get_input_datatype() == DataType.BINARY
-        # out_is_binary = self.get_output_datatype() == DataType.BINARY
+        out_is_binary = self.get_output_datatype() == DataType.BINARY
         wt_is_binary = self.get_weight_datatype() == DataType.BINARY
         bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
         if (inp_is_binary or wt_is_binary) and (not bin_xnor_mode):
             raise Exception("True binary (non-bipolar) inputs not yet supported")
         inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        # out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
+        out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
         # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
@@ -312,19 +312,22 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         elif mem_mode == "decoupled":
             if inp_is_bipolar and wt_is_bipolar:
                 ret["TSrcI"] = "Recast<XnorMul>"
-                ret["TWeightI"] = "Identity"
+                ret["TWeightI"] = "Identity" 
             elif (not inp_is_bipolar) and wt_is_bipolar:
                 ret["TSrcI"] = "Slice<%s>" % inp_hls_str
                 ret["TWeightI"] = "Recast<Binary>"
+                #ret["TWeightI"] = "Recast<Binary>"
             elif inp_is_bipolar and (not wt_is_bipolar):
                 ret["TSrcI"] = "Recast<Binary>"
-                ret["TWeightI"] = "Slice<%s>" % wt_hls_str
+                ret["TWeightI"] = "Slice<%s>" % wt_hls_str 
+                #ret["TWeightI"] = "Slice<%s>" % wt_hls_str
             elif (not inp_is_bipolar) and (not wt_is_bipolar):
                 ret["TSrcI"] = "Slice<%s>" % inp_hls_str
                 ret["TWeightI"] = "Slice<%s>" % wt_hls_str
-
+        
         # fill in TDstI
         ret["TDstI"] = "Slice<%s>" % out_hls_str
+
         return ret
 
     def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
@@ -647,7 +650,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         if mem_mode == "const":
             self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
         elif mem_mode == "decoupled":
-            self.code_gen_dict["$GLOBALS$"] += ['#include "stream_custom.h"']
+            self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
         else:
             raise Exception("""Please set mem_mode to "const" or "decoupled", currently no other
                     parameter value is supported!""")
@@ -759,7 +762,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ]
         elif mem_mode == "decoupled":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, WP1, {}, {}, {}>
+                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, WP1, {}, {}, {}>
                 (in0, out, weights, {}, numReps, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
