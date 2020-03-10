@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+import csv
 
 import numpy as np
 from onnx import TensorProto, helper
@@ -208,6 +209,7 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    
     y_produced =y_produced.reshape(y_expected.shape)
     assert (y_produced == y_expected).all(), "npysim failed"
 
