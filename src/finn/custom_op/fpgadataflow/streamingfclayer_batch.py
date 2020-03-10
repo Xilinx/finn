@@ -678,15 +678,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 numReps,
             )
         ]
-        if var == "ipgen":
-            self.code_gen_dict["$DEFINES$"].append("#define PRAGMA_SUB(x) _Pragma (#x)")
-            self.code_gen_dict["$DEFINES$"].append("#define DO_PRAGMA(x) PRAGMA_SUB(x)")
-
         if mem_mode == "decoupled":
             wdt = self.get_weight_datatype()
             self.code_gen_dict["$DEFINES$"].append(
                 "#define WP1 {}\n".format(wdt.bitwidth())
             )
+
+        if var == "ipgen":
+            self.code_gen_dict["$DEFINES$"].append("#define PRAGMA_SUB(x) _Pragma (#x)")
+            self.code_gen_dict["$DEFINES$"].append("#define DO_PRAGMA(x) PRAGMA_SUB(x)")
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
@@ -822,33 +822,45 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     self.get_outstream_width(),
                 )
             ]
+        elif mem_mode == "decoupled":
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void Matrix_Vector_Activate_Stream_Batch(
+                    hls::stream<ap_uint<{}>> &in0,
+                    hls::stream<ap_uint<{}>> &weights,
+                    hls::stream<ap_uint<{}>> &out
+                    )""".format(
+                    self.get_instream_width(),
+                    self.get_weightstream_width(),
+                    self.get_outstream_width(),
+                )
+            ]
+
         else:
             raise Exception(
-                """Please set mem_mode to "const", currently no other
+                """Please set mem_mode to "const" or "decoupled", currently no other
                     parameter value is supported!"""
             )
 
     def pragmas(self):
         mem_mode = self.get_nodeattr("mem_mode")
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        in_fifo_depth = self.get_nodeattr("inFIFODepth")
+        out_fifo_depth = self.get_nodeattr("outFIFODepth")
+        # insert depth pragmas only if specified
+        if in_fifo_depth != 0:
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS stream depth=%d variable=in0" % in_fifo_depth
+            )
+        if out_fifo_depth != 0:
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS stream depth=%d variable=out" % out_fifo_depth
+            )
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE ap_ctrl_none port=return"
+        )
+
         if mem_mode == "const":
-            self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=out"
-            )
-            in_fifo_depth = self.get_nodeattr("inFIFODepth")
-            out_fifo_depth = self.get_nodeattr("outFIFODepth")
-            # insert depth pragmas only if specified
-            if in_fifo_depth != 0:
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    "#pragma HLS stream depth=%d variable=in0" % in_fifo_depth
-                )
-            if out_fifo_depth != 0:
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    "#pragma HLS stream depth=%d variable=out" % out_fifo_depth
-                )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE ap_ctrl_none port=return"
-            )
             # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
             # partition for parallel access along the PE dimension (dim 1)
             self.code_gen_dict["$PRAGMAS$"].append(
@@ -857,25 +869,34 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     "variable=weights.m_weights complete dim=1)"
                 )
             )
-            # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-            # partition for parallel access along PE and N_THRES
-            # dimensions (dims 1 and 3)
-            if self.calc_tmem() != 0:
-                # TODO find a better way of checking for no pregenerated thresholds
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                        "complete dim=1)"
-                    )
-                )
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                        "complete dim=3)"
-                    )
-                )
+        elif mem_mode == "decoupled":
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS INTERFACE axis port=weights"
+            )
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS stream depth=8 variable=8"
+            )
+
         else:
             raise Exception(
                 """Please set mem_mode to "const", currently no other
                     parameter value is supported!"""
+            )
+
+        # the threshold tensor is acc_type [PE][TMEM][N_THRES]
+        # partition for parallel access along PE and N_THRES
+        # dimensions (dims 1 and 3)
+        if self.calc_tmem() != 0:
+            # TODO find a better way of checking for no pregenerated thresholds
+            self.code_gen_dict["$PRAGMAS$"].append(
+                (
+                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=1)"
+                )
+            )
+            self.code_gen_dict["$PRAGMAS$"].append(
+                (
+                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=3)"
+                )
             )
