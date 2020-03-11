@@ -39,6 +39,7 @@ from finn.transformation.streamline.absorb import (
     AbsorbMulIntoMultiThreshold,
     FactorOutMulSignMagnitude,
     Absorb1BitMulIntoMatMul,
+    Absorb1BitMulIntoConv,
 )
 
 from finn.transformation.streamline.collapse_repeated import (
@@ -75,6 +76,7 @@ class Streamline(Transformation):
             FactorOutMulSignMagnitude(),
             AbsorbMulIntoMultiThreshold(),
             Absorb1BitMulIntoMatMul(),
+            Absorb1BitMulIntoConv(),
             RoundAndClipThresholds(),
         ]
         for trn in streamline_transformations:
