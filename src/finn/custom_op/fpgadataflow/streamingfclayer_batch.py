@@ -597,6 +597,30 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(1, mh)
         elif mode == "rtlsim":
+            # check mem mode if set to "decoupled" to convert
+            # weights.npy file into .dat file
+            mem_mode = self.get_nodeattr("mem_mode")
+            if mem_mode == "decoupled":
+                # iterate over array and save in memblock_0.dat
+                weights = np.load("{}/weights.npy".format(code_gen_dir))
+                weights = weights.flatten()
+                wdt = self.get_weight_datatype()
+                f = open(
+                    "{}/project_{}/sol1/impl/verilog/memblock_0.dat".format(
+                        code_gen_dir, self.onnx_node.name
+                    ),
+                    "w+",
+                )
+                for val in weights:
+                    # convert signed values into unsigned integer
+                    if wdt.name.startswith("INT"):
+                        bitwidth = wdt.bitwidth()
+                        if val < 0:
+                            val = int(bin(int(val) + 2 ** bitwidth), 2)
+
+                    f.write(str(int(val)) + "\n")
+                f.close()
+
             prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
