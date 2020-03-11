@@ -28,6 +28,7 @@
 
 import math
 import os
+from shutil import copy
 
 import numpy as np
 from pyverilator import PyVerilator
@@ -824,11 +825,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ]
         elif mem_mode == "decoupled":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void Matrix_Vector_Activate_Stream_Batch(
+                """void {}(
                     hls::stream<ap_uint<{}>> &in0,
                     hls::stream<ap_uint<{}>> &weights,
                     hls::stream<ap_uint<{}>> &out
                     )""".format(
+                    self.onnx_node.name,
                     self.get_instream_width(),
                     self.get_weightstream_width(),
                     self.get_outstream_width(),
@@ -900,3 +902,26 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     "complete dim=3)"
                 )
             )
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        # generate code for all mem_mode of MVAU/FCLayer unit
+        super().code_generation_ipgen(model, fpgapart, clk)
+        # TODO generate code for verilog wrapper
+
+    def ipgen_singlenode_code(self):
+        # generate ip block of MVAU/FCLayer unit for all mem modes
+        super().ipgen_singlenode_code()
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            # copy memstream component from finn-rtllib
+            # into verilog folder in code generation folder
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            verilog_folder = "{}/project_{}/sol1/impl/verilog/".format(
+                code_gen_dir, self.onnx_node.name
+            )
+            memstream_dir = "/workspace/finn/finn-rtllib/memstream/hdl/"
+            for file in os.listdir(memstream_dir):
+                if file.endswith(".v"):
+                    verilog_file = os.path.join(memstream_dir, file)
+                    copy(verilog_file, verilog_folder)
