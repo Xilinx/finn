@@ -186,3 +186,44 @@ class Absorb1BitMulIntoMatMul(Transformation):
                             graph.node.remove(consumer)
                             graph_modified = True
         return (model, graph_modified)
+
+
+class Absorb1BitMulIntoConv(Transformation):
+    """Absorb bipolar or binary multiplications into the preciding convolution."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Conv":
+                conv_weight_name = n.input[1]
+                W = model.get_initializer(conv_weight_name)
+                Wdt = model.get_tensor_datatype(conv_weight_name)
+                assert W is not None, "Initializer for conv weights is not set."
+                consumer = model.find_consumer(n.output[0])
+                if consumer is not None and consumer.op_type == "Mul":
+                    mul_weight_name = consumer.input[1]
+                    A = model.get_initializer(mul_weight_name)
+                    assert A is not None, "Initializer for mul weights is not set."
+                    is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
+                    is_scalar = np.prod(A.shape) == 1
+                    actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
+                    is_1d = actual_ndims == 1
+                    if is_1bit and (is_1d or is_scalar):
+                        # move the mul to the OFM position, since the mul is
+                        # applied on the outputs channelwise or as scalar
+                        Wnew = A.reshape(-1, 1, 1, 1) * W
+                        assert (
+                            Wnew.shape == W.shape
+                        ), """Shape of new weights is not
+                        the same as the shape of the conv weights before."""
+                        check_fxn = np.vectorize(lambda x: Wdt.allowed(x))
+                        # only absorb if permitted by W datatype
+                        if check_fxn(Wnew).all():
+                            model.set_initializer(conv_weight_name, Wnew)
+                            n.output[0] = consumer.output[0]
+                            graph.node.remove(consumer)
+                            graph_modified = True
+        return (model, graph_modified)
