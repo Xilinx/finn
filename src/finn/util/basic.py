@@ -40,6 +40,9 @@ from finn.core.datatype import DataType
 pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
 pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
+pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
+pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
+
 
 
 def get_finn_root():
