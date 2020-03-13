@@ -40,6 +40,7 @@ from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     rtlsim_output_to_npy,
+    pack_innermost_dim_as_hex_string,
 )
 
 # ONNX i/o tensor shape assumptions for StreamingFCLayer:
@@ -428,14 +429,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hls_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
+        # we have converted bipolar weights to binary for export,
+        # so use it as such for weight generation
+        if self.get_weight_datatype() == DataType.BIPOLAR:
+            export_wdt = DataType.BINARY
         code_gen_dir = path
 
         if mem_mode == "const":
             """Saves weights into params.h"""
-            # we have converted bipolar weights to binary for export,
-            # so use it as such for weight generation
-            if self.get_weight_datatype() == DataType.BIPOLAR:
-                export_wdt = DataType.BINARY
             weight_hls_code = numpy_to_hls_code(
                 weight_tensor, export_wdt, "weights", True, True
             )
@@ -477,6 +478,23 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             np.save(
                 os.path.join(code_gen_dir, "weights.npy"), weight_tensor,
             )
+            """Saves weights into .dat file"""
+            # convert weight value sinto hexstring
+            weight_width = self.get_weightstream_width()
+            weight_tensor = pack_innermost_dim_as_hex_string(
+                weight_tensor, export_wdt, weight_width
+            )
+            weight_pad = np.zeros((1024), int).astype(str)
+            weight_tensor = weight_tensor.flatten()
+            # delete "0x" in the beginning of the hexstring
+            for i in range(len(weight_tensor)):
+                weight_tensor[i] = weight_tensor[i][2:]
+            weight_pad[: weight_tensor.shape[0]] = weight_tensor
+            f = open("{}/memblock_0.dat".format(code_gen_dir), "w+")
+            for val in weight_pad:
+                f.write(val + "\n")
+            f.close()
+
         else:
             raise Exception(
                 """Please set mem_mode to "const"i or "decoupled", currently no other
@@ -597,31 +615,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(1, mh)
         elif mode == "rtlsim":
-            # check mem mode if set to "decoupled" to convert
-            # weights.npy file into .dat file
+            # set top name depending on mem_mode
             mem_mode = self.get_nodeattr("mem_mode")
-            if mem_mode == "decoupled":
-                # iterate over array and save in memblock_0.dat
-                weights = np.load("{}/weights.npy".format(code_gen_dir))
-                weights = weights.flatten()
-                wdt = self.get_weight_datatype()
-                f = open(
-                    "{}/project_{}/sol1/impl/verilog/memblock_0.dat".format(
-                        code_gen_dir, self.onnx_node.name
-                    ),
-                    "w+",
-                )
-                for val in weights:
-                    # convert signed values into unsigned integer
-                    if wdt.name.startswith("INT"):
-                        bitwidth = wdt.bitwidth()
-                        if val < 0:
-                            val = int(bin(int(val) + 2 ** bitwidth), 2)
-
-                    f.write(str(int(val)) + "\n")
-                f.close()
-
-            prefixed_top_name = "%s_%s" % (node.name, node.name)
+            if mem_mode == "const":
+                prefixed_top_name = "%s_%s" % (node.name, node.name)
+            elif mem_mode == "decoupled":
+                prefixed_top_name == "%s_memstream" % (node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
                 code_gen_dir, node.name, prefixed_top_name
