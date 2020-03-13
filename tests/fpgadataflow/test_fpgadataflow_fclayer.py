@@ -213,6 +213,8 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced == y_expected).all(), "npysim failed"
 
 
+# mem_mode: const or decoupled
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT2])
 # weight datatype
@@ -227,7 +229,7 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [4])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [4])
-def test_fpgadataflow_fclayer_rtlsim(idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -264,6 +266,11 @@ def test_fpgadataflow_fclayer_rtlsim(idt, wdt, act, nf, sf, mw, mh):
         else:
             tdt = DataType.INT32
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", mem_mode)
+
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
     if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
