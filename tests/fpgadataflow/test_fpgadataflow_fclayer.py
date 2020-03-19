@@ -210,6 +210,7 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
     y_produced = y_produced.reshape(y_expected.shape)
+
     assert (y_produced == y_expected).all(), "npysim failed"
 
 
