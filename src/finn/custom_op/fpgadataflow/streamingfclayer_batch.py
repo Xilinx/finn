@@ -42,6 +42,7 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
     pack_innermost_dim_as_hex_string,
 )
+from . import templates
 
 # ONNX i/o tensor shape assumptions for StreamingFCLayer:
 # input 0 is the input vector, shape (1, i_size) = (1, MW)
@@ -55,6 +56,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
+        self.decoupled_wrapper = templates.decoupled_wrapper
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -620,7 +622,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             if mem_mode == "const":
                 prefixed_top_name = "%s_%s" % (node.name, node.name)
             elif mem_mode == "decoupled":
-                prefixed_top_name == "%s_memstream" % (node.name)
+                prefixed_top_name = "%s_memstream" % (node.name)
+            else:
+                raise Exception(
+                    """Please set mem_mode to "const" or "decoupled", currently no other
+                    parameter value is supported!"""
+                )
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
                 code_gen_dir, node.name, prefixed_top_name
@@ -786,8 +793,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ]
         elif mem_mode == "decoupled":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, WP1, {}, {}, {}>
-                (in0, out, weights, {}, numReps, {});""".format(
+                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, ap_int<WP1>
+                >(in0, out, weights, {}, numReps, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
@@ -929,7 +936,48 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def code_generation_ipgen(self, model, fpgapart, clk):
         # generate code for all mem_mode of MVAU/FCLayer unit
         super().code_generation_ipgen(model, fpgapart, clk)
-        # TODO generate code for verilog wrapper
+
+        # if mem_mode = "decoupled" generate code for verilog wrapper
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            # empty code gen dictionary for new entries
+            self.code_gen_dict.clear()
+            self.code_gen_dict["$TOPNAME$"] = [
+                "{}_memstream".format(self.onnx_node.name)
+            ]
+            self.code_gen_dict["$LAYER_NAME$"] = [
+                "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
+            ]
+            self.code_gen_dict["$IN_RANGE$"] = [
+                "[{}:0]".format(self.get_instream_width() - 1)
+            ]
+            self.code_gen_dict["$OUT_RANGE$"] = [
+                "[{}:0]".format(self.get_outstream_width() - 1)
+            ]
+            self.code_gen_dict["$WEIGHT_RANGE$"] = [
+                "[{}:0]".format(self.get_weightstream_width() - 1)
+            ]
+            self.code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_weightstream_width())]
+            mw = self.get_nodeattr("MW")
+            mh = self.get_nodeattr("MH")
+            self.code_gen_dict["$WEIGHT_DEPTH$"] = [str(int(mw * mh))]
+
+            template = self.decoupled_wrapper
+
+            for key in self.code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(self.code_gen_dict[key])
+                template = template.replace(key, code_gen_line)
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            f = open(
+                os.path.join(
+                    code_gen_dir, "{}_memstream.v".format(self.onnx_node.name)
+                ),
+                "w",
+            )
+            f.write(template)
+            f.close()
+            self.code_gen_dict.clear()
 
     def ipgen_singlenode_code(self):
         # generate ip block of MVAU/FCLayer unit for all mem modes
@@ -937,14 +985,23 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
-            # copy memstream component from finn-rtllib
+            # copy necessary verilog and .dat files
             # into verilog folder in code generation folder
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             verilog_folder = "{}/project_{}/sol1/impl/verilog/".format(
                 code_gen_dir, self.onnx_node.name
             )
+            # copy memstream components from finn-rtllib
             memstream_dir = "/workspace/finn/finn-rtllib/memstream/hdl/"
             for file in os.listdir(memstream_dir):
                 if file.endswith(".v"):
                     verilog_file = os.path.join(memstream_dir, file)
                     copy(verilog_file, verilog_folder)
+            # copy .dat file of weights
+            dat_file = "{}/memblock_0.dat".format(code_gen_dir)
+            copy(dat_file, verilog_folder)
+            # copy verilog wrapper
+            verilog_wrapper = "{}/{}_memstream.v".format(
+                code_gen_dir, self.onnx_node.name
+            )
+            copy(verilog_wrapper, verilog_folder)
