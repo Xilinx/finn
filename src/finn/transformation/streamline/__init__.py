@@ -30,6 +30,7 @@ from finn.transformation import Transformation
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import (
     ConvertSubToAdd,
+    ConvertDivToMul,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
 )
@@ -64,6 +65,7 @@ class Streamline(Transformation):
     def apply(self, model):
         streamline_transformations = [
             ConvertSubToAdd(),
+            ConvertDivToMul(),
             BatchNormToAffine(),
             ConvertSignToThres(),
             MoveAddPastMul(),
