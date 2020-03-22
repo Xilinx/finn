@@ -50,8 +50,11 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.test import get_test_model_trained
+from finn.transformation.double_to_single_float import DoubleToSingleFloat
+from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 
 export_onnx_path = "test_output_tfc.onnx"
+export_onnx_path_cnv = "test_output_cnv.onnx"
 
 
 def test_convert_to_hls_layers_tfc_w1a1():
@@ -121,6 +124,21 @@ def test_convert_to_hls_layers_tfc_w1a1():
     # do forward pass in PyTorch/Brevitas
     expected = tfc.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
+
+
+def test_convert_to_hls_layers_cnv_w1a1():
+    tfc = get_test_model_trained("CNV", 1, 1)
+    bo.export_finn_onnx(tfc, (1, 3, 32, 32), export_onnx_path)
+    model = ModelWrapper(export_onnx_path_cnv)
+    model = model.transform(DoubleToSingleFloat())
+    model = model.transform(InferShapes())
+    model = model.transform(FoldConstants())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(Streamline())
+    model.save("cnv-streamline.onnx")
+    model = model.transform(LowerConvsToMatMul())
+    model.save("cnv-lower.onnx")
 
 
 def test_convert_to_hls_layers_tfc_w1a2():
