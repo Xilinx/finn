@@ -32,6 +32,7 @@ from onnx import helper as oh
 from finn.transformation import Transformation
 from finn.transformation.infer_shapes import InferShapes
 from finn.core.onnx_exec import execute_node
+from finn.util.basic import get_by_name
 
 
 class MoveAddPastMul(Transformation):
@@ -267,4 +268,37 @@ class MoveScalarMulPastConv(Transformation):
                         graph.node.insert(node_ind, mul_node)
                         graph_modified = True
         model = model.transform(InferShapes())
+        return (model, graph_modified)
+
+
+class MakeMaxPoolNHWC(Transformation):
+    """Convert (MaxPool, NHWCTranpose) into (MaxPoolNHWC)."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "MaxPool":
+                consumer = model.find_consumer(n.output[0])
+                if consumer is not None and consumer.op_type == "Transpose":
+                    perms = list(get_by_name(consumer.attribute, "perm").ints)
+                    if perms == [0, 2, 3, 1]:
+                        n.op_type = "MaxPoolNHWC"
+                        n.domain = "finn"
+                        start_name = n.input[0]
+                        mid_name = consumer.input[0]
+                        end_name = consumer.output[0]
+                        (b, c, hi, wi) = model.get_tensor_shape(start_name)
+                        (b, c, ho, wo) = model.get_tensor_shape(mid_name)
+                        consumer.input[0] = start_name
+                        consumer.output[0] = mid_name
+                        n.input[0] = mid_name
+                        n.output[0] = end_name
+                        model.set_tensor_shape(mid_name, (b, hi, wi, c))
+                        model.set_tensor_shape(end_name, (b, ho, wo, c))
+                        graph.node.remove(consumer)
+                        graph.node.insert(node_ind - 1, consumer)
+                        graph_modified = True
         return (model, graph_modified)
