@@ -43,6 +43,7 @@ from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 
 export_onnx_path_cnv = "test_output_cnv.onnx"
 
@@ -70,6 +71,7 @@ def test_convert_to_hls_layers_cnv_w1a1():
     model = model.transform(LowerConvsToMatMul())
     model = model.transform(MakeMaxPoolNHWC())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model.save("cnv-lower.onnx")
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
