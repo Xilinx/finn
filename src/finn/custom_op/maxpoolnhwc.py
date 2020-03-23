@@ -40,10 +40,13 @@ class MaxPoolNHWC(CustomOp):
         return {}
 
     def make_shape_compatible_op(self):
-        pass
+        raise Exception("MaxPoolNHWC does not yet support shape inference")
 
     def infer_node_datatype(self, model):
-        pass
+        node = self.onnx_node
+        # data type stays the same
+        dtype = model.get_tensor_datatype(node.input[0])
+        model.set_tensor_datatype(node.output[0], dtype)
 
     def execute_node(self, context, graph):
         node = self.onnx_node
