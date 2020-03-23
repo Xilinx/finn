@@ -82,7 +82,7 @@ class GiveReadableTensorNames(Transformation):
 
 
 class ConvertSubToAdd(Transformation):
-    """Convert sub nodes to add nodes of appropriate sign."""
+    """Convert subtract-a-constant nodes to add-a-constant nodes."""
 
     def apply(self, model):
         graph = model.graph
@@ -92,5 +92,20 @@ class ConvertSubToAdd(Transformation):
                 if A is not None:
                     n.op_type = "Add"
                     model.set_initializer(n.input[1], -A)
+        # return model_was_changed = False as single iteration is always enough
+        return (model, False)
+
+
+class ConvertDivToMul(Transformation):
+    """Convert divide by constant nodes to multiply by constant nodes."""
+
+    def apply(self, model):
+        graph = model.graph
+        for n in graph.node:
+            if n.op_type == "Div":
+                A = model.get_initializer(n.input[1])
+                if A is not None:
+                    n.op_type = "Mul"
+                    model.set_initializer(n.input[1], 1.0 / A)
         # return model_was_changed = False as single iteration is always enough
         return (model, False)

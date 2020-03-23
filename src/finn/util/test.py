@@ -53,7 +53,11 @@ def get_test_model_trained(netname, wbits, abits):
     and activations from the FINN Brevitas test networks."""
     model_def_fxn = get_test_model_def_fxn(netname)
     checkpoint_loc = get_trained_checkpoint(netname, wbits, abits)
-    fc = model_def_fxn(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=abits)
+    if netname == "CNV":
+        ibits = 8
+    else:
+        ibits = abits
+    fc = model_def_fxn(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=ibits)
     checkpoint = torch.load(checkpoint_loc, map_location="cpu")
     fc.load_state_dict(checkpoint["state_dict"])
     return fc.eval()
@@ -62,5 +66,9 @@ def get_test_model_trained(netname, wbits, abits):
 def get_test_model_untrained(netname, wbits, abits):
     """Returns untrained model specified by input arguments."""
     model_def_fxn = get_test_model_def_fxn(netname)
-    fc = model_def_fxn(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=abits)
+    if netname == "CNV":
+        ibits = 8
+    else:
+        ibits = abits
+    fc = model_def_fxn(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=ibits)
     return fc.eval()

@@ -26,46 +26,54 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import pkg_resources as pk
-import pytest
-
 import brevitas.onnx as bo
 import numpy as np
-import torch
+import pytest
+import pkg_resources as pk
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
+from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
+from finn.util.basic import make_build_dir
+from finn.transformation.double_to_single_float import DoubleToSingleFloat
 
-export_onnx_path = "test_output_cnv.onnx"
+export_onnx_path = make_build_dir("test_streamline_cnv_")
 
-
-@pytest.mark.parametrize("abits", [1, 2])
-@pytest.mark.parametrize("wbits", [1, 2])
-def test_brevitas_cnv_export_exec(wbits, abits):
+# act bits
+@pytest.mark.parametrize("abits", [1])
+# weight bits
+@pytest.mark.parametrize("wbits", [1])
+# network topology / size
+@pytest.mark.parametrize("size", ["CNV"])
+def test_streamline_cnv(size, wbits, abits):
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
-    cnv = get_test_model_trained("CNV", wbits, abits)
-    bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
-    model = model.transform(GiveUniqueNodeNames())
+    nname = "%s_%dW%dA" % (size, wbits, abits)
+    finn_onnx = export_onnx_path + "/%s.onnx" % nname
+    fc = get_test_model_trained(size, wbits, abits)
+    bo.export_finn_onnx(fc, (1, 3, 32, 32), finn_onnx)
+    model = ModelWrapper(finn_onnx)
     model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
     assert input_tensor.shape == (1, 3, 32, 32)
     # run using FINN-based execution
-    input_dict = {model.graph.input[0].name: input_tensor}
-    output_dict = oxe.execute_onnx(model, input_dict, True)
-    produced = output_dict[model.graph.output[0].name]
-    # do forward pass in PyTorch/Brevitas
-    input_tensor = torch.from_numpy(input_tensor).float()
-    expected = cnv.forward(input_tensor).detach().numpy()
-    assert np.isclose(produced, expected, atol=1e-3).all()
-    os.remove(export_onnx_path)
+    input_dict = {"global_in": input_tensor}
+    expected_ctx = oxe.execute_onnx(model, input_dict, True)
+    expected = expected_ctx[model.graph.output[0].name]
+    model.save("orig_cnv.onnx")
+    model = model.transform(Streamline())
+    model.save("streamlined_cnv.onnx")
+    produced_ctx = oxe.execute_onnx(model, input_dict, True)
+    produced = produced_ctx[model.graph.output[0].name]
+    assert np.isclose(expected, produced, atol=1e-3).all()
+    assert model.graph.node[0].op_type == "MultiThreshold"
