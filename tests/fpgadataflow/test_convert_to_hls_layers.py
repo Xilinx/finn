@@ -38,6 +38,7 @@ import torch
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
+from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
@@ -138,6 +139,8 @@ def test_convert_to_hls_layers_cnv_w1a1():
     model = model.transform(Streamline())
     model.save("cnv-streamline.onnx")
     model = model.transform(LowerConvsToMatMul())
+    model = model.transform(MakeMaxPoolNHWC())
+    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model.save("cnv-lower.onnx")
 
 
