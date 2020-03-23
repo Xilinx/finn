@@ -71,6 +71,24 @@ class ConvertBipolarMatMulToXnorPopcount(Transformation):
                         get_by_name(mt.attribute, "out_scale").f = 1.0
                         get_by_name(mt.attribute, "out_bias").f = 0
                         model.set_tensor_datatype(mm_input, DataType.BINARY)
+                    elif mt is not None and mt.op_type == "Im2Col":
+                        # Im2Col node for lowered convolution
+                        # go one more step back to see if we find threshold
+                        # node there
+                        i2c = mt
+                        mt = model.find_producer(i2c.input[0])
+                        if mt is not None and mt.op_type == "MultiThreshold":
+                            bin_dt_attr = "BINARY".encode("utf-8")
+                            get_by_name(mt.attribute, "out_dtype").s = bin_dt_attr
+                            get_by_name(mt.attribute, "out_scale").f = 1.0
+                            get_by_name(mt.attribute, "out_bias").f = 0
+                            model.set_tensor_datatype(mm_input, DataType.BINARY)
+                        else:
+                            raise Exception(
+                                """Found to MultiThreshold before
+                                            Im2Col for bipolar->binary conversion
+                                            """
+                            )
                     else:
                         raise Exception(
                             """Requires Bipolar2Binary, not yet
