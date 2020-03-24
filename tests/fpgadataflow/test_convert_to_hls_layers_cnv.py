@@ -49,6 +49,7 @@ import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.custom_op.registry import getCustomOp
 
 export_onnx_path_cnv = "test_output_cnv.onnx"
 
@@ -82,10 +83,20 @@ def test_convert_to_hls_layers_cnv_w1a1():
     model = model.transform(RoundAndClipThresholds())
     model = model.transform(to_hls.InferBinaryStreamingFCLayer())
 
+    for node in model.graph.node:
+        if node.op_type == "StreamingFCLayer_Batch":
+            inst = getCustomOp(node)
+            inst.set_nodeattr("mem_mode", "decoupled")
+            mw = inst.get_nodeattr("MW")
+            mh = inst.get_nodeattr("MH")
+            inst.set_nodeattr("PE", mh)
+            inst.set_nodeattr("SIMD", mw)
+    model.save("cnv-pre-compile.onnx")
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
     model = model.transform(SetExecMode("npysim"))
-    model.save("cnv-lower.onnx")
+    model.save("cnv-post-compile.onnx")
+
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
     assert np.isclose(expected, produced, atol=1e-3).all()
