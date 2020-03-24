@@ -42,10 +42,11 @@ from finn.util.data_packing import (
 )
 
 # ONNX i/o tensor shape assumptions for StreamingFCLayer:
-# input 0 is the input vector, shape (1, i_size) = (1, MW)
-# input 1 is the weight vector, shape (i_size, o_size) = (MW, MH)
-# (optional) input 2 is the threshold vector, shape (o_size, n_thres)
-# output 0 is the output vector, shape (1, o_size) = (1, MH)
+# input 0 is the input tensor, shape (.., i_size) = (..., MW)
+# input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
+# (optional) input 2 is the thresholds tensor, shape (o_size, n_thres)
+# output 0 is the output tensor, shape (.., o_size) = (..., MH)
+# the ... here can be any shape (representing groups of vectors)
 
 
 class StreamingFCLayer_Batch(HLSCustomOp):
@@ -238,13 +239,17 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mw = self.get_nodeattr("MW")
         simd = self.get_nodeattr("SIMD")
         sf = mw // simd
-        return (1, sf, simd)
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        folded_input_shape = tuple(vecs + [sf, simd])
+        return folded_input_shape
 
     def get_folded_output_shape(self):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         nf = mh // pe
-        return (1, nf, pe)
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        folded_output_shape = tuple(vecs + [nf, pe])
+        return folded_output_shape
 
     def get_number_output_values(self):
         nf = self.get_folded_output_shape()[1]
