@@ -447,32 +447,45 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             f_weights.close()
 
         elif mem_mode == "decoupled":
-            """Saves weights into .npy file"""
+            """Saves weights in corresponding file format for npysim or rtlsim"""
             # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
-            weight_tensor = np.transpose(weight_tensor, (0, 2, 1, 3))
-            # flip PE dimension
-            weight_tensor = np.flip(weight_tensor, axis=-2)
-            weight_tensor = np.flip(weight_tensor, axis=-1)
-            # reshape weight tensor to desired shape
+            # and save as unflipped weight tensor to be able to differentiate between
+            # flipped an unflipped weight tensor (has to be flipped for npysim)
+
+            weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
+
+            # flip PE dimension and reverse SIMD flip for saving weights in .npy
+            weight_tensor_flipped = np.flip(weight_tensor_unflipped, axis=-2)
+            weight_tensor_flipped = np.flip(weight_tensor_flipped, axis=-1)
+
+            # reshape weight tensor (flipped and unflipped) to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
-            weight_tensor = weight_tensor.reshape(1, -1, pe * simd)
-            weight_tensor = weight_tensor.copy()
+            # unflipped
+            weight_tensor_unflipped = weight_tensor_unflipped.reshape(1, -1, pe * simd)
+            weight_tensor_unflipped = weight_tensor_unflipped.copy()
+            # flipped
+            weight_tensor_flipped = weight_tensor_flipped.reshape(1, -1, pe * simd)
+            weight_tensor_flipped = weight_tensor_flipped.copy()
+
+            """Saves weights into .npy file"""
             np.save(
                 os.path.join(code_gen_dir, "weights.npy"), weight_tensor,
             )
+
             """Saves weights into .dat file"""
             # convert weight value sinto hexstring
             weight_width = self.get_weightstream_width()
-            weight_tensor = pack_innermost_dim_as_hex_string(
-                weight_tensor, export_wdt, weight_width
+            weight_tensor_unflipped = pack_innermost_dim_as_hex_string(
+                weight_tensor_unflipped, export_wdt, weight_width
             )
             weight_pad = np.zeros((1024), int).astype(str)
-            weight_tensor = weight_tensor.flatten()
+            weight_tensor_unflipped = weight_tensor_unflipped.flatten()
             # delete "0x" in the beginning of the hexstring
-            for i in range(len(weight_tensor)):
-                weight_tensor[i] = weight_tensor[i][2:]
-            weight_pad[: weight_tensor.shape[0]] = weight_tensor
+            for i in range(len(weight_tensor_unflipped)):
+                weight_tensor_unflipped[i] = weight_tensor_unflipped[i][2:]
+            weight_pad[: weight_tensor_unflipped.shape[0]] = weight_tensor_unflipped
+            weight_pad = weight_pad.copy()
             f = open("{}/memblock_0.dat".format(code_gen_dir), "w+")
             for val in weight_pad:
                 f.write(val + "\n")
@@ -936,16 +949,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$LAYER_NAME$"] = [
                 "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
             ]
-            self.code_gen_dict["$IN_RANGE$"] = [
-                "[{}:0]".format(self.get_instream_width() - 1)
-            ]
+            # make instream width a multiple of 8 for axi interface
+            in_width = self.get_instream_width()
+            if in_width % 8 != 0:
+                in_width = math.floor(in_width / 8) + 8
+            self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
             self.code_gen_dict["$OUT_RANGE$"] = [
                 "[{}:0]".format(self.get_outstream_width() - 1)
             ]
-            self.code_gen_dict["$WEIGHT_RANGE$"] = [
-                "[{}:0]".format(self.get_weightstream_width() - 1)
-            ]
-            self.code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_weightstream_width())]
+            # make weight stream width a multiple of 8 for axi interface
+            weight_width = self.get_weightstream_width()
+            if weight_width % 8 != 0:
+                weight_width = math.floor(weight_width / 8) + 8
+            self.code_gen_dict["$WEIGHT_RANGE$"] = ["[{}:0]".format(weight_width - 1)]
+            self.code_gen_dict["$WEIGHT_WIDTH$"] = [str(weight_width)]
             mw = self.get_nodeattr("MW")
             mh = self.get_nodeattr("MH")
             self.code_gen_dict["$WEIGHT_DEPTH$"] = [str(int(mw * mh))]
