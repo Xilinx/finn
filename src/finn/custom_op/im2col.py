@@ -78,7 +78,7 @@ class Im2Col(CustomOp):
             "pad_value": ("i", False, 0),
         }
 
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         k = self.get_nodeattr("kernel_size")
         stride = self.get_nodeattr("stride")
         ishape = self.get_nodeattr("input_shape")

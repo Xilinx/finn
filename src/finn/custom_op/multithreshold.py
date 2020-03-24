@@ -109,7 +109,7 @@ class MultiThreshold(CustomOp):
             "data_layout": ("s", False, "NCHW"),
         }
 
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         node = self.onnx_node
         return helper.make_node("Relu", [node.input[0]], [node.output[0]])
 

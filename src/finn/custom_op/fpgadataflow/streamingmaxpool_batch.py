@@ -41,7 +41,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         pass
 
     def infer_node_datatype(self, model):

@@ -59,7 +59,7 @@ class TLastMarker(HLSCustomOp):
         i_tensor = context[i_name]
         context[o_name] = i_tensor
 
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         # not supported for shape inference
         pass
 

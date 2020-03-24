@@ -39,7 +39,7 @@ class MaxPoolNHWC(CustomOp):
         # no specific attributes for MaxPoolNHWC
         return {}
 
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         raise Exception("MaxPoolNHWC does not yet support shape inference")
 
     def infer_node_datatype(self, model):

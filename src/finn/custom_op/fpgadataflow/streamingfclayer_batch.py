@@ -98,7 +98,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             pe = self.get_nodeattr("PE")
             return mh // pe
 
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         pass
 
     def infer_node_datatype(self, model):
