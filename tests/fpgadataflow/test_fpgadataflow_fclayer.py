@@ -31,6 +31,7 @@ import pytest
 import numpy as np
 from onnx import TensorProto, helper
 
+from finn.custom_op.registry import getCustomOp
 import finn.core.onnx_exec as oxe
 import finn.custom_op.xnorpopcount as xp
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
@@ -128,6 +129,8 @@ def prepare_inputs(input_tensor, idt, wdt):
         return {"inp": input_tensor}
 
 
+# mem_mode: const or decoupled
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT2])
 # weight datatype
@@ -135,14 +138,14 @@ def prepare_inputs(input_tensor, idt, wdt):
 # input datatype
 @pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
 # neuron folding, -1 is maximum possible
-@pytest.mark.parametrize("nf", [-1, 1])
+@pytest.mark.parametrize("nf", [-1, 2, 1])
 # synapse folding, -1 is maximum possible
-@pytest.mark.parametrize("sf", [-1, 1])
+@pytest.mark.parametrize("sf", [-1, 2, 1])
 # HLS matrix width (input features)
 @pytest.mark.parametrize("mw", [4])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [4])
-def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -179,6 +182,10 @@ def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
         else:
             tdt = DataType.INT32
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", mem_mode)
     model = model.transform(SetExecMode("npysim"))
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
@@ -201,7 +208,9 @@ def test_fpgadataflow_fclayer_npysim(idt, wdt, act, nf, sf, mw, mh):
     y_expected = y.reshape(oshape)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "npysim failed"
+
+    y_produced = y_produced.reshape(y_expected.shape)
+    assert (y_produced == y_expected).all(), "npysim failed"
 
 
 # activation: None or DataType

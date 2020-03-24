@@ -123,6 +123,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
             ), """Input shape doesn't
             match expected shape (1, ifm_ch, ifm_dim, ifm_dim)."""
             reshaped_inp = inp.transpose(0, 2, 3, 1)
+            # make copy before saving array
+            reshaped_inp = reshaped_inp.copy()
             np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
             # execute the precompiled model
             super().exec_precompiled_singlenode_model()

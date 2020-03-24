@@ -104,6 +104,8 @@ g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
         ["sh", "compile.sh"], stdout=subprocess.PIPE, cwd=test_dir
     )
     (stdout, stderr) = compile.communicate()
+    # make copy before saving the array
+    ndarray = ndarray.copy()
     np.save(npy_in, ndarray)
     execute = subprocess.Popen(
         "./test_npy2apintstream", stdout=subprocess.PIPE, cwd=test_dir
