@@ -47,6 +47,9 @@ class InferBinaryStreamingFCLayer(Transformation):
             if n.op_type == "XnorPopcountMatMul":
                 mm_input = n.input[0]
                 mm_weight = n.input[1]
+                mm_output = n.output[0]
+                mm_in_shape = model.get_tensor_shape(mm_input)
+                mm_out_shape = model.get_tensor_shape(mm_output)
                 assert (
                     model.get_tensor_datatype(mm_input) == DataType.BINARY
                 ), """First
@@ -93,10 +96,8 @@ class InferBinaryStreamingFCLayer(Transformation):
                         actval = 0
                     else:
                         actval = odt.min()
-                    in_shape = [1, mw]
-                    out_shape = [1, mh]
-                    model.set_tensor_shape(mm_input, in_shape)
-                    model.set_tensor_shape(mt_output, out_shape)
+                    model.set_tensor_shape(mm_input, mm_in_shape)
+                    model.set_tensor_shape(mt_output, mm_out_shape)
                     # create and insert new StreamingFCLayer node
                     new_node = helper.make_node(
                         "StreamingFCLayer_Batch",
@@ -123,11 +124,9 @@ class InferBinaryStreamingFCLayer(Transformation):
                     graph_modified = True
                 else:
                     # no activation, matmul only
-                    in_shape = [1, mw]
-                    out_shape = [1, mh]
                     odt = model.get_tensor_datatype(mm_output)
-                    model.set_tensor_shape(mm_input, in_shape)
-                    model.set_tensor_shape(mm_output, out_shape)
+                    model.set_tensor_shape(mm_input, mm_in_shape)
+                    model.set_tensor_shape(mt_output, mm_out_shape)
                     # create and insert new StreamingFCLayer node
                     new_node = helper.make_node(
                         "StreamingFCLayer_Batch",
@@ -169,6 +168,9 @@ class InferQuantizedStreamingFCLayer(Transformation):
             if n.op_type == "MatMul":
                 mm_input = n.input[0]
                 mm_weight = n.input[1]
+                mm_output = n.output[0]
+                mm_in_shape = model.get_tensor_shape(mm_input)
+                mm_out_shape = model.get_tensor_shape(mm_output)
                 idt = model.get_tensor_datatype(mm_input)
                 wdt = model.get_tensor_datatype(mm_weight)
                 if idt.is_integer() and wdt.is_integer():
@@ -217,10 +219,8 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         assert (not odt.signed()) or (
                             actval < 0
                         ), "Signed output requres actval < 0"
-                        in_shape = [1, mw]
-                        out_shape = [1, mh]
-                        model.set_tensor_shape(mm_input, in_shape)
-                        model.set_tensor_shape(mt_output, out_shape)
+                        model.set_tensor_shape(mm_input, mm_in_shape)
+                        model.set_tensor_shape(mt_output, mm_out_shape)
                         # create and insert new StreamingFCLayer node
                         new_node = helper.make_node(
                             "StreamingFCLayer_Batch",
@@ -247,11 +247,9 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         graph_modified = True
                     else:
                         # no activation, matmul only
-                        in_shape = [1, mw]
-                        out_shape = [1, mh]
                         odt = model.get_tensor_datatype(mm_output)
-                        model.set_tensor_shape(mm_input, in_shape)
-                        model.set_tensor_shape(mm_output, out_shape)
+                        model.set_tensor_shape(mm_input, mm_in_shape)
+                        model.set_tensor_shape(mt_output, mm_out_shape)
                         # create and insert new StreamingFCLayer node
                         new_node = helper.make_node(
                             "StreamingFCLayer_Batch",
