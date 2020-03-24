@@ -44,6 +44,11 @@ from finn.util.test import get_test_model_trained
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
+from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 export_onnx_path_cnv = "test_output_cnv.onnx"
 
@@ -72,6 +77,14 @@ def test_convert_to_hls_layers_cnv_w1a1():
     model = model.transform(MakeMaxPoolNHWC())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
+    model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
+    model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
+    model = model.transform(RoundAndClipThresholds())
+    model = model.transform(to_hls.InferBinaryStreamingFCLayer())
+
+    model = model.transform(CodeGen_npysim())
+    model = model.transform(Compile())
+    model = model.transform(SetExecMode("npysim"))
     model.save("cnv-lower.onnx")
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
