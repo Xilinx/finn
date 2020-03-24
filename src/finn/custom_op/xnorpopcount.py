@@ -37,8 +37,10 @@ def xnorpopcountmatmul(inp0, inp1):
     """Simulates XNOR-popcount matrix multiplication as a regular bipolar
     matrix multiplication followed by some post processing."""
     # extract the operand shapes
-    (M, K0) = inp0.shape
-    (K1, N) = inp1.shape
+    # (M, K0) = inp0.shape
+    # (K1, N) = inp1.shape
+    K0 = inp0.shape[-1]
+    K1 = inp1.shape[0]
     # make sure shapes are compatible with matmul
     assert K0 == K1, "Matrix shapes are not compatible with matmul."
     K = K0
