@@ -116,6 +116,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                         ActVal=actval,
                         binaryXnorMode=1,
                         noActivation=0,
+                        numInputVectors=list(mm_in_shape[:-1]),
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
@@ -145,6 +146,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                         ActVal=0,
                         binaryXnorMode=1,
                         noActivation=1,
+                        numInputVectors=list(mm_in_shape[:-1]),
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old node
@@ -239,6 +241,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             ActVal=actval,
                             binaryXnorMode=0,
                             noActivation=0,
+                            numInputVectors=list(mm_in_shape[:-1]),
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -268,6 +271,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             ActVal=0,
                             binaryXnorMode=0,
                             noActivation=1,
+                            numInputVectors=list(mm_in_shape[:-1]),
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node
