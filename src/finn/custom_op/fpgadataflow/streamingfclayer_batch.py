@@ -74,6 +74,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 0),
             "outFIFODepth": ("i", False, 0),
+            # number of input vectors, examples:
+            # [1] is a single vector (like a FC layer with batch=1)
+            # [4] is four vectors (like a FC layer with batch=4)
+            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
+            "numInputVectors": ("ints", False, [1]),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -106,19 +111,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-
-        # verify number of attributes
-        num_of_attr = 14
-        if len(self.onnx_node.attribute) == num_of_attr:
-            info_messages.append("The number of attributes is correct")
-        else:
-            info_messages.append(
-                """The number of attributes is incorrect,
-            {} should have {} attributes""".format(
-                    self.onnx_node.op_type, num_of_attr
-                )
-            )
-
         # verify that "domain" is set to "finn"
         domain_value = self.onnx_node.domain
         if domain_value == "finn":
@@ -146,17 +138,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.get_nodeattr("inputDataType")
             self.get_nodeattr("weightDataType")
             self.get_nodeattr("outputDataType")
-            self.get_nodeattr("ActVal")
-            self.get_nodeattr("binaryXnorMode")
-            self.get_nodeattr("noActivation")
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append(
-                """The necessary attributes do not exist.
-                StreamingFCLayer_Batch needs the following attributes:
-                code_gen_dir_npysim, executable_path, resType, MW, MH, SIMD, PE,
-                inputDataType, weightDataType, outputDataType, ActVal,
-                binaryXnorMode, noActivation"""
+                """The required StreamingFCLayer attributes do not exist."""
             )
 
         # verify the number of inputs depending on noActivation value
@@ -476,12 +461,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        mw = self.get_nodeattr("MW")
         mh = self.get_nodeattr("MH")
-        simd = self.get_nodeattr("SIMD")
-        pe = self.get_nodeattr("PE")
-        sf = mw // simd
-        nf = mh // pe
 
         # TODO ensure codegen dir exists
         if mode == "npysim":
@@ -507,7 +487,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     str(context[inputs].dtype) == "float32"
                 ), """Input datatype is
                 not float32 as expected."""
-                expected_inp_shape = (1, sf, simd)
+                expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
                 if self.get_input_datatype() == DataType.BIPOLAR:
                     # store bipolar activations as binary
@@ -533,12 +513,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
-            assert context[node.output[0]].shape == (
-                1,
-                nf,
-                pe,
-            ), """Output shape is not
-            as expected (1, nf, pe)"""
+            assert (
+                context[node.output[0]].shape == self.get_folded_output_shape()
+            ), """Output shape is not as expected"""
             # reshape output to have expected shape
             context[node.output[0]] = context[node.output[0]].reshape(1, mh)
         elif mode == "rtlsim":
@@ -567,8 +544,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 target_bits = odt.bitwidth()
                 packed_bits = self.get_outstream_width()
                 out_npy_path = "{}/output.npy".format(code_gen_dir)
+                out_shape = self.get_folded_output_shape()
                 rtlsim_output_to_npy(
-                    output, out_npy_path, odt, (1, nf, pe), packed_bits, target_bits
+                    output, out_npy_path, odt, out_shape, packed_bits, target_bits
                 )
 
                 # load and reshape output
@@ -677,8 +655,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_out = "%s/output.npy" % code_gen_dir
-        nf = int(self.get_nodeattr("MH") / self.get_nodeattr("PE"))
-        shape = (1, nf, self.get_nodeattr("PE"))
+        shape = self.get_folded_output_shape()
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
         # note: the innermost dim is not reversed for the output
