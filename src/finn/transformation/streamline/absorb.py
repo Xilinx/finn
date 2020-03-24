@@ -33,6 +33,7 @@ from finn.core.datatype import DataType
 from finn.transformation import Transformation
 from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
+from finn.transformation.infer_datatypes import InferDataTypes
 
 
 class AbsorbAddIntoMultiThreshold(Transformation):
@@ -278,4 +279,6 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                                 model.set_tensor_shape(mt_cand.output[0], mt_ishape)
                                 graph.node.remove(n)
                                 graph_modified = True
+        if graph_modified:
+            model = model.transform(InferDataTypes())
         return (model, graph_modified)
