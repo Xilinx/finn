@@ -142,7 +142,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
         """Returns stream width, input and output stream width are equal for
         the sliding window function"""
         ibits = self.get_input_datatype().bitwidth()
-        return self.get_nodeattr("SIMD") * ibits
+        simd = self.get_nodeattr("SIMD")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        assert simd == ifm_ch, "SWG currently requires SIMD=IFM"
+        return simd * ibits
 
     def get_number_output_values(self):
         # TODO this seems incorrect -- double check
