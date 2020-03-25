@@ -148,13 +148,9 @@ class ConvolutionInputGenerator(HLSCustomOp):
         return simd * ibits
 
     def get_number_output_values(self):
-        # TODO this seems incorrect -- double check
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ofm_dim = self.get_nodeattr("OFMDim")
-        out_pix = ofm_dim * ofm_dim
-
-        return out_pix * k * k * ifm_ch
+        folded_oshape = self.get_folded_output_shape()
+        num_output_elems = np.prod(folded_oshape[:-1])
+        return num_output_elems
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
