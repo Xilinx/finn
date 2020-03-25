@@ -33,6 +33,56 @@ from finn.transformation import Transformation
 from finn.custom_op.registry import getCustomOp
 
 
+class InferConvInpGen(Transformation):
+    """Convert Im2Col layers to ConvolutionInputGenerator layers."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Im2Col":
+                i2c_input = n.input[0]
+                i2c_output = n.output[0]
+                i2c_in_shape = model.get_tensor_shape(i2c_input)
+                i2c_out_shape = model.get_tensor_shape(i2c_output)
+                dt = model.get_tensor_datatype(i2c_input)
+                i2c_inst = getCustomOp(n)
+                stride = i2c_inst.get_nodeattr("stride")
+                k = i2c_inst.get_nodeattr("kernel_size")
+                pad = i2c_inst.get_nodeattr("pad_amount")
+                pad_val = i2c_inst.get_nodeattr("pad_value")
+                ifm_ch = i2c_in_shape[-1]
+                ifm_dim = i2c_in_shape[1]
+                ofm_dim = i2c_out_shape[1]
+                # if padding enabled, ensure pad_val supported by DataType
+                if pad > 0:
+                    assert dt.allowed(pad_val), "Im2Col DataType must support pad_val"
+                # create equivalent ConvolutionInputGenerator node
+                # TODO support padding
+                new_node = helper.make_node(
+                    "ConvolutionInputGenerator",
+                    [i2c_input],
+                    [i2c_output],
+                    domain="finn",
+                    backend="fpgadataflow",
+                    ConvKernelDim=k,
+                    IFMChannels=ifm_ch,
+                    IFMDim=ifm_dim,
+                    OFMDim=ofm_dim,
+                    SIMD=ifm_ch,
+                    Stride=stride,
+                    inputDataType=dt.name,
+                    outputDataType=dt.name,
+                )
+                graph.node.insert(node_ind, new_node)
+                # remove old nodes
+                graph.node.remove(n)
+                graph_modified = True
+        return (model, graph_modified)
+
+
 class InferBinaryStreamingFCLayer(Transformation):
     """Convert XnorPopcountMatMul layers to
     StreamingFCLayer_Batch layers. Any immediately following MultiThreshold
