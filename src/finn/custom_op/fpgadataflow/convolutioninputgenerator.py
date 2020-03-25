@@ -35,6 +35,7 @@ from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.custom_op.im2col import compute_conv_output_dim
 from onnx import TensorProto, helper
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for ConvolutionInputGenerator:
 # input 0 is the input tensor, shape NHWC = (1, IFMDim, IFMDim, IFMChannels)
@@ -157,57 +158,59 @@ class ConvolutionInputGenerator(HLSCustomOp):
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
+        folded_oshape = self.get_folded_output_shape()
+
+        # TODO ensure codegen dir exists
+        if mode == "npysim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        elif mode == "rtlsim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        else:
+            raise Exception(
+                """Invalid value for attribute exec_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
+
+        inp = context[node.input[0]]
+        assert str(inp.dtype) == "float32", "Input datatype is not float32"
+        assert (
+            inp.shape == exp_ishape
+        ), """Input shape doesn't
+        match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
+        if self.get_input_datatype() == DataType.BIPOLAR:
+            # store bipolar activations as binary
+            inp = (inp + 1) / 2
+            export_idt = DataType.BINARY
+        else:
+            export_idt = self.get_input_datatype()
+        # no reshaping for input since assuming no folding on input
+        # make copy before saving array
+        reshaped_input = inp.copy()
+        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
         if mode == "npysim":
-            idt = self.get_input_datatype()
-            if idt == DataType.BIPOLAR:
-                # use binary for bipolar storage
-                idt = DataType.BINARY
-
-            # TODO ensure codegen dir exists
-            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
-            # create a npy file for input of the node
-
-            inp = context[node.input[0]]
-            assert str(inp.dtype) == "float32", "Input datatype is not float32"
-            assert (
-                inp.shape == exp_ishape
-            ), """Input shape doesn't
-            match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
-            # make copy before saving array
-            reshaped_inp = inp.copy()
-            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
             # execute the precompiled model
             super().exec_precompiled_singlenode_model()
             # load output npy file
             super().npy_to_dynamic_output(context)
-            if self.get_output_datatype() == DataType.BIPOLAR:
-                out = context[node.output[0]]
-                out = 2 * out - 1
-                context[node.output[0]] = out
+            assert (
+                context[node.output[0]].shape == folded_oshape
+            ), "npysim \
+            did not produce expected ofolded utput shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
-
         elif mode == "rtlsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
                 code_gen_dir, node.name, prefixed_top_name
             )
             if os.path.isfile(verilog_file):
-                inp = context[node.input[0]]
-                assert (
-                    inp.shape == exp_ishape
-                ), """Input shape doesn't
-                match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
-                inp = inp.flatten()
-
-                # TODO: check how to sort inputs for multichannel inputs
-                # a = []
-                # for i in range(len(inp)):
-                #     if (i+1) % 2 == 0:
-                #         a.append((int(inp[i-1]) << 1) + int(inp[i]))
-                # inp = a
+                nbits = self.get_stream_width()
+                rtlsim_inp = npy_to_rtlsim_input(
+                    "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+                )
                 sim = PyVerilator.build(
                     verilog_file,
                     verilog_path=[
@@ -218,26 +221,24 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 )
                 super().reset_rtlsim(sim)
                 super().toggle_clk(sim)
-                output = self.rtlsim(sim, inp)
-                output = [int(x) for x in output]
-                odt = self.get_output_datatype()
-                if odt == DataType.BIPOLAR:
-                    output = [2 * x - 1 for x in output]
-                # TOOD use utils here to handle datatype intricacies...
-                # pyverilator interprets int2 as uint2, so output has to be corrected
-                elif odt == DataType.INT2:
-                    mask = 2 ** (odt.bitwidth() - 1)
-                    output = [-(x & mask) + (x & ~mask) for x in output]
-                # TODO: check how to sort inputs for multichannel inputs
-                # output = [bin(x)[2:].zfill(ifm_ch) for x in output]
-                # output_ch1 = [int(x[:1]) for x in output]
-                # output_ch2 = [int(x[1:]) for x in output]
-
-                # reshape output
-                output = np.asarray([output], dtype=np.float32)
-                output = output.reshape(*exp_oshape)
+                rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+                odt = export_idt
+                target_bits = odt.bitwidth()
+                packed_bits = self.get_stream_width()
+                out_npy_path = "{}/output.npy".format(code_gen_dir)
+                out_shape = self.get_folded_output_shape()
+                rtlsim_output_to_npy(
+                    rtlsim_output,
+                    out_npy_path,
+                    odt,
+                    out_shape,
+                    packed_bits,
+                    target_bits,
+                )
+                # load and reshape output
+                output = np.load(out_npy_path)
+                output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
                 context[node.output[0]] = output
-
             else:
                 raise Exception(
                     """Found no verilog files for this node,
@@ -250,6 +251,11 @@ class ConvolutionInputGenerator(HLSCustomOp):
                     mode
                 )
             )
+        # binary -> bipolar if needed
+        if self.get_output_datatype() == DataType.BIPOLAR:
+            out = context[node.output[0]]
+            out = 2 * out - 1
+            context[node.output[0]] = out
         assert (
             context[node.output[0]].shape == exp_oshape
         ), """Output

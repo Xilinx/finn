@@ -118,12 +118,8 @@ def make_single_slidingwindow_modelwrapper(
     return model
 
 
-def prepare_inputs(input_tensor, idt):
-    if idt == DataType.BIPOLAR:
-        # convert bipolar to binary
-        return {"inp": (input_tensor + 1) / 2}
-    else:
-        return {"inp": input_tensor}
+def prepare_inputs(input_tensor):
+    return {"inp": input_tensor}
 
 
 # input datatype
@@ -137,7 +133,7 @@ def prepare_inputs(input_tensor, idt):
 # Stride
 @pytest.mark.parametrize("stride", [1, 2])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["npysim", "rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["rtlsim", "npysim"])
 def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode):
     simd = ifm_ch
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
@@ -160,13 +156,13 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode):
         raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow")
 
     # prepare input data
-    input_dict = prepare_inputs(x, idt)
+    input_dict = prepare_inputs(x)
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     golden = make_single_im2col_modelwrapper(
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
     y_expected = oxe.execute_onnx(golden, input_dict)["outp"]
-    if idt == DataType.BIPOLAR:
-        y_expected = 2 * y_expected - 1
+    # if idt == DataType.BIPOLAR:
+    #     y_expected = 2 * y_expected - 1
     assert (y_produced == y_expected).all()
