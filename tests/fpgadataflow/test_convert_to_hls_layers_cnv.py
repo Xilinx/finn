@@ -98,6 +98,7 @@ def test_convert_to_hls_layers_cnv_w1a1():
             else:
                 simd = mw
             inst.set_nodeattr("SIMD", simd)
+    model = model.transform(to_hls.InferConvInpGen())
     model.save("cnv-pre-compile.onnx")
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
