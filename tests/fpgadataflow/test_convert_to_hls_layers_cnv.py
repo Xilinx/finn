@@ -64,7 +64,14 @@ def test_convert_to_hls_layers_cnv_w1a1():
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
-    model.save("cnv-streamline.onnx")
+    model = model.transform(LowerConvsToMatMul())
+    model = model.transform(MakeMaxPoolNHWC())
+    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
+    model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
+    model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
+    model = model.transform(RoundAndClipThresholds())
+    model.save("golden.onnx")
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
@@ -74,15 +81,7 @@ def test_convert_to_hls_layers_cnv_w1a1():
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
 
-    model = model.transform(LowerConvsToMatMul())
-    model = model.transform(MakeMaxPoolNHWC())
-    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
-    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
-    model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
-    model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
-    model = model.transform(RoundAndClipThresholds())
     model = model.transform(to_hls.InferBinaryStreamingFCLayer())
-
     for node in model.graph.node:
         if node.op_type == "StreamingFCLayer_Batch":
             inst = getCustomOp(node)
