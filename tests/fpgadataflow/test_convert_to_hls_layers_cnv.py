@@ -89,8 +89,16 @@ def test_convert_to_hls_layers_cnv_w1a1():
             inst.set_nodeattr("mem_mode", "decoupled")
             mw = inst.get_nodeattr("MW")
             mh = inst.get_nodeattr("MH")
-            inst.set_nodeattr("PE", mh)
-            inst.set_nodeattr("SIMD", mw)
+            if mh % 4 == 0:
+                pe = mh // 4
+            else:
+                pe = mh
+            inst.set_nodeattr("PE", pe)
+            if mw % 16 == 0:
+                simd = mw // 16
+            else:
+                simd = mw
+            inst.set_nodeattr("SIMD", simd)
     model.save("cnv-pre-compile.onnx")
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
