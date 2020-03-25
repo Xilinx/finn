@@ -470,7 +470,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
             """Saves weights into .npy file"""
             np.save(
-                os.path.join(code_gen_dir, "weights.npy"), weight_tensor,
+                os.path.join(code_gen_dir, "weights.npy"), weight_tensor_flipped,
             )
 
             """Saves weights into .dat file"""
