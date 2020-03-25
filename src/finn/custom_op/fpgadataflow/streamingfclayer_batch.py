@@ -642,7 +642,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def defines(self, var):
         mem_mode = self.get_nodeattr("mem_mode")
-        numReps = 1
+        numInputVectors = list(self.get_nodeattr("numInputVectors"))
+        numReps = np.prod(numInputVectors)
         self.code_gen_dict["$DEFINES$"] = [
             """#define MW1 {}\n #define MH1 {}\n #define SIMD1 {}\n
             #define PE1 {}\n #define WMEM1 {}\n #define TMEM1 {}\n
@@ -696,7 +697,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             npy_in = "%s/weights.npy" % code_gen_dir
 
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", weights, false);'
+                'npy2apintstream<%s, %s, %d, %s>("%s", weights, false, numReps);'
                 % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
             )
 
