@@ -103,7 +103,6 @@ def make_single_slidingwindow_modelwrapper(
     k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
 ):
 
-    ip = idt.bitwidth()
     odt = idt
     out_pix = ofm_dim * ofm_dim
 
@@ -122,7 +121,6 @@ def make_single_slidingwindow_modelwrapper(
         backend="fpgadataflow",
         ConvKernelDim=k,
         IFMChannels=ifm_ch,
-        Input_precision=ip,
         IFMDim=ifm_dim,
         OFMDim=ofm_dim,
         SIMD=simd,
@@ -164,7 +162,9 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("ifm_ch", [1])  # , 2, 3, 4])
 # Stride
 @pytest.mark.parametrize("stride", [1, 2])
-def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
+# execution mode
+@pytest.mark.parametrize("exec_mode", ["npysim", "rtlsim"])
+def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode):
     simd = ifm_ch
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
 
@@ -172,25 +172,25 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride):
     model = make_single_slidingwindow_modelwrapper(
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
-    model = model.transform(SetExecMode("npysim"))
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
+
+    if exec_mode == "npysim":
+        model = model.transform(SetExecMode("npysim"))
+        model = model.transform(CodeGen_npysim())
+        model = model.transform(Compile())
+    elif exec_mode == "rtlsim":
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+        model = model.transform(HLSSynth_IPGen())
+    else:
+        raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow")
 
     # prepare input data
     input_dict = prepare_inputs(x, idt)
-
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     y_expected = im2col_indices(x, k, stride)
     # reshape expected output to match node output
     oshape = y_produced.shape
     y_expected = y_expected.reshape(oshape)
-
-    assert (y_produced == y_expected).all(), "npysim failed"
-
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
-    model = model.transform(HLSSynth_IPGen())
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    assert (y_produced == y_expected).all(), "rtlsim failed"
+    assert (y_produced == y_expected).all()

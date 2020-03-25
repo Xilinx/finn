@@ -34,6 +34,11 @@ from pyverilator import PyVerilator
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
 
+# ONNX i/o tensor shape assumptions for ConvolutionInputGenerator:
+# input 0 is the input tensor, shape NHWC = (1, IFMDim, IFMDim, IFMChannels)
+# output 0 is the output tensor, shape NHWC:
+#     = (1, OFMDim, OFMDim, (ConvKernelDim^2)*IFMChannels)
+
 
 class ConvolutionInputGenerator(HLSCustomOp):
     """Class that corresponds to finn-hlslib ConvolutionInputGenerator
@@ -46,7 +51,6 @@ class ConvolutionInputGenerator(HLSCustomOp):
         my_attrs = {
             "ConvKernelDim": ("i", True, 0),
             "IFMChannels": ("i", True, 0),
-            "Input_precision": ("i", True, 0),
             "IFMDim": ("i", True, 0),
             "OFMDim": ("i", True, 0),
             "SIMD": ("i", True, 0),
@@ -84,7 +88,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def get_stream_width(self):
         """Returns stream width, input and output stream width are equal for
         the sliding window function"""
-        return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
+        ibits = self.get_input_datatype().bitwidth()
+        return self.get_nodeattr("SIMD") * ibits
 
     def get_number_output_values(self):
         k = self.get_nodeattr("ConvKernelDim")
@@ -218,7 +223,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
             #define SIMD1 {}\n #define Stride1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("ConvKernelDim"),
                 self.get_nodeattr("IFMChannels"),
-                self.get_nodeattr("Input_precision"),
+                self.get_input_datatype().bitwidth(),
                 self.get_nodeattr("IFMDim"),
                 self.get_nodeattr("OFMDim"),
                 self.get_nodeattr("SIMD"),
