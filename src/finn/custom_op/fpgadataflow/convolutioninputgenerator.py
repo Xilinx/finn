@@ -64,18 +64,44 @@ class ConvolutionInputGenerator(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def make_shape_compatible_op(self, model):
+    def get_normal_input_shape(self):
+
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+
+        ishape = (1, ifm_dim, ifm_dim, ifm_ch)
+        return ishape
+
+    def get_normal_output_shape(self):
         k = self.get_nodeattr("ConvKernelDim")
         ifm_dim = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         stride = self.get_nodeattr("Stride")
         pad = 0
-        exp_ishape = (1, ifm_dim, ifm_dim, ifm_ch)
+        ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
+        oshape = (1, ofm_dim, ofm_dim, k * k * ifm_ch)
+        return oshape
+
+    def get_folded_output_shape(self):
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        stride = self.get_nodeattr("Stride")
+        simd = self.get_nodeattr("SIMD")
+        pad = 0
+        ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
+        assert k * k * ifm_ch % simd == 0, "SIMD must divide sliding window size"
+        wf = int(k * k * ifm_ch // simd)
+        folded_oshape = (1, ofm_dim, ofm_dim, wf, simd)
+        return folded_oshape
+
+    def make_shape_compatible_op(self, model):
+        exp_ishape = self.get_normal_input_shape()
+        oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == exp_ishape, "Unexpect input shape for ConvInpGen."
-        ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
         # implement tensor with correct shape
-        values = np.random.randn(1, ofm_dim, ofm_dim, k * k * ifm_ch).astype(np.float32)
+        values = np.random.randn(*oshape).astype(np.float32)
         return helper.make_node(
             "Constant",
             inputs=[],
@@ -118,6 +144,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         return self.get_nodeattr("SIMD") * ibits
 
     def get_number_output_values(self):
+        # TODO this seems incorrect -- double check
         k = self.get_nodeattr("ConvKernelDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         ofm_dim = self.get_nodeattr("OFMDim")
@@ -128,11 +155,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_dim = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ofm_dim = self.get_nodeattr("OFMDim")
-        out_pix = ofm_dim * ofm_dim
+        exp_ishape = self.get_normal_input_shape()
+        exp_oshape = self.get_normal_output_shape()
 
         if mode == "npysim":
             idt = self.get_input_datatype()
@@ -146,16 +170,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
             inp = context[node.input[0]]
             assert str(inp.dtype) == "float32", "Input datatype is not float32"
-            assert inp.shape == (
-                1,
-                ifm_ch,
-                ifm_dim,
-                ifm_dim,
+            assert (
+                inp.shape == exp_ishape
             ), """Input shape doesn't
-            match expected shape (1, ifm_ch, ifm_dim, ifm_dim)."""
-            reshaped_inp = inp.transpose(0, 2, 3, 1)
+            match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
             # make copy before saving array
-            reshaped_inp = reshaped_inp.copy()
+            reshaped_inp = inp.copy()
             np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
             # execute the precompiled model
             super().exec_precompiled_singlenode_model()
@@ -165,17 +185,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
-            assert context[node.output[0]].shape == (
-                1,
-                out_pix,
-                k * k,
-                ifm_ch,
-            ), """Output
-            shape doesn't match expected shape (1, out_pix, k*k, ifm_ch)."""
-            # reshape output to have expected shape
-            context[node.output[0]] = context[node.output[0]].reshape(
-                1, out_pix, k * k * ifm_ch
-            )
+            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
+
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
             prefixed_top_name = "%s_%s" % (node.name, node.name)
@@ -185,7 +196,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
             )
             if os.path.isfile(verilog_file):
                 inp = context[node.input[0]]
-                inp = inp.transpose(0, 2, 3, 1)
+                assert (
+                    inp.shape == exp_ishape
+                ), """Input shape doesn't
+                match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
                 inp = inp.flatten()
 
                 # TODO: check how to sort inputs for multichannel inputs
@@ -209,7 +223,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 odt = self.get_output_datatype()
                 if odt == DataType.BIPOLAR:
                     output = [2 * x - 1 for x in output]
-
+                # TOOD use utils here to handle datatype intricacies...
                 # pyverilator interprets int2 as uint2, so output has to be corrected
                 elif odt == DataType.INT2:
                     mask = 2 ** (odt.bitwidth() - 1)
@@ -220,9 +234,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 # output_ch2 = [int(x[1:]) for x in output]
 
                 # reshape output
-                output = np.asarray([output], dtype=np.float32).reshape(
-                    1, out_pix, k * k * ifm_ch
-                )
+                output = np.asarray([output], dtype=np.float32)
+                output = output.reshape(*exp_oshape)
                 context[node.output[0]] = output
 
             else:
@@ -237,6 +250,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
                     mode
                 )
             )
+        assert (
+            context[node.output[0]].shape == exp_oshape
+        ), """Output
+        shape doesn't match expected shape (1, ofm_dim, ofm_dim, k*k*ifm_ch)."""
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
@@ -306,12 +323,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_out = "%s/output.npy" % code_gen_dir
-        ofm_dim = self.get_nodeattr("OFMDim")
-        out_pix = ofm_dim * ofm_dim
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        shape = (1, out_pix, k * k, ifm_ch)
-        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
+        oshape = self.get_folded_output_shape()
+        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
@@ -320,7 +333,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 elem_hls_type,
                 elem_bits,
                 npy_type,
-                shape_cpp_str,
+                oshape_cpp_str,
                 npy_out,
             )
         ]
