@@ -75,3 +75,10 @@ These are summarized below:
 * `PYNQ_BOARD` specifies the type of PYNQ board used (Pynq-Z1, Pynq-Z2, Ultra96, ZCU104) for the test suite
 * `PYNQ_USERNAME` and `PYNQ_PASSWORD` specify the PYNQ board access credentials for the test suite
 * `PYNQ_TARGET_DIR` specifies the target dir on the PYNQ board for the test suite
+
+Running Docker without `sudo`
+*****************************
+On Ubuntu 18.04 with `Docker newly installed <https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user>`_, you can create the docker group and add your user:
+::
+  sudo groupadd docker
+  sudo usermod -aG docker $USER
