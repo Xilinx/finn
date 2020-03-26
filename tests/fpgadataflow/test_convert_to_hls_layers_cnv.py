@@ -68,7 +68,7 @@ def test_convert_to_hls_layers_cnv_w1a1():
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
-    model.save("golden.onnx")
+    # model.save("golden.onnx")
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
@@ -98,12 +98,24 @@ def test_convert_to_hls_layers_cnv_w1a1():
             inst.set_nodeattr("SIMD", simd)
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
-    model.save("cnv-pre-compile.onnx")
+    # check topology status
+    finn_nodes = model.get_finn_nodes()
+    assert len(finn_nodes) == 18
+    non_finn_nodes = model.get_non_finn_nodes()
+    assert len(non_finn_nodes) == 4
+    exp_non_finn_nodes = ["Transpose", "Reshape", "Mul", "Add"]
+    assert [x.op_type for x in non_finn_nodes] == exp_non_finn_nodes
+    fc_nodes = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    assert len(fc_nodes) == 9
+    swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator")
+    assert len(swg_nodes) == 6
+    mp_nodes = model.get_nodes_by_op_type("StreamingMaxPool_Batch")
+    assert len(mp_nodes) == 2
+    # model.save("cnv-pre-compile.onnx")
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
     model = model.transform(SetExecMode("npysim"))
-    model.save("cnv-post-compile.onnx")
-
+    # model.save("cnv-post-compile.onnx")
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
     assert np.isclose(expected, produced, atol=1e-3).all()
