@@ -791,13 +791,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 export_wdt = DataType.BINARY
             else:
                 export_wdt = wdt
+            wdtype_hls_str = export_wdt.get_hls_datatype_str()
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {},
-                {}, {}>(in0, out, weights, {}, numReps, {});""".format(
-                    export_wdt.bitwidth(),
+                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
+                (in0, out, weights, {}, numReps, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
+                    wdtype_hls_str,
                     threshs,
                     self.get_nodeattr("resType"),
                 )
