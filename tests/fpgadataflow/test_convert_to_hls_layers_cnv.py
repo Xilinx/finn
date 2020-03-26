@@ -79,6 +79,7 @@ def test_convert_to_hls_layers_cnv_w1a1():
     expected = expected_ctx[model.graph.output[0].name]
 
     model = model.transform(to_hls.InferBinaryStreamingFCLayer())
+    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
     for node in model.graph.node:
         if node.op_type == "StreamingFCLayer_Batch":
             inst = getCustomOp(node)
