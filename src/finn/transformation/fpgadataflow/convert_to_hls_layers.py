@@ -31,6 +31,8 @@ from onnx import helper
 from finn.core.datatype import DataType
 from finn.transformation import Transformation
 from finn.custom_op.registry import getCustomOp
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.infer_datatypes import InferDataTypes
 
 
 class InferConvInpGen(Transformation):
@@ -80,6 +82,9 @@ class InferConvInpGen(Transformation):
                 # remove old nodes
                 graph.node.remove(n)
                 graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
         return (model, graph_modified)
 
 
@@ -123,6 +128,9 @@ class InferStreamingMaxPool(Transformation):
                     # remove old nodes
                     graph.node.remove(n)
                     graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
         return (model, graph_modified)
 
 
@@ -177,6 +185,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                     # TODO ensure integer thresholds?
                     # create MVTU (i.e. including activation)
                     mt_output = consumer.output[0]
+                    mt_out_shape = model.get_tensor_shape(mt_output)
                     mt_thres = consumer.input[1]
                     T = model.get_initializer(mt_thres)
                     assert (
@@ -190,7 +199,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                     else:
                         actval = odt.min()
                     model.set_tensor_shape(mm_input, mm_in_shape)
-                    model.set_tensor_shape(mt_output, mm_out_shape)
+                    model.set_tensor_shape(mt_output, mt_out_shape)
                     # create and insert new StreamingFCLayer node
                     new_node = helper.make_node(
                         "StreamingFCLayer_Batch",
@@ -220,7 +229,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                     # no activation, matmul only
                     odt = model.get_tensor_datatype(mm_output)
                     model.set_tensor_shape(mm_input, mm_in_shape)
-                    model.set_tensor_shape(mt_output, mm_out_shape)
+                    model.set_tensor_shape(mm_output, mm_out_shape)
                     # create and insert new StreamingFCLayer node
                     new_node = helper.make_node(
                         "StreamingFCLayer_Batch",
@@ -245,7 +254,9 @@ class InferBinaryStreamingFCLayer(Transformation):
                     # remove old node
                     graph.node.remove(n)
                     graph_modified = True
-
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
         return (model, graph_modified)
 
 
@@ -295,6 +306,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         # TODO ensure integer thresholds?
                         # create MVTU (i.e. including activation)
                         mt_output = consumer.output[0]
+                        mt_out_shape = model.get_tensor_shape(mt_output)
                         mt_thres = consumer.input[1]
                         T = model.get_initializer(mt_thres)
                         assert (
@@ -315,7 +327,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             actval < 0
                         ), "Signed output requres actval < 0"
                         model.set_tensor_shape(mm_input, mm_in_shape)
-                        model.set_tensor_shape(mt_output, mm_out_shape)
+                        model.set_tensor_shape(mt_output, mt_out_shape)
                         # create and insert new StreamingFCLayer node
                         new_node = helper.make_node(
                             "StreamingFCLayer_Batch",
@@ -345,7 +357,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         # no activation, matmul only
                         odt = model.get_tensor_datatype(mm_output)
                         model.set_tensor_shape(mm_input, mm_in_shape)
-                        model.set_tensor_shape(mt_output, mm_out_shape)
+                        model.set_tensor_shape(mm_output, mm_out_shape)
                         # create and insert new StreamingFCLayer node
                         new_node = helper.make_node(
                             "StreamingFCLayer_Batch",
@@ -370,4 +382,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         # remove old node
                         graph.node.remove(n)
                         graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
         return (model, graph_modified)
