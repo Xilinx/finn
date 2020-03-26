@@ -78,7 +78,7 @@ class Im2Col(CustomOp):
             "pad_value": ("i", False, 0),
         }
 
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         k = self.get_nodeattr("kernel_size")
         stride = self.get_nodeattr("stride")
         ishape = self.get_nodeattr("input_shape")
@@ -142,9 +142,14 @@ class Im2Col(CustomOp):
         # call NCHW im2col implementation
         ret = im2col_indices_nchw(x, k, k, pad, stride, stride, pad_val=pad_val)
         # result shape is (k*k*N, out_dim*out_dim), convert to NCHW
-        ret = ret.reshape(N, k * k * C, out_dim, out_dim)
+        ret = ret.reshape(N, C, k, k, out_dim, out_dim)
+        # (N=0,C=1,kh=2,kw=3,H=4,W=5) -> (N=0,H=4,W=5,kh=2,kw=3,C=1)
+        ret = ret.transpose(0, 4, 5, 2, 3, 1)
+        ret = ret.reshape(N, out_dim, out_dim, k * k * C)
+
+        # ret = ret.reshape(N, k * k * C, out_dim, out_dim)
         # convert output back to NHWC
-        ret = ret.transpose(0, 2, 3, 1)
+        # ret = ret.transpose(0, 2, 3, 1)
         context[node.output[0]] = ret
 
     def verify_node(self):

@@ -28,6 +28,7 @@
 
 import math
 import os
+from shutil import copy
 
 import numpy as np
 from pyverilator import PyVerilator
@@ -39,13 +40,16 @@ from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     rtlsim_output_to_npy,
+    pack_innermost_dim_as_hex_string,
 )
+from . import templates
 
 # ONNX i/o tensor shape assumptions for StreamingFCLayer:
-# input 0 is the input vector, shape (1, i_size) = (1, MW)
-# input 1 is the weight vector, shape (i_size, o_size) = (MW, MH)
-# (optional) input 2 is the threshold vector, shape (o_size, n_thres)
-# output 0 is the output vector, shape (1, o_size) = (1, MH)
+# input 0 is the input tensor, shape (.., i_size) = (..., MW)
+# input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
+# (optional) input 2 is the thresholds tensor, shape (o_size, n_thres)
+# output 0 is the output tensor, shape (.., o_size) = (..., MH)
+# the ... here can be any shape (representing groups of vectors)
 
 
 class StreamingFCLayer_Batch(HLSCustomOp):
@@ -53,6 +57,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
+        self.decoupled_wrapper = templates.decoupled_wrapper
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -74,6 +79,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 0),
             "outFIFODepth": ("i", False, 0),
+            # number of input vectors, examples:
+            # [1] is a single vector (like a FC layer with batch=1)
+            # [4] is four vectors (like a FC layer with batch=4)
+            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
+            "numInputVectors": ("ints", False, [1]),
+            # memory mode for the FC weights
+            # const -- embedded weights, default, long compile/synth times
+            # decoupled -- streaming weights
+            "mem_mode": ("s", False, "const"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -98,7 +112,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             pe = self.get_nodeattr("PE")
             return mh // pe
 
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         pass
 
     def infer_node_datatype(self, model):
@@ -106,19 +120,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-
-        # verify number of attributes
-        num_of_attr = 14
-        if len(self.onnx_node.attribute) == num_of_attr:
-            info_messages.append("The number of attributes is correct")
-        else:
-            info_messages.append(
-                """The number of attributes is incorrect,
-            {} should have {} attributes""".format(
-                    self.onnx_node.op_type, num_of_attr
-                )
-            )
-
         # verify that "domain" is set to "finn"
         domain_value = self.onnx_node.domain
         if domain_value == "finn":
@@ -146,17 +147,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.get_nodeattr("inputDataType")
             self.get_nodeattr("weightDataType")
             self.get_nodeattr("outputDataType")
-            self.get_nodeattr("ActVal")
-            self.get_nodeattr("binaryXnorMode")
-            self.get_nodeattr("noActivation")
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append(
-                """The necessary attributes do not exist.
-                StreamingFCLayer_Batch needs the following attributes:
-                code_gen_dir_npysim, executable_path, resType, MW, MH, SIMD, PE,
-                inputDataType, weightDataType, outputDataType, ActVal,
-                binaryXnorMode, noActivation"""
+                """The required StreamingFCLayer attributes do not exist."""
             )
 
         # verify the number of inputs depending on noActivation value
@@ -249,20 +243,42 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
+    def get_weightstream_width(self):
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        wp = self.get_weight_datatype().bitwidth()
+        return pe * simd * wp
+
     def get_folded_input_shape(self):
         mw = self.get_nodeattr("MW")
         simd = self.get_nodeattr("SIMD")
         sf = mw // simd
-        return (1, sf, simd)
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        folded_input_shape = tuple(vecs + [sf, simd])
+        return folded_input_shape
 
     def get_folded_output_shape(self):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         nf = mh // pe
-        return (1, nf, pe)
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        folded_output_shape = tuple(vecs + [nf, pe])
+        return folded_output_shape
+
+    def get_normal_input_shape(self):
+        mw = self.get_nodeattr("MW")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        normal_input_shape = tuple(vecs + [mw])
+        return normal_input_shape
+
+    def get_normal_output_shape(self):
+        mh = self.get_nodeattr("MH")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        normal_output_shape = tuple(vecs + [mh])
+        return normal_output_shape
 
     def get_number_output_values(self):
-        nf = self.get_folded_output_shape()[1]
+        nf = np.prod(self.get_folded_output_shape()[:-1])
         return nf
 
     def get_template_param_values(self):
@@ -298,8 +314,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         elif (not inp_is_bipolar) and (not wt_is_bipolar):
             ret["TSrcI"] = "Slice<%s>" % inp_hls_str
             ret["TWeightI"] = "Identity"
+
         # fill in TDstI
         ret["TDstI"] = "Slice<%s>" % out_hls_str
+
         return ret
 
     def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
@@ -393,8 +411,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
     def generate_params(self, model, path):
-        """Saves weights into params.h and if existing thresholds into thresh.h."""
-        code_gen_dir = path
+        mem_mode = self.get_nodeattr("mem_mode")
         # weights
         weights = model.get_initializer(self.onnx_node.input[1])
         # convert weights into hlslib-compatible format
@@ -404,32 +421,86 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # so use it as such for weight generation
         if self.get_weight_datatype() == DataType.BIPOLAR:
             export_wdt = DataType.BINARY
-        weight_hls_code = numpy_to_hls_code(
-            weight_tensor, export_wdt, "weights", True, True
-        )
-        # write weights into params.h
-        # code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
-        f_weights = open("{}/params.h".format(code_gen_dir), "w")
+        code_gen_dir = path
 
-        if export_wdt.bitwidth() != 1:
-            f_weights.write(
-                "static FixedPointWeights<{},{},{},{}> weights = ".format(
-                    self.get_nodeattr("SIMD"),
-                    export_wdt.get_hls_datatype_str(),
-                    self.get_nodeattr("PE"),
-                    self.calc_wmem(),
-                )
+        if mem_mode == "const":
+            """Saves weights into params.h"""
+            weight_hls_code = numpy_to_hls_code(
+                weight_tensor, export_wdt, "weights", True, True
             )
+            # write weights into params.h
+            f_weights = open("{}/params.h".format(code_gen_dir), "w")
+
+            if export_wdt.bitwidth() != 1:
+                f_weights.write(
+                    "static FixedPointWeights<{},{},{},{}> weights = ".format(
+                        self.get_nodeattr("SIMD"),
+                        export_wdt.get_hls_datatype_str(),
+                        self.get_nodeattr("PE"),
+                        self.calc_wmem(),
+                    )
+                )
+            else:
+                f_weights.write(
+                    "static BinaryWeights<{},{},{}> weights = ".format(
+                        self.get_nodeattr("SIMD"),
+                        self.get_nodeattr("PE"),
+                        self.calc_wmem(),
+                    )
+                )
+            f_weights.write(weight_hls_code)
+            f_weights.close()
+
+        elif mem_mode == "decoupled":
+            """Saves weights in corresponding file format for npysim or rtlsim"""
+            # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
+            # and save as unflipped weight tensor to be able to differentiate between
+            # flipped an unflipped weight tensor (has to be flipped for npysim)
+
+            weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
+
+            # flip PE dimension and reverse SIMD flip for saving weights in .npy
+            weight_tensor_flipped = np.flip(weight_tensor_unflipped, axis=-2)
+            weight_tensor_flipped = np.flip(weight_tensor_flipped, axis=-1)
+
+            # reshape weight tensor (flipped and unflipped) to desired shape
+            pe = self.get_nodeattr("PE")
+            simd = self.get_nodeattr("SIMD")
+            # unflipped
+            weight_tensor_unflipped = weight_tensor_unflipped.reshape(1, -1, pe * simd)
+            weight_tensor_unflipped = weight_tensor_unflipped.copy()
+            # flipped
+            weight_tensor_flipped = weight_tensor_flipped.reshape(1, -1, pe * simd)
+            weight_tensor_flipped = weight_tensor_flipped.copy()
+
+            """Saves weights into .npy file"""
+            np.save(os.path.join(code_gen_dir, "weights.npy"), weight_tensor_flipped)
+
+            """Saves weights into .dat file"""
+            # convert weight value sinto hexstring
+            weight_width = self.get_weightstream_width()
+            weight_tensor_unflipped = pack_innermost_dim_as_hex_string(
+                weight_tensor_unflipped, export_wdt, weight_width
+            )
+            weight_pad = np.zeros((1024), int).astype(str)
+            weight_tensor_unflipped = weight_tensor_unflipped.flatten()
+            # delete "0x" in the beginning of the hexstring
+            for i in range(len(weight_tensor_unflipped)):
+                weight_tensor_unflipped[i] = weight_tensor_unflipped[i][2:]
+            weight_pad[: weight_tensor_unflipped.shape[0]] = weight_tensor_unflipped
+            weight_pad = weight_pad.copy()
+            f = open("{}/memblock_0.dat".format(code_gen_dir), "w+")
+            for val in weight_pad:
+                f.write(val + "\n")
+            f.close()
+
         else:
-            f_weights.write(
-                "static BinaryWeights<{},{},{}> weights = ".format(
-                    self.get_nodeattr("SIMD"), self.get_nodeattr("PE"), self.calc_wmem()
-                )
+            raise Exception(
+                """Please set mem_mode to "const"i or "decoupled", currently no other
+                    parameter value is supported!"""
             )
-        f_weights.write(weight_hls_code)
-        f_weights.close()
 
-        # thresholds
+        # save thresholds in thresh.h
         if len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
             if thresholds is not None:
@@ -450,7 +521,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     threshold_tensor, tdt, "thresholds", False, True
                 )
                 # write thresholds into thresh.h
-                # code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
                 f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
                 tdt_hls = tdt.get_hls_datatype_str()
                 # use binary to export bipolar activations
@@ -460,7 +530,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 odt_hls = export_odt.get_hls_datatype_str()
                 f_thresh.write(
                     "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
-                     = ".format(
+                    = ".format(
                         self.calc_tmem(),
                         self.get_nodeattr("PE"),
                         threshold_tensor.shape[-1],
@@ -476,12 +546,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        mw = self.get_nodeattr("MW")
-        mh = self.get_nodeattr("MH")
-        simd = self.get_nodeattr("SIMD")
-        pe = self.get_nodeattr("PE")
-        sf = mw // simd
-        nf = mh // pe
 
         # TODO ensure codegen dir exists
         if mode == "npysim":
@@ -507,7 +571,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     str(context[inputs].dtype) == "float32"
                 ), """Input datatype is
                 not float32 as expected."""
-                expected_inp_shape = (1, sf, simd)
+                expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
                 if self.get_input_datatype() == DataType.BIPOLAR:
                     # store bipolar activations as binary
@@ -515,6 +579,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     export_idt = DataType.BINARY
                 else:
                     export_idt = self.get_input_datatype()
+                # make copy before saving the array
+                reshaped_input = reshaped_input.copy()
                 np.save(
                     os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
                     reshaped_input,
@@ -533,16 +599,24 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
-            assert context[node.output[0]].shape == (
-                1,
-                nf,
-                pe,
-            ), """Output shape is not
-            as expected (1, nf, pe)"""
+            assert (
+                context[node.output[0]].shape == self.get_folded_output_shape()
+            ), """Output shape is not as expected"""
             # reshape output to have expected shape
-            context[node.output[0]] = context[node.output[0]].reshape(1, mh)
+            oshape = self.get_normal_output_shape()
+            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
         elif mode == "rtlsim":
-            prefixed_top_name = "%s_%s" % (node.name, node.name)
+            # set top name depending on mem_mode
+            mem_mode = self.get_nodeattr("mem_mode")
+            if mem_mode == "const":
+                prefixed_top_name = "%s_%s" % (node.name, node.name)
+            elif mem_mode == "decoupled":
+                prefixed_top_name = "%s_memstream" % (node.name)
+            else:
+                raise Exception(
+                    """Please set mem_mode to "const" or "decoupled", currently no other
+                    parameter value is supported!"""
+                )
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
                 code_gen_dir, node.name, prefixed_top_name
@@ -567,13 +641,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 target_bits = odt.bitwidth()
                 packed_bits = self.get_outstream_width()
                 out_npy_path = "{}/output.npy".format(code_gen_dir)
+                out_shape = self.get_folded_output_shape()
                 rtlsim_output_to_npy(
-                    output, out_npy_path, odt, (1, nf, pe), packed_bits, target_bits
+                    output, out_npy_path, odt, out_shape, packed_bits, target_bits
                 )
 
                 # load and reshape output
                 output = np.load(out_npy_path)
-                output = np.asarray([output], dtype=np.float32).reshape(1, mh)
+                oshape = self.get_normal_output_shape()
+                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
                 context[node.output[0]] = output
 
             else:
@@ -593,13 +669,25 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
-        self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "const":
+            self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
+        elif mem_mode == "decoupled":
+            self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
+        else:
+            raise Exception(
+                """Please set mem_mode to "const" or "decoupled", currently no other
+                    parameter value is supported!"""
+            )
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     def defines(self, var):
-        numReps = 1
+        mem_mode = self.get_nodeattr("mem_mode")
+        numInputVectors = list(self.get_nodeattr("numInputVectors"))
+        numReps = np.prod(numInputVectors)
         self.code_gen_dict["$DEFINES$"] = [
             """#define MW1 {}\n #define MH1 {}\n #define SIMD1 {}\n
             #define PE1 {}\n #define WMEM1 {}\n #define TMEM1 {}\n
@@ -613,6 +701,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 numReps,
             )
         ]
+        if mem_mode == "decoupled":
+            wdt = self.get_weight_datatype()
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define WP1 {}\n".format(wdt.bitwidth())
+            )
+
         if var == "ipgen":
             self.code_gen_dict["$DEFINES$"].append("#define PRAGMA_SUB(x) _Pragma (#x)")
             self.code_gen_dict["$DEFINES$"].append("#define DO_PRAGMA(x) PRAGMA_SUB(x)")
@@ -636,7 +730,23 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
         )
 
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            wdt = self.get_weight_datatype()
+            elem_bits = wdt.bitwidth()
+            packed_bits = self.get_weightstream_width()
+            packed_hls_type = "ap_uint<%d>" % packed_bits
+            elem_hls_type = wdt.get_hls_datatype_str()
+            npy_type = "float"
+            npy_in = "%s/weights.npy" % code_gen_dir
+
+            self.code_gen_dict["$READNPYDATA$"].append(
+                'npy2apintstream<%s, %s, %d, %s>("%s", weights, false, numReps);'
+                % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            )
+
     def strm_decl(self):
+        mem_mode = self.get_nodeattr("mem_mode")
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
@@ -645,25 +755,58 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
         )
 
+        if mem_mode == "decoupled":
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> weights ("weights");'.format(
+                    self.get_weightstream_width()
+                )
+            )
+
     def docompute(self):
-        node = self.onnx_node
+        mem_mode = self.get_nodeattr("mem_mode")
         tmpl_args = self.get_template_param_values()
         if self.calc_tmem() == 0:
             odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
             threshs = "PassThroughActivation<%s>()" % odtype_hls_str
         else:
             threshs = "threshs"
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<MW1, MH1, SIMD1, PE1, {}, {}, {}>
-            (in0, out, weights, {}, numReps, {});""".format(
-                node.op_type,
-                tmpl_args["TSrcI"],
-                tmpl_args["TDstI"],
-                tmpl_args["TWeightI"],
-                threshs,
-                self.get_nodeattr("resType"),
+        if mem_mode == "const":
+            node = self.onnx_node
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<MW1, MH1, SIMD1, PE1, {}, {}, {}>
+                (in0, out, weights, {}, numReps, {});""".format(
+                    node.op_type,
+                    tmpl_args["TSrcI"],
+                    tmpl_args["TDstI"],
+                    tmpl_args["TWeightI"],
+                    threshs,
+                    self.get_nodeattr("resType"),
+                )
+            ]
+        elif mem_mode == "decoupled":
+            wdt = self.get_weight_datatype()
+            if wdt == DataType.BIPOLAR:
+                export_wdt = DataType.BINARY
+            else:
+                export_wdt = wdt
+            wdtype_hls_str = export_wdt.get_hls_datatype_str()
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
+                (in0, out, weights, {}, numReps, {});""".format(
+                    tmpl_args["TSrcI"],
+                    tmpl_args["TDstI"],
+                    tmpl_args["TWeightI"],
+                    wdtype_hls_str,
+                    threshs,
+                    self.get_nodeattr("resType"),
+                )
+            ]
+
+        else:
+            raise Exception(
+                """Please set mem_mode to "const" or "decoupled", currently no other
+                    parameter value is supported!"""
             )
-        ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
@@ -677,8 +820,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_out = "%s/output.npy" % code_gen_dir
-        nf = int(self.get_nodeattr("MH") / self.get_nodeattr("PE"))
-        shape = (1, nf, self.get_nodeattr("PE"))
+        shape = self.get_folded_output_shape()
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
         # note: the innermost dim is not reversed for the output
@@ -698,17 +840,39 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0,
-                hls::stream<ap_uint<{}>> &out
-                )""".format(
-                self.onnx_node.name,
-                self.get_instream_width(),
-                self.get_outstream_width(),
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "const":
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void {}(hls::stream<ap_uint<{}>> &in0,
+                    hls::stream<ap_uint<{}>> &out
+                    )""".format(
+                    self.onnx_node.name,
+                    self.get_instream_width(),
+                    self.get_outstream_width(),
+                )
+            ]
+        elif mem_mode == "decoupled":
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void {}(
+                    hls::stream<ap_uint<{}>> &in0,
+                    hls::stream<ap_uint<{}>> &weights,
+                    hls::stream<ap_uint<{}>> &out
+                    )""".format(
+                    self.onnx_node.name,
+                    self.get_instream_width(),
+                    self.get_weightstream_width(),
+                    self.get_outstream_width(),
+                )
+            ]
+
+        else:
+            raise Exception(
+                """Please set mem_mode to "const" or "decoupled", currently no other
+                    parameter value is supported!"""
             )
-        ]
 
     def pragmas(self):
+        mem_mode = self.get_nodeattr("mem_mode")
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
         in_fifo_depth = self.get_nodeattr("inFIFODepth")
@@ -725,16 +889,33 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
-        # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
-        # partition for parallel access along the PE dimension (dim 1)
-        self.code_gen_dict["$PRAGMAS$"].append(
-            (
-                "DO_PRAGMA(HLS ARRAY_PARTITION "
-                "variable=weights.m_weights complete dim=1)"
+
+        if mem_mode == "const":
+            # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
+            # partition for parallel access along the PE dimension (dim 1)
+            self.code_gen_dict["$PRAGMAS$"].append(
+                (
+                    "DO_PRAGMA(HLS ARRAY_PARTITION "
+                    "variable=weights.m_weights complete dim=1)"
+                )
             )
-        )
+        elif mem_mode == "decoupled":
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS INTERFACE axis port=weights"
+            )
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS stream depth=8 variable=8"
+            )
+
+        else:
+            raise Exception(
+                """Please set mem_mode to "const", currently no other
+                    parameter value is supported!"""
+            )
+
         # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-        # partition for parallel access along PE and N_THRES dimensions (dims 1 and 3)
+        # partition for parallel access along PE and N_THRES
+        # dimensions (dims 1 and 3)
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$PRAGMAS$"].append(
@@ -749,3 +930,80 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     "complete dim=3)"
                 )
             )
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        # generate code for all mem_mode of MVAU/FCLayer unit
+        super().code_generation_ipgen(model, fpgapart, clk)
+
+        # if mem_mode = "decoupled" generate code for verilog wrapper
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            # empty code gen dictionary for new entries
+            self.code_gen_dict.clear()
+            self.code_gen_dict["$TOPNAME$"] = [
+                "{}_memstream".format(self.onnx_node.name)
+            ]
+            self.code_gen_dict["$LAYER_NAME$"] = [
+                "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
+            ]
+            # make instream width a multiple of 8 for axi interface
+            in_width = self.get_instream_width()
+            if in_width % 8 != 0:
+                in_width = math.floor(in_width / 8) + 8
+            self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
+            self.code_gen_dict["$OUT_RANGE$"] = [
+                "[{}:0]".format(self.get_outstream_width() - 1)
+            ]
+            # make weight stream width a multiple of 8 for axi interface
+            weight_width = self.get_weightstream_width()
+            if weight_width % 8 != 0:
+                weight_width = math.floor(weight_width / 8) + 8
+            self.code_gen_dict["$WEIGHT_RANGE$"] = ["[{}:0]".format(weight_width - 1)]
+            self.code_gen_dict["$WEIGHT_WIDTH$"] = [str(weight_width)]
+            mw = self.get_nodeattr("MW")
+            mh = self.get_nodeattr("MH")
+            self.code_gen_dict["$WEIGHT_DEPTH$"] = [str(int(mw * mh))]
+
+            template = self.decoupled_wrapper
+
+            for key in self.code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(self.code_gen_dict[key])
+                template = template.replace(key, code_gen_line)
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            f = open(
+                os.path.join(
+                    code_gen_dir, "{}_memstream.v".format(self.onnx_node.name)
+                ),
+                "w",
+            )
+            f.write(template)
+            f.close()
+            self.code_gen_dict.clear()
+
+    def ipgen_singlenode_code(self):
+        # generate ip block of MVAU/FCLayer unit for all mem modes
+        super().ipgen_singlenode_code()
+
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            # copy necessary verilog and .dat files
+            # into verilog folder in code generation folder
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            verilog_folder = "{}/project_{}/sol1/impl/verilog/".format(
+                code_gen_dir, self.onnx_node.name
+            )
+            # copy memstream components from finn-rtllib
+            memstream_dir = "/workspace/finn/finn-rtllib/memstream/hdl/"
+            for file in os.listdir(memstream_dir):
+                if file.endswith(".v"):
+                    verilog_file = os.path.join(memstream_dir, file)
+                    copy(verilog_file, verilog_folder)
+            # copy .dat file of weights
+            dat_file = "{}/memblock_0.dat".format(code_gen_dir)
+            copy(dat_file, verilog_folder)
+            # copy verilog wrapper
+            verilog_wrapper = "{}/{}_memstream.v".format(
+                code_gen_dir, self.onnx_node.name
+            )
+            copy(verilog_wrapper, verilog_folder)

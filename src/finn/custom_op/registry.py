@@ -38,6 +38,7 @@ from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.multithreshold import MultiThreshold
 from finn.custom_op.streamingdataflowpartition import StreamingDataflowPartition
 from finn.custom_op.xnorpopcount import XnorPopcountMatMul
+from finn.custom_op.maxpoolnhwc import MaxPoolNHWC
 
 # create a mapping of all known CustomOp names and classes
 custom_op = {}
@@ -50,6 +51,7 @@ custom_op["StreamingFCLayer_Batch"] = StreamingFCLayer_Batch
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
+custom_op["MaxPoolNHWC"] = MaxPoolNHWC
 
 
 def getCustomOp(node):

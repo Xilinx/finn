@@ -26,122 +26,127 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import numpy as np
+import pytest
+
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.util.basic import gen_finn_dt_tensor
 
 
-def test_layer_streaming_maxpool_batch():
-    inp = helper.make_tensor_value_info("in", TensorProto.FLOAT, [2, 2, 4, 4])
-    outp = helper.make_tensor_value_info("out", TensorProto.FLOAT, [2, 2, 2, 2])
+def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt):
+    odt = idt
+    inp = helper.make_tensor_value_info(
+        "inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
+    )
+    outp = helper.make_tensor_value_info(
+        "outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ifm_ch]
+    )
 
-    MaxPool_batch_node = helper.make_node(
-        "StreamingMaxPool_Batch",
-        ["in"],
-        ["out"],
+    mp_node = helper.make_node(
+        "MaxPoolNHWC",
+        ["inp"],
+        ["outp"],
         domain="finn",
-        backend="fpgadataflow",
-        ImgDim=4,
-        PoolDim=2,
-        NumChannels=2,
+        kernel_shape=[k, k],
+        strides=[k, k],
+        pads=[0, 0, 0, 0],
+    )
+    graph = helper.make_graph(
+        nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
     )
 
-    graph = helper.make_graph(
-        nodes=[MaxPool_batch_node],
-        name="max_pool_batch_graph",
-        inputs=[inp],
-        outputs=[outp],
-    )
-    model = helper.make_model(graph, producer_name="finn-hls-onnx-model")
+    model = helper.make_model(graph, producer_name="mp-model")
     model = ModelWrapper(model)
 
-    # set the tensor datatypes (in this case: all to bipolar)
-    for tensor in graph.input:
-        model.set_tensor_datatype(tensor.name, DataType["BIPOLAR"])
-    for tensor in graph.output:
-        model.set_tensor_datatype(tensor.name, DataType["BIPOLAR"])
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", odt)
 
-    # onnx.save(model.model, "max-pool-model.onnx")
+    return model
 
-    input_tensor = np.asarray(
-        [
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-            1,
-        ],
-        dtype=np.float32,
-    ).reshape(2, 2, 4, 4)
 
-    model = model.transform(SetExecMode("npysim"))
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
+def make_single_streamingmaxpool_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt):
+    odt = idt
+    inp = helper.make_tensor_value_info(
+        "inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
+    )
+    outp = helper.make_tensor_value_info(
+        "outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ifm_ch]
+    )
 
-    input_dict = {"in": input_tensor}
-    output_dict = oxe.execute_onnx(model, input_dict)  # NOQA
+    smp_node = helper.make_node(
+        "StreamingMaxPool_Batch",
+        ["inp"],
+        ["outp"],
+        domain="finn",
+        backend="fpgadataflow",
+        PoolDim=k,
+        NumChannels=ifm_ch,
+        ImgDim=ifm_dim,
+        dataType=idt.name,
+    )
+    graph = helper.make_graph(
+        nodes=[smp_node], name="smp_graph", inputs=[inp], outputs=[outp]
+    )
+
+    model = helper.make_model(graph, producer_name="smp-model")
+    model = ModelWrapper(model)
+
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", odt)
+
+    return model
+
+
+def prepare_inputs(input_tensor):
+    return {"inp": input_tensor}
+
+
+# input datatype
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
+# kernel size
+@pytest.mark.parametrize("k", [2, 4])
+# input dimension
+@pytest.mark.parametrize("ifm_dim", [4, 6, 8])
+# input channels
+@pytest.mark.parametrize("ifm_ch", [1, 2])  # , 2, 3, 4])
+# execution mode
+@pytest.mark.parametrize("exec_mode", ["rtlsim", "npysim"])
+def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
+    stride = k
+    ofm_dim = int(((ifm_dim - k) / stride) + 1)
+    if ifm_dim % k != 0:
+        pytest.skip("Skipping StreamingMaxPool test w/ ImgDim % PoolDim != 0")
+
+    x = gen_finn_dt_tensor(idt, (1, ifm_dim, ifm_dim, ifm_ch))
+    # prepare input data
+    input_dict = prepare_inputs(x)
+
+    golden = make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt)
+    y_expected = oxe.execute_onnx(golden, input_dict)["outp"]
+
+    model = make_single_streamingmaxpool_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt)
+
+    if exec_mode == "npysim":
+        model = model.transform(SetExecMode("npysim"))
+        model = model.transform(CodeGen_npysim())
+        model = model.transform(Compile())
+    elif exec_mode == "rtlsim":
+        model = model.transform(SetExecMode("rtlsim"))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+        model = model.transform(HLSSynth_IPGen())
+    else:
+        raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow")
+
+    # execute model
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced == y_expected).all()

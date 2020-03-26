@@ -61,7 +61,14 @@ class LowerConvsToMatMul(Transformation):
                 ifm_dim = model.get_tensor_shape(n.input[0])[-1]  # assume NCHW
                 ofm_dim = model.get_tensor_shape(n.output[0])[-1]  # assume NCHW
                 # reuse conv weights for new matmul weights
-                W_matmul = W_conv.reshape(ofm_ch, ifm_ch * k * k).T
+                # conv weights are [OFM][IFM][k][k]
+                # first convert to [OFM][k][k][IFM] (to remain compatible with
+                # finn-hlslib and how it does im2col/sliding window)
+                W_matmul = W_conv.transpose(0, 2, 3, 1)
+                # reshape into [OFM][k*k*IFM] matrix
+                W_matmul = W_matmul.reshape(ofm_ch, ifm_ch * k * k)
+                # transpose to get ONNX-compatible [k*k*IFM][OFM] matrix
+                W_matmul = W_matmul.T
                 model.set_initializer(weight_name, W_matmul)
                 # create new intermediate values
                 inp_trans_out = helper.make_tensor_value_info(

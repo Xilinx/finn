@@ -28,7 +28,7 @@
 
 # template for single node execution
 docompute_template = """
-#define AP_INT_MAX_W 4096
+#define AP_INT_MAX_W 16384
 #include "cnpy.h"
 #include "npy2apintstream.hpp"
 #include <vector>
@@ -101,4 +101,167 @@ create_clock -period $config_clkperiod -name default
 csynth_design
 export_design -format ip_catalog
 exit 0
+"""
+
+# verilog wrapper for decoupled mem mode
+decoupled_wrapper = """
+module $TOPNAME$(
+ap_clk,
+ap_rst_n,
+in0_V_V_TDATA,
+in0_V_V_TVALID,
+in0_V_V_TREADY,
+out_V_V_TDATA,
+out_V_V_TVALID,
+out_V_V_TREADY
+);
+
+input   ap_clk;
+input   ap_rst_n;
+input  $IN_RANGE$ in0_V_V_TDATA;
+input   in0_V_V_TVALID;
+output   in0_V_V_TREADY;
+output  $OUT_RANGE$ out_V_V_TDATA;
+output   out_V_V_TVALID;
+input   out_V_V_TREADY;
+
+reg [31:0] config_address = 0;
+reg config_ce = 0;
+reg config_we = 0;
+reg [31:0] config_d0 = 0;
+wire [31:0] config_q0;
+
+//multiple wire AXI Streams
+reg m_axis_0_afull = 0;
+reg m_axis_0_tready;
+wire m_axis_0_tvalid;
+wire $WEIGHT_RANGE$ m_axis_0_tdata;
+
+reg m_axis_1_afull = 0;
+reg m_axis_1_tready = 1;
+wire m_axis_1_tvalid;
+wire $WEIGHT_RANGE$ m_axis_1_tdata;
+
+reg m_axis_2_afull = 0;
+reg m_axis_2_tready = 1;
+wire m_axis_2_tvalid;
+wire $WEIGHT_RANGE$ m_axis_2_tdata;
+
+reg m_axis_3_afull = 0;
+reg m_axis_3_tready = 1;
+wire m_axis_3_tvalid;
+wire $WEIGHT_RANGE$ m_axis_3_tdata;
+
+reg m_axis_4_afull = 0;
+reg m_axis_4_tready = 1;
+wire m_axis_4_tvalid;
+wire $WEIGHT_RANGE$ m_axis_4_tdata;
+
+reg m_axis_5_afull = 0;
+reg m_axis_5_tready = 1;
+wire m_axis_5_tvalid;
+wire $WEIGHT_RANGE$ m_axis_5_tdata;
+
+//memstream component
+
+memstream
+#(
+//parameters to enable/disable axi-mm, set number of streams, set readmemh for
+// memory, set per-stream offsets in memory, set per-stream widths
+.CONFIG_EN(1),
+.NSTREAMS(1),
+.MEM_DEPTH(1024),
+.MEM_WIDTH($WEIGHT_WIDTH$),
+.MEM_INIT("./"),
+
+//widths per stream
+.STRM0_WIDTH($WEIGHT_WIDTH$),
+.STRM1_WIDTH($WEIGHT_WIDTH$),
+.STRM2_WIDTH($WEIGHT_WIDTH$),
+.STRM3_WIDTH($WEIGHT_WIDTH$),
+.STRM4_WIDTH($WEIGHT_WIDTH$),
+.STRM5_WIDTH($WEIGHT_WIDTH$),
+
+//depths per stream
+.STRM0_DEPTH($WEIGHT_DEPTH$),
+.STRM1_DEPTH(1),
+.STRM2_DEPTH(1),
+.STRM3_DEPTH(1),
+.STRM4_DEPTH(1),
+.STRM5_DEPTH(1),
+
+//offsets for each stream
+.STRM0_OFFSET(0),
+.STRM1_OFFSET(0),
+.STRM2_OFFSET(0),
+.STRM3_OFFSET(0),
+.STRM4_OFFSET(0),
+.STRM5_OFFSET(0)
+)
+mem
+(
+.aclk(ap_clk),
+.aresetn(ap_rst_n),
+
+//optional configuration interface compatible with ap_memory
+.config_address(config_address),
+.config_ce(config_ce),
+.config_we(config_we),
+.config_d0(config_d0),
+.config_q0(config_q0),
+
+//multiple output AXI Streams, TDATA width rounded to multiple of 8 bits
+.m_axis_0_afull(m_axis_0_afull),
+.m_axis_0_tready(m_axis_0_tready),
+.m_axis_0_tvalid(m_axis_0_tvalid),
+.m_axis_0_tdata(m_axis_0_tdata),
+
+.m_axis_1_afull(m_axis_1_afull),
+.m_axis_1_tready(m_axis_1_tready),
+.m_axis_1_tvalid(m_axis_1_tvalid),
+.m_axis_1_tdata(m_axis_1_tdata),
+
+.m_axis_2_afull(m_axis_2_afull),
+.m_axis_2_tready(m_axis_2_tready),
+.m_axis_2_tvalid(m_axis_2_tvalid),
+.m_axis_2_tdata(m_axis_2_tdata),
+
+.m_axis_3_afull(m_axis_3_afull),
+.m_axis_3_tready(m_axis_3_tready),
+.m_axis_3_tvalid(m_axis_3_tvalid),
+.m_axis_3_tdata(m_axis_3_tdata),
+
+.m_axis_4_afull(m_axis_4_afull),
+.m_axis_4_tready(m_axis_4_tready),
+.m_axis_4_tvalid(m_axis_4_tvalid),
+.m_axis_4_tdata(m_axis_4_tdata),
+
+.m_axis_5_afull(m_axis_5_afull),
+.m_axis_5_tready(m_axis_5_tready),
+.m_axis_5_tvalid(m_axis_5_tvalid),
+.m_axis_5_tdata(m_axis_5_tdata)
+
+
+);
+
+//MVA_Stream_Unit
+
+$LAYER_NAME$
+MVA_Stream_U
+(
+.ap_clk(ap_clk),			//input
+.ap_rst_n(ap_rst_n), 			//input
+.in0_V_V_TDATA(in0_V_V_TDATA),		//$IN_RANGE$ input
+.in0_V_V_TVALID(in0_V_V_TVALID),  	//input
+.in0_V_V_TREADY(in0_V_V_TREADY),	//output
+.weights_V_V_TDATA(m_axis_0_tdata),	//$WEIGHT_RANGE$ input
+.weights_V_V_TVALID(m_axis_0_tvalid),	//input
+.weights_V_V_TREADY(m_axis_0_tready),	//output
+.out_V_V_TDATA(out_V_V_TDATA),		//$OUT_RANGE$ output
+.out_V_V_TVALID(out_V_V_TVALID),	//output
+.out_V_V_TREADY(out_V_V_TREADY)		//input
+);
+
+
+endmodule
 """
