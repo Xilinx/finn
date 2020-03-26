@@ -26,7 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import os
+import numpy as np
+from pyverilator import PyVerilator
 from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.im2col import compute_conv_output_dim
+from finn.core.datatype import DataType
+from onnx import TensorProto, helper
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 class StreamingMaxPool_Batch(HLSCustomOp):
@@ -37,30 +44,78 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             "ImgDim": ("i", True, 0),
             "PoolDim": ("i", True, 0),
             "NumChannels": ("i", True, 0),
+            # FINN DataTypes for inputs/outputs
+            "dataType": ("s", True, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def get_input_datatype(self):
+        """Returns FINN DataType of input."""
+        return DataType[self.get_nodeattr("dataType")]
+
+    def get_output_datatype(self):
+        """Returns FINN DataType of output."""
+        return DataType[self.get_nodeattr("dataType")]
+
+    def get_normal_input_shape(self):
+        ifm_dim = self.get_nodeattr("ImgDim")
+        ifm_ch = self.get_nodeattr("NumChannels")
+        ishape = (1, ifm_dim, ifm_dim, ifm_ch)
+        return ishape
+
+    def get_normal_output_shape(self):
+        k = self.get_nodeattr("PoolDim")
+        ifm_dim = self.get_nodeattr("ImgDim")
+        ifm_ch = self.get_nodeattr("NumChannels")
+        stride = k
+        pad = 0
+        assert ifm_dim % k == 0, "StreamingMaxPool needs ImgDim % PoolDim == 0"
+        ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
+        oshape = (1, ofm_dim, ofm_dim, ifm_ch)
+        return oshape
+
+    def get_folded_output_shape(self):
+        # no folding for StreamingMaxPool
+        oshape = self.get_normal_output_shape()
+        return oshape
+
+    def get_number_output_values(self):
+        folded_oshape = self.get_folded_output_shape()
+        return np.prod(folded_oshape[:-1])
+
+    def get_stream_width(self):
+        dt_bits = self.get_input_datatype().bitwidth()
+        ifm_ch = self.get_nodeattr("NumChannels")
+        return int(dt_bits * ifm_ch)
+
     def make_shape_compatible_op(self, model):
-        pass
+        exp_ishape = self.get_normal_input_shape()
+        oshape = self.get_normal_output_shape()
+        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
+        assert ishape == exp_ishape, "Unexpect input shape for StreamingMaxPool."
+        # implement tensor with correct shape
+        values = np.random.randn(*oshape).astype(np.float32)
+        return helper.make_node(
+            "Constant",
+            inputs=[],
+            outputs=[self.onnx_node.output[0]],
+            value=helper.make_tensor(
+                name="const_tensor",
+                data_type=TensorProto.FLOAT,
+                dims=values.shape,
+                vals=values.flatten().astype(float),
+            ),
+        )
 
     def infer_node_datatype(self, model):
-        pass
+        node = self.onnx_node
+        # data type stays the same
+        dtype = model.get_tensor_datatype(node.input[0])
+        model.set_tensor_datatype(node.output[0], dtype)
 
     def verify_node(self):
         info_messages = []
-
-        # verify number of attributes
-        num_of_attr = 6
-        if len(self.onnx_node.attribute) == num_of_attr:
-            info_messages.append("The number of attributes is correct")
-        else:
-            info_messages.append(
-                """The number of attributes is incorrect,
-            {} should have {} attributes""".format(
-                    self.onnx_node.op_type, num_of_attr
-                )
-            )
 
         # verify that "domain" is set to "finn"
         domain_value = self.onnx_node.domain
@@ -76,21 +131,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         else:
             info_messages.append('Attribute backend should be set to "fpgadataflow"')
 
-        # verify that all necessary attributes exist
-        try:
-            self.get_nodeattr("code_gen_dir_npysim")
-            self.get_nodeattr("executable_path")
-            self.get_nodeattr("ImgDim")
-            self.get_nodeattr("PoolDim")
-            self.get_nodeattr("NumChannels")
-            info_messages.append("All necessary attributes exist")
-        except Exception:
-            info_messages.append(
-                """The necessary attributes do not exist.
-                StreamingMaxPool_Batch  needs the following attributes:
-                code_gen_dir_npysim, executable_path, ImgDim, PoolDim, NumChannels"""
-            )
-
         # verify the number of inputs
         if len(self.onnx_node.input) == 1:
             info_messages.append("The number of inputs is correct")
@@ -98,9 +138,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             info_messages.append("""StreamingMaxPool_Batch needs 1 data input""")
 
         return info_messages
-
-    def get_number_output_values(self):
-        pass
 
     def bram_estimation(self):
         pass
@@ -124,121 +161,198 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ]
 
     def read_npy_data(self):
-        node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
-        # c++ code to read out an npy file
-        # and put it in hls::stream in the correct order
+        dtype = self.get_input_datatype()
+        if dtype == DataType.BIPOLAR:
+            # use binary for bipolar storage
+            dtype = DataType.BINARY
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_stream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
-        input_ind = 0
-        input_file_names = []
-        for inputs in node.input:
-            input_file_names.append("{}/input_{}.npy".format(code_gen_dir, input_ind))
-            input_ind += 1
-
-        input_ind = 0
-        for input_file in input_file_names:
-            self.code_gen_dict["$READNPYDATA$"].append(
-                """cnpy::NpyArray arr = cnpy::npy_load("{}");\n
-                float* loaded_data{} = arr.data<float>();""".format(
-                    input_file, input_ind
-                )
-            )
-            self.code_gen_dict["$READNPYDATA$"].append(
-                """int num_values = 1; \n
-                for(int i = 0; i < arr.shape.size(); i++){\n
-                num_values *= arr.shape[i]; \n }"""
-            )
-            self.code_gen_dict["$READNPYDATA$"].append(
-                "ap_uint<{}> dat;".format(self.get_nodeattr("NumChannels"))
-            )
-            self.code_gen_dict["$READNPYDATA$"].append(
-                "for(int i=0; i < num_values/{}; i++){{".format(
-                    self.get_nodeattr("NumChannels")
-                )
-            )
-            for channel in range(self.get_nodeattr("NumChannels")):
-                self.code_gen_dict["$READNPYDATA$"].append(
-                    "dat.range({},{}) = loaded_data{}[i+((num_values/{})*{})];".format(
-                        channel,
-                        channel,
-                        input_ind,
-                        self.get_nodeattr("NumChannels"),
-                        channel,
-                    )
-                )
-            self.code_gen_dict["$READNPYDATA$"].append("in{} << dat;".format(input_ind))
-            self.code_gen_dict["$READNPYDATA$"].append("}")
-            input_ind += 1
+        self.code_gen_dict["$READNPYDATA$"].append(
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
+            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+        )
 
     def strm_decl(self):
-        node = self.onnx_node
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        input_ind = 0
-        for inputs in node.input:
-            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> in{} ("in{}");'.format(
-                    self.get_nodeattr("NumChannels"), input_ind, input_ind
-                )
-            )
-            input_ind += 1
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(
-                self.get_nodeattr("NumChannels")
-            )
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_stream_width())
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_stream_width())
         )
 
     def docompute(self):
-        node = self.onnx_node
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            "{}<ImgDim, PoolDim, NumChannels>(in0, out, numReps);".format(node.op_type)
-        ]
+        dtype = self.get_input_datatype()
+        if dtype.bitwidth() == 1:
+            op = "StreamingMaxPool_Batch"
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                "%s<ImgDim, PoolDim, NumChannels>(in0, out, numReps);" % (op)
+            ]
+        else:
+            op = "StreamingMaxPool_Precision_Batch"
+            dtype = self.get_input_datatype()
+            dtype_hls = dtype.get_hls_datatype_str()
+            minval_str = str(int(dtype.min()))
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out, numReps);"
+                % (op, dtype_hls, minval_str)
+            ]
 
     def dataoutstrm(self):
+        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        dtype = self.get_output_datatype()
+        if dtype == DataType.BIPOLAR:
+            # use binary for bipolar storage
+            dtype = DataType.BINARY
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_stream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_out = "%s/output.npy" % code_gen_dir
+        oshape = self.get_folded_output_shape()
+        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
+
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            "ap_uint<{}> out_data;\n std::vector<ap_uint<{}>> out_data_vector;".format(
-                self.get_nodeattr("NumChannels"), self.get_nodeattr("NumChannels")
+            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                oshape_cpp_str,
+                npy_out,
             )
         ]
-        self.code_gen_dict["$DATAOUTSTREAM$"].append("while(out.read_nb(out_data)){")
-        self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            "out_data_vector.push_back(out_data);\n}"
-        )
-        self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            "std::vector<float> output_data_vector;"
-        )
-        self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            """for(std::vector<ap_uint<{}>>::iterator it = out_data_vector.begin();
-            it != out_data_vector.end(); ++it){{""".format(
-                self.get_nodeattr("NumChannels")
-            )
-        )
-        self.code_gen_dict["$DATAOUTSTREAM$"].append(
-            "ap_uint<{}> output_data = *it;".format(self.get_nodeattr("NumChannels"))
-        )
-        for channel in range(self.get_nodeattr("NumChannels")):
-            self.code_gen_dict["$DATAOUTSTREAM$"].append(
-                "output_data_vector.push_back(output_data.range({},{}));".format(
-                    channel, channel
-                )
-            )
-        self.code_gen_dict["$DATAOUTSTREAM$"].append("}")
 
     def save_as_npy(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
-        numReps = 1
-        self.code_gen_dict["$SAVEASCNPY$"] = [
-            """cnpy::npy_save("{}/output.npy",&output_data_vector[0],
-            {{{},{},{}}},"w");""".format(
-                code_gen_dir,
-                numReps,
-                self.get_nodeattr("NumChannels"),
-                int(self.get_nodeattr("ImgDim") / self.get_nodeattr("PoolDim")),
-                int(self.get_nodeattr("ImgDim") / self.get_nodeattr("PoolDim")),
-            )
-        ]
+        self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        pass
+        packed_bits = self.get_stream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
+            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+        ]
 
     def pragmas(self):
-        pass
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE ap_ctrl_none port=return"
+        )
+
+    def execute_node(self, context, graph):
+        mode = self.get_nodeattr("exec_mode")
+        node = self.onnx_node
+        exp_ishape = self.get_normal_input_shape()
+        exp_oshape = self.get_normal_output_shape()
+        folded_oshape = self.get_folded_output_shape()
+
+        # TODO ensure codegen dir exists
+        if mode == "npysim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        elif mode == "rtlsim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        else:
+            raise Exception(
+                """Invalid value for attribute exec_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
+
+        inp = context[node.input[0]]
+        assert str(inp.dtype) == "float32", "Input datatype is not float32"
+        assert (
+            inp.shape == exp_ishape
+        ), """Input shape doesn't
+        match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
+        if self.get_input_datatype() == DataType.BIPOLAR:
+            # store bipolar activations as binary
+            inp = (inp + 1) / 2
+            export_idt = DataType.BINARY
+        else:
+            export_idt = self.get_input_datatype()
+        # no reshaping for input since assuming no folding on input
+        # make copy before saving array
+        reshaped_input = inp.copy()
+        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
+
+        if mode == "npysim":
+            # execute the precompiled model
+            super().exec_precompiled_singlenode_model()
+            # load output npy file
+            super().npy_to_dynamic_output(context)
+            assert (
+                context[node.output[0]].shape == folded_oshape
+            ), "npysim \
+            did not produce expected ofolded utput shape"
+            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
+        elif mode == "rtlsim":
+            prefixed_top_name = "%s_%s" % (node.name, node.name)
+            # check if needed file exists
+            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
+                code_gen_dir, node.name, prefixed_top_name
+            )
+            if os.path.isfile(verilog_file):
+                nbits = self.get_stream_width()
+                rtlsim_inp = npy_to_rtlsim_input(
+                    "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+                )
+                sim = PyVerilator.build(
+                    verilog_file,
+                    verilog_path=[
+                        "{}/project_{}/sol1/impl/verilog/".format(
+                            code_gen_dir, node.name
+                        )
+                    ],
+                )
+                super().reset_rtlsim(sim)
+                super().toggle_clk(sim)
+                rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+                odt = export_idt
+                target_bits = odt.bitwidth()
+                packed_bits = self.get_stream_width()
+                out_npy_path = "{}/output.npy".format(code_gen_dir)
+                out_shape = self.get_folded_output_shape()
+                rtlsim_output_to_npy(
+                    rtlsim_output,
+                    out_npy_path,
+                    odt,
+                    out_shape,
+                    packed_bits,
+                    target_bits,
+                )
+                # load and reshape output
+                output = np.load(out_npy_path)
+                output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+                context[node.output[0]] = output
+            else:
+                raise Exception(
+                    """Found no verilog files for this node,
+                    did you run the codegen_ipgen transformation?"""
+                )
+        else:
+            raise Exception(
+                """Invalid value for attribute exec_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
+        # binary -> bipolar if needed
+        if self.get_output_datatype() == DataType.BIPOLAR:
+            out = context[node.output[0]]
+            out = 2 * out - 1
+            context[node.output[0]] = out
+        assert (
+            context[node.output[0]].shape == exp_oshape
+        ), """Output
+        shape doesn't match expected shape (1, ofm_dim, ofm_dim, k*k*ifm_ch)."""
