@@ -32,7 +32,7 @@ from shutil import copy
 
 import numpy as np
 from pyverilator import PyVerilator
-
+from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.util.basic import interleave_matrix_outer_dim_from_partitions
@@ -113,10 +113,26 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             return mh // pe
 
     def make_shape_compatible_op(self, model):
-        pass
+        oshape = self.get_normal_output_shape()
+        # implement tensor with correct shape
+        values = np.random.randn(*oshape).astype(np.float32)
+        return helper.make_node(
+            "Constant",
+            inputs=[],
+            outputs=[self.onnx_node.output[0]],
+            value=helper.make_tensor(
+                name="const_tensor",
+                data_type=TensorProto.FLOAT,
+                dims=values.shape,
+                vals=values.flatten().astype(float),
+            ),
+        )
 
     def infer_node_datatype(self, model):
-        pass
+        node = self.onnx_node
+        # data type stays the same
+        dtype = model.get_tensor_datatype(node.input[0])
+        model.set_tensor_datatype(node.output[0], dtype)
 
     def verify_node(self):
         info_messages = []
