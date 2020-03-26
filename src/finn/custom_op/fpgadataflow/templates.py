@@ -28,7 +28,7 @@
 
 # template for single node execution
 docompute_template = """
-#define AP_INT_MAX_W 4096
+#define AP_INT_MAX_W 16384
 #include "cnpy.h"
 #include "npy2apintstream.hpp"
 #include <vector>
