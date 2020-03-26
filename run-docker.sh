@@ -68,7 +68,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 BREVITAS_REPO=https://github.com/Xilinx/brevitas.git
 EXAMPLES_REPO=https://github.com/maltanar/brevitas_cnv_lfc.git
 CNPY_REPO=https://github.com/rogersce/cnpy.git
-FINN_HLS_REPO=https://github.com/Xilinx/finn-hlslib.git
+#FINN_HLS_REPO=https://github.com/Xilinx/finn-hlslib.git
+FINN_HLS_REPO=https://github.com/Tobi-Alonso/finn-hlslib.git
 PYVERILATOR_REPO=https://github.com/maltanar/pyverilator
 PYNQSHELL_REPO=https://github.com/maltanar/PYNQ-HelloWorld.git
 
