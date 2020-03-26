@@ -184,6 +184,7 @@ class HLSCustomOp(CustomOp):
         builder.append_includes("-I/workspace/finn-hlslib")
         builder.append_includes("-I{}/include".format(os.environ["VIVADO_PATH"]))
         builder.append_includes("--std=c++11")
+        builder.append_includes("-O3")
         builder.append_sources(code_gen_dir + "/*.cpp")
         builder.append_sources("/workspace/cnpy/cnpy.cpp")
         builder.append_includes("-lz")
@@ -210,8 +211,7 @@ Found no codegen dir for this node, did you run the codegen_npysim transformatio
             # make copy before saving array
             input_array = context[current_input_name].copy()
             np.save(
-                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                input_array,
+                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)), input_array
             )
 
     def npy_to_dynamic_output(self, context):
