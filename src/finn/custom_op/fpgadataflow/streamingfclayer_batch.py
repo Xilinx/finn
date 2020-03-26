@@ -28,6 +28,7 @@
 
 import math
 import os
+import subprocess
 from shutil import copy
 
 import numpy as np
@@ -1023,3 +1024,29 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 code_gen_dir, self.onnx_node.name
             )
             copy(verilog_wrapper, verilog_folder)
+            # prepare the IP packaging tcl template
+            template = templates.ip_package_tcl
+            self.code_gen_dict["$TOPNAME$"] = [
+                "{}_memstream".format(self.onnx_node.name)
+            ]
+            self.code_gen_dict["$VERILOG_DIR$"] = [verilog_folder]
+            for key in self.code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(self.code_gen_dict[key])
+                template = template.replace(key, code_gen_line)
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            f = open(os.path.join(verilog_folder, "package_ip.tcl"), "w")
+            f.write(template)
+            f.close()
+            self.code_gen_dict.clear()
+            # create a shell script and call Vivado to invoke the IP pkg script
+            make_project_sh = verilog_folder + "/make_ip.sh"
+            working_dir = os.environ["PWD"]
+            with open(make_project_sh, "w") as f:
+                f.write("#!/bin/bash \n")
+                f.write("cd {}\n".format(verilog_folder))
+                f.write("vivado -mode batch -source package_ip.tcl\n")
+                f.write("cd {}\n".format(working_dir))
+            bash_command = ["bash", make_project_sh]
+            process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+            process_compile.communicate()
