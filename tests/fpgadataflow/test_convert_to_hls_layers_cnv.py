@@ -99,6 +99,7 @@ def test_convert_to_hls_layers_cnv_w1a1():
                 simd = mw
             inst.set_nodeattr("SIMD", simd)
     model = model.transform(to_hls.InferConvInpGen())
+    model = model.transform(to_hls.InferStreamingMaxPool())
     model.save("cnv-pre-compile.onnx")
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
