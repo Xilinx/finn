@@ -48,6 +48,7 @@ from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
+import finn.transformation.fpgadataflow.replace_verilog_relpaths as rvp
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import (
     calculate_signed_dot_prod_range,
@@ -234,6 +235,7 @@ def test_fpgadataflow_ipstitch_do_stitch():
     model = ModelWrapper(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
     )
+    model = model.transform(rvp.ReplaceVerilogRelPaths())
     model = model.transform(CodeGen_ipstitch(test_fpga_part))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
