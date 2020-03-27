@@ -1042,7 +1042,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             f = open(os.path.join(verilog_folder, "package_ip.tcl"), "w")
             f.write(template)
             f.close()
-            self.code_gen_dict.clear()
             # create a shell script and call Vivado to invoke the IP pkg script
             make_project_sh = verilog_folder + "/make_ip.sh"
             working_dir = os.environ["PWD"]
@@ -1056,3 +1055,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             process_compile.communicate()
             # re-set ip_path to point to the new packaged IP
             self.set_nodeattr("ip_path", verilog_folder)
+            vlnv = "xilinx.com:hls:%s:1.0" % (
+                "{}_memstream".format(self.onnx_node.name)
+            )
+            self.set_nodeattr("ip_vlnv", vlnv)
+            self.code_gen_dict.clear()
