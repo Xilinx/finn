@@ -228,6 +228,7 @@ def numpy_to_hls_code(
     if pack_innermost_dim:
         idimlen = ndarray.shape[-1]
         idimbits = idimlen * dtype.bitwidth()
+        idimbits = roundup_to_integer_multiple(idimbits, 4)
         ndarray = pack_innermost_dim_as_hex_string(ndarray, dtype, idimbits)
         hls_dtype = "ap_uint<%d>" % idimbits
     ndims = ndarray.ndim
