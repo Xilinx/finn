@@ -269,8 +269,8 @@ endmodule
 
 ip_package_tcl = """
 ## IP Info
-set Vendor      "xilinx"
-set Library     "finnlib"
+set Vendor      "xilinx.com"
+set Library     "hls"
 set IPName      "$TOPNAME$"
 set Version     "1.0"
 set DisplayName "$TOPNAME$"

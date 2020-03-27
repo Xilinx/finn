@@ -68,6 +68,7 @@ class HLSCustomOp(CustomOp):
             "code_gen_dir_ipgen": ("s", False, ""),
             "executable_path": ("s", False, ""),
             "ipgen_path": ("s", False, ""),
+            "ip_path": ("s", False, ""),
             "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
@@ -146,6 +147,7 @@ class HLSCustomOp(CustomOp):
         builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
         builder.build(code_gen_dir)
         self.set_nodeattr("ipgen_path", builder.ipgen_path)
+        self.set_nodeattr("ip_path", builder.ipgen_path + "/sol1/impl/ip")
 
     def code_generation_npysim(self, model):
         """Generates c++ code for simulation (npysim)."""

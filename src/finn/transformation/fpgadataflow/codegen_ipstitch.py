@@ -65,13 +65,12 @@ class CodeGen_ipstitch(Transformation):
                 backend_value == "fpgadataflow"
             ), """Backend node attribute is not
             set to "fpgadataflow"."""
-            ip_dir_attribute = get_by_name(node.attribute, "ipgen_path")
+            ip_dir_attribute = get_by_name(node.attribute, "ip_path")
             assert (
                 ip_dir_attribute is not None
-            ), """Node attribute "ipgen_path" is not set.
+            ), """Node attribute "ip_path" is not set.
             Please run transformation CodeGen_ipgen first."""
             ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
-            ip_dir_value += "/sol1/impl/ip"
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
             vlnv = "xilinx.com:hls:%s:1.0" % node.name

@@ -1054,3 +1054,5 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             bash_command = ["bash", make_project_sh]
             process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
             process_compile.communicate()
+            # re-set ip_path to point to the new packaged IP
+            self.set_nodeattr("ip_path", verilog_folder)
