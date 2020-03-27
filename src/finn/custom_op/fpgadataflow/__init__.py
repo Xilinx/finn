@@ -69,6 +69,7 @@ class HLSCustomOp(CustomOp):
             "executable_path": ("s", False, ""),
             "ipgen_path": ("s", False, ""),
             "ip_path": ("s", False, ""),
+            "ip_vlnv": ("s", False, ""),
             "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
@@ -148,6 +149,8 @@ class HLSCustomOp(CustomOp):
         builder.build(code_gen_dir)
         self.set_nodeattr("ipgen_path", builder.ipgen_path)
         self.set_nodeattr("ip_path", builder.ipgen_path + "/sol1/impl/ip")
+        vlnv = "xilinx.com:hls:%s:1.0" % node.name
+        self.set_nodeattr("ip_vlnv", vlnv)
 
     def code_generation_npysim(self, model):
         """Generates c++ code for simulation (npysim)."""
