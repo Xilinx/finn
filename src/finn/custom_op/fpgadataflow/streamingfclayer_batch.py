@@ -131,9 +131,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        model.set_tensor_datatype(node.output[0], dtype)
+        # check input datatype against property
+        idt_name = self.get_input_datatype().name
+        exp_idt_name = self.get_nodeattr("inputDataType")
+        assert exp_idt_name == idt_name, "Bad input DataType for StreamingFCLayer"
+        # set output datatype from property
+        odt = self.get_output_datatype()
+        model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
         info_messages = []
