@@ -296,7 +296,26 @@ set core [ipx::create_core $Vendor $Library $IPName $Version]
 set_property display_name $DisplayName $core
 set_property description $Description $core
 set_property taxonomy $Catalog $core
-set_property supported_families [list $Device Production] $core;
+set_property supported_families { \
+  artix7 Production \
+  artix7l Production \
+  kintex7 Production \
+  kintex7l Production \
+  kintexu Production \
+  kintexuplus Production \
+  virtex7 Production \
+  virtexu Production \
+  virtexuplus Production \
+  zynq Production \
+  zynquplus Production \
+  aartix7 Production \
+  azynq Production \
+  qartix7 Production \
+  qkintex7 Production \
+  qkintex7l Production \
+  qvirtex7 Production \
+  qzynq Production \
+} $core;
 
 ## Add verilog files
 if {[llength $VerilogFiles] > 0} {
