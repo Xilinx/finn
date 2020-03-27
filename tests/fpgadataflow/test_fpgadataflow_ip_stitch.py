@@ -209,13 +209,15 @@ def create_two_fc_model():
     model.set_initializer("t1", t1)
     model.set_tensor_datatype("t0", tdt)
     model.set_tensor_datatype("t1", tdt)
+
+    model = model.transform(CreateDataflowPartition())
     return model
 
 
 # exec_mode of StreamingDataflowPartition
 # @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
 def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
-    model = create_one_fc_model()
+    model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
