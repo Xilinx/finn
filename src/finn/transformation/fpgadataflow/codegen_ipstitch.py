@@ -31,6 +31,7 @@ import subprocess
 
 from finn.transformation import Transformation
 from finn.util.basic import get_by_name, make_build_dir
+from finn.custom_op.registry import getCustomOp
 
 
 class CodeGen_ipstitch(Transformation):
@@ -65,15 +66,11 @@ class CodeGen_ipstitch(Transformation):
                 backend_value == "fpgadataflow"
             ), """Backend node attribute is not
             set to "fpgadataflow"."""
-            ip_dir_attribute = get_by_name(node.attribute, "ip_path")
-            assert (
-                ip_dir_attribute is not None
-            ), """Node attribute "ip_path" is not set.
-            Please run transformation CodeGen_ipgen first."""
-            ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
+            node_inst = getCustomOp(node)
+            ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
-            vlnv = "xilinx.com:hls:%s:1.0" % node.name
+            vlnv = node_inst.get_nodeattr("ip_vlnv")
             inst_name = node.name
             create_cmd = "create_bd_cell -type ip -vlnv %s %s" % (vlnv, inst_name)
             create_cmds += [create_cmd]
