@@ -63,6 +63,9 @@ class ReplaceVerilogRelPaths(Transformation):
                                         old = '$readmemh(".'
                                         new = '$readmemh("%s' % dname
                                         s = s.replace(old, new)
+                                        old = '"./'
+                                        new = '"%s/' % dname
+                                        s = s.replace(old, new)
                                         with open(fpath, "w") as f:
                                             f.write(s)
                     except KeyError:
