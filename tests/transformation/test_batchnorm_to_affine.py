@@ -41,29 +41,16 @@ from finn.transformation.batchnorm_to_affine import BatchNormToAffine
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
+from finn.transformation.double_to_single_float import DoubleToSingleFloat
 
 export_onnx_path = "test_output_bn2affine.onnx"
-
-
-def test_batchnorm_to_affine_lfc_w1a1():
-    lfc = get_test_model_trained("LFC", 1, 1)
-    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
-    model = model.transform(InferShapes())
-    model = model.transform(FoldConstants())
-    new_model = model.transform(BatchNormToAffine())
-    # load one of the test vectors
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
-    input_tensor = onnx.load_tensor_from_string(raw_i)
-    input_dict = {"0": nph.to_array(input_tensor)}
-    assert oxe.compare_execution(model, new_model, input_dict)
-    os.remove(export_onnx_path)
 
 
 def test_batchnorm_to_affine_cnv_w1a1():
     lfc = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(lfc, (1, 3, 32, 32), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
+    model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
@@ -79,4 +66,19 @@ def test_batchnorm_to_affine_cnv_w1a1():
     output_dict_p = oxe.execute_onnx(new_model, input_dict)
     produced = output_dict_p[list(output_dict_p.keys())[0]]
     assert np.isclose(expected, produced).all()
+    os.remove(export_onnx_path)
+
+
+def test_batchnorm_to_affine_lfc_w1a1():
+    lfc = get_test_model_trained("LFC", 1, 1)
+    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
+    model = ModelWrapper(export_onnx_path)
+    model = model.transform(InferShapes())
+    model = model.transform(FoldConstants())
+    new_model = model.transform(BatchNormToAffine())
+    # load one of the test vectors
+    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    input_tensor = onnx.load_tensor_from_string(raw_i)
+    input_dict = {"0": nph.to_array(input_tensor)}
+    assert oxe.compare_execution(model, new_model, input_dict)
     os.remove(export_onnx_path)

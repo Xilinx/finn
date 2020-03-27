@@ -228,6 +228,7 @@ def numpy_to_hls_code(
     if pack_innermost_dim:
         idimlen = ndarray.shape[-1]
         idimbits = idimlen * dtype.bitwidth()
+        idimbits = roundup_to_integer_multiple(idimbits, 4)
         ndarray = pack_innermost_dim_as_hex_string(ndarray, dtype, idimbits)
         hls_dtype = "ap_uint<%d>" % idimbits
     ndims = ndarray.ndim
@@ -297,6 +298,8 @@ def rtlsim_output_to_npy(
     out_array = unpack_innermost_dim_from_hex_string(
         output, dtype, shape, packedBits=packedBits, reverse_inner=reverse_inner
     )
+    # make copy before saving the array
+    out_array = out_array.copy()
     np.save(path, out_array)
     return out_array
 

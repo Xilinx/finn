@@ -94,7 +94,7 @@ class CustomOp(ABC):
         pass
 
     @abstractmethod
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         """Returns a standard ONNX op which is compatible with this CustomOp
         for performing shape inference."""
         pass

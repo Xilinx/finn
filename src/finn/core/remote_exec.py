@@ -43,6 +43,8 @@ def remote_exec(model, execution_context):
     pynq_target_dir = model.get_metadata_prop("pynq_target_dir")
     deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
     inp = execution_context[model.graph.input[0].name]
+    # make copy of array before saving it
+    inp = inp.copy()
     np.save(os.path.join(deployment_dir, "input.npy"), inp)
     # extracting last folder of absolute path (deployment_dir)
     deployment_folder = os.path.basename(os.path.normpath(deployment_dir))
