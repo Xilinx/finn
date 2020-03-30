@@ -930,7 +930,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 "#pragma HLS INTERFACE axis port=weights"
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=8 variable=8"
+                "#pragma HLS stream depth=8 variable=weights"
             )
 
         else:
