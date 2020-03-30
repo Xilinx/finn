@@ -503,6 +503,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             weight_tensor_unflipped = pack_innermost_dim_as_hex_string(
                 weight_tensor_unflipped, export_wdt, weight_width
             )
+            weight_stream_len = np.prod(weight_tensor_unflipped.shape)
+            assert (
+                weight_stream_len <= 1024
+            ), """Decoupled mem mode needs
+            weight stream length <= 1024 for now"""
             weight_pad = np.zeros((1024), int).astype(str)
             weight_tensor_unflipped = weight_tensor_unflipped.flatten()
             # delete "0x" in the beginning of the hexstring
