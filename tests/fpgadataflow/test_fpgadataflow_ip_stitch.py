@@ -50,11 +50,7 @@ from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 import finn.transformation.fpgadataflow.replace_verilog_relpaths as rvp
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import (
-    calculate_signed_dot_prod_range,
-    gen_finn_dt_tensor,
-    pynq_part_map,
-)
+from finn.util.basic import gen_finn_dt_tensor, pynq_part_map
 from finn.util.fpgadataflow import pyverilate_stitched_ip
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -126,8 +122,8 @@ def create_two_fc_model():
     actval = 0
     no_act = 1
     binary_xnor_mode = 0
-    pe = 1
-    simd = 1
+    pe = 2
+    simd = 2
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, m])
     mid = helper.make_tensor_value_info("mid", TensorProto.FLOAT, [1, m])
@@ -143,7 +139,7 @@ def create_two_fc_model():
         MW=m,
         MH=m,
         SIMD=simd,
-        PE=2,
+        PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
         outputDataType=odt.name,
@@ -160,10 +156,9 @@ def create_two_fc_model():
         domain="finn",
         backend="fpgadataflow",
         resType="ap_resource_lut()",
-        mem_mode="decoupled",
         MW=m,
         MH=m,
-        SIMD=2,
+        SIMD=simd,
         PE=pe,
         inputDataType=idt.name,
         weightDataType=wdt.name,
@@ -171,6 +166,7 @@ def create_two_fc_model():
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
+        mem_mode="decoupled",
     )
 
     graph = helper.make_graph(
@@ -255,9 +251,9 @@ def test_fpgadataflow_ipstitch_rtlsim():
     model.set_metadata_prop("exec_mode", "rtlsim")
     idt = model.get_tensor_datatype("inp")
     ishape = model.get_tensor_shape("inp")
-    # x = gen_finn_dt_tensor(idt, ishape)
+    x = gen_finn_dt_tensor(idt, ishape)
     # x = np.zeros(ishape, dtype=np.float32)
-    x = np.asarray([[-2, -1, 0, 1]], dtype=np.float32)
+    # x = np.asarray([[-2, -1, 0, 1]], dtype=np.float32)
     rtlsim_res = execute_onnx(model, {"inp": x})["outp"]
     assert (rtlsim_res == x).all()
 
