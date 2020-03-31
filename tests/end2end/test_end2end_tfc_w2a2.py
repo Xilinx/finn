@@ -71,6 +71,7 @@ build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 5
+mem_mode = "decoupled"
 
 
 def test_end2end_tfc_w2a2_export():
@@ -100,12 +101,7 @@ def test_end2end_tfc_w2a2_streamline():
 
 def test_end2end_tfc_w2a2_convert_to_hls_layers():
     model = ModelWrapper(build_dir + "/end2end_tfc_w2a2_streamlined.onnx")
-    # model = model.transform(ConvertBipolarMatMulToXnorPopcount())
-    # model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
-    # model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
-    # model = model.transform(RoundAndClipThresholds())
-    # model = model.transform(to_hls.InferBinaryStreamingFCLayer())
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
+    model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     model.save(build_dir + "/end2end_tfc_w2a2_hls_layers.onnx")
 
 
