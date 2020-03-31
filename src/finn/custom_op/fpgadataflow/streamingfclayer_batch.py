@@ -28,6 +28,7 @@
 
 import math
 import os
+import subprocess
 from shutil import copy
 
 import numpy as np
@@ -130,9 +131,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        model.set_tensor_datatype(node.output[0], dtype)
+        # check input datatype against property
+        idt_name = self.get_input_datatype().name
+        exp_idt_name = self.get_nodeattr("inputDataType")
+        assert exp_idt_name == idt_name, "Bad input DataType for StreamingFCLayer"
+        # set output datatype from property
+        odt = self.get_output_datatype()
+        model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
         info_messages = []
@@ -493,22 +498,26 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             np.save(os.path.join(code_gen_dir, "weights.npy"), weight_tensor_flipped)
 
             """Saves weights into .dat file"""
-            # convert weight value sinto hexstring
+            # convert weight values into hexstring
             weight_width = self.get_weightstream_width()
             weight_tensor_unflipped = pack_innermost_dim_as_hex_string(
-                weight_tensor_unflipped, export_wdt, weight_width
+                weight_tensor_unflipped, export_wdt, weight_width, prefix=""
             )
-            weight_pad = np.zeros((1024), int).astype(str)
-            weight_tensor_unflipped = weight_tensor_unflipped.flatten()
-            # delete "0x" in the beginning of the hexstring
-            for i in range(len(weight_tensor_unflipped)):
-                weight_tensor_unflipped[i] = weight_tensor_unflipped[i][2:]
-            weight_pad[: weight_tensor_unflipped.shape[0]] = weight_tensor_unflipped
-            weight_pad = weight_pad.copy()
-            f = open("{}/memblock_0.dat".format(code_gen_dir), "w+")
-            for val in weight_pad:
-                f.write(val + "\n")
-            f.close()
+            weight_stream_len = np.prod(weight_tensor_unflipped.shape)
+            assert (
+                weight_stream_len <= 1024
+            ), """Decoupled mem mode needs
+            weight stream length <= 1024 for now"""
+            # add zeroes to pad out file to 1024 entries
+            weight_stream = weight_tensor_unflipped.flatten()
+            pad_amt = 1024 - weight_stream_len
+            weight_stream = np.pad(
+                weight_stream, (0, pad_amt), mode="constant", constant_values="0"
+            )
+            weight_stream = weight_stream.copy()
+            with open("{}/memblock_0.dat".format(code_gen_dir), "w+") as f:
+                for val in weight_stream:
+                    f.write(val + "\n")
 
         else:
             raise Exception(
@@ -920,7 +929,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 "#pragma HLS INTERFACE axis port=weights"
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=8 variable=8"
+                "#pragma HLS stream depth=8 variable=weights"
             )
 
         else:
@@ -1023,3 +1032,35 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 code_gen_dir, self.onnx_node.name
             )
             copy(verilog_wrapper, verilog_folder)
+            # prepare the IP packaging tcl template
+            template = templates.ip_package_tcl
+            self.code_gen_dict["$TOPNAME$"] = [
+                "{}_memstream".format(self.onnx_node.name)
+            ]
+            self.code_gen_dict["$VERILOG_DIR$"] = [verilog_folder]
+            for key in self.code_gen_dict:
+                # transform list into long string separated by '\n'
+                code_gen_line = "\n".join(self.code_gen_dict[key])
+                template = template.replace(key, code_gen_line)
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            f = open(os.path.join(verilog_folder, "package_ip.tcl"), "w")
+            f.write(template)
+            f.close()
+            # create a shell script and call Vivado to invoke the IP pkg script
+            make_project_sh = verilog_folder + "/make_ip.sh"
+            working_dir = os.environ["PWD"]
+            with open(make_project_sh, "w") as f:
+                f.write("#!/bin/bash \n")
+                f.write("cd {}\n".format(verilog_folder))
+                f.write("vivado -mode batch -source package_ip.tcl\n")
+                f.write("cd {}\n".format(working_dir))
+            bash_command = ["bash", make_project_sh]
+            process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+            process_compile.communicate()
+            # re-set ip_path to point to the new packaged IP
+            self.set_nodeattr("ip_path", verilog_folder)
+            vlnv = "xilinx.com:hls:%s:1.0" % (
+                "{}_memstream".format(self.onnx_node.name)
+            )
+            self.set_nodeattr("ip_vlnv", vlnv)
+            self.code_gen_dict.clear()

@@ -48,12 +48,9 @@ from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
+import finn.transformation.fpgadataflow.replace_verilog_relpaths as rvp
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import (
-    calculate_signed_dot_prod_range,
-    gen_finn_dt_tensor,
-    pynq_part_map,
-)
+from finn.util.basic import gen_finn_dt_tensor, pynq_part_map
 from finn.util.fpgadataflow import pyverilate_stitched_ip
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -66,7 +63,7 @@ def create_one_fc_model():
     # create a model with a StreamingFCLayer instance with no activation
     # the wider range of the full accumulator makes debugging a bit easier
     wdt = DataType.INT2
-    idt = DataType.INT2
+    idt = DataType.INT32
     odt = DataType.INT32
     m = 4
     no_act = 1
@@ -119,13 +116,11 @@ def create_one_fc_model():
 def create_two_fc_model():
     # create a model with two StreamingFCLayer instances
     wdt = DataType.INT2
-    idt = DataType.INT2
-    odt = DataType.INT2
-    act = DataType.INT2
+    idt = DataType.INT32
+    odt = DataType.INT32
     m = 4
-    tdt = DataType.INT32
-    actval = odt.min()
-    no_act = 0
+    actval = 0
+    no_act = 1
     binary_xnor_mode = 0
     pe = 2
     simd = 2
@@ -136,7 +131,7 @@ def create_two_fc_model():
 
     fc0 = helper.make_node(
         "StreamingFCLayer_Batch",
-        ["inp", "w0", "t0"],
+        ["inp", "w0"],
         ["mid"],
         domain="finn",
         backend="fpgadataflow",
@@ -151,11 +146,12 @@ def create_two_fc_model():
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
+        mem_mode="decoupled",
     )
 
     fc1 = helper.make_node(
         "StreamingFCLayer_Batch",
-        ["mid", "w1", "t1"],
+        ["mid", "w1"],
         ["outp"],
         domain="finn",
         backend="fpgadataflow",
@@ -170,6 +166,7 @@ def create_two_fc_model():
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
+        mem_mode="decoupled",
     )
 
     graph = helper.make_graph(
@@ -190,31 +187,19 @@ def create_two_fc_model():
     model.set_tensor_datatype("w1", wdt)
 
     # generate weights
-    w0 = gen_finn_dt_tensor(wdt, (m, m))
-    w1 = gen_finn_dt_tensor(wdt, (m, m))
+    w0 = np.eye(m, dtype=np.float32)
+    w1 = np.eye(m, dtype=np.float32)
     model.set_initializer("w0", w0)
     model.set_initializer("w1", w1)
 
-    # generate thresholds
-    (min, max) = calculate_signed_dot_prod_range(idt, wdt, m)
-    n_steps = act.get_num_possible_values() - 1
-    t0 = np.random.randint(min, max - 1, (m, n_steps)).astype(np.float32)
-    t1 = np.random.randint(min, max - 1, (m, n_steps)).astype(np.float32)
-    # provide non-decreasing thresholds
-    t0 = np.sort(t0, axis=1)
-    t1 = np.sort(t1, axis=1)
-
-    model.set_initializer("t0", t0)
-    model.set_initializer("t1", t1)
-    model.set_tensor_datatype("t0", tdt)
-    model.set_tensor_datatype("t1", tdt)
+    model = model.transform(CreateDataflowPartition())
     return model
 
 
 # exec_mode of StreamingDataflowPartition
 # @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
 def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
-    model = create_one_fc_model()
+    model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
@@ -234,6 +219,7 @@ def test_fpgadataflow_ipstitch_do_stitch():
     model = ModelWrapper(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
     )
+    model = model.transform(rvp.ReplaceVerilogRelPaths())
     model = model.transform(CodeGen_ipstitch(test_fpga_part))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
@@ -247,6 +233,7 @@ def test_fpgadataflow_ipstitch_do_stitch():
 
 def test_fpgadataflow_ipstitch_rtlsim():
     model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
+    model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
     sim = pyverilate_stitched_ip(model)
     exp_io = [
         "ap_clk_0",
@@ -265,6 +252,8 @@ def test_fpgadataflow_ipstitch_rtlsim():
     idt = model.get_tensor_datatype("inp")
     ishape = model.get_tensor_shape("inp")
     x = gen_finn_dt_tensor(idt, ishape)
+    # x = np.zeros(ishape, dtype=np.float32)
+    # x = np.asarray([[-2, -1, 0, 1]], dtype=np.float32)
     rtlsim_res = execute_onnx(model, {"inp": x})["outp"]
     assert (rtlsim_res == x).all()
 

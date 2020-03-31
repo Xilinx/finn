@@ -139,6 +139,10 @@ class InferBinaryStreamingFCLayer(Transformation):
     StreamingFCLayer_Batch layers. Any immediately following MultiThreshold
     layers will also be absorbed into the MVTU."""
 
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -219,6 +223,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                         binaryXnorMode=1,
                         noActivation=0,
                         numInputVectors=list(mm_in_shape[:-1]),
+                        mem_mode=self.mem_mode,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
@@ -249,6 +254,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                         binaryXnorMode=1,
                         noActivation=1,
                         numInputVectors=list(mm_in_shape[:-1]),
+                        mem_mode=self.mem_mode,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old node
@@ -264,6 +270,10 @@ class InferQuantizedStreamingFCLayer(Transformation):
     """Convert MatMul layers with quantized inputs and weights to
     StreamingFCLayer_Batch layers. Any immediately following MultiThreshold
     layers will also be absorbed into the MVTU."""
+
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
 
     def apply(self, model):
         graph = model.graph
@@ -347,6 +357,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             binaryXnorMode=0,
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
+                            mem_mode=self.mem_mode,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -377,6 +388,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             binaryXnorMode=0,
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
+                            mem_mode=self.mem_mode,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node

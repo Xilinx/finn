@@ -70,13 +70,12 @@ class MakePYNQProject(Transformation):
         # collect list of all IP dirs
         ip_dirs = ["list"]
         for node in model.graph.node:
-            ip_dir_attribute = get_by_name(node.attribute, "ipgen_path")
+            ip_dir_attribute = get_by_name(node.attribute, "ip_path")
             assert (
                 ip_dir_attribute is not None
-            ), """Node attribute "ipgen_path" is
+            ), """Node attribute "ip_path" is
             empty. Please run transformation HLSSynth_ipgen first."""
             ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
-            ip_dir_value += "/sol1/impl/ip"
             assert os.path.isdir(
                 ip_dir_value
             ), """The directory that should
