@@ -81,7 +81,13 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         ), """DWC input width must be divisible by
         input element bitwidth"""
         ielems = int(iwidth // ibits)
-        dummy_t = dummy_t.reshape(-1, ielems)
+        ichannels = ishape[-1]
+        new_shape = []
+        for i in ishape[:-1]:
+            new_shape.append(i)
+        new_shape.append(int(ichannels // ielems))
+        new_shape.append(ielems)
+        dummy_t = dummy_t.reshape(new_shape)
         return dummy_t.shape
 
     def get_folded_output_shape(self):
@@ -94,7 +100,14 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         ), """DWC output width must be divisible by
         input element bitwidth"""
         oelems = int(owidth // obits)
-        dummy_t = dummy_t.reshape(-1, oelems)
+        ochannels = oshape[-1]
+        new_shape = []
+        for i in oshape[:-1]:
+            new_shape.append(i)
+        new_shape.append(int(ochannels // oelems))
+        new_shape.append(oelems)
+        dummy_t = dummy_t.reshape(new_shape)
+
         return dummy_t.shape
 
     def get_number_output_values(self):
@@ -225,7 +238,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             # use binary for bipolar storage
             dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
-        packed_bits = self.get_stream_width()
+        packed_bits = self.get_out_stream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
@@ -249,11 +262,14 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        packed_bits = self.get_stream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
+
+        in_packed_bits = self.get_in_stream_width()
+        in_packed_hls_type = "ap_uint<%d>" % in_packed_bits
+        out_packed_bits = self.get_out_stream_width()
+        out_packed_hls_type = "ap_uint<%d>" % out_packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+            % (self.onnx_node.name, in_packed_hls_type, out_packed_hls_type)
         ]
 
     def pragmas(self):
@@ -266,9 +282,8 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        exp_ishape = self.get_normal_input_shape()
-        exp_oshape = self.get_normal_output_shape()
-        folded_oshape = self.get_folded_output_shape()
+        exp_shape = self.get_normal_input_shape()
+        folded_ishape = self.get_folded_input_shape()
 
         # TODO ensure codegen dir exists
         if mode == "npysim":
@@ -285,39 +300,30 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input shape doesn't
-        match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
+        assert inp.shape == tuple(
+            exp_shape
+        ), "Input shape does not match expected shape."
+
         if self.get_input_datatype() == DataType.BIPOLAR:
             # store bipolar activations as binary
             inp = (inp + 1) / 2
             export_idt = DataType.BINARY
         else:
             export_idt = self.get_input_datatype()
-        # no reshaping for input since assuming no folding on input
+        # reshape input into folded shape
+        reshaped_input = inp.reshape(folded_ishape)
         # make copy before saving array
-        reshaped_input = inp.copy()
+        reshaped_input = reshaped_input.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
-        if mode == "npysim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            assert (
-                context[node.output[0]].shape == folded_oshape
-            ), "npysim \
-            did not produce expected ofolded utput shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
-        elif mode == "rtlsim":
+        if mode == "rtlsim":
             prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
                 code_gen_dir, node.name, prefixed_top_name
             )
             if os.path.isfile(verilog_file):
-                nbits = self.get_stream_width()
+                nbits = self.get_in_stream_width()
                 rtlsim_inp = npy_to_rtlsim_input(
                     "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
                 )
@@ -334,7 +340,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
                 rtlsim_output = self.rtlsim(sim, rtlsim_inp)
                 odt = export_idt
                 target_bits = odt.bitwidth()
-                packed_bits = self.get_stream_width()
+                packed_bits = self.get_out_stream_width()
                 out_npy_path = "{}/output.npy".format(code_gen_dir)
                 out_shape = self.get_folded_output_shape()
                 rtlsim_output_to_npy(
@@ -347,7 +353,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
                 )
                 # load and reshape output
                 output = np.load(out_npy_path)
-                output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+                output = np.asarray([output], dtype=np.float32).reshape(exp_shape)
                 context[node.output[0]] = output
             else:
                 raise Exception(
@@ -357,7 +363,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+            has to be set to "rtlsim" """.format(
                     mode
                 )
             )
@@ -366,7 +372,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             out = context[node.output[0]]
             out = 2 * out - 1
             context[node.output[0]] = out
-        assert (
-            context[node.output[0]].shape == exp_oshape
+        assert context[node.output[0]].shape == tuple(
+            exp_shape
         ), """Output
-        shape doesn't match expected shape (1, ofm_dim, ofm_dim, k*k*ifm_ch)."""
+        shape doesn't match expected shape, should be same as input shape"""
