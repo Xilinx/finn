@@ -142,6 +142,10 @@ reg m_axis_0_tready_q;
 wire m_axis_0_tvalid_q;
 wire $WEIGHT_RANGE$ m_axis_0_tdata_q;
 
+reg m_axis_0_tready_q2;
+wire m_axis_0_tvalid_q2;
+wire $WEIGHT_RANGE$ m_axis_0_tdata_q2;
+
 reg m_axis_1_afull = 0;
 reg m_axis_1_tready = 1;
 wire m_axis_1_tvalid;
@@ -249,12 +253,15 @@ mem
 
 );
 
-// weight streamer FIFO
+// two consecutive weight streamer FIFOs to provide the same functionality
+// as "programmable full"
+
+// weight streamer FIFO 1
 Q_srl #(
-.depth(8),
+.depth(16),
 .width($WEIGHT_WIDTH$)
 )
-$LAYER_NAME$_w_fifo
+$LAYER_NAME$_w_fifo_1
 (
  .clock(ap_clk),
  .reset(!ap_rst_n),
@@ -264,6 +271,23 @@ $LAYER_NAME$_w_fifo
  .o_d(m_axis_0_tdata_q),
  .o_v(m_axis_0_tvalid_q),
  .o_r(m_axis_0_tready_q)
+);
+
+// weight streamer FIFO 2
+Q_srl #(
+.depth(16),
+.width($WEIGHT_WIDTH$)
+)
+$LAYER_NAME$_w_fifo_2
+(
+ .clock(ap_clk),
+ .reset(!ap_rst_n),
+ .i_d(m_axis_0_tdata_q),
+ .i_v(m_axis_0_tvalid_q),
+ .i_r(m_axis_0_tready_q),
+ .o_d(m_axis_0_tdata_q2),
+ .o_v(m_axis_0_tvalid_q2),
+ .o_r(m_axis_0_tready_q2)
 );
 
 //MVA_Stream_Unit
@@ -276,9 +300,9 @@ MVA_Stream_U
 .in0_V_V_TDATA(in0_V_V_TDATA),		//$IN_RANGE$ input
 .in0_V_V_TVALID(in0_V_V_TVALID),  	//input
 .in0_V_V_TREADY(in0_V_V_TREADY),	//output
-.weights_V_V_TDATA(m_axis_0_tdata_q),	//$WEIGHT_RANGE$ input
-.weights_V_V_TVALID(m_axis_0_tvalid_q),	//input
-.weights_V_V_TREADY(m_axis_0_tready_q),	//output
+.weights_V_V_TDATA(m_axis_0_tdata_q2),	//$WEIGHT_RANGE$ input
+.weights_V_V_TVALID(m_axis_0_tvalid_q2),	//input
+.weights_V_V_TREADY(m_axis_0_tready_q2),	//output
 .out_V_V_TDATA(out_V_V_TDATA),		//$OUT_RANGE$ output
 .out_V_V_TVALID(out_V_V_TVALID),	//output
 .out_V_V_TREADY(out_V_V_TREADY)		//input
