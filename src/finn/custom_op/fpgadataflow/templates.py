@@ -134,7 +134,7 @@ wire [31:0] config_q0;
 
 //multiple wire AXI Streams
 reg m_axis_0_afull = 0;
-reg m_axis_0_tready_inv;
+reg m_axis_0_tready;
 wire m_axis_0_tvalid;
 wire $WEIGHT_RANGE$ m_axis_0_tdata;
 
@@ -217,7 +217,7 @@ mem
 
 //multiple output AXI Streams, TDATA width rounded to multiple of 8 bits
 .m_axis_0_afull(m_axis_0_afull),
-.m_axis_0_tready(!m_axis_0_tready_inv),
+.m_axis_0_tready(m_axis_0_tready),
 .m_axis_0_tvalid(m_axis_0_tvalid),
 .m_axis_0_tdata(m_axis_0_tdata),
 
@@ -260,10 +260,10 @@ $LAYER_NAME$_w_fifo
  .reset(!ap_rst_n),
  .i_d(m_axis_0_tdata),
  .i_v(m_axis_0_tvalid),
- .i_b(m_axis_0_tready_inv),
+ .i_r(m_axis_0_tready),
  .o_d(m_axis_0_tdata_q),
  .o_v(m_axis_0_tvalid_q),
- .o_b(!m_axis_0_tready_q)
+ .o_r(m_axis_0_tready_q)
 );
 
 //MVA_Stream_Unit
