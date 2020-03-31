@@ -316,7 +316,12 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         reshaped_input = reshaped_input.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
-        if mode == "rtlsim":
+        if mode == "npysim":
+            output = np.load(os.path.join(code_gen_dir, "input_0.npy"))
+            output = np.asarray([output], dtype=np.float32).reshape(exp_shape)
+            context[node.output[0]] = output
+
+        elif mode == "rtlsim":
             prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
