@@ -119,7 +119,9 @@ def npbytearray2hexstring(npbytearray, prefix="0x"):
     return prefix + binascii.hexlify(bytearray(npbytearray)).decode("utf-8")
 
 
-def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner=False):
+def pack_innermost_dim_as_hex_string(
+    ndarray, dtype, pad_to_nbits, reverse_inner=False, prefix="0x"
+):
     """Pack the innermost dimension of the given numpy ndarray into hex
     strings using array2hexstring.
 
@@ -143,7 +145,9 @@ def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner
         ndarray = np.asarray(ndarray, dtype=np.float32)
 
     def fun(x):
-        return array2hexstring(x, dtype, pad_to_nbits, reverse=reverse_inner)
+        return array2hexstring(
+            x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix
+        )
 
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 
