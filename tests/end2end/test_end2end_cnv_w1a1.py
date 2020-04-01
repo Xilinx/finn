@@ -50,7 +50,7 @@ from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
-
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
@@ -91,3 +91,12 @@ def test_end2end_cnv_w1a1_streamline():
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
     model.save(build_dir + "/end2end_cnv_w1a1_streamlined.onnx")
+
+
+def test_end2end_cnv_w1a1_convert_to_hls_layers():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_streamlined.onnx")
+    model = model.transform(to_hls.InferBinaryStreamingFCLayer())
+    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
+    model = model.transform(to_hls.InferConvInpGen())
+    model = model.transform(to_hls.InferStreamingMaxPool())
+    model.save(build_dir + "/end2end_cnv_w1a1_hls_layers.onnx")
