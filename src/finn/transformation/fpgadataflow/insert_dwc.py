@@ -26,9 +26,12 @@ def _is_fpgadataflow_node(node):
 
 
 def _suitable_node(node):
-    if _is_fpgadataflow_node(node) is True:
-        if _is_dwc_node(node) is False:
-            return True
+    if node is not None:
+        if _is_fpgadataflow_node(node) is True:
+            if _is_dwc_node(node) is False:
+                return True
+            else:
+                return False
         else:
             return False
     else:
