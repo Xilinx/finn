@@ -45,6 +45,12 @@ from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.streamline import Streamline
+from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+import finn.transformation.streamline.absorb as absorb
+from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+
 
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
@@ -74,3 +80,14 @@ def test_end2end_cnv_w1a1_import_and_tidy():
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model.save(build_dir + "/end2end_cnv_w1a1_tidy.onnx")
+
+
+def test_end2end_cnv_w1a1_streamline():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_tidy.onnx")
+    model = model.transform(Streamline())
+    model = model.transform(LowerConvsToMatMul())
+    model = model.transform(MakeMaxPoolNHWC())
+    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+    model = model.transform(ConvertBipolarMatMulToXnorPopcount())
+    model = model.transform(Streamline())
+    model.save(build_dir + "/end2end_cnv_w1a1_streamlined.onnx")
