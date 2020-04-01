@@ -62,15 +62,9 @@ class InsertDWC(Transformation):
                     if n0_out_shape[-1] != n1_in_shape[-1]:
                         graph_modified = True
                         # determine dwc inwidth
-                        if hasattr(n0, "get_outstream_width"):
-                            dwc_in_width = n0.get_outstream_width()
-                        else:
-                            dwc_in_width = n0.get_stream_width()
+                        dwc_in_width = n0.get_outstream_width()
                         # determine dwc outwidth
-                        if hasattr(n1, "get_instream_width"):
-                            dwc_out_width = n1.get_instream_width()
-                        else:
-                            dwc_out_width = n1.get_stream_width()
+                        dwc_out_width = n1.get_instream_width()
 
                         # determine shape for dwc
                         dwc_shape = n0.get_normal_output_shape()

@@ -84,10 +84,14 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def get_stream_width(self):
+    def get_in_stream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()
         ifm_ch = self.get_nodeattr("NumChannels")
         return int(dt_bits * ifm_ch)
+
+    def get_out_stream_width(self):
+        """For streaming maxpool out stream with is the same as in stream width"""
+        return self.get_in_stream_width()
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
@@ -167,7 +171,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             # use binary for bipolar storage
             dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
-        packed_bits = self.get_stream_width()
+        packed_bits = self.get_in_stream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
@@ -181,10 +185,10 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_stream_width())
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_in_stream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_stream_width())
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_out_stream_width())
         )
 
     def docompute(self):
@@ -211,7 +215,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             # use binary for bipolar storage
             dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
-        packed_bits = self.get_stream_width()
+        packed_bits = self.get_out_stream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
@@ -235,7 +239,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        packed_bits = self.get_stream_width()
+        packed_bits = self.get_in_stream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
@@ -303,7 +307,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 code_gen_dir, node.name, prefixed_top_name
             )
             if os.path.isfile(verilog_file):
-                nbits = self.get_stream_width()
+                nbits = self.get_in_stream_width()
                 rtlsim_inp = npy_to_rtlsim_input(
                     "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
                 )
@@ -320,7 +324,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 rtlsim_output = self.rtlsim(sim, rtlsim_inp)
                 odt = export_idt
                 target_bits = odt.bitwidth()
-                packed_bits = self.get_stream_width()
+                packed_bits = self.get_out_stream_width()
                 out_npy_path = "{}/output.npy".format(code_gen_dir)
                 out_shape = self.get_folded_output_shape()
                 rtlsim_output_to_npy(
