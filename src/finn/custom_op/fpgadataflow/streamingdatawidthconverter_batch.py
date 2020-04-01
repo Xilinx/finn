@@ -128,7 +128,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for StreamingDWC."
+        assert ishape == tuple(exp_ishape), "Unexpect input shape for StreamingDWC."
         # implement tensor with correct shape
         values = np.random.randn(*oshape).astype(np.float32)
         return helper.make_node(
@@ -218,10 +218,10 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_stream_width())
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_in_stream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_stream_width())
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_out_stream_width())
         )
 
     def docompute(self):
@@ -262,7 +262,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-
         in_packed_bits = self.get_in_stream_width()
         in_packed_hls_type = "ap_uint<%d>" % in_packed_bits
         out_packed_bits = self.get_out_stream_width()
@@ -317,8 +316,8 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
         if mode == "npysim":
-            output = np.load(os.path.join(code_gen_dir, "input_0.npy"))
-            output = np.asarray([output], dtype=np.float32).reshape(exp_shape)
+            output = inp
+            output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
             context[node.output[0]] = output
 
         elif mode == "rtlsim":
