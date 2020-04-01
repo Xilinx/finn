@@ -53,6 +53,7 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
@@ -74,7 +75,7 @@ build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 5
-mem_mode = "decoupled"
+mem_mode = "const"
 
 
 def test_end2end_tfc_w1a1_export():
@@ -136,8 +137,8 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     fc0w.set_nodeattr("SIMD", 16)
     fc0w.set_nodeattr("PE", 16)
     fc0w.set_nodeattr("outFIFODepth", 4)
-    fc1w.set_nodeattr("SIMD", 16)
-    fc1w.set_nodeattr("PE", 16)
+    fc1w.set_nodeattr("SIMD", 8)
+    fc1w.set_nodeattr("PE", 8)
     fc1w.set_nodeattr("outFIFODepth", 4)
     fc2w.set_nodeattr("SIMD", 16)
     fc2w.set_nodeattr("PE", 16)
@@ -145,6 +146,7 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
     fc3w.set_nodeattr("outFIFODepth", 50)
+    model = model.transform(InsertDWC())
     model = model.transform(InsertTLastMarker())
     model.save(build_dir + "/end2end_tfc_w1a1_folded.onnx")
 
