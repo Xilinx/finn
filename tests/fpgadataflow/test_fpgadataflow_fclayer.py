@@ -132,19 +132,19 @@ def prepare_inputs(input_tensor, idt, wdt):
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 # activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT4])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT4])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT4])
 # neuron folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2, 1])
 # synapse folding, -1 is maximum possible
 @pytest.mark.parametrize("sf", [-1, 2, 1])
 # HLS matrix width (input features)
-@pytest.mark.parametrize("mw", [4])
+@pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
-@pytest.mark.parametrize("mh", [4])
+@pytest.mark.parametrize("mh", [16])
 def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
@@ -217,19 +217,19 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 # activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT4])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT4])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT4])
 # neuron folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2, 1])
 # synapse folding, -1 is maximum possible
 @pytest.mark.parametrize("sf", [-1, 2, 1])
 # HLS matrix width (input features)
-@pytest.mark.parametrize("mw", [4])
+@pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
-@pytest.mark.parametrize("mh", [4])
+@pytest.mark.parametrize("mh", [16])
 def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
