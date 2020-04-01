@@ -44,7 +44,7 @@ class InsertDWC(Transformation):
 
     def apply(self, model):
         graph = model.graph
-        node_ind = 0
+        node_ind = -1
         graph_modified = False
         for n in graph.node:
             node_ind += 1
