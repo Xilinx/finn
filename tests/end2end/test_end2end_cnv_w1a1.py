@@ -41,6 +41,7 @@ import onnx  # NOQA
 # import onnx.numpy_helper as nph
 
 from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.move_reshape import MoveReshape
@@ -52,6 +53,11 @@ from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcou
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
+)
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
@@ -102,3 +108,36 @@ def test_end2end_cnv_w1a1_convert_to_hls_layers():
     model = model.transform(to_hls.InferStreamingMaxPool())
     model = model.transform(MoveReshape())
     model.save(build_dir + "/end2end_cnv_w1a1_hls_layers.onnx")
+
+
+def test_end2end_cnv_w1a1_create_dataflow_partition():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_hls_layers.onnx")
+    parent_model = model.transform(CreateDataflowPartition())
+    parent_model.save(build_dir + "/end2end_cnv_w1a1_dataflow_parent.onnx")
+    sdp_node = getCustomOp(parent_model.graph.node[2])
+    dataflow_model_filename = sdp_node.get_nodeattr("model")
+    dataflow_model = ModelWrapper(dataflow_model_filename)
+    dataflow_model.save(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
+
+
+def test_end2end_cnv_w1a1_fold_and_tlastmarker():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
+    for node in model.graph.node:
+        if node.op_type == "StreamingFCLayer_Batch":
+            inst = getCustomOp(node)
+            inst.set_nodeattr("mem_mode", "decoupled")
+            mw = inst.get_nodeattr("MW")
+            mh = inst.get_nodeattr("MH")
+            if mh % 4 == 0:
+                pe = mh // 4
+            else:
+                pe = mh
+            inst.set_nodeattr("PE", pe)
+            if mw % 16 == 0:
+                simd = mw // 16
+            else:
+                simd = mw
+            inst.set_nodeattr("SIMD", simd)
+    model = model.transform(InsertDWC())
+    model = model.transform(InsertTLastMarker())
+    model.save(build_dir + "/end2end_cnv_w1a1_folded.onnx")
