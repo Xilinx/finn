@@ -43,6 +43,7 @@ import onnx  # NOQA
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.move_reshape import MoveReshape
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.streamline import Streamline
@@ -99,4 +100,5 @@ def test_end2end_cnv_w1a1_convert_to_hls_layers():
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
+    model = model.transform(MoveReshape())
     model.save(build_dir + "/end2end_cnv_w1a1_hls_layers.onnx")
