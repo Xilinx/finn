@@ -4,7 +4,7 @@ title:  "Quantized QuartzNet with Brevitas for efficient speech recognition"
 author: "Giuseppe Franco"
 ---
 
-*Although not yet supported in the FINN, we are excited to show you how Brevitas and quantized neural network training techniques can be applied to models beyond image classification.*
+*Although not yet supported in FINN, we are excited to show you how Brevitas and quantized neural network training techniques can be applied to models beyond image classification.*
 
 We are pleased to announce the release of quantized pre-trained models of [QuartzNet](https://arxiv.org/abs/1904.03288) for efficient speech recognition.
 They can be found at the [following link](https://github.com/Xilinx/brevitas/tree/master/examples/speech_to_text), with a brief
@@ -13,7 +13,7 @@ The quantized version of QuartzNet has been trained using [Brevitas](https://git
 
 QuartzNet, whose structure can be seen in Fig. 1, is a convolution-based speech-to-text network, based on a similar structure as [Jasper](https://arxiv.org/abs/1904.03288).
 
-| <img src="https://xilinx.github.io/finn/img/QuartzNet.png" alt="QuartzNet Structure" title="QuartzNet Structure" width="450" height="500" align="center"/>|
+| <img src="https://xilinx.github.io/finn/img/QuartzNet.jpg" alt="QuartzNet Structure" title="QuartzNet Structure" width="450" height="500" align="center"/>|
 | :---:|
 | *Fig. 1 QuartzNet Model, [source](https://arxiv.org/abs/1910.10261)* |
 
@@ -27,7 +27,7 @@ using *only* 19.9 M parameters, compared to 333M parameters of Jasper.
 Moreover, the authors proposed a grouped-pointwise convolution strategy that allows to greatly reduce the numbers of parameters,
 down to 8.7M, with a little degradation in accuracy.
 
-| <img src="https://xilinx.github.io/finn/img/quartzPic1.png" alt="QuartzNet block" title="QuartzNet block" width="130" height="220" align="center"/> | <img src="https://xilinx.github.io/finn/img/JasperVertical4.png" alt="Jasper block" title="Jasper block" width="130" height="220" align="center"/>|
+| <img src="https://xilinx.github.io/finn/img/quartzPic1.jpg" alt="QuartzNet block" title="QuartzNet block" width="130" height="220" align="center"/> | <img src="https://xilinx.github.io/finn/img/JasperVertical4.jpg" alt="Jasper block" title="Jasper block" width="130" height="220" align="center"/>|
 | :---:|:---:|
 | *Fig. 2a QuartzNet Block, [source](https://arxiv.org/abs/1910.10261)* | *Fig. 2b Jasper Block [source](https://arxiv.org/abs/1904.03288)*  |
 
@@ -51,7 +51,7 @@ We focused on three main quantization configurations. Two configurations at 8 bi
 and one configuration at 4 bit, with per-channel scaling.
 
 We compare our results with the one achieved by the authors, not only in terms of pure WER, but also the parameter's memory footprint,
-and the number of operations performed. Note that the WER is always based on greedy decoding. The results can be seen in Fig. 3a and Fig 3b,
+and the number of operations performed. Note that the WER is always based on greedy decoding. The results can be seen in Fig. 3 and Fig. 4,
 and are summed up in Table 1.
 
 | Configuration | Word Error Rate (WER) | Memory Footprint (MegaByte) | Mega MACs |
@@ -65,12 +65,16 @@ and are summed up in Table 1.
 | 8 bit, 1G Per-Tensor scaling | 11.03% | 18.58                       |  414.63   |
 | 4 bit, 1G Per-Channel scaling| 12.00% |  9.44                       |  104.18   |
 
-| <img src="https://xilinx.github.io/finn/img/WERMB.png" alt="WERvsMB" title="WERvsMB" width="500" height="300" align="center"/> | <img src="https://xilinx.github.io/finn/img/WERNops.png" alt="WERvsMACs" title="WERvsMACs" width="500" height="300" align="center"/>|
-| :---:|:---:|
-| *Fig. 3a Memory footprint over WER on LibriSpeech dev-other* | *Fig. 3b Number of MACs Operations over WER on LibriSpeech dev-other*  |
+| <img src="https://xilinx.github.io/finn/img/WERMB.jpg" alt="WERvsMB" title="WERvsMB" width="500" height="300" align="center"/> |
+| :---:|
+| *Fig. 3 Memory footprint over WER on LibriSpeech dev-other* |
+
+| <img src="https://xilinx.github.io/finn/img/WERNops.jpg" alt="WERvsMACs" title="WERvsMACs" width="500" height="300" align="center"/> |
+| :---: |
+| *Fig. 4 Number of MACs Operations over WER on LibriSpeech dev-other*  |
 
 In evaluating the memory footprint, we consider half-precision (16 bit) Floating Point (FP) numbers for the original QuartzNet.
-As we can see on Fig. 3a, the quantized implementations are able to achieve comparable accuracy compared to the corresponding floating-point verion,
+As we can see on Fig. 3, the quantized implementations are able to achieve comparable accuracy compared to the corresponding floating-point verion,
 while greatly reducing the memory occupation. In the graph, the terms <em>E</em> stands for Epochs, while <em>G</em> for Groups, referring
 to the numbers of groups used for the grouped convolutions.
 In case of our 4 bit implementation, the first and last layer are left at 8 bit, but this is taken in account both in the computation
