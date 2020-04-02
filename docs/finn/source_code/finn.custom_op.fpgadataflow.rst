@@ -13,11 +13,18 @@ Base Class
    :undoc-members:
    :show-inheritance:
 
-
 finn.custom\_op.fpgadataflow.convolutioninputgenerator
 ------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.convolutioninputgenerator
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_batch
+---------------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch
    :members:
    :undoc-members:
    :show-inheritance:

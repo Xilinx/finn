@@ -54,4 +54,3 @@ finn.core.rtlsim\_exec
    :members:
    :undoc-members:
    :show-inheritance:
-
