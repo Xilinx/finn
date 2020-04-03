@@ -73,6 +73,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ishape = (1, ifm_dim, ifm_dim, ifm_ch)
         return ishape
 
+    def get_folded_input_shape(self):
+        """Assumption: No folding on input"""
+        return self.get_normal_input_shape()
+
     def get_normal_output_shape(self):
         k = self.get_nodeattr("ConvKernelDim")
         ifm_dim = self.get_nodeattr("IFMDim")
@@ -272,9 +276,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def defines(self, var):
         numReps = 1
         self.code_gen_dict["$DEFINES$"] = [
-            """#define ConvKernelDim1 {}\n #define IFMChannels1 {}
-            #define Input_precision1 {}\n #define IFMDim1 {}\n #define OFMDim1 {}
-            #define SIMD1 {}\n #define Stride1 {}\n #define numReps {}""".format(
+            """#define ConvKernelDim1 {}\n #define IFMChannels1 {}\n
+            #define Input_precision1 {}\n #define IFMDim1 {}\n
+            #define OFMDim1 {}\n #define SIMD1 {}\n
+            #define Stride1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("ConvKernelDim"),
                 self.get_nodeattr("IFMChannels"),
                 self.get_input_datatype().bitwidth(),

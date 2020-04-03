@@ -64,6 +64,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ishape = (1, ifm_dim, ifm_dim, ifm_ch)
         return ishape
 
+    def get_folded_input_shape(self):
+        return self.get_normal_input_shape()
+
     def get_normal_output_shape(self):
         k = self.get_nodeattr("PoolDim")
         ifm_dim = self.get_nodeattr("ImgDim")

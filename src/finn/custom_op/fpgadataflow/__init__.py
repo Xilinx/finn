@@ -99,6 +99,7 @@ class HLSCustomOp(CustomOp):
 
         # generate top cpp file for ip generation
         path = self.get_nodeattr("code_gen_dir_ipgen")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
         self.defines("ipgen")
@@ -156,6 +157,7 @@ class HLSCustomOp(CustomOp):
         """Generates c++ code for simulation (npysim)."""
         node = self.onnx_node
         path = self.get_nodeattr("code_gen_dir_npysim")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
         self.defines("npysim")
@@ -429,3 +431,8 @@ compilation transformations?
     def get_outstream_width(self):
         """Returns output stream width, if implemented."""
         raise Exception("get_outstream_width not implemented for this op")
+
+    def get_ap_int_max_w(self):
+        instream = self.get_instream_width()
+        outstream = self.get_outstream_width()
+        return max([instream, outstream])

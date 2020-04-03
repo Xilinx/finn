@@ -270,6 +270,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         wp = self.get_weight_datatype().bitwidth()
         return pe * simd * wp
 
+    def get_ap_int_max_w(self):
+        temp_value = super().get_ap_int_max_w()
+        weightstream = self.get_weightstream_width()
+        return max([weightstream, temp_value])
+
     def get_folded_input_shape(self):
         mw = self.get_nodeattr("MW")
         simd = self.get_nodeattr("SIMD")
@@ -714,9 +719,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         numInputVectors = list(self.get_nodeattr("numInputVectors"))
         numReps = np.prod(numInputVectors)
         self.code_gen_dict["$DEFINES$"] = [
-            """#define MW1 {}\n #define MH1 {}\n #define SIMD1 {}\n
-            #define PE1 {}\n #define WMEM1 {}\n #define TMEM1 {}\n
-            #define numReps {}""".format(
+            """#define MW1 {}\n #define MH1 {}\n
+            #define SIMD1 {}\n #define PE1 {}\n #define WMEM1 {}\n
+            #define TMEM1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("MW"),
                 self.get_nodeattr("MH"),
                 self.get_nodeattr("SIMD"),
