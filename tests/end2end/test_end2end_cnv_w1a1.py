@@ -28,11 +28,11 @@
 
 import os
 
-# from pkgutil import get_data
+# import pkg_resources as pk
 
 # import pytest
 
-# import numpy as np
+import numpy as np
 
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
@@ -42,6 +42,7 @@ import onnx  # NOQA
 
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
+from finn.core.onnx_exec import execute_onnx
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.move_reshape import MoveReshape
@@ -58,6 +59,16 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
+from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
+from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
+from finn.transformation.fpgadataflow.compile import Compile
+
 
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
@@ -125,15 +136,19 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     for node in model.graph.node:
         if node.op_type == "StreamingFCLayer_Batch":
             inst = getCustomOp(node)
-            inst.set_nodeattr("mem_mode", "decoupled")
+            inst.set_nodeattr("mem_mode", "const")
             mw = inst.get_nodeattr("MW")
             mh = inst.get_nodeattr("MH")
-            if mh % 4 == 0:
+            if mh % 8 == 0:
+                pe = mh // 8
+            elif mh % 4 == 0:
                 pe = mh // 4
             else:
                 pe = mh
             inst.set_nodeattr("PE", pe)
-            if mw % 16 == 0:
+            if mw % 32 == 0:
+                simd = mw // 32
+            elif mw % 16 == 0:
                 simd = mw // 16
             else:
                 simd = mw
@@ -141,3 +156,51 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     model = model.transform(InsertDWC())
     model = model.transform(InsertTLastMarker())
     model.save(build_dir + "/end2end_cnv_w1a1_folded.onnx")
+
+
+def test_end2end_cnv_w1a1_gen_hls_ip():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_folded.onnx")
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynth_IPGen())
+    model.save(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
+
+
+def test_end2end_cnv_w1a1_ip_stitch():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
+    model = model.transform(ReplaceVerilogRelPaths())
+    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model.save(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
+
+
+def test_end2end_cnv_w1a1_verify_dataflow_part():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
+    # model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_ipgen_npysim.onnx")
+    x = np.zeros((1, 32, 32, 3), dtype=np.float32)
+    inp_name = model.graph.input[0].name
+    out_name = model.graph.output[0].name
+    inp_dict = {inp_name: x}
+    # npysim
+    model = model.transform(CodeGen_npysim())
+    model = model.transform(Compile())
+    model = model.transform(SetExecMode("npysim"))
+    model.save(build_dir + "/end2end_cnv_w1a1_ipgen_npysim.onnx")
+    ret_npysim = execute_onnx(model, inp_dict, True)
+    res_npysim = ret_npysim[out_name]
+    # node-by-node rtlsim
+    model = model.transform(SetExecMode("rtlsim"))
+    for node in model.graph.node:
+        if node.op_type == "StreamingFCLayer_Batch":
+            inst = getCustomOp(node)
+            inst.set_nodeattr("rtlsim_trace", "default")
+    model.save(build_dir + "/end2end_cnv_w1a1_ipgen_nodebynode_rtlsim.onnx")
+    ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
+    res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
+    # whole-network (ip-stitched) rtlsim
+    # model.set_metadata_prop("exec_mode", "rtlsim")
+    # model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
+    # model.save(build_dir + "/end2end_cnv_w1a1_ipstitch_whole_rtlsim.onnx")
+    # ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
+    # res_rtlsim_whole = ret_rtlsim_whole[out_name]
+    assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
+    # assert np.isclose(res_npysim, res_rtlsim_whole).all()
