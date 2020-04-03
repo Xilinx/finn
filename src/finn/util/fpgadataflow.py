@@ -30,6 +30,7 @@ import os
 import subprocess
 
 from pyverilator import PyVerilator
+from finn.util.basic import get_by_name
 
 
 class IPGenBuilder:
@@ -87,3 +88,16 @@ def pyverilate_get_liveness_threshold_cycles():
     the simulation is not finishing and throwing an exception."""
 
     return int(os.getenv("LIVENESS_THRESHOLD", 10000))
+
+
+def is_fpgadataflow_node(node):
+    is_node = False
+    if node is not None:
+        if node.domain == "finn":
+            n_backend = get_by_name(node.attribute, "backend")
+            if n_backend is not None:
+                backend_value = n_backend.s.decode("UTF-8")
+                if backend_value == "fpgadataflow":
+                    is_node = True
+
+    return is_node
