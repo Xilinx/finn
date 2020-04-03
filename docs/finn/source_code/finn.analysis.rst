@@ -31,4 +31,3 @@ finn.analysis.verify\_custom\_nodes
    :undoc-members:
    :show-inheritance:
 
-

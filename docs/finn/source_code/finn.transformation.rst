@@ -32,6 +32,14 @@ finn.transformation.bipolar\_to\_xnor
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.double\_to\_single\_float
+---------------------------------------------
+
+.. automodule:: finn.transformation.double_to_single_float
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.transformation.fold\_constants
 -----------------------------------
 
@@ -63,3 +71,12 @@ finn.transformation.infer\_shapes
    :members:
    :undoc-members:
    :show-inheritance:
+
+finn.transformation.lower\_convs\_to\_matmul
+--------------------------------------------
+
+.. automodule:: finn.transformation.lower_convs_to_matmul
+   :members:
+   :undoc-members:
+   :show-inheritance:
+

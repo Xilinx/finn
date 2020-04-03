@@ -138,7 +138,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_stream_width(self):
+    def get_instream_width(self):
         """Returns stream width, input and output stream width are equal for
         the sliding window function"""
         ibits = self.get_input_datatype().bitwidth()
@@ -146,6 +146,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ifm_ch = self.get_nodeattr("IFMChannels")
         assert simd == ifm_ch, "SWG currently requires SIMD=IFM"
         return simd * ibits
+
+    def get_outstream_width(self):
+        """Returns stream width, input and output stream width are equal for
+        the sliding window function, so the function to determine the input
+        stream width can be reused."""
+        return self.get_instream_width()
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
@@ -206,7 +212,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 code_gen_dir, node.name, prefixed_top_name
             )
             if os.path.isfile(verilog_file):
-                nbits = self.get_stream_width()
+                nbits = self.get_instream_width()
                 rtlsim_inp = npy_to_rtlsim_input(
                     "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
                 )
@@ -223,7 +229,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 rtlsim_output = self.rtlsim(sim, rtlsim_inp)
                 odt = export_idt
                 target_bits = odt.bitwidth()
-                packed_bits = self.get_stream_width()
+                packed_bits = self.get_outstream_width()
                 out_npy_path = "{}/output.npy".format(code_gen_dir)
                 out_shape = self.get_folded_output_shape()
                 rtlsim_output_to_npy(
@@ -287,7 +293,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # use binary for bipolar storage
             dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
-        packed_bits = self.get_stream_width()
+        packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
@@ -301,10 +307,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_stream_width())
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_stream_width())
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
@@ -323,7 +329,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # use binary for bipolar storage
             dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
-        packed_bits = self.get_stream_width()
+        packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
