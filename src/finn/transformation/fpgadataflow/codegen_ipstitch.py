@@ -176,7 +176,8 @@ class CodeGen_ipstitch(Transformation):
         tcl.append("set all_v_files [get_files -filter {FILE_TYPE == Verilog}]")
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
         tcl.append("set fp [open %s w]" % v_file_list)
-        tcl.append("puts $fp $all_v_files")
+        # write each verilog filename to all_verilog_srcs.txt
+        tcl.append("foreach vf $all_v_files {puts $fp $vf}")
         tcl.append("close $fp")
         # write the project creator tcl script
         tcl_string = "\n".join(tcl) + "\n"
