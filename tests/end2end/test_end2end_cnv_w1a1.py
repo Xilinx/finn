@@ -34,6 +34,8 @@ import numpy as np
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
 
+import pytest
+import pkg_resources as pk
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
 from finn.core.onnx_exec import execute_onnx
@@ -62,7 +64,10 @@ from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
-
+from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
+from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
+from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
@@ -225,3 +230,111 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
     assert np.isclose(res_npysim, res_rtlsim_whole).all()
+
+
+def test_end2end_cnv_w1a1_verify_all():
+    # use the streamlined model as the "golden" model for right answers
+    golden = ModelWrapper(build_dir + "/end2end_cnv_w1a1_streamlined.onnx")
+    iname = golden.graph.input[0].name
+    oname = golden.graph.output[0].name
+    # load one of the test vectors
+    fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
+    input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    assert input_tensor.shape == (1, 3, 32, 32)
+    x = input_tensor
+    # x = np.zeros(ishape, dtype=np.float32)
+    ret_golden = execute_onnx(golden, {iname: x}, True)
+    y_golden = ret_golden[oname]
+    # set up parent+child graph to test
+    # we'll use models from the previous step as the child model
+    parent_model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_parent.onnx")
+    iname = parent_model.graph.input[0].name
+    oname = parent_model.graph.output[0].name
+    # produce results with npysim
+    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    sdp_node = getCustomOp(sdp_node)
+    sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_ipstitch_npysim.onnx")
+    ret_npysim = execute_onnx(parent_model, {iname: x}, True)
+    y_npysim = ret_npysim[oname]
+    # produce results with node-by-node rtlsim
+    sdp_node.set_nodeattr(
+        "model", build_dir + "/end2end_cnv_w1a1_ipstitch_nodebynode_rtlsim.onnx"
+    )
+    ret_nodebynode_rtlsim = execute_onnx(parent_model, {iname: x}, True)
+    y_nodebynode_rtlsim = ret_nodebynode_rtlsim[oname]
+    # produce results with whole-network (stitched ip) rtlsim
+    sdp_node.set_nodeattr(
+        "model", build_dir + "/end2end_cnv_w1a1_ipstitch_whole_rtlsim.onnx"
+    )
+    ret_whole_rtlsim = execute_onnx(parent_model, {iname: x}, True)
+    y_whole_rtlsim = ret_whole_rtlsim[oname]
+    assert np.isclose(y_golden, y_npysim).all()
+    assert np.isclose(y_golden, y_nodebynode_rtlsim).all()
+    assert np.isclose(y_golden, y_whole_rtlsim).all()
+
+
+def test_end2end_cnv_w1a1_make_pynq_proj():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
+    model = model.transform(MakePYNQProject(test_pynq_board))
+    model.save(build_dir + "/end2end_cnv_w1a1_pynq_project.onnx")
+
+
+def test_end2end_cnv_w1a1_synth_pynq_project():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_pynq_project.onnx")
+    model = model.transform(SynthPYNQProject())
+    model.save(build_dir + "/end2end_cnv_w1a1_synth.onnx")
+
+
+def test_end2end_cnv_w1a1_make_driver():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_synth.onnx")
+    model = model.transform(MakePYNQDriver())
+    model.save(build_dir + "/end2end_cnv_w1a1_pynq_driver.onnx")
+
+
+def test_end2end_cnv_w1a1_deploy_on_pynq():
+    model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_pynq_driver.onnx")
+    try:
+        ip = os.environ["PYNQ_IP"]  # no fault for this one; skip if not defined
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
+        username = os.getenv("PYNQ_USERNAME", "xilinx")
+        password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
+        model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+        # save the model to be able to link it to the parent
+        model.save(build_dir + "/end2end_cnv_w1a1_pynq_deploy.onnx")
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")
+
+
+def test_end2end_cnv_w1a1_run_on_pynq():
+    # use the streamlined model as the "golden" model for right answers
+    golden = ModelWrapper(build_dir + "/end2end_cnv_w1a1_streamlined.onnx")
+    iname = golden.graph.input[0].name
+    oname = golden.graph.output[0].name
+    # load one of the test vectors
+    fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
+    input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    assert input_tensor.shape == (1, 3, 32, 32)
+    x = input_tensor
+    # run using FINN-based execution
+    ret_golden = execute_onnx(golden, {iname: x}, True)
+    y_golden = ret_golden[oname]
+    # set up parent+child graph to test
+    # we'll use models from the previous step as the child model
+    parent_model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_parent.onnx")
+    iname = parent_model.graph.input[0].name
+    oname = parent_model.graph.output[0].name
+    try:
+        ip = os.environ["PYNQ_IP"]  # NOQA
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
+        # produce results with npysim
+        sdp_node = getCustomOp(parent_model.graph.node[2])
+        sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_pynq_deploy.onnx")
+        ret = execute_onnx(parent_model, {iname: x}, True)
+        y = ret[oname]
+        assert np.isclose(y, y_golden).all()
+
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")
