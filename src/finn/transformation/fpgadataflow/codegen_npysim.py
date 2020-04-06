@@ -30,7 +30,8 @@ import os
 
 import finn.custom_op.registry as registry
 from finn.transformation import Transformation
-from finn.util.basic import get_by_name, make_build_dir
+from finn.util.basic import make_build_dir
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def _codegen_single_node(node, model):
@@ -67,11 +68,6 @@ class CodeGen_npysim(Transformation):
 
     def apply(self, model):
         for node in model.graph.node:
-            if node.domain == "finn":
-                backend_attribute = get_by_name(node.attribute, "backend")
-                if backend_attribute is None:
-                    continue
-                backend_value = backend_attribute.s.decode("UTF-8")
-                if backend_value == "fpgadataflow":
-                    _codegen_single_node(node, model)
+            if is_fpgadataflow_node(node) is True:
+                _codegen_single_node(node, model)
         return (model, False)
