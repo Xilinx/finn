@@ -219,6 +219,8 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     model.set_metadata_prop("exec_mode", "rtlsim")
     model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
     model.save(build_dir + "/end2end_cnv_w1a1_ipstitch_whole_rtlsim.onnx")
+    # this is a particularly long-running test, set liveness thr. to unlimited
+    os.environ["LIVENESS_THRESHOLD"] = -1
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
