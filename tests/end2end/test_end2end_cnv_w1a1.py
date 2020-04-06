@@ -28,17 +28,11 @@
 
 import os
 
-# import pkg_resources as pk
-
-# import pytest
-
 import numpy as np
 
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
-
-# import onnx.numpy_helper as nph
 
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
@@ -133,26 +127,52 @@ def test_end2end_cnv_w1a1_create_dataflow_partition():
 
 def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
-    for node in model.graph.node:
-        if node.op_type == "StreamingFCLayer_Batch":
-            inst = getCustomOp(node)
-            inst.set_nodeattr("mem_mode", "const")
-            mw = inst.get_nodeattr("MW")
-            mh = inst.get_nodeattr("MH")
-            if mh % 8 == 0:
-                pe = mh // 8
-            elif mh % 4 == 0:
-                pe = mh // 4
-            else:
-                pe = mh
-            inst.set_nodeattr("PE", pe)
-            if mw % 32 == 0:
-                simd = mw // 32
-            elif mw % 16 == 0:
-                simd = mw // 16
-            else:
-                simd = mw
-            inst.set_nodeattr("SIMD", simd)
+    fc0 = model.graph.node[1]
+    fc1 = model.graph.node[3]
+    fc2 = model.graph.node[6]
+    fc3 = model.graph.node[8]
+    fc4 = model.graph.node[11]
+    fc5 = model.graph.node[13]
+    fc6 = model.graph.node[14]
+    fc7 = model.graph.node[15]
+    fc8 = model.graph.node[16]
+    fc0w = getCustomOp(fc0)
+    fc1w = getCustomOp(fc1)
+    fc2w = getCustomOp(fc2)
+    fc3w = getCustomOp(fc3)
+    fc4w = getCustomOp(fc4)
+    fc5w = getCustomOp(fc5)
+    fc6w = getCustomOp(fc6)
+    fc7w = getCustomOp(fc7)
+    fc8w = getCustomOp(fc8)
+
+    fc0w.set_nodeattr("SIMD", 27)
+    fc0w.set_nodeattr("PE", 8)
+
+    fc1w.set_nodeattr("SIMD", 32)
+    fc1w.set_nodeattr("PE", 8)
+
+    fc2w.set_nodeattr("SIMD", 32)
+    fc2w.set_nodeattr("PE", 16)
+
+    fc3w.set_nodeattr("SIMD", 32)
+    fc3w.set_nodeattr("PE", 16)
+
+    fc4w.set_nodeattr("SIMD", 32)
+    fc4w.set_nodeattr("PE", 32)
+
+    fc5w.set_nodeattr("SIMD", 32)
+    fc5w.set_nodeattr("PE", 32)
+
+    fc6w.set_nodeattr("SIMD", 8)
+    fc6w.set_nodeattr("PE", 64)
+
+    fc7w.set_nodeattr("SIMD", 16)
+    fc7w.set_nodeattr("PE", 64)
+
+    fc8w.set_nodeattr("SIMD", 16)
+    fc8w.set_nodeattr("PE", 10)
+
     model = model.transform(InsertDWC())
     model = model.transform(InsertTLastMarker())
     model.save(build_dir + "/end2end_cnv_w1a1_folded.onnx")
@@ -175,7 +195,6 @@ def test_end2end_cnv_w1a1_ip_stitch():
 
 def test_end2end_cnv_w1a1_verify_dataflow_part():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
-    # model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_ipgen_npysim.onnx")
     x = np.zeros((1, 32, 32, 3), dtype=np.float32)
     inp_name = model.graph.input[0].name
     out_name = model.graph.output[0].name
@@ -197,10 +216,10 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
     res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
     # whole-network (ip-stitched) rtlsim
-    # model.set_metadata_prop("exec_mode", "rtlsim")
-    # model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
-    # model.save(build_dir + "/end2end_cnv_w1a1_ipstitch_whole_rtlsim.onnx")
-    # ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
-    # res_rtlsim_whole = ret_rtlsim_whole[out_name]
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
+    model.save(build_dir + "/end2end_cnv_w1a1_ipstitch_whole_rtlsim.onnx")
+    ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
+    res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
-    # assert np.isclose(res_npysim, res_rtlsim_whole).all()
+    assert np.isclose(res_npysim, res_rtlsim_whole).all()
