@@ -166,14 +166,14 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     fc4w.set_nodeattr("SIMD", 32)
     fc4w.set_nodeattr("PE", 32)
 
-    fc5w.set_nodeattr("SIMD", 32)
-    fc5w.set_nodeattr("PE", 32)
+    fc5w.set_nodeattr("SIMD", 64)
+    fc5w.set_nodeattr("PE", 16)
 
-    fc6w.set_nodeattr("SIMD", 8)
-    fc6w.set_nodeattr("PE", 64)
+    fc6w.set_nodeattr("SIMD", 32)
+    fc6w.set_nodeattr("PE", 16)
 
-    fc7w.set_nodeattr("SIMD", 16)
-    fc7w.set_nodeattr("PE", 64)
+    fc7w.set_nodeattr("SIMD", 64)
+    fc7w.set_nodeattr("PE", 8)
 
     fc8w.set_nodeattr("SIMD", 16)
     fc8w.set_nodeattr("PE", 10)
