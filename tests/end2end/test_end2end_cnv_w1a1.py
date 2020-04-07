@@ -225,7 +225,7 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
     model.save(build_dir + "/end2end_cnv_w1a1_ipstitch_whole_rtlsim.onnx")
     # this is a particularly long-running test, set liveness thr. to unlimited
-    os.environ["LIVENESS_THRESHOLD"] = -1
+    os.environ["LIVENESS_THRESHOLD"] = "-1"
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
@@ -253,12 +253,12 @@ def test_end2end_cnv_w1a1_verify_all():
     # produce results with npysim
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
     sdp_node = getCustomOp(sdp_node)
-    sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_ipstitch_npysim.onnx")
+    sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_ipgen_npysim.onnx")
     ret_npysim = execute_onnx(parent_model, {iname: x}, True)
     y_npysim = ret_npysim[oname]
     # produce results with node-by-node rtlsim
     sdp_node.set_nodeattr(
-        "model", build_dir + "/end2end_cnv_w1a1_ipstitch_nodebynode_rtlsim.onnx"
+        "model", build_dir + "/end2end_cnv_w1a1_ipgen_nodebynode_rtlsim.onnx"
     )
     ret_nodebynode_rtlsim = execute_onnx(parent_model, {iname: x}, True)
     y_nodebynode_rtlsim = ret_nodebynode_rtlsim[oname]
@@ -266,6 +266,8 @@ def test_end2end_cnv_w1a1_verify_all():
     sdp_node.set_nodeattr(
         "model", build_dir + "/end2end_cnv_w1a1_ipstitch_whole_rtlsim.onnx"
     )
+    # this is a particularly long-running test, set liveness thr. to unlimited
+    os.environ["LIVENESS_THRESHOLD"] = "-1"
     ret_whole_rtlsim = execute_onnx(parent_model, {iname: x}, True)
     y_whole_rtlsim = ret_whole_rtlsim[oname]
     assert np.isclose(y_golden, y_npysim).all()
