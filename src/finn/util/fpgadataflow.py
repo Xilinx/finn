@@ -29,7 +29,10 @@
 import os
 import subprocess
 
-from pyverilator import PyVerilator
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 
 
 class IPGenBuilder:
@@ -69,6 +72,9 @@ class IPGenBuilder:
 
 def pyverilate_stitched_ip(model):
     "Given a model with stitched IP, return a PyVerilator sim object."
+    if PyVerilator is None:
+        raise ImportError("Installation of PyVerilator is required.")
+
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
         all_verilog_srcs = f.read().split()

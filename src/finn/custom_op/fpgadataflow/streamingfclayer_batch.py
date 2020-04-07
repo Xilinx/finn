@@ -32,7 +32,10 @@ import subprocess
 from shutil import copy
 
 import numpy as np
-from pyverilator import PyVerilator
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -631,6 +634,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             oshape = self.get_normal_output_shape()
             context[node.output[0]] = context[node.output[0]].reshape(*oshape)
         elif mode == "rtlsim":
+            if PyVerilator is None:
+                raise ImportError("Installation of PyVerilator is required.")
+
             # set top name depending on mem_mode
             mem_mode = self.get_nodeattr("mem_mode")
             if mem_mode == "const":

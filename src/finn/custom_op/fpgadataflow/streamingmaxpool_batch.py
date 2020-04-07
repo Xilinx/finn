@@ -28,7 +28,10 @@
 
 import os
 import numpy as np
-from pyverilator import PyVerilator
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.custom_op.im2col import compute_conv_output_dim
 from finn.core.datatype import DataType
@@ -301,6 +304,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             did not produce expected ofolded utput shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
+            if PyVerilator is None:
+                raise ImportError("Installation of PyVerilator is required.")
+
             prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
