@@ -113,11 +113,15 @@ class MakePYNQProject(Transformation):
         # create a temporary folder for the project
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
         model.set_metadata_prop("vivado_pynq_proj", vivado_pynq_proj_dir)
+        # filename for the synth utilization report
+        synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
+        model.set_metadata_prop("vivado_synth_rpt", vivado_pynq_proj_dir)
 
         ip_config_tcl = templates.ip_config_tcl_template % (
             vivado_pynq_proj_dir,
             ip_dirs_str,
             vivado_pynq_proj_dir,
+            synth_report_filename,
             vivado_stitch_vlnv,
             in_bytes,
             out_bytes,

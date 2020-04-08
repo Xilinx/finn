@@ -89,7 +89,7 @@ git clone $EXAMPLES_REPO $EXAMPLES_LOCAL ||  git -C "$EXAMPLES_LOCAL" checkout f
 git clone $CNPY_REPO $CNPY_LOCAL ||  git -C "$CNPY_LOCAL" pull
 git clone $FINN_HLS_REPO $FINN_HLS_LOCAL ||  git -C "$FINN_HLS_LOCAL" checkout master; git -C "$FINN_HLS_LOCAL" pull
 git clone $PYVERILATOR_REPO $PYVERILATOR_LOCAL ||  git -C "$PYVERILATOR_LOCAL" pull
-git clone $PYNQSHELL_REPO $PYNQSHELL_LOCAL ||  git -C "$PYNQSHELL_LOCAL" pull
+git clone $PYNQSHELL_REPO $PYNQSHELL_LOCAL ||  git -C "$PYNQSHELL_LOCAL" checkout feature/synth_rpt; git -C "$PYNQSHELL_LOCAL" pull
 
 # ensure build dir exists locally
 mkdir -p $BUILD_LOCAL
