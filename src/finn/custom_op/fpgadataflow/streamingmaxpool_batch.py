@@ -28,6 +28,7 @@
 
 import os
 import numpy as np
+
 try:
     from pyverilator import PyVerilator
 except ModuleNotFoundError:
@@ -66,6 +67,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ifm_ch = self.get_nodeattr("NumChannels")
         ishape = (1, ifm_dim, ifm_dim, ifm_ch)
         return ishape
+
+    def get_folded_input_shape(self):
+        return self.get_normal_input_shape()
 
     def get_normal_output_shape(self):
         k = self.get_nodeattr("PoolDim")

@@ -29,11 +29,12 @@
 
 # template for single node execution
 docompute_template = """
-#define AP_INT_MAX_W 16384
+#define AP_INT_MAX_W $AP_INT_MAX_W$
 #include "cnpy.h"
 #include "npy2apintstream.hpp"
 #include <vector>
 #include "bnn-library.h"
+
 // includes for network parameters
 $GLOBALS$
 
@@ -60,8 +61,10 @@ $SAVEASCNPY$
 
 # cpp file
 ipgen_template = """
-#define AP_INT_MAX_W 4096
+#define AP_INT_MAX_W $AP_INT_MAX_W$
+
 #include "bnn-library.h"
+
 // includes for network parameters
 $GLOBALS$
 
