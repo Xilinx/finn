@@ -66,7 +66,7 @@ def hls_synth_res_estimation(model):
                         for item in root.findall("AreaEstimates/Resources"):
                             for child in item:
                                 res_dict[node.name].append(
-                                    ["{} : {}".format(child.tag, child.text)]
+                                    "{} : {}".format(child.tag, child.text)
                                 )
                     else:
                         raise Exception(

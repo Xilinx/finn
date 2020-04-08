@@ -81,8 +81,8 @@ class HLSCustomOp(CustomOp):
         """Returns summarized resource estimation of BRAMs and LUTs
         of the node."""
         resources = []
-        resources.append("BRAMs: " + str(self.bram_estimation()))
-        resources.append("LUTs: " + str(self.lut_estimation()))
+        resources.append("BRAM_18K: " + str(self.bram_estimation()))
+        resources.append("LUT: " + str(self.lut_estimation()))
         return resources
 
     def bram_estimation(self):
