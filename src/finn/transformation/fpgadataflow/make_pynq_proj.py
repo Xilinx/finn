@@ -115,7 +115,7 @@ class MakePYNQProject(Transformation):
         model.set_metadata_prop("vivado_pynq_proj", vivado_pynq_proj_dir)
         # filename for the synth utilization report
         synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
-        model.set_metadata_prop("vivado_synth_rpt", vivado_pynq_proj_dir)
+        model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
 
         ip_config_tcl = templates.ip_config_tcl_template % (
             vivado_pynq_proj_dir,
