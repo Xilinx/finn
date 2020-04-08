@@ -58,9 +58,9 @@ class AnnotateResources(Transformation):
         res_dict = model.analysis(res_fxn)
         total_dict = {}
         for lname in res_dict.keys():
-            layer_res = res_dict[lname]
-            for res_entry in layer_res:
-                r_type, r_amount = res_entry.split(": ")
+            layer_res_dict = res_dict[lname]
+            for r_type in layer_res_dict.keys():
+                r_amount = layer_res_dict[r_type]
                 r_amount = float(r_amount)
                 if r_type in total_dict.keys():
                     total_dict[r_type] += r_amount

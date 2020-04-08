@@ -60,14 +60,12 @@ def hls_synth_res_estimation(model):
                     )
 
                     if os.path.isfile(xmlfile):
-                        res_dict[node.name] = []
+                        res_dict[node.name] = dict()
                         tree = ET.parse(xmlfile)
                         root = tree.getroot()
                         for item in root.findall("AreaEstimates/Resources"):
                             for child in item:
-                                res_dict[node.name].append(
-                                    "{} : {}".format(child.tag, child.text)
-                                )
+                                res_dict[node.name][child.tag] = child.text
                     else:
                         raise Exception(
                             """Please run "HLSSynth_IPGen" first
