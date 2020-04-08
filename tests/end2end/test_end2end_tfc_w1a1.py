@@ -127,7 +127,6 @@ def test_end2end_tfc_w1a1_create_dataflow_partition():
 
 def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_dataflow_model.onnx")
-    model = model.transform(GiveUniqueNodeNames())
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     fc0w = getCustomOp(fc_layers[0])
     fc1w = getCustomOp(fc_layers[1])
@@ -148,6 +147,7 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     fc3w.set_nodeattr("outFIFODepth", 50)
     model = model.transform(InsertDWC())
     model = model.transform(InsertTLastMarker())
+    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(AnnotateResources("estimate"))
     model.save(build_dir + "/end2end_tfc_w1a1_folded.onnx")
 
