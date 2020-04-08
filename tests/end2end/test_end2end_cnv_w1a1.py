@@ -124,7 +124,8 @@ def test_end2end_cnv_w1a1_create_dataflow_partition():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_hls_layers.onnx")
     parent_model = model.transform(CreateDataflowPartition())
     parent_model.save(build_dir + "/end2end_cnv_w1a1_dataflow_parent.onnx")
-    sdp_node = getCustomOp(parent_model.graph.node[2])
+    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    sdp_node = getCustomOp(sdp_node)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     dataflow_model = ModelWrapper(dataflow_model_filename)
     dataflow_model.save(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
@@ -132,49 +133,32 @@ def test_end2end_cnv_w1a1_create_dataflow_partition():
 
 def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
-    fc0 = model.graph.node[1]
-    fc1 = model.graph.node[3]
-    fc2 = model.graph.node[6]
-    fc3 = model.graph.node[8]
-    fc4 = model.graph.node[11]
-    fc5 = model.graph.node[13]
-    fc6 = model.graph.node[14]
-    fc7 = model.graph.node[15]
-    fc8 = model.graph.node[16]
-    fc0w = getCustomOp(fc0)
-    fc1w = getCustomOp(fc1)
-    fc2w = getCustomOp(fc2)
-    fc3w = getCustomOp(fc3)
-    fc4w = getCustomOp(fc4)
-    fc5w = getCustomOp(fc5)
-    fc6w = getCustomOp(fc6)
-    fc7w = getCustomOp(fc7)
-    fc8w = getCustomOp(fc8)
-
+    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc0w = getCustomOp(fc_layers[0])
+    fc1w = getCustomOp(fc_layers[1])
+    fc2w = getCustomOp(fc_layers[2])
+    fc3w = getCustomOp(fc_layers[3])
+    fc4w = getCustomOp(fc_layers[4])
+    fc5w = getCustomOp(fc_layers[5])
+    fc6w = getCustomOp(fc_layers[6])
+    fc7w = getCustomOp(fc_layers[7])
+    fc8w = getCustomOp(fc_layers[8])
     fc0w.set_nodeattr("SIMD", 27)
     fc0w.set_nodeattr("PE", 8)
-
     fc1w.set_nodeattr("SIMD", 32)
     fc1w.set_nodeattr("PE", 8)
-
     fc2w.set_nodeattr("SIMD", 32)
     fc2w.set_nodeattr("PE", 16)
-
     fc3w.set_nodeattr("SIMD", 32)
     fc3w.set_nodeattr("PE", 16)
-
     fc4w.set_nodeattr("SIMD", 32)
     fc4w.set_nodeattr("PE", 32)
-
     fc5w.set_nodeattr("SIMD", 64)
     fc5w.set_nodeattr("PE", 16)
-
     fc6w.set_nodeattr("SIMD", 32)
     fc6w.set_nodeattr("PE", 16)
-
     fc7w.set_nodeattr("SIMD", 64)
     fc7w.set_nodeattr("PE", 8)
-
     fc8w.set_nodeattr("SIMD", 16)
     fc8w.set_nodeattr("PE", 10)
 
@@ -213,10 +197,9 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     res_npysim = ret_npysim[out_name]
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
-    for node in model.graph.node:
-        if node.op_type == "StreamingFCLayer_Batch":
-            inst = getCustomOp(node)
-            inst.set_nodeattr("rtlsim_trace", "default")
+    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    for fcl in fc_layers:
+        getCustomOp(fcl).set_nodeattr("rtlsim_trace", "default")
     model.save(build_dir + "/end2end_cnv_w1a1_ipgen_nodebynode_rtlsim.onnx")
     ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
     res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
@@ -332,7 +315,8 @@ def test_end2end_cnv_w1a1_run_on_pynq():
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
         # produce results with npysim
-        sdp_node = getCustomOp(parent_model.graph.node[2])
+        sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+        sdp_node = getCustomOp(sdp_node)
         sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_pynq_deploy.onnx")
         ret = execute_onnx(parent_model, {iname: x}, True)
         y = ret[oname]
