@@ -28,6 +28,7 @@
 
 import os
 import numpy as np
+
 try:
     from pyverilator import PyVerilator
 except ModuleNotFoundError:
@@ -208,12 +209,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             info_messages.append("""StreamingDWC needs 1 data input""")
 
         return info_messages
-
-    def bram_estimation(self):
-        pass
-
-    def lut_estimation(self):
-        pass
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']

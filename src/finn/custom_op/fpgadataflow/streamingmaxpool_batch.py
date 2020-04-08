@@ -150,12 +150,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
         return info_messages
 
-    def bram_estimation(self):
-        pass
-
-    def lut_estimation(self):
-        pass
-
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
 
