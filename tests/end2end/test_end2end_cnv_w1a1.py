@@ -133,6 +133,7 @@ def test_end2end_cnv_w1a1_create_dataflow_partition():
 
 def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
+    model = model.transform(GiveUniqueNodeNames())
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     fc0w = getCustomOp(fc_layers[0])
     fc1w = getCustomOp(fc_layers[1])
@@ -169,7 +170,6 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
 
 def test_end2end_cnv_w1a1_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_folded.onnx")
-    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynth_IPGen())
     model.save(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
