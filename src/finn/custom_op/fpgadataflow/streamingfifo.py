@@ -126,6 +126,15 @@ class StreamingFIFO(HLSCustomOp):
         pass
 
     def get_normal_input_shape(self):
+        depth = self.get_nodeattr("depth")
+        assert (
+            depth > 2
+        ), """Depth is too low. Please set node attribute "depth" to a value
+        between 2 and 256"""
+        assert (
+            depth < 256
+        ), """Depth is too high. Please set node attribute "depth" to a value
+        between 2 and 256"""
         folded_shape = self.get_nodeattr("folded_shape")
         inner_dim = folded_shape[-1]
         folding_factor = folded_shape[-2] * inner_dim
