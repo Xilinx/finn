@@ -137,15 +137,15 @@ wire [31:0] config_q0;
 
 //multiple wire AXI Streams
 reg m_axis_0_afull = 0;
-reg m_axis_0_tready;
+wire m_axis_0_tready;
 wire m_axis_0_tvalid;
 wire $WEIGHT_RANGE$ m_axis_0_tdata;
 
-reg m_axis_0_tready_q;
+wire m_axis_0_tready_q;
 wire m_axis_0_tvalid_q;
 wire $WEIGHT_RANGE$ m_axis_0_tdata_q;
 
-reg m_axis_0_tready_q2;
+wire m_axis_0_tready_q2;
 wire m_axis_0_tvalid_q2;
 wire $WEIGHT_RANGE$ m_axis_0_tdata_q2;
 
