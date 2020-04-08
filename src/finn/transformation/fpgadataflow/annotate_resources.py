@@ -56,6 +56,17 @@ class AnnotateResources(Transformation):
         else:
             raise Exception("Unrecognized mode for AnnotateResources")
         res_dict = model.analysis(res_fxn)
+        total_dict = {}
+        for lname in res_dict.keys():
+            layer_res = res_dict[lname]
+            for res_entry in layer_res:
+                r_type, r_amount = res_entry.split(": ")
+                r_amount = float(r_amount)
+                if r_type in total_dict.keys():
+                    total_dict[r_type] += r_amount
+                else:
+                    total_dict[r_type] = r_amount
+        model.set_metadata_prop("res_total_" + self.mode, str(total_dict))
         for node in graph.node:
             if _is_fpgadataflow_node(node) and node.name in res_dict.keys():
                 op_inst = registry.getCustomOp(node)
