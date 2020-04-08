@@ -49,7 +49,6 @@ class AnnotateResources(Transformation):
 
     def apply(self, model):
         graph = model.graph
-        graph_modified = False
         if self.mode == "estimate":
             res_fxn = res_estimation
         elif self.mode == "hls":
@@ -61,6 +60,5 @@ class AnnotateResources(Transformation):
             if _is_fpgadataflow_node(node) and node.name in res_dict.keys():
                 op_inst = registry.getCustomOp(node)
                 op_inst.set_nodeattr("res_" + self.mode, str(res_dict[node.name]))
-                graph_modified = True
 
-        return (model, graph_modified)
+        return (model, False)
