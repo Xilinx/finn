@@ -73,6 +73,8 @@ class HLSCustomOp(CustomOp):
             "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
+            "res_estimate": ("s", False, ""),
+            "res_hls": ("s", False, ""),
         }
 
     def node_res_estimation(self):
