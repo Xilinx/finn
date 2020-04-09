@@ -68,9 +68,9 @@ from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
-
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
+from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
@@ -133,7 +133,6 @@ def test_end2end_cnv_w1a1_create_dataflow_partition():
 
 def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
-    model = model.transform(GiveUniqueNodeNames())
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     fc0w = getCustomOp(fc_layers[0])
     fc1w = getCustomOp(fc_layers[1])
@@ -165,6 +164,8 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
 
     model = model.transform(InsertDWC())
     model = model.transform(InsertTLastMarker())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(AnnotateResources("estimate"))
     model.save(build_dir + "/end2end_cnv_w1a1_folded.onnx")
 
 
@@ -172,6 +173,7 @@ def test_end2end_cnv_w1a1_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_folded.onnx")
     model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynth_IPGen())
+    model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
 
 
@@ -267,6 +269,7 @@ def test_end2end_cnv_w1a1_make_pynq_proj():
 def test_end2end_cnv_w1a1_synth_pynq_project():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_pynq_project.onnx")
     model = model.transform(SynthPYNQProject())
+    model = model.transform(AnnotateResources("synth"))
     model.save(build_dir + "/end2end_cnv_w1a1_synth.onnx")
 
 
