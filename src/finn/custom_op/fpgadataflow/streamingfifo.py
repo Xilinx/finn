@@ -95,7 +95,7 @@ class StreamingFIFO(HLSCustomOp):
 
         # empty code gen dictionary for new entries
         self.code_gen_dict.clear()
-        self.code_gen_dict["$TOPNAME$"] = ["top_{}".format(self.onnx_node.name)]
+        self.code_gen_dict["$TOPNAME$"] = ["{}".format(self.onnx_node.name)]
         self.code_gen_dict["$LAYER_NAME$"] = [
             "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
         ]
@@ -112,9 +112,7 @@ class StreamingFIFO(HLSCustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        f = open(
-            os.path.join(code_gen_dir, "top_{}.v".format(self.onnx_node.name)), "w",
-        )
+        f = open(os.path.join(code_gen_dir, "{}.v".format(self.onnx_node.name)), "w",)
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
@@ -124,7 +122,7 @@ class StreamingFIFO(HLSCustomOp):
         # prepare the IP packaging tcl template
         template = templates.ip_package_tcl
         self.code_gen_dict.clear()
-        self.code_gen_dict["$TOPNAME$"] = ["top_{}".format(self.onnx_node.name)]
+        self.code_gen_dict["$TOPNAME$"] = ["{}".format(self.onnx_node.name)]
         self.code_gen_dict["$VERILOG_DIR$"] = [code_gen_dir]
         for key in self.code_gen_dict:
             # transform list into long string separated by '\n'
@@ -150,12 +148,6 @@ class StreamingFIFO(HLSCustomOp):
         vlnv = "xilinx.com:hls:%s:1.0" % (self.onnx_node.name)
         self.set_nodeattr("ip_vlnv", vlnv)
         self.code_gen_dict.clear()
-
-    def code_generation_npysim(self, model):
-        pass
-
-    def compile_singlenode_code(self):
-        pass
 
     def get_normal_input_shape(self):
         depth = self.get_nodeattr("depth")
@@ -233,7 +225,7 @@ class StreamingFIFO(HLSCustomOp):
                 os.path.join(code_gen_dir, "input_0.npy"), reshaped_input,
             )
             verilog_file = os.path.join(
-                code_gen_dir, "top_{}.v".format(self.onnx_node.name)
+                code_gen_dir, "{}.v".format(self.onnx_node.name)
             )
             if os.path.isfile(verilog_file):
                 nbits = self.get_instream_width(axi_strm_padding=True)
