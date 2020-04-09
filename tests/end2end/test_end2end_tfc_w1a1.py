@@ -246,6 +246,7 @@ def test_end2end_tfc_w1a1_make_pynq_proj():
 def test_end2end_tfc_w1a1_synth_pynq_project():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_pynq_project.onnx")
     model = model.transform(SynthPYNQProject())
+    model = model.transform(AnnotateResources("synth"))
     model.save(build_dir + "/end2end_tfc_w1a1_synth.onnx")
 
 
