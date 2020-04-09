@@ -31,6 +31,7 @@ from finn.transformation import Transformation
 from finn.transformation.move_reshape import _is_fpgadataflow_node
 from finn.analysis.fpgadataflow.res_estimation import res_estimation
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+from finn.analysis.fpgadataflow.post_synth_res import post_synth_res
 
 
 class AnnotateResources(Transformation):
@@ -53,6 +54,8 @@ class AnnotateResources(Transformation):
             res_fxn = res_estimation
         elif self.mode == "hls":
             res_fxn = hls_synth_res_estimation
+        elif self.mode == "synth":
+            res_fxn = post_synth_res
         else:
             raise Exception("Unrecognized mode for AnnotateResources")
         res_dict = model.analysis(res_fxn)
