@@ -73,15 +73,18 @@ class HLSCustomOp(CustomOp):
             "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
+            "res_estimate": ("s", False, ""),
+            "res_hls": ("s", False, ""),
+            "res_synth": ("s", False, ""),
         }
 
     def node_res_estimation(self):
         """Returns summarized resource estimation of BRAMs and LUTs
-        of the node."""
-        resources = []
-        resources.append("BRAMs: " + str(self.bram_estimation()))
-        resources.append("LUTs: " + str(self.lut_estimation()))
-        return resources
+        of the node as a dictionary."""
+        ret = dict()
+        ret["BRAM_18K"] = self.bram_estimation()
+        ret["LUT"] = self.lut_estimation()
+        return ret
 
     def bram_estimation(self):
         """Function for BRAM resource estimation, is member function of

@@ -70,6 +70,7 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
+from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -146,14 +147,16 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     fc3w.set_nodeattr("outFIFODepth", 50)
     model = model.transform(InsertDWC())
     model = model.transform(InsertTLastMarker())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(AnnotateResources("estimate"))
     model.save(build_dir + "/end2end_tfc_w1a1_folded.onnx")
 
 
 def test_end2end_tfc_w1a1_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_folded.onnx")
-    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynth_IPGen())
+    model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_tfc_w1a1_ipgen.onnx")
 
 
@@ -243,6 +246,7 @@ def test_end2end_tfc_w1a1_make_pynq_proj():
 def test_end2end_tfc_w1a1_synth_pynq_project():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_pynq_project.onnx")
     model = model.transform(SynthPYNQProject())
+    model = model.transform(AnnotateResources("synth"))
     model.save(build_dir + "/end2end_tfc_w1a1_synth.onnx")
 
 
