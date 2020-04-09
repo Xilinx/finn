@@ -28,7 +28,11 @@
 
 import os
 import numpy as np
-from pyverilator import PyVerilator
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.custom_op.im2col import compute_conv_output_dim
 from finn.core.datatype import DataType
@@ -63,6 +67,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ifm_ch = self.get_nodeattr("NumChannels")
         ishape = (1, ifm_dim, ifm_dim, ifm_ch)
         return ishape
+
+    def get_folded_input_shape(self):
+        return self.get_normal_input_shape()
 
     def get_normal_output_shape(self):
         k = self.get_nodeattr("PoolDim")
@@ -142,12 +149,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             info_messages.append("""StreamingMaxPool_Batch needs 1 data input""")
 
         return info_messages
-
-    def bram_estimation(self):
-        pass
-
-    def lut_estimation(self):
-        pass
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
@@ -301,6 +302,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             did not produce expected ofolded utput shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
+            if PyVerilator is None:
+                raise ImportError("Installation of PyVerilator is required.")
+
             prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(

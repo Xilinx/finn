@@ -286,13 +286,13 @@ def test_fpgadataflow_ipstitch_pynq_driver():
 
 
 def test_fpgadataflow_ipstitch_pynq_deployment_folder():
-    model = ModelWrapper(
-        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_driver.onnx"
-    )
     try:
         ip = os.environ["PYNQ_IP"]  # no default for this one; skip if not defined
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
+        model = ModelWrapper(
+            ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_driver.onnx"
+        )
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
@@ -319,13 +319,13 @@ def test_fpgadataflow_ipstitch_pynq_deployment_folder():
 
 
 def test_fpgadataflow_ipstitch_remote_execution():
-    model = ModelWrapper(
-        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx"
-    )
     try:
         ip = os.environ["PYNQ_IP"]  # NOQA
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
+        model = ModelWrapper(
+            ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx"
+        )
         idt = DataType.INT2
         x = gen_finn_dt_tensor(idt, (1, 4))
         input_dict = {"inp": x}

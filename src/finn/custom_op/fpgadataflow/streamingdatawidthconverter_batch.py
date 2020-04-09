@@ -28,7 +28,11 @@
 
 import os
 import numpy as np
-from pyverilator import PyVerilator
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
@@ -206,12 +210,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
         return info_messages
 
-    def bram_estimation(self):
-        pass
-
-    def lut_estimation(self):
-        pass
-
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
 
@@ -353,6 +351,9 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             context[node.output[0]] = output
 
         elif mode == "rtlsim":
+            if PyVerilator is None:
+                raise ImportError("Installation of PyVerilator is required.")
+
             prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(

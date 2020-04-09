@@ -73,15 +73,18 @@ class HLSCustomOp(CustomOp):
             "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
+            "res_estimate": ("s", False, ""),
+            "res_hls": ("s", False, ""),
+            "res_synth": ("s", False, ""),
         }
 
     def node_res_estimation(self):
         """Returns summarized resource estimation of BRAMs and LUTs
-        of the node."""
-        resources = []
-        resources.append("BRAMs: " + str(self.bram_estimation()))
-        resources.append("LUTs: " + str(self.lut_estimation()))
-        return resources
+        of the node as a dictionary."""
+        ret = dict()
+        ret["BRAM_18K"] = self.bram_estimation()
+        ret["LUT"] = self.lut_estimation()
+        return ret
 
     def bram_estimation(self):
         """Function for BRAM resource estimation, is member function of
@@ -99,6 +102,7 @@ class HLSCustomOp(CustomOp):
 
         # generate top cpp file for ip generation
         path = self.get_nodeattr("code_gen_dir_ipgen")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
         self.defines("ipgen")
@@ -156,6 +160,7 @@ class HLSCustomOp(CustomOp):
         """Generates c++ code for simulation (npysim)."""
         node = self.onnx_node
         path = self.get_nodeattr("code_gen_dir_npysim")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
         self.defines("npysim")
@@ -429,3 +434,8 @@ compilation transformations?
     def get_outstream_width(self):
         """Returns output stream width, if implemented."""
         raise Exception("get_outstream_width not implemented for this op")
+
+    def get_ap_int_max_w(self):
+        instream = self.get_instream_width()
+        outstream = self.get_outstream_width()
+        return max([instream, outstream])

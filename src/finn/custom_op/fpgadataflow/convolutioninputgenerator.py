@@ -29,7 +29,11 @@
 import os
 
 import numpy as np
-from pyverilator import PyVerilator
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -72,6 +76,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
         ishape = (1, ifm_dim, ifm_dim, ifm_ch)
         return ishape
+
+    def get_folded_input_shape(self):
+        """Assumption: No folding on input"""
+        return self.get_normal_input_shape()
 
     def get_normal_output_shape(self):
         k = self.get_nodeattr("ConvKernelDim")
@@ -122,12 +130,6 @@ class ConvolutionInputGenerator(HLSCustomOp):
         model.set_tensor_datatype(node.output[0], dtype)
 
     def verify_node(self):
-        pass
-
-    def bram_estimation(self):
-        pass
-
-    def lut_estimation(self):
         pass
 
     def get_input_datatype(self):
@@ -206,6 +208,9 @@ class ConvolutionInputGenerator(HLSCustomOp):
             did not produce expected ofolded utput shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
+            if PyVerilator is None:
+                raise ImportError("Installation of PyVerilator is required.")
+
             prefixed_top_name = "%s_%s" % (node.name, node.name)
             # check if needed file exists
             verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
@@ -272,9 +277,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def defines(self, var):
         numReps = 1
         self.code_gen_dict["$DEFINES$"] = [
-            """#define ConvKernelDim1 {}\n #define IFMChannels1 {}
-            #define Input_precision1 {}\n #define IFMDim1 {}\n #define OFMDim1 {}
-            #define SIMD1 {}\n #define Stride1 {}\n #define numReps {}""".format(
+            """#define ConvKernelDim1 {}\n #define IFMChannels1 {}\n
+            #define Input_precision1 {}\n #define IFMDim1 {}\n
+            #define OFMDim1 {}\n #define SIMD1 {}\n
+            #define Stride1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("ConvKernelDim"),
                 self.get_nodeattr("IFMChannels"),
                 self.get_input_datatype().bitwidth(),
