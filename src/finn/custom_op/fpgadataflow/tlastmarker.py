@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.util.basic import roundup_to_integer_multiple
 
 
 class TLastMarker(HLSCustomOp):
@@ -133,12 +134,16 @@ class TLastMarker(HLSCustomOp):
     def get_folded_output_shape(self):
         return self.get_folded_input_shape()
 
-    def get_instream_width(self):
+    def get_instream_width(self, axi_strm_padding=False):
         stream_width = self.get_nodeattr("StreamWidth")
+        if axi_strm_padding is True:
+            stream_width = roundup_to_integer_multiple(stream_width, 8)
         return stream_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, axi_strm_padding=False):
         stream_width = self.get_nodeattr("StreamWidth")
+        if axi_strm_padding is True:
+            stream_width = roundup_to_integer_multiple(stream_width, 8)
         return stream_width
 
     def strm_decl(self):
