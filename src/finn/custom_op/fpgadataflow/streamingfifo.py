@@ -25,15 +25,16 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import math
 import os
 import numpy as np
 from shutil import copy
+import subprocess
 
 from pyverilator import PyVerilator
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
+from finn.util.basic import roundup_to_integer_multiple
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 from . import templates
@@ -85,8 +86,13 @@ class StreamingFIFO(HLSCustomOp):
     def verify_node(self):
         pass
 
-    # overwrite not necessary functions
     def code_generation_ipgen(self, model, fpgapart, clk):
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        # copy Q_srl.v from finn-rtllib to code gen directory
+        memstream_dir = "/workspace/finn/finn-rtllib/memstream/hdl/"
+        Q_file = os.path.join(memstream_dir, "Q_srl.v")
+        copy(Q_file, code_gen_dir)
+
         # empty code gen dictionary for new entries
         self.code_gen_dict.clear()
         self.code_gen_dict["$TOPNAME$"] = ["top_{}".format(self.onnx_node.name)]
@@ -94,9 +100,7 @@ class StreamingFIFO(HLSCustomOp):
             "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
         ]
         # make instream width a multiple of 8 for axi interface
-        in_width = self.get_instream_width()
-        if in_width % 8 != 0:
-            in_width = math.floor(in_width / 8) + 8
+        in_width = self.get_instream_width(axi_strm_padding=True)
         self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
         self.code_gen_dict["$OUT_RANGE$"] = ["[{}:0]".format(in_width - 1)]
         self.code_gen_dict["$WIDTH$"] = [str(in_width)]
@@ -108,7 +112,6 @@ class StreamingFIFO(HLSCustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         f = open(
             os.path.join(code_gen_dir, "top_{}.v".format(self.onnx_node.name)), "w",
         )
@@ -117,7 +120,36 @@ class StreamingFIFO(HLSCustomOp):
         self.code_gen_dict.clear()
 
     def ipgen_singlenode_code(self):
-        pass
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        # prepare the IP packaging tcl template
+        template = templates.ip_package_tcl
+        self.code_gen_dict.clear()
+        self.code_gen_dict["$TOPNAME$"] = ["top_{}".format(self.onnx_node.name)]
+        self.code_gen_dict["$VERILOG_DIR$"] = [code_gen_dir]
+        for key in self.code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(self.code_gen_dict[key])
+            template = template.replace(key, code_gen_line)
+        f = open(os.path.join(code_gen_dir, "package_ip.tcl"), "w")
+        f.write(template)
+        f.close()
+        # create a shell script and call Vivado to invoke the IP pkg script
+        make_project_sh = code_gen_dir + "/make_ip.sh"
+        working_dir = os.environ["PWD"]
+        with open(make_project_sh, "w") as f:
+            f.write("#!/bin/bash \n")
+            f.write("cd {}\n".format(code_gen_dir))
+            f.write("vivado -mode batch -source package_ip.tcl\n")
+            f.write("cd {}\n".format(working_dir))
+        bash_command = ["bash", make_project_sh]
+        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
+        # set ipgen_path and ip_path to point to the new packaged IP
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
+        vlnv = "xilinx.com:hls:%s:1.0" % (self.onnx_node.name)
+        self.set_nodeattr("ip_vlnv", vlnv)
+        self.code_gen_dict.clear()
 
     def code_generation_npysim(self, model):
         pass
@@ -128,11 +160,11 @@ class StreamingFIFO(HLSCustomOp):
     def get_normal_input_shape(self):
         depth = self.get_nodeattr("depth")
         assert (
-            depth > 2
+            depth >= 2
         ), """Depth is too low. Please set node attribute "depth" to a value
         between 2 and 256"""
         assert (
-            depth < 256
+            depth <= 256
         ), """Depth is too high. Please set node attribute "depth" to a value
         between 2 and 256"""
         folded_shape = self.get_nodeattr("folded_shape")
@@ -154,15 +186,21 @@ class StreamingFIFO(HLSCustomOp):
     def get_folded_output_shape(self):
         return self.get_nodeattr("folded_shape")
 
-    def get_instream_width(self):
+    def get_instream_width(self, axi_strm_padding=False):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
-        return folded_shape[-1] * dtype.bitwidth()
+        in_width = folded_shape[-1] * dtype.bitwidth()
+        if axi_strm_padding is True:
+            in_width = roundup_to_integer_multiple(in_width, 8)
+        return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, axi_strm_padding=False):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
-        return folded_shape[-1] * dtype.bitwidth()
+        in_width = folded_shape[-1] * dtype.bitwidth()
+        if axi_strm_padding is True:
+            in_width = roundup_to_integer_multiple(in_width, 8)
+        return in_width
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -194,15 +232,11 @@ class StreamingFIFO(HLSCustomOp):
             np.save(
                 os.path.join(code_gen_dir, "input_0.npy"), reshaped_input,
             )
-            # copy Q_srl.v from finn-rtllib to code gen directory
-            memstream_dir = "/workspace/finn/finn-rtllib/memstream/hdl/"
-            Q_file = os.path.join(memstream_dir, "Q_srl.v")
-            copy(Q_file, code_gen_dir)
             verilog_file = os.path.join(
                 code_gen_dir, "top_{}.v".format(self.onnx_node.name)
             )
             if os.path.isfile(verilog_file):
-                nbits = self.get_instream_width()
+                nbits = self.get_instream_width(axi_strm_padding=True)
                 inp = npy_to_rtlsim_input(
                     "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
                 )
@@ -212,7 +246,7 @@ class StreamingFIFO(HLSCustomOp):
                 output = self.rtlsim(sim, inp)
                 odt = DataType[self.get_nodeattr("dataType")]
                 target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
+                packed_bits = self.get_outstream_width(axi_strm_padding=True)
                 out_npy_path = "{}/output.npy".format(code_gen_dir)
                 out_shape = self.get_folded_output_shape()
                 rtlsim_output_to_npy(
