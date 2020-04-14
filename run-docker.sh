@@ -65,14 +65,14 @@ SCRIPT=$(readlink -f "$0")
 # Absolute path this script is in, thus /home/user/bin
 SCRIPTPATH=$(dirname "$SCRIPT")
 
-BREVITAS_REPO=https://github.com/Xilinx/brevitas.git
+#BREVITAS_REPO=https://github.com/Xilinx/brevitas.git
 EXAMPLES_REPO=https://github.com/maltanar/brevitas_cnv_lfc.git
 CNPY_REPO=https://github.com/rogersce/cnpy.git
 FINN_HLS_REPO=https://github.com/Xilinx/finn-hlslib.git
 PYVERILATOR_REPO=https://github.com/maltanar/pyverilator
 PYNQSHELL_REPO=https://github.com/maltanar/PYNQ-HelloWorld.git
 
-BREVITAS_LOCAL=$SCRIPTPATH/brevitas
+#BREVITAS_LOCAL=$SCRIPTPATH/brevitas
 EXAMPLES_LOCAL=$SCRIPTPATH/brevitas_cnv_lfc
 CNPY_LOCAL=$SCRIPTPATH/cnpy
 FINN_HLS_LOCAL=$SCRIPTPATH/finn-hlslib
@@ -83,7 +83,7 @@ VIVADO_HLS_LOCAL=$VIVADO_PATH
 VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
 
 # clone dependency repos
-git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
+#git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
 git clone $EXAMPLES_REPO $EXAMPLES_LOCAL ||  git -C "$EXAMPLES_LOCAL" pull
 git clone $CNPY_REPO $CNPY_LOCAL ||  git -C "$CNPY_LOCAL" pull
 git clone $FINN_HLS_REPO $FINN_HLS_LOCAL; git -C "$FINN_HLS_LOCAL" checkout b5dc957a16017b8356a7010144b0a4e2f8cfd124 ||  git -C "$FINN_HLS_LOCAL" checkout b5dc957a16017b8356a7010144b0a4e2f8cfd124
@@ -136,7 +136,6 @@ docker run -t --rm --name $DOCKER_INST_NAME -it \
 -e "XILINX_VIVADO=$VIVADO_PATH" \
 -e "SHELL=/bin/bash" \
 -v $SCRIPTPATH:/workspace/finn \
--v $SCRIPTPATH/brevitas:/workspace/brevitas \
 -v $SCRIPTPATH/brevitas_cnv_lfc:/workspace/brevitas_cnv_lfc \
 -v $SCRIPTPATH/cnpy:/workspace/cnpy \
 -v $SCRIPTPATH/finn-hlslib:/workspace/finn-hlslib \
