@@ -65,43 +65,16 @@ SCRIPT=$(readlink -f "$0")
 # Absolute path this script is in, thus /home/user/bin
 SCRIPTPATH=$(dirname "$SCRIPT")
 
-#BREVITAS_REPO=https://github.com/Xilinx/brevitas.git
-EXAMPLES_REPO=https://github.com/maltanar/brevitas_cnv_lfc.git
-CNPY_REPO=https://github.com/rogersce/cnpy.git
-FINN_HLS_REPO=https://github.com/Xilinx/finn-hlslib.git
-PYVERILATOR_REPO=https://github.com/maltanar/pyverilator
-PYNQSHELL_REPO=https://github.com/maltanar/PYNQ-HelloWorld.git
-
-#BREVITAS_LOCAL=$SCRIPTPATH/brevitas
-EXAMPLES_LOCAL=$SCRIPTPATH/brevitas_cnv_lfc
-CNPY_LOCAL=$SCRIPTPATH/cnpy
-FINN_HLS_LOCAL=$SCRIPTPATH/finn-hlslib
-PYVERILATOR_LOCAL=$SCRIPTPATH/pyverilator
-PYNQSHELL_LOCAL=$SCRIPTPATH/PYNQ-HelloWorld
 BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
 VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
 
-# clone dependency repos
-#git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
-git clone $EXAMPLES_REPO $EXAMPLES_LOCAL ||  git -C "$EXAMPLES_LOCAL" pull
-git clone $CNPY_REPO $CNPY_LOCAL ||  git -C "$CNPY_LOCAL" pull
-git clone $FINN_HLS_REPO $FINN_HLS_LOCAL; git -C "$FINN_HLS_LOCAL" checkout b5dc957a16017b8356a7010144b0a4e2f8cfd124 ||  git -C "$FINN_HLS_LOCAL" checkout b5dc957a16017b8356a7010144b0a4e2f8cfd124
-git clone $PYVERILATOR_REPO $PYVERILATOR_LOCAL ||  git -C "$PYVERILATOR_LOCAL" pull
-git clone $PYNQSHELL_REPO $PYNQSHELL_LOCAL ||  git -C "$PYNQSHELL_LOCAL" pull
 
 # ensure build dir exists locally
 mkdir -p $BUILD_LOCAL
 mkdir -p $VIVADO_IP_CACHE
 
 echo "Instance is named as $DOCKER_INST_NAME"
-echo "Mounting $SCRIPTPATH into /workspace/finn"
-echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
-echo "Mounting $SCRIPTPATH/brevitas_cnv_lfc into /workspace/brevitas_cnv_lfc"
-echo "Mounting $SCRIPTPATH/cnpy into /workspace/cnpy"
-echo "Mounting $SCRIPTPATH/finn-hlslib into /workspace/finn-hlslib"
-echo "Mounting $SCRIPTPATH/pyverilator into /workspace/pyverilator"
-echo "Mounting $SCRIPTPATH/PYNQ-HelloWorld into /workspace/PYNQ-HelloWorld"
 echo "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
 echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
 echo "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
@@ -136,11 +109,6 @@ docker run -t --rm --name $DOCKER_INST_NAME -it \
 -e "XILINX_VIVADO=$VIVADO_PATH" \
 -e "SHELL=/bin/bash" \
 -v $SCRIPTPATH:/workspace/finn \
--v $SCRIPTPATH/brevitas_cnv_lfc:/workspace/brevitas_cnv_lfc \
--v $SCRIPTPATH/cnpy:/workspace/cnpy \
--v $SCRIPTPATH/finn-hlslib:/workspace/finn-hlslib \
--v $SCRIPTPATH/pyverilator:/workspace/pyverilator \
--v $SCRIPTPATH/PYNQ-HelloWorld:/workspace/PYNQ-HelloWorld \
 -v $BUILD_LOCAL:$BUILD_LOCAL \
 -v $VIVADO_PATH:$VIVADO_PATH \
 -e VIVADO_PATH=$VIVADO_PATH \
