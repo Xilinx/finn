@@ -23,6 +23,8 @@ Please see the [Getting Started](https://finn.readthedocs.io/en/latest/getting_s
 
 ## What's New in FINN?
 
+* **2020-04-15:** FINN v0.2.1b (beta): use fixed commit versions for dependency repos, otherwise identical to 0.2b
+
 * **2020-02-28:** FINN v0.2b (beta) is released, which is a clean-slate reimplementation of the framework. Currently only fully-connected networks are supported for the end-to-end flow. Please see the release blog post for a summary of the key features.
 
 ## Documentation
