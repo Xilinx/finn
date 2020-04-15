@@ -52,11 +52,11 @@ RUN pip install sphinx_rtd_theme
 # cloning dependency repos
 # Brevitas
 RUN git clone --branch feature/finn_onnx_export https://github.com/Xilinx/brevitas.git /workspace/brevitas  
-RUN git -C /workspace/brevitas checkout ed1a3b70a14a91853066ece630421e89660d93e9
+RUN git -C /workspace/brevitas checkout 215cf44c76d562339fca368c8c3afee3110033e8 
 
 # Brevitas examples
-RUN git clone https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
-RUN git -C /workspace/brevitas_cnv_lfc checkout a443708b382cbcfd69d19c9fc3fe94b2a2c03d71
+RUN git clone --branch feature/rework_scaling_clipping https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
+RUN git -C /workspace/brevitas_cnv_lfc checkout 2059f96bd576bf71f32c757e7f92617a70190c90
 
 # CNPY
 RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
@@ -64,15 +64,15 @@ RUN git -C /workspace/cnpy checkout 4e8810b1a8637695171ed346ce68f6984e585ef4
 
 # FINN hlslib
 RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
-RUN git -C /workspace/finn-hlslib checkout b5dc957a16017b8356a7010144b0a4e2f8cfd124
+RUN git -C /workspace/finn-hlslib checkout a3e2f9af50412461deeb27f4b62f5391ff48cb52
 
 # PyVerilator
 RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
 RUN git -C /workspace/pyverilator checkout 307fc5c82db748620836307a2002fdc9fe170226
 
 # PYNQ-HelloWorld
-RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
-RUN git -C /workspace/PYNQ-HelloWorld checkout ef4c438dff4bd346e5f6b8d4eddfd1c8a3999c03
+RUN git clone --branch feature/synth_rpt https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
+RUN git -C /workspace/PYNQ-HelloWorld checkout db7e418767ce2a8e08fe732ddb3aa56ee79b7560
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
