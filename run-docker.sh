@@ -83,7 +83,7 @@ echo "Using default PYNQ board $PYNQ_BOARD"
 
 if [ "$1" = "test" ]; then
         echo "Running test suite"
-        DOCKER_CMD="python setup.py test"
+        DOCKER_CMD="source ~/.bashrc; python setup.py test"
 elif [ "$1" = "notebook" ]; then
         echo "Running Jupyter notebook server"
         DOCKER_CMD="source ~/.bashrc; jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
