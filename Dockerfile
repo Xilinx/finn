@@ -49,15 +49,6 @@ RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN pip install sphinx
 RUN pip install sphinx_rtd_theme
 
-# dependency repos
-#ARG BREVITAS_REPO="https://github.com/Xilinx/brevitas.git"
-#ARG EXAMPLES_REPO=https://github.com/maltanar/brevitas_cnv_lfc.git
-#ARG CNPY_REPO=https://github.com/rogersce/cnpy.git
-#ARG FINN_HLS_REPO=https://github.com/Xilinx/finn-hlslib.git
-#ARG PYVERILATOR_REPO=https://github.com/maltanar/pyverilator
-#ARG PYNQSHELL_REPO=https://github.com/maltanar/PYNQ-HelloWorld.git
-
-
 # cloning dependency repos
 # Brevitas
 RUN git clone --branch feature/finn_onnx_export https://github.com/Xilinx/brevitas.git /workspace/brevitas  
