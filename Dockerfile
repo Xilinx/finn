@@ -49,6 +49,30 @@ RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN pip install sphinx
 RUN pip install sphinx_rtd_theme
 
+# cloning dependency repos
+# Brevitas
+RUN git clone --branch feature/finn_onnx_export https://github.com/Xilinx/brevitas.git /workspace/brevitas  
+RUN git -C /workspace/brevitas checkout ed1a3b70a14a91853066ece630421e89660d93e9
+
+# Brevitas examples
+RUN git clone https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
+RUN git -C /workspace/brevitas_cnv_lfc checkout a443708b382cbcfd69d19c9fc3fe94b2a2c03d71
+
+# CNPY
+RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
+RUN git -C /workspace/cnpy checkout 4e8810b1a8637695171ed346ce68f6984e585ef4
+
+# FINN hlslib
+RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
+RUN git -C /workspace/finn-hlslib checkout b5dc957a16017b8356a7010144b0a4e2f8cfd124
+
+# PyVerilator
+RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
+RUN git -C /workspace/pyverilator checkout 307fc5c82db748620836307a2002fdc9fe170226
+
+# PYNQ-HelloWorld
+RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
+RUN git -C /workspace/PYNQ-HelloWorld checkout ef4c438dff4bd346e5f6b8d4eddfd1c8a3999c03
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example

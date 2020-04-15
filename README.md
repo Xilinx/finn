@@ -23,7 +23,7 @@ Please see the [Getting Started](https://finn.readthedocs.io/en/latest/getting_s
 
 ## What's New in FINN?
 
-* **2020-02-27:** FINN v0.2b (beta) is released, which is a clean-slate reimplementation of the framework. Currently only fully-connected networks are supported for the end-to-end flow. Please see the release blog post for a summary of the key features.
+* **2020-02-28:** FINN v0.2b (beta) is released, which is a clean-slate reimplementation of the framework. Currently only fully-connected networks are supported for the end-to-end flow. Please see the release blog post for a summary of the key features.
 
 ## Documentation
 
