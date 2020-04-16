@@ -51,8 +51,8 @@ RUN pip install sphinx_rtd_theme
 
 # cloning dependency repos
 # Brevitas
-RUN git clone --branch feature/finn_onnx_export https://github.com/Xilinx/brevitas.git /workspace/brevitas  
-RUN git -C /workspace/brevitas checkout 215cf44c76d562339fca368c8c3afee3110033e8 
+RUN git clone --branch feature/finn_onnx_export https://github.com/Xilinx/brevitas.git /workspace/brevitas
+RUN git -C /workspace/brevitas checkout 215cf44c76d562339fca368c8c3afee3110033e8
 
 # Brevitas examples
 RUN git clone --branch feature/rework_scaling_clipping https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
@@ -63,8 +63,8 @@ RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
 RUN git -C /workspace/cnpy checkout 4e8810b1a8637695171ed346ce68f6984e585ef4
 
 # FINN hlslib
-RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
-RUN git -C /workspace/finn-hlslib checkout a3e2f9af50412461deeb27f4b62f5391ff48cb52
+RUN git clone https://github.com/maltanar/finn-hlslib.git /workspace/finn-hlslib
+RUN git -C /workspace/finn-hlslib checkout b139bf051ac8f8e0a3625509247f714127cf3317
 
 # PyVerilator
 RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
