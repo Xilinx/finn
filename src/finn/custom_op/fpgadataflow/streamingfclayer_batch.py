@@ -463,7 +463,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
             if export_wdt.bitwidth() != 1:
                 f_weights.write(
-                    "static FixedPointWeights<{},{},{},{}> weights = ".format(
+                    "const FixedPointWeights<{},{},{},{}> weights = ".format(
                         self.get_nodeattr("SIMD"),
                         export_wdt.get_hls_datatype_str(),
                         self.get_nodeattr("PE"),
@@ -472,7 +472,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
             else:
                 f_weights.write(
-                    "static BinaryWeights<{},{},{}> weights = ".format(
+                    "const BinaryWeights<{},{},{}> weights = ".format(
                         self.get_nodeattr("SIMD"),
                         self.get_nodeattr("PE"),
                         self.calc_wmem(),
@@ -709,7 +709,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
-            self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
+            # self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
+            pass
         elif mem_mode == "decoupled":
             self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
         else:
@@ -928,6 +929,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         )
 
         if mem_mode == "const":
+            self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
             # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
             # partition for parallel access along the PE dimension (dim 1)
             self.code_gen_dict["$PRAGMAS$"].append(
