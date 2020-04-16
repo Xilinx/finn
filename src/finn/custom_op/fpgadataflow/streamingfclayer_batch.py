@@ -745,10 +745,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 "#define WP1 {}\n".format(wdt.bitwidth())
             )
 
-        if var == "ipgen":
-            self.code_gen_dict["$DEFINES$"].append("#define PRAGMA_SUB(x) _Pragma (#x)")
-            self.code_gen_dict["$DEFINES$"].append("#define DO_PRAGMA(x) PRAGMA_SUB(x)")
-
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         dtype = self.get_input_datatype()
@@ -934,8 +930,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # partition for parallel access along the PE dimension (dim 1)
             self.code_gen_dict["$PRAGMAS$"].append(
                 (
-                    "DO_PRAGMA(HLS ARRAY_PARTITION "
-                    "variable=weights.m_weights complete dim=1)"
+                    "#pragma HLS ARRAY_PARTITION variable=weights.m_weights "
+                    "complete dim=1"
                 )
             )
         elif mem_mode == "decoupled":
@@ -959,14 +955,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$PRAGMAS$"].append(
                 (
-                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=1)"
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=1"
                 )
             )
             self.code_gen_dict["$PRAGMAS$"].append(
                 (
-                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=3)"
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=3"
                 )
             )
 
