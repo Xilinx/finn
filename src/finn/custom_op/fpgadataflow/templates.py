@@ -42,6 +42,7 @@ $GLOBALS$
 $DEFINES$
 
 int main(){
+$PRAGMAS$
 
 $STREAMDECLARATIONS$
 

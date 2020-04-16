@@ -166,6 +166,7 @@ class HLSCustomOp(CustomOp):
         self.defines("npysim")
         self.read_npy_data()
         self.strm_decl()
+        self.pragmas()
         self.docompute()
         self.dataoutstrm()
         self.save_as_npy()
