@@ -6,8 +6,8 @@ Please follow the steps below and be sure that your contribution complies with o
 
 	We welcome submissions to:
 
-		1. The FINN flow like additional custom ONNX nodes, transformation and analysis passes.
-		2. Contributions to the documentation and Jupyter notebooks
+	1. The FINN flow like additional custom ONNX nodes, transformation and analysis passes.
+	2. Contributions to the documentation and Jupyter notebooks
 
 	If you want to add example networks, we ask you to make them into a separate repo.
 
