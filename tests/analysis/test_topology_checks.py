@@ -88,3 +88,20 @@ def test_node_inputs_in_expected_order():
     # this model has an (unnecessary) dynamic reshape for its weight tensor
     # and so it fails the check
     assert ret["node_inputs_in_expected_order"] is False
+
+
+def test_nodes_in_expected_order():
+    raw_m = get_data(
+        "finn", "data/onnx/finn-hls-model/tfc_w1_a1_after_conv_to_hls.onnx"
+    )
+    model = ModelWrapper(raw_m)
+    ret = model.analysis(ta.nodes_in_expected_order)
+    assert ret["nodes_in_expected_order"] is True
+
+    # remove first node and add it at the end
+    graph = model.graph
+    first_node = graph.node[0]
+    graph.node.remove(first_node)
+    graph.node.append(first_node)
+    ret = model.analysis(ta.nodes_in_expected_order)
+    assert ret["nodes_in_expected_order"] is False
