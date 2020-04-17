@@ -79,3 +79,37 @@ def node_inputs_in_expected_order(model):
         if n.op_type != "Add":
             all_OK = all_OK and (model.get_initializer(n.input[1]) is not None)
     return {"node_inputs_in_expected_order": all_OK}
+
+
+def nodes_in_expected_order(model):
+    """Verifies that the graph is topologically sorted. Only works on graphs
+    linear graphs.
+
+    Returns {"nodes_in_expected_order": Bool}."""
+
+    # start by creating a list with the nodes in the right order
+    # by getting the consumer of output tensor of each node
+    graph = model.graph
+    global_in = graph.input[0].name
+    global_out = graph.output[0].name
+
+    node = model.find_consumer(global_in)
+    node_output = node.output[0]
+
+    node_list = [node]
+    while node_output != global_out:
+        next_node = model.find_consumer(node_output)
+        node_output = next_node.output[0]
+        node_list.append(next_node)
+
+    # compare graph intern node list with created reference node list
+    all_OK = True
+    i = 0
+    for n in graph.node:
+        if n == node_list[i]:
+            i += 1
+        else:
+            all_OK = False
+            break
+
+    return {"nodes_in_expected_order": all_OK}
