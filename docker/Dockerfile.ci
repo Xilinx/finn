@@ -29,6 +29,8 @@
 FROM pytorch/pytorch:1.1.0-cuda10.0-cudnn7.5-devel
 MAINTAINER Yaman Umuroglu <yamanu@xilinx.com>
 ARG PYTHON_VERSION=3.6
+ARG VIVADO_PATH
+ARG BUILD_PATH
 
 WORKDIR /workspace
 
@@ -77,9 +79,9 @@ ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
 
-RUN echo "source \$VIVADO_PATH/settings64.sh" >> /root/.bashrc
+RUN echo "source $VIVADO_PATH/settings64.sh" >> /root/.bashrc
 RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /root/.bashrc
-RUN mkdir -p /tmp/$FINN_INST_NAME
-RUN mkdir -p $VIVADO_IP_CACHE
+RUN mkdir -p $BUILD_PATH
+RUN mkdir -p $BUILD_PATH/vivado_ip_cache
 
 WORKDIR /workspace/finn
