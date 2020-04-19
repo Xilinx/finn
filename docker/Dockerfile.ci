@@ -32,18 +32,6 @@ ARG PYTHON_VERSION=3.6
 
 WORKDIR /workspace
 
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-RUN rm requirements.txt
-RUN apt update; apt install nano
-RUN pip install pytest-dependency
-RUN apt-get update
-RUN apt-get -y upgrade
-RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
-RUN apt install verilator
-RUN apt-get -y install sshpass
-RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
-
 # cloning dependency repos
 # Brevitas
 RUN git clone --branch feature/finn_onnx_export https://github.com/Xilinx/brevitas.git /workspace/brevitas
@@ -72,11 +60,17 @@ RUN git -C /workspace/PYNQ-HelloWorld checkout db7e418767ce2a8e08fe732ddb3aa56ee
 # FINN
 RUN git clone --branch dev https://github.com/Xilinx/finn /workspace/finn
 
-# Note that we expect the cloned finn directory on the host to be
-# mounted on /workspace/finn -- see run-docker.sh for an example
-# of how to do this.
-# This branch assumes the same for brevitas and brevitas_cnv_lfc for easier
-# co-development.
+RUN pip install -r /workspace/finn/requirements.txt
+RUN apt update; apt install nano
+RUN pip install pytest-dependency
+RUN apt-get update
+RUN apt-get -y upgrade
+RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
+RUN apt install verilator
+RUN apt-get -y install sshpass
+RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
+
+
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
@@ -84,7 +78,7 @@ ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
 
 RUN echo "source \$VIVADO_PATH/settings64.sh" >> /root/.bashrc
-RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /home/$UNAME/.bashrc
+RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /root/.bashrc
 
 WORKDIR /workspace/finn
 ENTRYPOINT ["bash"]
