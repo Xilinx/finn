@@ -1,16 +1,36 @@
 import pytest
+import os
 
 from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
+from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
 
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+
+# from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import gen_finn_dt_tensor
-import finn.core.onnx_exec as oxe
+
+# from finn.util.basic import gen_finn_dt_tensor
+
+# import finn.core.onnx_exec as oxe
+from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
+from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
+from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
+from finn.util.basic import pynq_part_map
+
+
+build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
+test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+test_fpga_part = pynq_part_map[test_pynq_board]
+target_clk_ns = 5
 
 
 def make_single_fifo_modelwrapper(Shape, Depth, fld_shape, finn_dtype):
@@ -47,29 +67,41 @@ def prepare_inputs(input_tensor, dt):
 
 
 # shape
-@pytest.mark.parametrize("Shape", [[1, 4]])
+@pytest.mark.parametrize("Shape", [[1, 128]])
 # inWidth
-@pytest.mark.parametrize("folded_shape", [[1, 1, 4]])
+@pytest.mark.parametrize("folded_shape", [[1, 1, 128]])
 # outWidth
-@pytest.mark.parametrize("depth", [2])
+@pytest.mark.parametrize("depth", [256])
 # finn_dtype
-@pytest.mark.parametrize("finn_dtype", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("finn_dtype", [DataType.BIPOLAR])  # , DataType.INT2])
 def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
 
     # generate input data
-    x = gen_finn_dt_tensor(finn_dtype, Shape)
-    input_dict = prepare_inputs(x, finn_dtype)
+    # x = gen_finn_dt_tensor(finn_dtype, Shape)
+    #    input_dict = prepare_inputs(x, finn_dtype)
 
     model = make_single_fifo_modelwrapper(Shape, depth, folded_shape, finn_dtype)
 
-    model = model.transform(SetExecMode("rtlsim"))
+    # model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+    model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynth_IPGen())
-    y = oxe.execute_onnx(model, input_dict)["outp"]
+    model = model.transform(ReplaceVerilogRelPaths())
+    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(MakePYNQProject(test_pynq_board))
+    model = model.transform(SynthPYNQProject())
+    model = model.transform(MakePYNQDriver())
+    ip = os.environ["PYNQ_IP"]
+    username = os.getenv("PYNQ_USERNAME", "xilinx")
+    password = os.getenv("PYNQ_PASSWORD", "xilinx")
+    target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
+    model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
 
-    assert (
-        y == x
-    ).all(), """The output values are not the same as the
-        input values anymore."""
-    assert y.shape == tuple(Shape), """The output shape is incorrect."""
+    # y = oxe.execute_onnx(model, input_dict)["outp"]
+
+    # assert (
+    #    y == x
+    # ).all(), """The output values are not the same as the
+    #    input values anymore."""
+    # assert y.shape == tuple(Shape), """The output shape is incorrect."""
