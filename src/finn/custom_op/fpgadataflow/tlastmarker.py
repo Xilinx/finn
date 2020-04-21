@@ -91,12 +91,22 @@ class TLastMarker(HLSCustomOp):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            "unsigned int n = (numIters == 0 ? NumItersPerImg : numIters);"
-            "for(unsigned int i=0; i<n; i++) {",
-            "#pragma HLS PIPELINE II=1",
+            "unsigned int n = 1;",
             "OutDType t;",
-            "t.set_data(in0.read());",
             "t.set_keep(-1);",
+            "io_section: { // start of cycle accurate region",
+            "#pragma HLS protocol fixed",
+            "// do a first read from stream before we decide on numIters",
+            "// giving software a chance to set up the numIters prior to startup",
+            "t.set_data(in0.read());",
+            "n = (numIters == 0 ? NumItersPerImg : numIters);",
+            "t.set_last(n==1);",
+            "out.write(t);",
+            "} // end of cycle accurate region",
+            "// do one less iteration than spec since we already did one",
+            "for(unsigned int i=1; i<n; i++) {",
+            "#pragma HLS PIPELINE II=1",
+            "t.set_data(in0.read());",
             "t.set_last(i==(n-1));",
             "out.write(t);",
             "}",
