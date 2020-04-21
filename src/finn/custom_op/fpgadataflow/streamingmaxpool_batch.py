@@ -37,6 +37,7 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.custom_op.im2col import compute_conv_output_dim
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
+from finn.util.basic import roundup_to_integer_multiple
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -91,14 +92,17 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def get_instream_width(self):
+    def get_instream_width(self, axi_strm_padding=False):
         dt_bits = self.get_input_datatype().bitwidth()
         ifm_ch = self.get_nodeattr("NumChannels")
-        return int(dt_bits * ifm_ch)
+        in_width = int(dt_bits * ifm_ch)
+        if axi_strm_padding is True:
+            in_width = roundup_to_integer_multiple(in_width, 8)
+        return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, axi_strm_padding=False):
         """For streaming maxpool out stream with is the same as in stream width"""
-        return self.get_instream_width()
+        return self.get_instream_width(axi_strm_padding)
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()

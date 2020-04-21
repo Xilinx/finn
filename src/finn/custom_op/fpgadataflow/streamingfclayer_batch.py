@@ -40,7 +40,10 @@ except ModuleNotFoundError:
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
-from finn.util.basic import interleave_matrix_outer_dim_from_partitions
+from finn.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+)
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -260,19 +263,28 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, axi_strm_padding=False):
         i_bits = self.get_input_datatype().bitwidth()
-        return i_bits * self.get_nodeattr("SIMD")
+        in_width = i_bits * self.get_nodeattr("SIMD")
+        if axi_strm_padding is True:
+            in_width = roundup_to_integer_multiple(in_width, 8)
+        return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, axi_strm_padding=False):
         o_bits = self.get_output_datatype().bitwidth()
-        return o_bits * self.get_nodeattr("PE")
+        out_width = o_bits * self.get_nodeattr("PE")
+        if axi_strm_padding is True:
+            out_width = roundup_to_integer_multiple(out_width, 8)
+        return out_width
 
-    def get_weightstream_width(self):
+    def get_weightstream_width(self, axi_strm_padding=False):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
         wp = self.get_weight_datatype().bitwidth()
-        return pe * simd * wp
+        w_width = pe * simd * wp
+        if axi_strm_padding is True:
+            w_width = roundup_to_integer_multiple(w_width, 8)
+        return w_width
 
     def get_ap_int_max_w(self):
         temp_value = super().get_ap_int_max_w()
@@ -981,18 +993,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$LAYER_NAME$"] = [
                 "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
             ]
-            # make instream width a multiple of 8 for axi interface
-            in_width = self.get_instream_width()
-            if in_width % 8 != 0:
-                in_width = math.floor(in_width / 8) + 8
+            in_width = self.get_instream_width(axi_strm_padding=True)
             self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
             self.code_gen_dict["$OUT_RANGE$"] = [
-                "[{}:0]".format(self.get_outstream_width() - 1)
+                "[{}:0]".format(self.get_outstream_width(axi_strm_padding=True) - 1)
             ]
-            # make weight stream width a multiple of 8 for axi interface
-            weight_width = self.get_weightstream_width()
-            if weight_width % 8 != 0:
-                weight_width = math.floor(weight_width / 8) + 8
+            weight_width = self.get_weightstream_width(axi_strm_padding=True)
             self.code_gen_dict["$WEIGHT_RANGE$"] = ["[{}:0]".format(weight_width - 1)]
             self.code_gen_dict["$WEIGHT_WIDTH$"] = [str(weight_width)]
             mw = self.get_nodeattr("MW")

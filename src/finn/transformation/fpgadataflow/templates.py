@@ -85,6 +85,7 @@ pynq_driver_template = """
 from pynq import Overlay
 import numpy as np
 from pynq import allocate
+import time
 from finn.util.data_packing import (
     finnpy_to_packed_bytearray,
     packed_bytearray_to_finnpy
@@ -129,11 +130,20 @@ np.copyto(ibuf_packed_device, ibuf_packed)
 # allocate a PYNQ buffer for the returned packed output buffer
 obuf_packed = allocate(shape=oshape_packed, dtype=np.uint8)
 
+# measure runtime of network
+start = time.time()
+
 # set up the DMA and wait until all transfers complete
 dma.sendchannel.transfer(ibuf_packed_device)
 dma.recvchannel.transfer(obuf_packed)
 dma.sendchannel.wait()
 dma.recvchannel.wait()
+
+end = time.time()
+runtime = end - start
+file = open("nw_runtime.txt", "w")
+file.write(str(runtime))
+file.close()
 
 # unpack the packed output buffer from accelerator
 obuf_folded = packed_bytearray_to_finnpy(
