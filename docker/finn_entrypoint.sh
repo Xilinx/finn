@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 export XILINX_VIVADO=$VIVADO_PATH
 export SHELL=/bin/bash
