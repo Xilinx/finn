@@ -8,7 +8,7 @@ pipeline {
         DOCKER_TAG='finn_ci:$BUILD_ID'
         DOCKER_INST_NAME='finn_ci_$BUILD_ID'
         BUILD_PATH='/tmp/finn_ci_$BUILD_ID'
-        DOCKER_CMD="python setup.py test --addopts '-k test_compilation_trafo'"
+        DOCKER_CMD="python setup.py test"
     }
     stages {
         stage("Clone") {
