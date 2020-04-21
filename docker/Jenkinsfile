@@ -1,16 +1,15 @@
 pipeline {
     agent any
     parameters {
-        string(name: 'FINN_CI_BRANCH', defaultValue: 'feature/docker_reorg', description: '')
+        string(name: 'FINN_CI_BRANCH', defaultValue: '', description: 'FINN branch to build')
+        string(name: 'VIVADO_PATH', defaultValue: '', description: 'Path to Vivado installation')
     }
     environment {
-        FINN_CI_BRANCH='feature/docker_reorg'
-        VIVADO_PATH='/opt/Xilinx/Vivado/2019.1'
         DOCKER_TAG='finn_ci:$BUILD_ID'
         DOCKER_INST_NAME='finn_ci_$BUILD_ID'
         BUILD_PATH='/tmp/finn_ci_$BUILD_ID'
         VIVADO_IP_CACHE='$BUILD_PATH/vivado_ip_cache'
-        DOCKER_CMD="source /root/.bashrc; python setup.py test --addopts '-k test_compilation_trafo'"
+        DOCKER_CMD="python setup.py test --addopts '-k test_compilation_trafo'"
     }
     stages {
         stage("Clone") {
@@ -21,10 +20,10 @@ pipeline {
       stage('Build') {
             steps {
                 sh """
-                docker build --no-cache -t $DOCKER_TAG -f docker/Dockerfile.finn_ci \
+                docker build -t $DOCKER_TAG -f docker/Dockerfile.finn_ci \
                 --build-arg BUILD_PATH=$BUILD_PATH \
-                --build-arg FINN_CI_BRANCH=$FINN_CI_BRANCH \
-                --build-arg VIVADO_PATH=$VIVADO_PATH \
+                --build-arg FINN_CI_BRANCH=${params.FINN_CI_BRANCH} \
+                --build-arg VIVADO_PATH=${params.VIVADO_PATH} \
                 docker/
                 """
             }
@@ -34,12 +33,9 @@ pipeline {
                 sh """
                 docker run --name $DOCKER_INST_NAME \
                 --hostname $DOCKER_INST_NAME \
-                -e "XILINX_VIVADO=$VIVADO_PATH" \
-                -e "SHELL=/bin/bash" \
-                -v $VIVADO_PATH:$VIVADO_PATH:ro \
-                -e VIVADO_PATH=$VIVADO_PATH \
+                -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
+                -e VIVADO_PATH=${params.VIVADO_PATH} \
                 -e FINN_INST_NAME=$DOCKER_INST_NAME \
-                -e FINN_ROOT="/workspace/finn" \
                 -e VIVADO_IP_CACHE="$VIVADO_IP_CACHE" \
                 $DOCKER_TAG bash -c "$DOCKER_CMD"
                 """

@@ -83,3 +83,6 @@ MANIFEST
 /finn-hlslib/
 /pyverilator/
 /PYNQ-HelloWorld/
+
+# Jenkins cfg dir
+/docker/jenkins_home

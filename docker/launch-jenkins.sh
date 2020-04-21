@@ -1,8 +1,9 @@
 #!/bin/bash
 
-JENKINS_USER ?= jenkins
-JENKINS_PORT ?= 8080
-JENKINS_HOME ?= $(pwd)/jenkins_home
+: ${JUPYTER_PORT=8888}
+: ${JENKINS_USER=jenkins}
+: ${JENKINS_PORT=8080}
+: ${JENKINS_HOME=$(pwd)/jenkins_home}
 
 mkdir -p $JENKINS_HOME
 
