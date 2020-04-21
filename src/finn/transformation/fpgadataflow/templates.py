@@ -35,6 +35,7 @@ variable config_ip_bytes_out
 variable config_ip_axis_name_in
 variable config_ip_axis_name_out
 variable config_ip_use_axilite
+variable config_ip_axilite_name
 variable config_ip_project_dir
 variable config_output_products_dir
 variable config_remote_cache
@@ -67,7 +68,9 @@ set config_ip_clk_name %s
 # the name of the active-low reset signal
 set config_ip_nrst_name %s
 # whether the IP needs an AXI Lite interface for control
-set config_ip_use_axilite 0
+set config_ip_use_axilite 1
+# name of AXI Lite interface
+set config_ip_axilite_name %s
 # Vivado OOC IP cache
 set config_remote_cache "%s"
 """

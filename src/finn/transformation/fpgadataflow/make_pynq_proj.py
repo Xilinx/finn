@@ -108,6 +108,7 @@ class MakePYNQProject(Transformation):
         out_if_name = "out_r_0"
         clk_name = "ap_clk_0"
         nrst_name = "ap_rst_n_0"
+        axi_lite_if_name = "s_axi_control_0"
         vivado_ip_cache = os.getenv("VIVADO_IP_CACHE", default="")
 
         # create a temporary folder for the project
@@ -129,6 +130,7 @@ class MakePYNQProject(Transformation):
             out_if_name,
             clk_name,
             nrst_name,
+            axi_lite_if_name,
             vivado_ip_cache,
         )
 
