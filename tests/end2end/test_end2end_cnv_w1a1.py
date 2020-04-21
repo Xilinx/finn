@@ -112,8 +112,8 @@ def test_end2end_cnv_w1a1_streamline():
 
 def test_end2end_cnv_w1a1_convert_to_hls_layers():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_streamlined.onnx")
-    model = model.transform(to_hls.InferBinaryStreamingFCLayer())
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
+    model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
+    model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
     model = model.transform(MoveReshape())
