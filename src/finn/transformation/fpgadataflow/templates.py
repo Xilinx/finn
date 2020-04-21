@@ -98,6 +98,13 @@ from finn.core.datatype import DataType
 bitfile_path = "resizer.bit"
 ol = Overlay(bitfile_path)
 dma=ol.axi_dma_0
+ctrl_regs=ol.resize_accel_0
+# AXI lite register offset for number of iterations
+# used by TLastMarker to signal end of transmission for AXI CDMA
+REG_OFFSET_NUM_ITERS = 0x10
+
+# number of samples for inference
+N = 1
 
 # declare input/output types and shapes for the accelerator
 # input FINN DataType
@@ -112,6 +119,9 @@ odt = $OUTPUT_FINN_DATATYPE$
 oshape_normal = $OUTPUT_SHAPE_NORMAL$
 oshape_folded = $OUTPUT_SHAPE_FOLDED$
 oshape_packed = $OUTPUT_SHAPE_PACKED$
+
+# set up TLastMarker with correct num. samples
+ctrl_regs.write(REG_OFFSET_NUM_ITERS, N)
 
 # load desired input .npy file
 ibuf_normal = np.load("input.npy")
