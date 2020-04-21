@@ -71,8 +71,8 @@ RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
 RUN git -C /workspace/pyverilator checkout 307fc5c82db748620836307a2002fdc9fe170226
 
 # PYNQ-HelloWorld
-RUN git clone --branch feature/synth_rpt https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
-RUN git -C /workspace/PYNQ-HelloWorld checkout db7e418767ce2a8e08fe732ddb3aa56ee79b7560
+RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
+RUN git -C /workspace/PYNQ-HelloWorld checkout 8c46ceb0cfaa7d6756e9b6ef2d337202ae27ea7c
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
