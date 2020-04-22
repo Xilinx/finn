@@ -39,13 +39,14 @@ class HLSSynth_IPGen(NodeLocalTransformation):
 
     This transformation calls Vivado HLS for synthesis, so it will run for
     some time (several minutes)
-    
-    * NUM_DEFAULT_WORKERS (int or None) number of parallel workers. Default is 1. None: Use all available cores.
+
+    * num_workers (int or None) number of parallel workers, see documentation in
+      NodeLocalTransformation for more details.
     """
 
-    def __init__(self, NUM_DEFAULT_WORKERS=1):
-        super().__init__(NUM_DEFAULT_WORKERS=NUM_DEFAULT_WORKERS)
-    
+    def __init__(self, num_workers=None):
+        super().__init__(num_workers=num_workers)
+
     def applyNodeLocal(self, node):
         op_type = node.op_type
         if node.domain == "finn":
@@ -76,5 +77,5 @@ class HLSSynth_IPGen(NodeLocalTransformation):
                     raise Exception(
                         "Custom op_type %s is currently not supported." % op_type
                     )
-        
+
         return (node, False)
