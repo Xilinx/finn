@@ -44,6 +44,17 @@ pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
 
 
+def get_num_default_workers():
+    """Return the number of workers for parallel transformations. Controllable
+    via the NUM_DEFAULT_WORKERS environment variable. If the env.var. is
+    undefined, the default value of 1 is returned.
+    """
+
+    try:
+        return int(os.environ["NUM_DEFAULT_WORKERS"])
+    except KeyError:
+        return 1
+
 
 def get_finn_root():
     "Return the root directory that FINN is cloned into."
