@@ -95,6 +95,43 @@ from finn.util.data_packing import (
 )
 from finn.core.datatype import DataType
 
+def load_input(N):
+    ishape_normal = $INPUT_SHAPE_NORMAL$
+    # load desired input .npy file
+    ibuf_normal = np.load("input.npy")
+    # ensure that shape is as expected
+    assert ibuf_normal.shape == ishape_normal
+    return ibuf_normal
+
+def pack_input(ibuf_normal, N):
+    # input FINN DataType
+    idt = $INPUT_FINN_DATATYPE$
+    ishape_folded = $INPUT_SHAPE_FOLDED$
+    # convert to folded form
+    ibuf_folded = ibuf_normal.reshape(ishape_folded)
+    # pack the input buffer, reversing both SIMD dim and endianness
+    ibuf_packed = finnpy_to_packed_bytearray(
+        ibuf_folded, idt, reverse_endian=True, reverse_inner=True
+    )
+    return ibuf_packed
+
+def unpack_output(obuf_packed, N):
+    # output FINN DataType
+    odt = $OUTPUT_FINN_DATATYPE$
+    oshape_folded = $OUTPUT_SHAPE_FOLDED$
+    # unpack the packed output buffer from accelerator
+    obuf_folded = packed_bytearray_to_finnpy(
+        obuf_packed, odt, oshape_folded, reverse_endian=True, reverse_inner=True
+    )
+    return obuf_folded
+
+def save_output(obuf_folded, N):
+    # convert to normal reshape and save
+    oshape_normal = $OUTPUT_SHAPE_NORMAL$
+    obuf_normal = obuf_folded.reshape(oshape_normal)
+    np.save("output.npy", obuf_normal)
+
+
 bitfile_path = "resizer.bit"
 ol = Overlay(bitfile_path)
 dma=ol.axi_dma_0
@@ -107,33 +144,13 @@ REG_OFFSET_NUM_ITERS = 0x10
 N = 1
 
 # declare input/output types and shapes for the accelerator
-# input FINN DataType
-idt = $INPUT_FINN_DATATYPE$
-# normal, folded and packed input shapes
-ishape_normal = $INPUT_SHAPE_NORMAL$
-ishape_folded = $INPUT_SHAPE_FOLDED$
 ishape_packed = $INPUT_SHAPE_PACKED$
-# output FINN DataType
-odt = $OUTPUT_FINN_DATATYPE$
-# normal, folded and packed output shapes
-oshape_normal = $OUTPUT_SHAPE_NORMAL$
-oshape_folded = $OUTPUT_SHAPE_FOLDED$
 oshape_packed = $OUTPUT_SHAPE_PACKED$
 
 # set up TLastMarker with correct num. samples
 ctrl_regs.write(REG_OFFSET_NUM_ITERS, N)
 
-# load desired input .npy file
-ibuf_normal = np.load("input.npy")
-# ensure that shape is as expected
-assert ibuf_normal.shape == ishape_normal
-# convert to folded form
-ibuf_folded = ibuf_normal.reshape(ishape_folded)
 
-# pack the input buffer, reversing both SIMD dim and endianness
-ibuf_packed = finnpy_to_packed_bytearray(
-    ibuf_folded, idt, reverse_endian=True, reverse_inner=True
-)
 # allocate a PYNQ buffer for the packed input buffer
 ibuf_packed_device = allocate(shape=ishape_packed, dtype=np.uint8)
 # copy the packed data into the PYNQ buffer
@@ -158,11 +175,4 @@ file = open("nw_runtime.txt", "w")
 file.write(str(runtime))
 file.close()
 
-# unpack the packed output buffer from accelerator
-obuf_folded = packed_bytearray_to_finnpy(
-    obuf_packed, odt, oshape_folded, reverse_endian=True, reverse_inner=True
-)
-# convert to normal reshape and save
-obuf_normal = obuf_folded.reshape(oshape_normal)
-np.save("output.npy", obuf_normal)
 """
