@@ -533,20 +533,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 with open("{}/memblock_{}.dat".format(code_gen_dir, j), "a+") as f:
                     f.write(val + "\n")
                 i += 1
-	    #assert (
-            #    weight_stream_len <= 1024
-            #), """Decoupled mem mode needs
-            #weight stream length <= 1024 for now"""
-            # add zeroes to pad out file to 1024 entries
-            #weight_stream = weight_tensor_unflipped.flatten()
-            #pad_amt = 1024 - weight_stream_len
-            #weight_stream = np.pad(
-            #    weight_stream, (0, pad_amt), mode="constant", constant_values="0"
-            #)
-            #weight_stream = weight_stream.copy()
-            #with open("{}/memblock_0.dat".format(code_gen_dir), "w+") as f:
-            #    for val in weight_stream:
-            #        f.write(val + "\n")
 
         else:
             raise Exception(
@@ -1019,7 +1005,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             mh = self.get_nodeattr("MH")
             depth = int(mw * mh)
             self.code_gen_dict["$WEIGHT_DEPTH$"] = [str(depth)]
-            self.code_gen_dict["$MEM_DEPTH$"] = [str(roundup_to_integer_multiple(depth, 1024))]
+            self.code_gen_dict["$MEM_DEPTH$"] = [
+                str(roundup_to_integer_multiple(depth, 1024))
+            ]
 
             template = self.decoupled_wrapper
 
@@ -1060,8 +1048,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             for file in os.listdir(code_gen_dir):
                 if file.endswith(".dat"):
                     dat_file = os.path.join(code_gen_dir, file)
-                    copy(dat_file, verilog_folder) 
-	    # copy verilog wrapper
+                    copy(dat_file, verilog_folder)
+            # copy verilog wrapper
             verilog_wrapper = "{}/{}_memstream.v".format(
                 code_gen_dir, self.onnx_node.name
             )
