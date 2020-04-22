@@ -183,7 +183,7 @@ memstream
 // memory, set per-stream offsets in memory, set per-stream widths
 .CONFIG_EN(1),
 .NSTREAMS(1),
-.MEM_DEPTH(1024),
+.MEM_DEPTH($MEM_DEPTH$),
 .MEM_WIDTH($WEIGHT_WIDTH$),
 .MEM_INIT("./"),
 
