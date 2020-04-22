@@ -37,7 +37,7 @@ module ramb18_wf_dualport
 )
 (
 	input clk,
-	
+
 	input wea,
 	input [AWIDTH-1:0] addra,
 	input [DWIDTH-1:0] wdataa,
@@ -53,7 +53,7 @@ module ramb18_wf_dualport
 reg [DWIDTH-1:0] rdataa;
 reg [DWIDTH-1:0] rdatab;
 
-reg [7:0] idx = ID;
+reg [15:0] idx;
 //initialize memory
 initial begin
     //note the hacky way of adding a filename memblock_ID.dat to the path provided in MEM_INIT
@@ -63,10 +63,11 @@ initial begin
 	    $finish();
     end
 	//MEM_INIT path must be terminated by /
-	if (ID < 10)
-		$readmemh({MEM_INIT,"memblock_",idx+8'd48,".dat"}, mem, 0, 1023);
+	$sformat(idx,"%0d",ID);
+        if (ID < 10)
+		$readmemh({MEM_INIT,"memblock_",idx[7:0],".dat"}, mem, 0, 1023);
 	else
-		$readmemh({MEM_INIT,"memblock_",(idx/10)+8'd48,(idx%10)+8'd48,".dat"}, mem, 0, 1023);
+		$readmemh({MEM_INIT,"memblock_",idx,".dat"}, mem, 0, 1023);
 end
 
 //memory ports, with output pipeline register
