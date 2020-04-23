@@ -60,7 +60,7 @@ def throughput_test(model):
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
 
-    cmd = "sshpass -p {} scp -P{} {}@{}:{}/{}/nw_runtime.txt {}".format(
+    cmd = "sshpass -p {} scp -P{} {}@{}:{}/{}/nw_metrics.txt {}".format(
         pynq_password,
         pynq_port,
         pynq_username,
@@ -73,6 +73,7 @@ def throughput_test(model):
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
 
-    file = open("{}/nw_runtime.txt".format(deployment_dir), "r")
-    res = file.read()
+    with open("{}/nw_metrics.txt".format(deployment_dir), "r") as file:
+        res = eval(file.read())
+
     return res
