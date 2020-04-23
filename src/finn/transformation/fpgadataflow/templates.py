@@ -151,6 +151,7 @@ if __name__ == "__main__":
     if exec_mode == "remote_pynq":
         N = 1
     elif exec_mode == "throughput_test":
+        res={}
         N = 1000
     else:
         raise Exception("Exec mode has to be set to remote_pynq or throughput_test")
@@ -191,8 +192,10 @@ if __name__ == "__main__":
     if exec_mode == "throughput_test":
         end = time.time()
         runtime = end - start
-        file = open("nw_runtime.txt", "w")
-        file.write(str(runtime))
+        res["runtime[ms]"] = runtime*1000
+        res["throughput[images/s]"] = N / runtime
+        file = open("nw_metrics.txt", "w")
+        file.write(str(res))
         file.close()
 
     else:
