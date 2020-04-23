@@ -85,6 +85,8 @@ cd %s
 """
 
 pynq_driver_template = """
+import argparse
+
 from pynq import Overlay
 import numpy as np
 from pynq import allocate
@@ -131,48 +133,70 @@ def save_output(obuf_folded, N):
     obuf_normal = obuf_folded.reshape(oshape_normal)
     np.save("output.npy", obuf_normal)
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Please select functional verification ("remote_pynq") or throughput test ("throughput_test")')
+    parser.add_argument('exec_mode', help='metadata prop exec_mode as string')
+    args = parser.parse_args()
+    exec_mode = args.exec_mode
 
-bitfile_path = "resizer.bit"
-ol = Overlay(bitfile_path)
-dma=ol.axi_dma_0
-ctrl_regs=ol.resize_accel_0
-# AXI lite register offset for number of iterations
-# used by TLastMarker to signal end of transmission for AXI CDMA
-REG_OFFSET_NUM_ITERS = 0x10
+    bitfile_path = "resizer.bit"
+    ol = Overlay(bitfile_path)
+    dma=ol.axi_dma_0
+    ctrl_regs=ol.resize_accel_0
+    # AXI lite register offset for number of iterations
+    # used by TLastMarker to signal end of transmission for AXI CDMA
+    REG_OFFSET_NUM_ITERS = 0x10
 
-# number of samples for inference
-N = 1
+    # number of samples for inference
+    if exec_mode == "remote_pynq":
+        N = 1
+    elif exec_mode == "throughput_test":
+        N = 1000
+    else:
+        raise Exception("Exec mode has to be set to remote_pynq or throughput_test")
 
-# declare input/output types and shapes for the accelerator
-ishape_packed = $INPUT_SHAPE_PACKED$
-oshape_packed = $OUTPUT_SHAPE_PACKED$
+    # declare input/output types and shapes for the accelerator
+    ishape_packed = $INPUT_SHAPE_PACKED$
+    oshape_packed = $OUTPUT_SHAPE_PACKED$
+    
+    if exec_mode == "remote_pynq":
+        ibuf_normal = load_input(N)
+        ibuf_packed = pack_input(ibuf_normal, N)
+    elif exec_mode == "throughput_test":
+        ibuf_packed = np.asarray(np.random.uniform(low=0, high=1, size=tuple(ishape_packed)), dtype=np.uint8)
 
-# set up TLastMarker with correct num. samples
-ctrl_regs.write(REG_OFFSET_NUM_ITERS, N)
+    # set up TLastMarker with correct num. samples
+    ctrl_regs.write(REG_OFFSET_NUM_ITERS, N)
+
+    # allocate a PYNQ buffer for the packed input buffer
+    ibuf_packed_device = allocate(shape=ishape_packed, dtype=np.uint8)
+    # copy the packed data into the PYNQ buffer
+    # TODO optimization: pack directly into the PYNQ buffer?
+    np.copyto(ibuf_packed_device, ibuf_packed)
+
+    # allocate a PYNQ buffer for the returned packed output buffer
+    obuf_packed = allocate(shape=oshape_packed, dtype=np.uint8)
+
+    if exec_mode == "throughput_test":
+        # measure runtime of network
+        start = time.time()
+
+    # set up the DMA and wait until all transfers complete
+    dma.sendchannel.transfer(ibuf_packed_device)
+    dma.recvchannel.transfer(obuf_packed)
+    dma.sendchannel.wait()
+    dma.recvchannel.wait()
 
 
-# allocate a PYNQ buffer for the packed input buffer
-ibuf_packed_device = allocate(shape=ishape_packed, dtype=np.uint8)
-# copy the packed data into the PYNQ buffer
-# TODO optimization: pack directly into the PYNQ buffer?
-np.copyto(ibuf_packed_device, ibuf_packed)
+    if exec_mode == "throughput_test":
+        end = time.time()
+        runtime = end - start
+        file = open("nw_runtime.txt", "w")
+        file.write(str(runtime))
+        file.close()
 
-# allocate a PYNQ buffer for the returned packed output buffer
-obuf_packed = allocate(shape=oshape_packed, dtype=np.uint8)
-
-# measure runtime of network
-start = time.time()
-
-# set up the DMA and wait until all transfers complete
-dma.sendchannel.transfer(ibuf_packed_device)
-dma.recvchannel.transfer(obuf_packed)
-dma.sendchannel.wait()
-dma.recvchannel.wait()
-
-end = time.time()
-runtime = end - start
-file = open("nw_runtime.txt", "w")
-file.write(str(runtime))
-file.close()
+    else:
+        obuf_folded = unpack_output(obuf_packed, N)
+        save_output(obuf_folded, N)
 
 """
