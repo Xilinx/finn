@@ -95,8 +95,9 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
     ip = os.environ["PYNQ_IP"]
     username = os.getenv("PYNQ_USERNAME", "xilinx")
     password = os.getenv("PYNQ_PASSWORD", "xilinx")
+    port = os.getenv("PYNQ_PORT", 22)
     target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-    model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+    model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
 
     # y = oxe.execute_onnx(model, input_dict)["outp"]
 

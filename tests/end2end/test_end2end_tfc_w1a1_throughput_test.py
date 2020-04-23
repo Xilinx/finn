@@ -279,7 +279,7 @@ def test_end2end_tfc_w1a1_deploy_on_pynq():
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
         username = os.getenv("PYNQ_USERNAME", "xilinx")
-        password = os.getenv("PYNQ_PASSWORD", "x1l1nx_f1nn")
+        password = os.getenv("PYNQ_PASSWORD", "xilinx")
         port = os.getenv("PYNQ_PORT", 22)
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
         model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
