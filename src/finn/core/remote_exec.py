@@ -63,7 +63,8 @@ def remote_exec(model, execution_context):
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
     cmd = (
-        "sshpass -p {} ssh {}@{} -p {} " '"cd {}/{}; echo "{}" | sudo -S python3.6 driver.py remote_pynq"'
+        "sshpass -p {} ssh {}@{} -p {} "
+        '"cd {}/{}; echo "{}" | sudo -S python3.6 driver.py remote_pynq"'
     ).format(
         pynq_password,
         pynq_username,

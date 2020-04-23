@@ -80,23 +80,19 @@ class DeployToPYNQ(Transformation):
         model.set_metadata_prop("exec_mode", "remote_pynq")
         # create target directory on PYNQ board
         cmd = 'sshpass -p {} ssh {}@{} -p {} "mkdir -p {}"'.format(
-            self.password, 
-            self.username, 
-            self.ip, 
-            self.port,
-            self.target_dir
+            self.password, self.username, self.ip, self.port, self.target_dir
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         # copy directory to PYNQ board using scp and sshpass
         cmd = "sshpass -p {} scp -P{} -r {} {}@{}:{}".format(
-            self.password, 
+            self.password,
             self.port,
-            deployment_dir, 
-            self.username, 
-            self.ip, 
-            self.target_dir
+            deployment_dir,
+            self.username,
+            self.ip,
+            self.target_dir,
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
