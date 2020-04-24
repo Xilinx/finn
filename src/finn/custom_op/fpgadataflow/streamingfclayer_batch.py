@@ -1006,7 +1006,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             depth = int(mw * mh)
             self.code_gen_dict["$WEIGHT_DEPTH$"] = [str(depth)]
             self.code_gen_dict["$MEM_DEPTH$"] = [
-                str(roundup_to_integer_multiple(depth, 1024))
+                str(roundup_to_integer_multiple(self.calc_wmem(), 1024))
             ]
 
             template = self.decoupled_wrapper
