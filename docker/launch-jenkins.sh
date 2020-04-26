@@ -2,11 +2,11 @@
 
 # defaults, can be overriden by environment variables
 # user to run Jenkins as -- see NOTE below regarding Docker access permissions
-JENKINS_USER ?= jenkins
+: ${JENKINS_USER=jenkins}
 # port for Jenkins on host machine
-JENKINS_PORT ?= 8080
+: ${JENKINS_PORT=8080}
 # make Jenkins config persistent by mounting into this folder
-JENKINS_HOME ?= $(pwd)/jenkins_home
+: ${JENKINS_HOME=$(pwd)/jenkins_home}
 
 mkdir -p $JENKINS_HOME
 
