@@ -63,16 +63,6 @@ class PrepareRTLSim(NodeLocalTransformation):
                     try:
                         # lookup op_type in registry of CustomOps
                         inst = registry.custom_op[op_type](node)
-                        # ensure that code is generated
-                        assert (
-                            inst.get_nodeattr("code_gen_dir_ipgen") != ""
-                        ), """Node
-                        attribute "code_gen_dir_ipgen" is not set. Please run
-                        HLSSynth_IPGen first."""
-                        if PyVerilator is None:
-                            raise ImportError(
-                                "Installation of PyVerilator is required."
-                            )
                         inst.prepare_rtlsim()
                         # ensure that executable path is now set
                         assert (
