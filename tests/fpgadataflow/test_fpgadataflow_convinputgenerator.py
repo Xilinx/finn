@@ -38,6 +38,7 @@ from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor
 
@@ -152,6 +153,7 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
         model = model.transform(HLSSynth_IPGen())
+        model = model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow")
 

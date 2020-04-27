@@ -62,9 +62,15 @@ def remote_exec(model, execution_context):
     process_compile.communicate()
 
     cmd = (
-        "sshpass -p {} ssh {}@{} "
-        '"cd {}/{}; echo "xilinx" | sudo -S python3.6 driver.py"'
-    ).format(pynq_password, pynq_username, pynq_ip, pynq_target_dir, deployment_folder)
+        "sshpass -p {} ssh {}@{} " '"cd {}/{}; echo "{}" | sudo -S python3.6 driver.py"'
+    ).format(
+        pynq_password,
+        pynq_username,
+        pynq_ip,
+        pynq_target_dir,
+        deployment_folder,
+        pynq_password,
+    )
     bash_command = ["/bin/bash", "-c", cmd]
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
