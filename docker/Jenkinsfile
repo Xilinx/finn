@@ -9,12 +9,12 @@ pipeline {
         string(name: 'PYNQ_PASSWORD', defaultValue: 'xilinx', description: 'PYNQ board password')
         string(name: 'PYNQ_TARGET_DIR', defaultValue: '/home/xilinx/finn', description: 'PYNQ board target deployment directory')
         string(name: 'NUM_DEFAULT_WORKERS', defaultValue: '1', description: 'Number of cores for parallel transformations')
+        string(name: 'DOCKER_CMD', defaultValue: """python setup.py test""", description: 'Command to run')
     }
     environment {
         DOCKER_TAG='finn_ci:$BUILD_ID'
         DOCKER_INST_NAME='finn_ci_$BUILD_ID'
         BUILD_PATH='/tmp/finn_ci_$BUILD_ID'
-        DOCKER_CMD="python setup.py test"
     }
     stages {
         stage("Clone") {
@@ -46,7 +46,7 @@ pipeline {
                 -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
                 -e PYNQ_PASSWORD=${params.PYNQ_PASSWORD} \
                 -e PYNQ_TARGET_DIR=${params.PYNQ_TARGET_DIR} \
-                $DOCKER_TAG bash -c "$DOCKER_CMD"
+                $DOCKER_TAG ${params.DOCKER_CMD}
                 """
             }
         }
