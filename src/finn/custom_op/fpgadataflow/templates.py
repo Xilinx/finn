@@ -137,7 +137,7 @@ reg [31:0] config_d0 = 0;
 wire [31:0] config_q0;
 
 //multiple wire AXI Streams
-reg m_axis_0_afull;
+wire m_axis_0_afull;
 // FIFO count to generate programmable full
 wire [5:0] fifo_0_count;
 wire m_axis_0_tready;
