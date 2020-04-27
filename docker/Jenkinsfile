@@ -8,6 +8,7 @@ pipeline {
         string(name: 'PYNQ_USERNAME', defaultValue: 'xilinx', description: 'PYNQ board username')
         string(name: 'PYNQ_PASSWORD', defaultValue: 'xilinx', description: 'PYNQ board password')
         string(name: 'PYNQ_TARGET_DIR', defaultValue: '/home/xilinx/finn', description: 'PYNQ board target deployment directory')
+        string(name: 'NUM_DEFAULT_WORKERS', defaultValue: '1', description: 'Number of cores for parallel transformations')
     }
     environment {
         DOCKER_TAG='finn_ci:$BUILD_ID'
@@ -37,6 +38,7 @@ pipeline {
                 docker run --name $DOCKER_INST_NAME \
                 --hostname $DOCKER_INST_NAME \
                 -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
+                -e NUM_DEFAULT_WORKERS=${params.NUM_DEFAULT_WORKERS} \
                 -e FINN_INST_NAME=$DOCKER_INST_NAME \
                 -e VIVADO_PATH=${params.VIVADO_PATH} \
                 -e PYNQ_BOARD=${params.PYNQ_BOARD} \
