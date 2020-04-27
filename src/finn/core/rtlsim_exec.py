@@ -35,11 +35,18 @@ from finn.util.fpgadataflow import (
     pyverilate_stitched_ip,
 )
 
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
+
 
 def rtlsim_exec(model, execution_context):
     """Use PyVerilator to execute given model with stitched IP. The execution
     context contains the input values."""
 
+    if PyVerilator is None:
+        raise ImportError("Installation of PyVerilator is required.")
     # ensure stitched ip project already exists
     assert os.path.isfile(
         model.get_metadata_prop("wrapper_filename")
@@ -74,7 +81,12 @@ def rtlsim_exec(model, execution_context):
     packed_input = npy_to_rtlsim_input(i_tensor, i_dt, i_stream_w)
     num_out_values = last_node.get_number_output_values()
     # prepare pyverilator model
-    sim = pyverilate_stitched_ip(model)
+    rtlsim_so = model.get_metadata_prop("rtlsim_so")
+    if (rtlsim_so is None) or (not os.path.isfile(rtlsim_so)):
+        sim = pyverilate_stitched_ip(model)
+        model.set_metadata_prop("rtlsim_so", sim.lib._name)
+    else:
+        sim = PyVerilator(rtlsim_so)
     _reset_rtlsim(sim)
     _toggle_clk(sim)
     ret = _run_rtlsim(sim, packed_input, num_out_values, trace_file)
