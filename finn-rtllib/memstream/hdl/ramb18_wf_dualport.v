@@ -53,21 +53,33 @@ module ramb18_wf_dualport
 reg [DWIDTH-1:0] rdataa;
 reg [DWIDTH-1:0] rdatab;
 
+`ifdef SYNTHESIS
+reg [7:0] idx = ID;
+`else
 reg [15:0] idx;
+`endif
+
 //initialize memory
 initial begin
-    //note the hacky way of adding a filename memblock_ID.dat to the path provided in MEM_INIT
-	//ID can go up to 99
-	if (ID < 0 && ID > 99) begin
-	    $display("ID out of range [0-99]");
-	    $finish();
-    end
+  //note the hacky way of adding a filename memblock_ID.dat to the path provided in MEM_INIT
+  //ID can go up to 99
+  if (ID < 0 && ID > 99) begin
+    $display("ID out of range [0-99]");
+    $finish();
+  end
 	//MEM_INIT path must be terminated by /
-	$sformat(idx,"%0d",ID);
-        if (ID < 10)
-		$readmemh({MEM_INIT,"memblock_",idx[7:0],".dat"}, mem, 0, 1023);
-	else
-		$readmemh({MEM_INIT,"memblock_",idx,".dat"}, mem, 0, 1023);
+  `ifdef SYNTHESIS
+  if (ID < 10)
+    $readmemh({MEM_INIT,"memblock_",idx+8'd48,".dat"}, mem, 0, 1023);
+  else
+    $readmemh({MEM_INIT,"memblock_",(idx/10)+8'd48,(idx%10)+8'd48,".dat"}, mem, 0, 1023);
+  `else
+  $sformat(idx,"%0d",ID);
+  if (ID < 10)
+    $readmemh({MEM_INIT,"memblock_",idx[7:0],".dat"}, mem, 0, 1023);
+  else
+    $readmemh({MEM_INIT,"memblock_",idx,".dat"}, mem, 0, 1023);
+  `endif
 end
 
 //memory ports, with output pipeline register
