@@ -307,6 +307,7 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
 
+
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["decoupled"])
 # activation: None or DataType
@@ -323,7 +324,9 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
-def test_fpgadataflow_fclayer_large_depth_decoupled_mode(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
+    mem_mode, idt, wdt, act, nf, sf, mw, mh
+):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -388,6 +391,8 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode(mem_mode, idt, wdt, act
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
+    model = model.transform(ReplaceVerilogRelPaths())
+    model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
