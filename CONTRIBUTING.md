@@ -1,4 +1,4 @@
-We welcome contributions to FINN. Please first sign our CLA.
+We welcome contributions to FINN.
 
 Please follow the steps below and be sure that your contribution complies with our guidelines.
 
@@ -16,13 +16,13 @@ Please follow the steps below and be sure that your contribution complies with o
 	1. Fork this repository to your own GitHub account using the *fork* button above.
 
 	2. Clone the fork to your local computer using *git clone*. Checkout the branch you want to work on.
-	
+
 	3. Please install <a href="https://pre-commit.com/" target="_blank">pre-commit</a> to ensure your code is formatted to our style guidelines. The hooks we use for pre-commit can be found in <a href="https://github.com/Xilinx/finn/blob/master/.pre-commit-config.yaml" target="_blank">this file</a>
 
 	4. Modify the Python source code, Jupyter notebooks and Sphinx documentation etc. as needed.
 
-	5. Use *git add*, *git commit*, *git push* to add changes to your fork. 
-	
+	5. Use *git add*, *git commit*, *git push* to add changes to your fork.
+
 	6. If you are introducing new functionality, add at least one unit test under the `test/` folder and make sure it passes before you submit the pull request.
 
 	7. Submit a pull request by clicking the *pull request* button on your GitHub repo:
