@@ -77,7 +77,7 @@ build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 5
-mem_mode = "const"
+mem_mode = "decoupled"
 
 
 def test_end2end_tfc_w1a1_export():
