@@ -44,10 +44,10 @@ DOCKER_PASSWD="finn"
 # generate a random number per-run to allow multiple
 # containers from the same user
 DOCKER_RND=$(shuf -i0-32768 -n1)
-DOCKER_TAG="finn_${DOCKER_UNAME}"
+DOCKER_TAG="finn_dev_${DOCKER_UNAME}"
 # uncomment to run multiple instances with different names
 # DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
-DOCKER_INST_NAME="finn_${DOCKER_UNAME}"
+DOCKER_INST_NAME="finn_dev_${DOCKER_UNAME}"
 # ensure Docker tag and inst. name are all lowercase
 DOCKER_TAG=$(echo "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')
 DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
@@ -59,6 +59,7 @@ DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
 : ${PYNQ_PASSWORD="xilinx"}
 : ${PYNQ_BOARD="Pynq-Z1"}
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
+: ${NUM_DEFAULT_WORKERS=1}
 
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -83,17 +84,17 @@ echo "Using default PYNQ board $PYNQ_BOARD"
 
 if [ "$1" = "test" ]; then
         echo "Running test suite"
-        DOCKER_CMD="source ~/.bashrc; python setup.py test"
+        DOCKER_CMD="python setup.py test"
 elif [ "$1" = "notebook" ]; then
         echo "Running Jupyter notebook server"
-        DOCKER_CMD="source ~/.bashrc; jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
+        DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
 else
         echo "Running container only"
         DOCKER_CMD="bash"
 fi
 
 # Build the FINN Docker image
-docker build --tag=$DOCKER_TAG \
+docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg GID=$DOCKER_GID \
              --build-arg GNAME=$DOCKER_GNAME \
              --build-arg UNAME=$DOCKER_UNAME \
@@ -119,6 +120,7 @@ docker run -t --rm --name $DOCKER_INST_NAME -it \
 -e PYNQ_USERNAME=$PYNQ_USERNAME \
 -e PYNQ_PASSWORD=$PYNQ_PASSWORD \
 -e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR \
+-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS \
 -p $JUPYTER_PORT:$JUPYTER_PORT \
 -p $NETRON_PORT:$NETRON_PORT \
-$DOCKER_TAG bash -c "$DOCKER_CMD"
+$DOCKER_TAG $DOCKER_CMD

@@ -33,10 +33,6 @@ from shutil import copy
 
 import numpy as np
 
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -99,6 +95,23 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_verilog_top_module_name(self):
+        "Return the Verilog top module name for this node."
+
+        node = self.onnx_node
+        # set top name depending on mem_mode
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "const":
+            prefixed_top_name = "%s_%s" % (node.name, node.name)
+        elif mem_mode == "decoupled":
+            prefixed_top_name = "%s_memstream" % (node.name)
+        else:
+            raise Exception(
+                """Please set mem_mode to "const" or "decoupled", currently no other
+                parameter value is supported!"""
+            )
+        return prefixed_top_name
 
     def calc_wmem(self):
         """Calculates and returns WMEM."""
@@ -652,61 +665,28 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             oshape = self.get_normal_output_shape()
             context[node.output[0]] = context[node.output[0]].reshape(*oshape)
         elif mode == "rtlsim":
-            if PyVerilator is None:
-                raise ImportError("Installation of PyVerilator is required.")
-
-            # set top name depending on mem_mode
-            mem_mode = self.get_nodeattr("mem_mode")
-            if mem_mode == "const":
-                prefixed_top_name = "%s_%s" % (node.name, node.name)
-            elif mem_mode == "decoupled":
-                prefixed_top_name = "%s_memstream" % (node.name)
-            else:
-                raise Exception(
-                    """Please set mem_mode to "const" or "decoupled", currently no other
-                    parameter value is supported!"""
-                )
-            # check if needed file exists
-            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, prefixed_top_name
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            inp = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            if os.path.isfile(verilog_file):
-                nbits = self.get_instream_width()
-                inp = npy_to_rtlsim_input(
-                    "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-                )
-                sim = PyVerilator.build(
-                    verilog_file,
-                    verilog_path=[
-                        "{}/project_{}/sol1/impl/verilog/".format(
-                            code_gen_dir, node.name
-                        )
-                    ],
-                )
-                super().reset_rtlsim(sim)
-                super().toggle_clk(sim)
-                output = self.rtlsim(sim, inp)
-                odt = self.get_output_datatype()
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(
-                    output, out_npy_path, odt, out_shape, packed_bits, target_bits
-                )
+            super().reset_rtlsim(sim)
+            super().toggle_clk(sim)
+            output = self.rtlsim(sim, inp)
+            odt = self.get_output_datatype()
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(
+                output, out_npy_path, odt, out_shape, packed_bits, target_bits
+            )
 
-                # load and reshape output
-                output = np.load(out_npy_path)
-                oshape = self.get_normal_output_shape()
-                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-                context[node.output[0]] = output
-
-            else:
-                raise Exception(
-                    """Found no verilog files for this node,
-                    did you run the codegen_ipgen transformation?"""
-                )
-
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}

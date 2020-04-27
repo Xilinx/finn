@@ -30,11 +30,6 @@ import os
 
 import numpy as np
 
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
-
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.custom_op.im2col import compute_conv_output_dim
@@ -212,52 +207,26 @@ class ConvolutionInputGenerator(HLSCustomOp):
             did not produce expected ofolded utput shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
-            if PyVerilator is None:
-                raise ImportError("Installation of PyVerilator is required.")
-
-            prefixed_top_name = "%s_%s" % (node.name, node.name)
-            # check if needed file exists
-            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, prefixed_top_name
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            rtlsim_inp = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            if os.path.isfile(verilog_file):
-                nbits = self.get_instream_width()
-                rtlsim_inp = npy_to_rtlsim_input(
-                    "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-                )
-                sim = PyVerilator.build(
-                    verilog_file,
-                    verilog_path=[
-                        "{}/project_{}/sol1/impl/verilog/".format(
-                            code_gen_dir, node.name
-                        )
-                    ],
-                )
-                super().reset_rtlsim(sim)
-                super().toggle_clk(sim)
-                rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-                odt = export_idt
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(
-                    rtlsim_output,
-                    out_npy_path,
-                    odt,
-                    out_shape,
-                    packed_bits,
-                    target_bits,
-                )
-                # load and reshape output
-                output = np.load(out_npy_path)
-                output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-                context[node.output[0]] = output
-            else:
-                raise Exception(
-                    """Found no verilog files for this node,
-                    did you run the codegen_ipgen transformation?"""
-                )
+            super().reset_rtlsim(sim)
+            super().toggle_clk(sim)
+            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+            odt = export_idt
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(
+                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+            )
+            # load and reshape output
+            output = np.load(out_npy_path)
+            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}

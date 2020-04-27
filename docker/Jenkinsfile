@@ -1,0 +1,52 @@
+pipeline {
+    agent any
+    parameters {
+        string(name: 'FINN_CI_BRANCH', defaultValue: '', description: 'FINN branch to build')
+        string(name: 'VIVADO_PATH', defaultValue: '', description: 'Path to Vivado installation')
+        string(name: 'PYNQ_BOARD', defaultValue: 'Pynq-Z1', description: 'PYNQ board type')
+        string(name: 'PYNQ_IP', defaultValue: '', description: 'PYNQ board IP address')
+        string(name: 'PYNQ_USERNAME', defaultValue: 'xilinx', description: 'PYNQ board username')
+        string(name: 'PYNQ_PASSWORD', defaultValue: 'xilinx', description: 'PYNQ board password')
+        string(name: 'PYNQ_TARGET_DIR', defaultValue: '/home/xilinx/finn', description: 'PYNQ board target deployment directory')
+    }
+    environment {
+        DOCKER_TAG='finn_ci:$BUILD_ID'
+        DOCKER_INST_NAME='finn_ci_$BUILD_ID'
+        BUILD_PATH='/tmp/finn_ci_$BUILD_ID'
+        DOCKER_CMD="python setup.py test"
+    }
+    stages {
+        stage("Clone") {
+            steps {
+                git branch: "${params.FINN_CI_BRANCH}", url: 'https://github.com/Xilinx/finn.git'
+            }
+        }
+      stage('Build') {
+            steps {
+                sh """
+                docker build -t $DOCKER_TAG -f docker/Dockerfile.finn_ci \
+                --build-arg BUILD_PATH=$BUILD_PATH \
+                --build-arg FINN_CI_BRANCH=${params.FINN_CI_BRANCH} \
+                docker/
+                """
+            }
+        }
+        stage('Test') {
+            steps {
+                sh """
+                docker run --name $DOCKER_INST_NAME \
+                --hostname $DOCKER_INST_NAME \
+                -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
+                -e FINN_INST_NAME=$DOCKER_INST_NAME \
+                -e VIVADO_PATH=${params.VIVADO_PATH} \
+                -e PYNQ_BOARD=${params.PYNQ_BOARD} \
+                -e PYNQ_IP=${params.PYNQ_IP} \
+                -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
+                -e PYNQ_PASSWORD=${params.PYNQ_PASSWORD} \
+                -e PYNQ_TARGET_DIR=${params.PYNQ_TARGET_DIR} \
+                $DOCKER_TAG bash -c "$DOCKER_CMD"
+                """
+            }
+        }
+    }
+}
