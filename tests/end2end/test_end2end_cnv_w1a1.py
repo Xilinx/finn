@@ -134,33 +134,22 @@ def test_end2end_cnv_w1a1_create_dataflow_partition():
 def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    fc0w = getCustomOp(fc_layers[0])
-    fc1w = getCustomOp(fc_layers[1])
-    fc2w = getCustomOp(fc_layers[2])
-    fc3w = getCustomOp(fc_layers[3])
-    fc4w = getCustomOp(fc_layers[4])
-    fc5w = getCustomOp(fc_layers[5])
-    fc6w = getCustomOp(fc_layers[6])
-    fc7w = getCustomOp(fc_layers[7])
-    fc8w = getCustomOp(fc_layers[8])
-    fc0w.set_nodeattr("SIMD", 27)
-    fc0w.set_nodeattr("PE", 8)
-    fc1w.set_nodeattr("SIMD", 32)
-    fc1w.set_nodeattr("PE", 8)
-    fc2w.set_nodeattr("SIMD", 32)
-    fc2w.set_nodeattr("PE", 16)
-    fc3w.set_nodeattr("SIMD", 32)
-    fc3w.set_nodeattr("PE", 16)
-    fc4w.set_nodeattr("SIMD", 32)
-    fc4w.set_nodeattr("PE", 32)
-    fc5w.set_nodeattr("SIMD", 64)
-    fc5w.set_nodeattr("PE", 16)
-    fc6w.set_nodeattr("SIMD", 32)
-    fc6w.set_nodeattr("PE", 16)
-    fc7w.set_nodeattr("SIMD", 64)
-    fc7w.set_nodeattr("PE", 8)
-    fc8w.set_nodeattr("SIMD", 16)
-    fc8w.set_nodeattr("PE", 10)
+    # each tuple is (PE, SIMD) for a layer
+    folding = [
+        (16, 3),
+        (32, 32),
+        (16, 32),
+        (16, 32),
+        (4, 32),
+        (1, 32),
+        (1, 4),
+        (1, 8),
+        (5, 1),
+    ]
+    for fcl, (pe, simd) in zip(fc_layers, folding):
+        fcl_inst = getCustomOp(fcl)
+        fcl_inst.set_nodeattr("PE", pe)
+        fcl_inst.set_nodeattr("SIMD", simd)
 
     model = model.transform(InsertDWC())
     model = model.transform(InsertTLastMarker())
