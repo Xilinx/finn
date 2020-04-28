@@ -525,8 +525,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             """Saves weights into .dat file"""
             # convert weight values into hexstring
             weight_width = self.get_weightstream_width()
+            # pad to nearest 4 bits to get hex strings
+            weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
             weight_tensor_unflipped = pack_innermost_dim_as_hex_string(
-                weight_tensor_unflipped, export_wdt, weight_width, prefix=""
+                weight_tensor_unflipped, export_wdt, weight_width_padded, prefix=""
             )
             weight_stream_len = np.prod(weight_tensor_unflipped.shape)
             factor = math.ceil(weight_stream_len / 1024)
