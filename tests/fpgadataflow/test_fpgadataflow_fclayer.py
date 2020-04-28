@@ -44,7 +44,11 @@ from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -295,6 +299,100 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
+    model = model.transform(ReplaceVerilogRelPaths())
+    model = model.transform(PrepareRTLSim())
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
+
+    hls_synt_res_est = model.analysis(hls_synth_res_estimation)
+    assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
+
+
+# mem_mode: const or decoupled
+@pytest.mark.parametrize("mem_mode", ["decoupled"])
+# activation: None or DataType
+@pytest.mark.parametrize("act", [DataType.INT4])
+# weight datatype
+@pytest.mark.parametrize("wdt", [DataType.INT4])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType.INT4])
+# neuron folding, -1 is maximum possible
+@pytest.mark.parametrize("nf", [-1])
+# synapse folding, -1 is maximum possible
+@pytest.mark.parametrize("sf", [-1])
+# HLS matrix width (input features)
+@pytest.mark.parametrize("mw", [128])
+# HLS matrix height (output features)
+@pytest.mark.parametrize("mh", [128])
+def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
+    mem_mode, idt, wdt, act, nf, sf, mw, mh
+):
+    if nf == -1:
+        nf = mh
+    if sf == -1:
+        sf = mw
+    pe = mh // nf
+    simd = mw // sf
+    assert mh % pe == 0
+    assert mw % sf == 0
+    # generate weights
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    # generate input data
+    x = gen_finn_dt_tensor(idt, (1, mw))
+    if act is None:
+        # no activation, produce accumulators
+        T = None
+        tdt = None
+        if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+            odt = DataType.UINT32
+        else:
+            odt = DataType.INT32
+    else:
+        odt = act
+        (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
+        n_steps = act.get_num_possible_values() - 1
+        T = np.random.randint(min, max - 1, (mh, n_steps)).astype(np.float32)
+        # provide non-decreasing thresholds
+        T = np.sort(T, axis=1)
+        # generate thresholds for activation
+        if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+            tdt = DataType.UINT32
+            # bias thresholds to be positive
+            T = np.ceil((T + mw) / 2)
+            assert (T >= 0).all()
+        else:
+            tdt = DataType.INT32
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", mem_mode)
+
+    # prepare input data
+    input_dict = prepare_inputs(x, idt, wdt)
+    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+        # convert inputs to binary and use xnorpopcountmatmul
+        y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
+    else:
+        y = np.matmul(x, W)
+    if T is not None:
+        y = multithreshold(y, T)
+        if act == DataType.BIPOLAR:
+            # binary to bipolar
+            y = 2 * y - 1
+        else:
+            # signed offset
+            y += act.min()
+    oshape = model.get_tensor_shape("outp")
+    y_expected = y.reshape(oshape)
+    # TODO split up into several dependent tests -- need to check how this
+    # works for parametrized tests...
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+    model = model.transform(HLSSynth_IPGen())
+    model = model.transform(ReplaceVerilogRelPaths())
+    model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 

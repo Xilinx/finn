@@ -38,6 +38,11 @@ from finn.util.fpgadataflow import (
 )
 from . import templates
 
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
+
 
 class HLSCustomOp(CustomOp):
     """HLSCustomOp class all custom ops that correspond to a finn-hlslib
@@ -76,7 +81,63 @@ class HLSCustomOp(CustomOp):
             "res_estimate": ("s", False, ""),
             "res_hls": ("s", False, ""),
             "res_synth": ("s", False, ""),
+            "rtlsim_so": ("s", False, ""),
         }
+
+    def get_verilog_top_module_name(self):
+        "Return the Verilog top module name for this node."
+
+        node = self.onnx_node
+        prefixed_top_name = "%s_%s" % (node.name, node.name)
+        return prefixed_top_name
+
+    def get_verilog_top_filename(self):
+        "Return the Verilog top module filename for this node."
+
+        verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
+            self.get_nodeattr("code_gen_dir_ipgen"),
+            self.onnx_node.name,
+            self.get_verilog_top_module_name(),
+        )
+        return verilog_file
+
+    def prepare_rtlsim(self):
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+        # ensure that code is generated
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        assert (
+            code_gen_dir != ""
+        ), """Node attribute "code_gen_dir_ipgen" is
+        not set. Please run HLSSynth_IPGen first."""
+        verilog_file = self.get_verilog_top_filename()
+        assert os.path.isfile(verilog_file), "Cannot find top-level Verilog file."
+        # build the Verilator emu library
+        sim = PyVerilator.build(
+            verilog_file,
+            verilog_path=[
+                "{}/project_{}/sol1/impl/verilog/".format(
+                    code_gen_dir, self.onnx_node.name
+                )
+            ],
+        )
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", sim.lib._name)
+        return sim
+
+    def get_rtlsim(self):
+        """Return a PyVerilator wrapper for the Verilator emulation library
+        for this node."""
+
+        rtlsim_so = self.get_nodeattr("rtlsim_so")
+        assert os.path.isfile(rtlsim_so), "Cannot find rtlsim library."
+        # create PyVerilator wrapper
+        sim = PyVerilator(rtlsim_so)
+        return sim
 
     def node_res_estimation(self):
         """Returns summarized resource estimation of BRAMs and LUTs
@@ -166,6 +227,7 @@ class HLSCustomOp(CustomOp):
         self.defines("npysim")
         self.read_npy_data()
         self.strm_decl()
+        self.pragmas()
         self.docompute()
         self.dataoutstrm()
         self.save_as_npy()

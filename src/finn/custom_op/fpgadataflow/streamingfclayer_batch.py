@@ -33,10 +33,6 @@ from shutil import copy
 
 import numpy as np
 
-try:
-    from pyverilator import PyVerilator
-except ModuleNotFoundError:
-    PyVerilator = None
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -99,6 +95,23 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_verilog_top_module_name(self):
+        "Return the Verilog top module name for this node."
+
+        node = self.onnx_node
+        # set top name depending on mem_mode
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "const":
+            prefixed_top_name = "%s_%s" % (node.name, node.name)
+        elif mem_mode == "decoupled":
+            prefixed_top_name = "%s_memstream" % (node.name)
+        else:
+            raise Exception(
+                """Please set mem_mode to "const" or "decoupled", currently no other
+                parameter value is supported!"""
+            )
+        return prefixed_top_name
 
     def calc_wmem(self):
         """Calculates and returns WMEM."""
@@ -475,7 +488,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
             if export_wdt.bitwidth() != 1:
                 f_weights.write(
-                    "static FixedPointWeights<{},{},{},{}> weights = ".format(
+                    "const FixedPointWeights<{},{},{},{}> weights = ".format(
                         self.get_nodeattr("SIMD"),
                         export_wdt.get_hls_datatype_str(),
                         self.get_nodeattr("PE"),
@@ -484,7 +497,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
             else:
                 f_weights.write(
-                    "static BinaryWeights<{},{},{}> weights = ".format(
+                    "const BinaryWeights<{},{},{}> weights = ".format(
                         self.get_nodeattr("SIMD"),
                         self.get_nodeattr("PE"),
                         self.calc_wmem(),
@@ -525,20 +538,23 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 weight_tensor_unflipped, export_wdt, weight_width, prefix=""
             )
             weight_stream_len = np.prod(weight_tensor_unflipped.shape)
-            assert (
-                weight_stream_len <= 1024
-            ), """Decoupled mem mode needs
-            weight stream length <= 1024 for now"""
+            factor = math.ceil(weight_stream_len / 1024)
             # add zeroes to pad out file to 1024 entries
             weight_stream = weight_tensor_unflipped.flatten()
-            pad_amt = 1024 - weight_stream_len
+            pad_amt = (factor * 1024) - weight_stream_len
             weight_stream = np.pad(
                 weight_stream, (0, pad_amt), mode="constant", constant_values="0"
             )
             weight_stream = weight_stream.copy()
-            with open("{}/memblock_0.dat".format(code_gen_dir), "w+") as f:
-                for val in weight_stream:
+            i = 0
+            j = 0
+            for val in weight_stream:
+                if i == 1024:
+                    i = 0
+                    j += 1
+                with open("{}/memblock_{}.dat".format(code_gen_dir, j), "a+") as f:
                     f.write(val + "\n")
+                i += 1
 
         else:
             raise Exception(
@@ -652,61 +668,28 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             oshape = self.get_normal_output_shape()
             context[node.output[0]] = context[node.output[0]].reshape(*oshape)
         elif mode == "rtlsim":
-            if PyVerilator is None:
-                raise ImportError("Installation of PyVerilator is required.")
-
-            # set top name depending on mem_mode
-            mem_mode = self.get_nodeattr("mem_mode")
-            if mem_mode == "const":
-                prefixed_top_name = "%s_%s" % (node.name, node.name)
-            elif mem_mode == "decoupled":
-                prefixed_top_name = "%s_memstream" % (node.name)
-            else:
-                raise Exception(
-                    """Please set mem_mode to "const" or "decoupled", currently no other
-                    parameter value is supported!"""
-                )
-            # check if needed file exists
-            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, prefixed_top_name
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            inp = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            if os.path.isfile(verilog_file):
-                nbits = self.get_instream_width()
-                inp = npy_to_rtlsim_input(
-                    "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-                )
-                sim = PyVerilator.build(
-                    verilog_file,
-                    verilog_path=[
-                        "{}/project_{}/sol1/impl/verilog/".format(
-                            code_gen_dir, node.name
-                        )
-                    ],
-                )
-                super().reset_rtlsim(sim)
-                super().toggle_clk(sim)
-                output = self.rtlsim(sim, inp)
-                odt = self.get_output_datatype()
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(
-                    output, out_npy_path, odt, out_shape, packed_bits, target_bits
-                )
+            super().reset_rtlsim(sim)
+            super().toggle_clk(sim)
+            output = self.rtlsim(sim, inp)
+            odt = self.get_output_datatype()
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(
+                output, out_npy_path, odt, out_shape, packed_bits, target_bits
+            )
 
-                # load and reshape output
-                output = np.load(out_npy_path)
-                oshape = self.get_normal_output_shape()
-                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-                context[node.output[0]] = output
-
-            else:
-                raise Exception(
-                    """Found no verilog files for this node,
-                    did you run the codegen_ipgen transformation?"""
-                )
-
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -721,7 +704,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
-            self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
+            # self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
+            pass
         elif mem_mode == "decoupled":
             self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
         else:
@@ -755,10 +739,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$DEFINES$"].append(
                 "#define WP1 {}\n".format(wdt.bitwidth())
             )
-
-        if var == "ipgen":
-            self.code_gen_dict["$DEFINES$"].append("#define PRAGMA_SUB(x) _Pragma (#x)")
-            self.code_gen_dict["$DEFINES$"].append("#define DO_PRAGMA(x) PRAGMA_SUB(x)")
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
@@ -940,12 +920,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         )
 
         if mem_mode == "const":
+            self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
             # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
             # partition for parallel access along the PE dimension (dim 1)
             self.code_gen_dict["$PRAGMAS$"].append(
                 (
-                    "DO_PRAGMA(HLS ARRAY_PARTITION "
-                    "variable=weights.m_weights complete dim=1)"
+                    "#pragma HLS ARRAY_PARTITION variable=weights.m_weights "
+                    "complete dim=1"
                 )
             )
         elif mem_mode == "decoupled":
@@ -969,14 +950,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$PRAGMAS$"].append(
                 (
-                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=1)"
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=1"
                 )
             )
             self.code_gen_dict["$PRAGMAS$"].append(
                 (
-                    "DO_PRAGMA(HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=3)"
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=3"
                 )
             )
 
@@ -995,17 +976,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$LAYER_NAME$"] = [
                 "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
             ]
-            in_width = self.get_instream_width(axi_strm_padding=True)
+            # make instream width a multiple of 8 for AXI stream interface
+            in_width = roundup_to_integer_multiple(self.get_instream_width(), 8)
             self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
             self.code_gen_dict["$OUT_RANGE$"] = [
                 "[{}:0]".format(self.get_outstream_width(axi_strm_padding=True) - 1)
             ]
-            weight_width = self.get_weightstream_width(axi_strm_padding=True)
+            # make weight stream width a multiple of 8 for AXI stream interface
+            weight_width = roundup_to_integer_multiple(self.get_weightstream_width(), 8)
             self.code_gen_dict["$WEIGHT_RANGE$"] = ["[{}:0]".format(weight_width - 1)]
             self.code_gen_dict["$WEIGHT_WIDTH$"] = [str(weight_width)]
-            mw = self.get_nodeattr("MW")
-            mh = self.get_nodeattr("MH")
-            self.code_gen_dict["$WEIGHT_DEPTH$"] = [str(int(mw * mh))]
+            self.code_gen_dict["$WSTREAM_DEPTH$"] = [str(self.calc_wmem())]
+            self.code_gen_dict["$MEM_DEPTH$"] = [
+                str(roundup_to_integer_multiple(self.calc_wmem(), 1024))
+            ]
 
             template = self.decoupled_wrapper
 
@@ -1042,9 +1026,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 if file.endswith(".v"):
                     verilog_file = os.path.join(memstream_dir, file)
                     copy(verilog_file, verilog_folder)
-            # copy .dat file of weights
-            dat_file = "{}/memblock_0.dat".format(code_gen_dir)
-            copy(dat_file, verilog_folder)
+            # copy .dat files of weights
+            for file in os.listdir(code_gen_dir):
+                if file.endswith(".dat"):
+                    dat_file = os.path.join(code_gen_dir, file)
+                    copy(dat_file, verilog_folder)
             # copy verilog wrapper
             verilog_wrapper = "{}/{}_memstream.v".format(
                 code_gen_dir, self.onnx_node.name

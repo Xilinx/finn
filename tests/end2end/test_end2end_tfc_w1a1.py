@@ -72,12 +72,13 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 5
-mem_mode = "const"
+mem_mode = "decoupled"
 
 
 def test_end2end_tfc_w1a1_export():
@@ -184,6 +185,7 @@ def test_end2end_tfc_w1a1_verify_dataflow_part():
     res_npysim = ret_npysim[out_name]
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareRTLSim())
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     for fcl in fc_layers:
         getCustomOp(fcl).set_nodeattr("rtlsim_trace", "default")
