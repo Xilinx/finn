@@ -121,6 +121,11 @@ class CodeGen_ipstitch(Transformation):
                 connect_cmds.append(
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/out_r]" % inst_name
                 )
+                # make AXI lite IF external
+                connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi_control]"
+                    % inst_name
+                )
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"

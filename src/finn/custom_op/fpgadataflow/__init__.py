@@ -490,11 +490,11 @@ compilation transformations?
         """Returns folded output shape (according to neuron folding), if implemented."""
         raise Exception("get_folded_output_shape not implemented for this op")
 
-    def get_instream_width(self):
+    def get_instream_width(self, axi_strm_padding=False):
         """Returns input stream width, if implemented."""
         raise Exception("get_instream_width not implemented for this op")
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, axi_strm_padding=False):
         """Returns output stream width, if implemented."""
         raise Exception("get_outstream_width not implemented for this op")
 

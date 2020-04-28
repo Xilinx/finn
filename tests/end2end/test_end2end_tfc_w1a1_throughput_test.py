@@ -42,6 +42,7 @@ import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
+from finn.core.throughput_test import throughput_test
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
@@ -55,6 +56,7 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
@@ -133,24 +135,41 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     fc1w = getCustomOp(fc_layers[1])
     fc2w = getCustomOp(fc_layers[2])
     fc3w = getCustomOp(fc_layers[3])
-    fc0w.set_nodeattr("inFIFODepth", 50)
-    fc0w.set_nodeattr("SIMD", 16)
+    fc0w.set_nodeattr("inFIFODepth", 256)
+    fc0w.set_nodeattr("SIMD", 196)
     fc0w.set_nodeattr("PE", 16)
-    fc0w.set_nodeattr("outFIFODepth", 4)
+    fc0w.set_nodeattr("outFIFODepth", 64)
     fc0w.set_nodeattr("ram_style", "block")
-    fc1w.set_nodeattr("SIMD", 8)
-    fc1w.set_nodeattr("PE", 8)
-    fc1w.set_nodeattr("outFIFODepth", 4)
+    fc1w.set_nodeattr("SIMD", 16)
+    fc1w.set_nodeattr("PE", 16)
+    fc1w.set_nodeattr("outFIFODepth", 64)
     fc2w.set_nodeattr("SIMD", 16)
     fc2w.set_nodeattr("PE", 16)
-    fc2w.set_nodeattr("outFIFODepth", 4)
+    fc2w.set_nodeattr("outFIFODepth", 64)
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
     fc3w.set_nodeattr("outFIFODepth", 50)
     fc3w.set_nodeattr("ram_style", "distributed")
+    fc3w.set_nodeattr("outFIFODepth", 10)
+    fc3w.set_nodeattr("ram_style", "distributed")
     model = model.transform(InsertDWC())
+    model = model.transform(InsertFIFO())
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
+    fifos = []
+    for n in model.graph.node:
+        if n.op_type == "StreamingFIFO":
+            fifos.append(n)
+    fifo0 = getCustomOp(fifos[0])
+    fifo1 = getCustomOp(fifos[1])
+    fifo2 = getCustomOp(fifos[2])
+    fifo3 = getCustomOp(fifos[3])
+    fifo4 = getCustomOp(fifos[4])
+    fifo0.set_nodeattr("depth", 256)
+    fifo1.set_nodeattr("depth", 64)
+    fifo2.set_nodeattr("depth", 64)
+    fifo3.set_nodeattr("depth", 64)
+    fifo4.set_nodeattr("depth", 10)
     model = model.transform(AnnotateResources("estimate"))
     model.save(build_dir + "/end2end_tfc_w1a1_folded.onnx")
 
@@ -199,7 +218,7 @@ def test_end2end_tfc_w1a1_verify_dataflow_part():
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
-    assert np.isclose(res_npysim, res_rtlsim_whole).all()
+    assert np.isclose(res_rtlsim_nodebynode, res_rtlsim_whole).all()
 
 
 def test_end2end_tfc_w1a1_verify_all():
@@ -268,8 +287,9 @@ def test_end2end_tfc_w1a1_deploy_on_pynq():
             pytest.skip("PYNQ board IP address not specified")
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        port = os.getenv("PYNQ_PORT", 22)
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-        model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
         # save the model to be able to link it to the parent
         model.save(build_dir + "/end2end_tfc_w1a1_pynq_deploy.onnx")
     except KeyError:
@@ -304,6 +324,9 @@ def test_end2end_tfc_w1a1_run_on_pynq():
         ret = execute_onnx(parent_model, {iname: x}, True)
         y = ret[oname]
         assert np.isclose(y, y_golden).all()
+        child_model = ModelWrapper(sdp_node.get_nodeattr("model"))
+        res = throughput_test(child_model)
+        assert res is not None
 
     except KeyError:
         pytest.skip("PYNQ board IP address not specified")

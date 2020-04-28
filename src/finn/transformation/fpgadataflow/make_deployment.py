@@ -42,9 +42,10 @@ class DeployToPYNQ(Transformation):
     IP address of board, username and password for board and target directory where
     the files are stored on the board"""
 
-    def __init__(self, ip, username, password, target_dir):
+    def __init__(self, ip, port, username, password, target_dir):
         super().__init__()
         self.ip = ip
+        self.port = port
         self.username = username
         self.password = password
         self.target_dir = target_dir
@@ -52,6 +53,7 @@ class DeployToPYNQ(Transformation):
     def apply(self, model):
         # set metadata properties accordingly to user input specifications
         model.set_metadata_prop("pynq_ip", self.ip)
+        model.set_metadata_prop("pynq_port", self.port)
         model.set_metadata_prop("pynq_username", self.username)
         model.set_metadata_prop("pynq_password", self.password)
         model.set_metadata_prop("pynq_target_dir", self.target_dir)
@@ -76,18 +78,21 @@ class DeployToPYNQ(Transformation):
         copy_tree(pynq_driver_dir, deployment_dir)
         model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
         model.set_metadata_prop("exec_mode", "remote_pynq")
-
         # create target directory on PYNQ board
-        cmd = 'sshpass -p {} ssh {}@{} "mkdir -p {}"'.format(
-            self.password, self.username, self.ip, self.target_dir
+        cmd = 'sshpass -p {} ssh {}@{} -p {} "mkdir -p {}"'.format(
+            self.password, self.username, self.ip, self.port, self.target_dir
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
-
         # copy directory to PYNQ board using scp and sshpass
-        cmd = "sshpass -p {} scp -r {} {}@{}:{}".format(
-            self.password, deployment_dir, self.username, self.ip, self.target_dir
+        cmd = "sshpass -p {} scp -P{} -r {} {}@{}:{}".format(
+            self.password,
+            self.port,
+            deployment_dir,
+            self.username,
+            self.ip,
+            self.target_dir,
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)

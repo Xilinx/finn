@@ -288,8 +288,9 @@ def test_end2end_cnv_w1a1_deploy_on_pynq():
             pytest.skip("PYNQ board IP address not specified")
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        port = os.getenv("PYNQ_PORT", 22)
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-        model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
         # save the model to be able to link it to the parent
         model.save(build_dir + "/end2end_cnv_w1a1_pynq_deploy.onnx")
     except KeyError:
