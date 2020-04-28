@@ -538,20 +538,23 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 weight_tensor_unflipped, export_wdt, weight_width, prefix=""
             )
             weight_stream_len = np.prod(weight_tensor_unflipped.shape)
-            assert (
-                weight_stream_len <= 1024
-            ), """Decoupled mem mode needs
-            weight stream length <= 1024 for now"""
+            factor = math.ceil(weight_stream_len / 1024)
             # add zeroes to pad out file to 1024 entries
             weight_stream = weight_tensor_unflipped.flatten()
-            pad_amt = 1024 - weight_stream_len
+            pad_amt = (factor * 1024) - weight_stream_len
             weight_stream = np.pad(
                 weight_stream, (0, pad_amt), mode="constant", constant_values="0"
             )
             weight_stream = weight_stream.copy()
-            with open("{}/memblock_0.dat".format(code_gen_dir), "w+") as f:
-                for val in weight_stream:
+            i = 0
+            j = 0
+            for val in weight_stream:
+                if i == 1024:
+                    i = 0
+                    j += 1
+                with open("{}/memblock_{}.dat".format(code_gen_dir, j), "a+") as f:
                     f.write(val + "\n")
+                i += 1
 
         else:
             raise Exception(
@@ -973,17 +976,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$LAYER_NAME$"] = [
                 "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
             ]
-            in_width = self.get_instream_width(axi_strm_padding=True)
+            # make instream width a multiple of 8 for AXI stream interface
+            in_width = roundup_to_integer_multiple(self.get_instream_width(), 8)
             self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
             self.code_gen_dict["$OUT_RANGE$"] = [
                 "[{}:0]".format(self.get_outstream_width(axi_strm_padding=True) - 1)
             ]
-            weight_width = self.get_weightstream_width(axi_strm_padding=True)
+            # make weight stream width a multiple of 8 for AXI stream interface
+            weight_width = roundup_to_integer_multiple(self.get_weightstream_width(), 8)
             self.code_gen_dict["$WEIGHT_RANGE$"] = ["[{}:0]".format(weight_width - 1)]
             self.code_gen_dict["$WEIGHT_WIDTH$"] = [str(weight_width)]
-            mw = self.get_nodeattr("MW")
-            mh = self.get_nodeattr("MH")
-            self.code_gen_dict["$WEIGHT_DEPTH$"] = [str(int(mw * mh))]
+            self.code_gen_dict["$WSTREAM_DEPTH$"] = [str(self.calc_wmem())]
+            self.code_gen_dict["$MEM_DEPTH$"] = [
+                str(roundup_to_integer_multiple(self.calc_wmem(), 1024))
+            ]
 
             template = self.decoupled_wrapper
 
@@ -1020,9 +1026,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 if file.endswith(".v"):
                     verilog_file = os.path.join(memstream_dir, file)
                     copy(verilog_file, verilog_folder)
-            # copy .dat file of weights
-            dat_file = "{}/memblock_0.dat".format(code_gen_dir)
-            copy(dat_file, verilog_folder)
+            # copy .dat files of weights
+            for file in os.listdir(code_gen_dir):
+                if file.endswith(".dat"):
+                    dat_file = os.path.join(code_gen_dir, file)
+                    copy(dat_file, verilog_folder)
             # copy verilog wrapper
             verilog_wrapper = "{}/{}_memstream.v".format(
                 code_gen_dir, self.onnx_node.name
