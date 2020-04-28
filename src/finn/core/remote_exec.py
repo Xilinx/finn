@@ -64,7 +64,8 @@ def remote_exec(model, execution_context):
     process_compile.communicate()
     cmd = (
         "sshpass -p {} ssh {}@{} -p {} "
-        '"cd {}/{}; echo "{}" | sudo -S python3.6 driver.py remote_pynq"'
+        '"cd {}/{}; echo "{}" | '
+        'sudo -S python3.6 driver.py remote_pynq 1 resizer.bit input.npy output.npy"'
     ).format(
         pynq_password,
         pynq_username,
