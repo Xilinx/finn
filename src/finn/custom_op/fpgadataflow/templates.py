@@ -188,7 +188,7 @@ memstream
 .MEM_DEPTH($MEM_DEPTH$),
 .MEM_WIDTH($WEIGHT_WIDTH$),
 .MEM_INIT("./"),
-.RAM_STYLE($RAM_STYLE$),
+.RAM_STYLE("$RAM_STYLE$"),
 
 //widths per stream
 .STRM0_WIDTH($WEIGHT_WIDTH$),
