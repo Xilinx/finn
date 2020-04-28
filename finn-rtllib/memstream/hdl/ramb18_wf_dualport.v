@@ -33,7 +33,8 @@ module ramb18_wf_dualport
     parameter ID = 0,
 	parameter DWIDTH = 18,
 	parameter AWIDTH = 10,
-	parameter MEM_INIT = ""
+	parameter MEM_INIT = "",
+  parameter RAM_STYLE = "auto"
 )
 (
 	input clk,
@@ -49,7 +50,7 @@ module ramb18_wf_dualport
 	output reg [DWIDTH-1:0] rdqb
 );
 
-(* ram_style = "block" *) reg [DWIDTH-1:0] mem[0:2**AWIDTH-1];
+(* ram_style = RAM_STYLE *) reg [DWIDTH-1:0] mem[0:2**AWIDTH-1];
 reg [DWIDTH-1:0] rdataa;
 reg [DWIDTH-1:0] rdatab;
 
