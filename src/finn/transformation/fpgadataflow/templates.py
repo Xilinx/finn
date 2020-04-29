@@ -38,6 +38,7 @@ variable config_ip_use_axilite
 variable config_ip_project_dir
 variable config_output_products_dir
 variable config_remote_cache
+variable config_util_report_filename
 
 # for arguments involving paths below: use absolute paths or relative to the
 # platform/overlay/bitstream folder
@@ -47,6 +48,8 @@ set config_ip_project_dir %s
 set config_ip_repo %s
 # where the produced bitfile and .hwh file will be placed
 set config_output_products_dir %s
+# where the synth util XML report will be written
+set config_util_report_filename %s
 
 # non-path arguments
 # VLNV of the IP block

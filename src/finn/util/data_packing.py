@@ -275,6 +275,7 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=Tru
     finn.util.basic.pack_innermost_dim_as_hex_string() for more info on how the
     packing works. If reverse_inner is set, the innermost dimension will be
     reversed prior to packing."""
+    pad_to_nbits = roundup_to_integer_multiple(pad_to_nbits, 4)
     if issubclass(type(input_file), np.ndarray):
         inp = input_file
     elif os.path.isfile(input_file):

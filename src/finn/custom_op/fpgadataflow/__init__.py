@@ -31,12 +31,17 @@ import numpy as np
 import os
 import subprocess
 from finn.custom_op import CustomOp
-from finn.util.basic import CppBuilder
+from finn.util.basic import CppBuilder, make_build_dir
 from finn.util.fpgadataflow import (
     IPGenBuilder,
     pyverilate_get_liveness_threshold_cycles,
 )
 from . import templates
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 
 
 class HLSCustomOp(CustomOp):
@@ -73,15 +78,75 @@ class HLSCustomOp(CustomOp):
             "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
+            "res_estimate": ("s", False, ""),
+            "res_hls": ("s", False, ""),
+            "res_synth": ("s", False, ""),
+            "rtlsim_so": ("s", False, ""),
         }
+
+    def get_verilog_top_module_name(self):
+        "Return the Verilog top module name for this node."
+
+        node = self.onnx_node
+        prefixed_top_name = "%s_%s" % (node.name, node.name)
+        return prefixed_top_name
+
+    def get_verilog_top_filename(self):
+        "Return the Verilog top module filename for this node."
+
+        verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
+            self.get_nodeattr("code_gen_dir_ipgen"),
+            self.onnx_node.name,
+            self.get_verilog_top_module_name(),
+        )
+        return verilog_file
+
+    def prepare_rtlsim(self):
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+        # ensure that code is generated
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        assert (
+            code_gen_dir != ""
+        ), """Node attribute "code_gen_dir_ipgen" is
+        not set. Please run HLSSynth_IPGen first."""
+        verilog_file = self.get_verilog_top_filename()
+        assert os.path.isfile(verilog_file), "Cannot find top-level Verilog file."
+        # build the Verilator emu library
+        sim = PyVerilator.build(
+            verilog_file,
+            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            verilog_path=[
+                "{}/project_{}/sol1/impl/verilog/".format(
+                    code_gen_dir, self.onnx_node.name
+                )
+            ],
+        )
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", sim.lib._name)
+        return sim
+
+    def get_rtlsim(self):
+        """Return a PyVerilator wrapper for the Verilator emulation library
+        for this node."""
+
+        rtlsim_so = self.get_nodeattr("rtlsim_so")
+        assert os.path.isfile(rtlsim_so), "Cannot find rtlsim library."
+        # create PyVerilator wrapper
+        sim = PyVerilator(rtlsim_so)
+        return sim
 
     def node_res_estimation(self):
         """Returns summarized resource estimation of BRAMs and LUTs
-        of the node."""
-        resources = []
-        resources.append("BRAMs: " + str(self.bram_estimation()))
-        resources.append("LUTs: " + str(self.lut_estimation()))
-        return resources
+        of the node as a dictionary."""
+        ret = dict()
+        ret["BRAM_18K"] = self.bram_estimation()
+        ret["LUT"] = self.lut_estimation()
+        return ret
 
     def bram_estimation(self):
         """Function for BRAM resource estimation, is member function of
@@ -99,6 +164,7 @@ class HLSCustomOp(CustomOp):
 
         # generate top cpp file for ip generation
         path = self.get_nodeattr("code_gen_dir_ipgen")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
         self.defines("ipgen")
@@ -156,11 +222,13 @@ class HLSCustomOp(CustomOp):
         """Generates c++ code for simulation (npysim)."""
         node = self.onnx_node
         path = self.get_nodeattr("code_gen_dir_npysim")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
         self.defines("npysim")
         self.read_npy_data()
         self.strm_decl()
+        self.pragmas()
         self.docompute()
         self.dataoutstrm()
         self.save_as_npy()
@@ -429,3 +497,8 @@ compilation transformations?
     def get_outstream_width(self):
         """Returns output stream width, if implemented."""
         raise Exception("get_outstream_width not implemented for this op")
+
+    def get_ap_int_max_w(self):
+        instream = self.get_instream_width()
+        outstream = self.get_outstream_width()
+        return max([instream, outstream])

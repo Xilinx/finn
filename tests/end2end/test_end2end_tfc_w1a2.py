@@ -66,6 +66,8 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
+from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -109,7 +111,8 @@ def test_end2end_tfc_w1a2_create_dataflow_partition():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a2_hls_layers.onnx")
     parent_model = model.transform(CreateDataflowPartition())
     parent_model.save(build_dir + "/end2end_tfc_w1a2_dataflow_parent.onnx")
-    sdp_node = getCustomOp(parent_model.graph.node[2])
+    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    sdp_node = getCustomOp(sdp_node)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     dataflow_model = ModelWrapper(dataflow_model_filename)
     dataflow_model.save(build_dir + "/end2end_tfc_w1a2_dataflow_model.onnx")
@@ -117,14 +120,11 @@ def test_end2end_tfc_w1a2_create_dataflow_partition():
 
 def test_end2end_tfc_w1a2_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a2_dataflow_model.onnx")
-    fc0 = model.graph.node[0]
-    fc1 = model.graph.node[1]
-    fc2 = model.graph.node[2]
-    fc3 = model.graph.node[3]
-    fc0w = getCustomOp(fc0)
-    fc1w = getCustomOp(fc1)
-    fc2w = getCustomOp(fc2)
-    fc3w = getCustomOp(fc3)
+    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc0w = getCustomOp(fc_layers[0])
+    fc1w = getCustomOp(fc_layers[1])
+    fc2w = getCustomOp(fc_layers[2])
+    fc3w = getCustomOp(fc_layers[3])
     fc0w.set_nodeattr("inFIFODepth", 50)
     fc0w.set_nodeattr("SIMD", 8)
     fc0w.set_nodeattr("PE", 16)
@@ -139,14 +139,16 @@ def test_end2end_tfc_w1a2_fold_and_tlastmarker():
     fc3w.set_nodeattr("PE", 10)
     fc3w.set_nodeattr("outFIFODepth", 50)
     model = model.transform(InsertTLastMarker())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(AnnotateResources("estimate"))
     model.save(build_dir + "/end2end_tfc_w1a2_folded.onnx")
 
 
 def test_end2end_tfc_w1a2_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a2_folded.onnx")
-    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynth_IPGen())
+    model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_tfc_w1a2_ipgen.onnx")
 
 
@@ -172,10 +174,10 @@ def test_end2end_tfc_w1a2_verify_dataflow_part():
     res_npysim = ret_npysim[out_name]
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
-    getCustomOp(model.graph.node[0]).set_nodeattr("rtlsim_trace", "default")
-    getCustomOp(model.graph.node[1]).set_nodeattr("rtlsim_trace", "default")
-    getCustomOp(model.graph.node[2]).set_nodeattr("rtlsim_trace", "default")
-    getCustomOp(model.graph.node[3]).set_nodeattr("rtlsim_trace", "default")
+    model = model.transform(PrepareRTLSim())
+    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    for fcl in fc_layers:
+        getCustomOp(fcl).set_nodeattr("rtlsim_trace", "default")
     model.save(build_dir + "/end2end_tfc_w1a2_ipstitch_nodebynode_rtlsim.onnx")
     ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
     res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
@@ -206,7 +208,8 @@ def test_end2end_tfc_w1a2_verify_all():
     iname = parent_model.graph.input[0].name
     oname = parent_model.graph.output[0].name
     # produce results with npysim
-    sdp_node = getCustomOp(parent_model.graph.node[2])
+    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    sdp_node = getCustomOp(sdp_node)
     sdp_node.set_nodeattr("model", build_dir + "/end2end_tfc_w1a2_ipstitch_npysim.onnx")
     ret_npysim = execute_onnx(parent_model, {iname: x}, True)
     y_npysim = ret_npysim[oname]
@@ -236,6 +239,7 @@ def test_end2end_tfc_w1a2_make_pynq_proj():
 def test_end2end_tfc_w1a2_synth_pynq_project():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a2_pynq_project.onnx")
     model = model.transform(SynthPYNQProject())
+    model = model.transform(AnnotateResources("synth"))
     model.save(build_dir + "/end2end_tfc_w1a2_synth.onnx")
 
 
@@ -283,7 +287,8 @@ def test_end2end_tfc_w1a2_run_on_pynq():
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
         # produce results with npysim
-        sdp_node = getCustomOp(parent_model.graph.node[2])
+        sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+        sdp_node = getCustomOp(sdp_node)
         sdp_node.set_nodeattr("model", build_dir + "/end2end_tfc_w1a2_pynq_deploy.onnx")
         ret = execute_onnx(parent_model, {iname: x}, True)
         y = ret[oname]

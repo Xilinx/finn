@@ -29,11 +29,12 @@
 
 # template for single node execution
 docompute_template = """
-#define AP_INT_MAX_W 16384
+#define AP_INT_MAX_W $AP_INT_MAX_W$
 #include "cnpy.h"
 #include "npy2apintstream.hpp"
 #include <vector>
 #include "bnn-library.h"
+
 // includes for network parameters
 $GLOBALS$
 
@@ -41,6 +42,7 @@ $GLOBALS$
 $DEFINES$
 
 int main(){
+$PRAGMAS$
 
 $STREAMDECLARATIONS$
 
@@ -60,8 +62,10 @@ $SAVEASCNPY$
 
 # cpp file
 ipgen_template = """
-#define AP_INT_MAX_W 4096
+#define AP_INT_MAX_W $AP_INT_MAX_W$
+
 #include "bnn-library.h"
+
 // includes for network parameters
 $GLOBALS$
 
@@ -133,16 +137,18 @@ reg [31:0] config_d0 = 0;
 wire [31:0] config_q0;
 
 //multiple wire AXI Streams
-reg m_axis_0_afull = 0;
-reg m_axis_0_tready;
+wire m_axis_0_afull;
+// FIFO count to generate programmable full
+wire [5:0] fifo_0_count;
+wire m_axis_0_tready;
 wire m_axis_0_tvalid;
 wire $WEIGHT_RANGE$ m_axis_0_tdata;
 
-reg m_axis_0_tready_q;
+wire m_axis_0_tready_q;
 wire m_axis_0_tvalid_q;
 wire $WEIGHT_RANGE$ m_axis_0_tdata_q;
 
-reg m_axis_0_tready_q2;
+wire m_axis_0_tready_q2;
 wire m_axis_0_tvalid_q2;
 wire $WEIGHT_RANGE$ m_axis_0_tdata_q2;
 
@@ -179,9 +185,10 @@ memstream
 // memory, set per-stream offsets in memory, set per-stream widths
 .CONFIG_EN(1),
 .NSTREAMS(1),
-.MEM_DEPTH(1024),
+.MEM_DEPTH($MEM_DEPTH$),
 .MEM_WIDTH($WEIGHT_WIDTH$),
 .MEM_INIT("./"),
+.RAM_STYLE("$RAM_STYLE$"),
 
 //widths per stream
 .STRM0_WIDTH($WEIGHT_WIDTH$),
@@ -192,7 +199,7 @@ memstream
 .STRM5_WIDTH($WEIGHT_WIDTH$),
 
 //depths per stream
-.STRM0_DEPTH($WEIGHT_DEPTH$),
+.STRM0_DEPTH($WSTREAM_DEPTH$),
 .STRM1_DEPTH(1),
 .STRM2_DEPTH(1),
 .STRM3_DEPTH(1),
@@ -253,12 +260,9 @@ mem
 
 );
 
-// two consecutive weight streamer FIFOs to provide the same functionality
-// as "programmable full"
 
-// weight streamer FIFO 1
 Q_srl #(
-.depth(16),
+.depth(32),
 .width($WEIGHT_WIDTH$)
 )
 $LAYER_NAME$_w_fifo_1
@@ -270,25 +274,10 @@ $LAYER_NAME$_w_fifo_1
  .i_r(m_axis_0_tready),
  .o_d(m_axis_0_tdata_q),
  .o_v(m_axis_0_tvalid_q),
- .o_r(m_axis_0_tready_q)
+ .o_r(m_axis_0_tready_q),
+ .count(fifo_0_count)
 );
 
-// weight streamer FIFO 2
-Q_srl #(
-.depth(16),
-.width($WEIGHT_WIDTH$)
-)
-$LAYER_NAME$_w_fifo_2
-(
- .clock(ap_clk),
- .reset(!ap_rst_n),
- .i_d(m_axis_0_tdata_q),
- .i_v(m_axis_0_tvalid_q),
- .i_r(m_axis_0_tready_q),
- .o_d(m_axis_0_tdata_q2),
- .o_v(m_axis_0_tvalid_q2),
- .o_r(m_axis_0_tready_q2)
-);
 
 //MVA_Stream_Unit
 
@@ -300,14 +289,16 @@ MVA_Stream_U
 .in0_V_V_TDATA(in0_V_V_TDATA),		//$IN_RANGE$ input
 .in0_V_V_TVALID(in0_V_V_TVALID),  	//input
 .in0_V_V_TREADY(in0_V_V_TREADY),	//output
-.weights_V_V_TDATA(m_axis_0_tdata_q2),	//$WEIGHT_RANGE$ input
-.weights_V_V_TVALID(m_axis_0_tvalid_q2),	//input
-.weights_V_V_TREADY(m_axis_0_tready_q2),	//output
+.weights_V_V_TDATA(m_axis_0_tdata_q),	//$WEIGHT_RANGE$ input
+.weights_V_V_TVALID(m_axis_0_tvalid_q),	//input
+.weights_V_V_TREADY(m_axis_0_tready_q),	//output
 .out_V_V_TDATA(out_V_V_TDATA),		//$OUT_RANGE$ output
 .out_V_V_TVALID(out_V_V_TVALID),	//output
 .out_V_V_TREADY(out_V_V_TREADY)		//input
 );
 
+// programmable full threshold at 16 elements
+assign m_axis_0_afull = (fifo_0_count > 16);
 
 endmodule
 """

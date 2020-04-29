@@ -29,8 +29,11 @@
 import os
 import subprocess
 
-from pyverilator import PyVerilator
-from finn.util.basic import get_by_name
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
+from finn.util.basic import get_by_name, make_build_dir
 
 
 class IPGenBuilder:
@@ -70,6 +73,9 @@ class IPGenBuilder:
 
 def pyverilate_stitched_ip(model):
     "Given a model with stitched IP, return a PyVerilator sim object."
+    if PyVerilator is None:
+        raise ImportError("Installation of PyVerilator is required.")
+
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
         all_verilog_srcs = f.read().split()
@@ -79,7 +85,10 @@ def pyverilate_stitched_ip(model):
 
     all_verilog_dirs = list(map(file_to_dir, all_verilog_srcs))
     top_verilog = model.get_metadata_prop("wrapper_filename")
-    sim = PyVerilator.build(top_verilog, verilog_path=all_verilog_dirs)
+    build_dir = make_build_dir("pyverilator_ipstitched_")
+    sim = PyVerilator.build(
+        top_verilog, verilog_path=all_verilog_dirs, build_dir=build_dir
+    )
     return sim
 
 

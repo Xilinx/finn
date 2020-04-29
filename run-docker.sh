@@ -44,10 +44,10 @@ DOCKER_PASSWD="finn"
 # generate a random number per-run to allow multiple
 # containers from the same user
 DOCKER_RND=$(shuf -i0-32768 -n1)
-DOCKER_TAG="finn_${DOCKER_UNAME}"
+DOCKER_TAG="finn_dev_${DOCKER_UNAME}"
 # uncomment to run multiple instances with different names
 # DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
-DOCKER_INST_NAME="finn_${DOCKER_UNAME}"
+DOCKER_INST_NAME="finn_dev_${DOCKER_UNAME}"
 # ensure Docker tag and inst. name are all lowercase
 DOCKER_TAG=$(echo "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')
 DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
@@ -59,50 +59,22 @@ DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
 : ${PYNQ_PASSWORD="xilinx"}
 : ${PYNQ_BOARD="Pynq-Z1"}
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
+: ${NUM_DEFAULT_WORKERS=1}
 
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
 # Absolute path this script is in, thus /home/user/bin
 SCRIPTPATH=$(dirname "$SCRIPT")
 
-BREVITAS_REPO=https://github.com/Xilinx/brevitas.git
-EXAMPLES_REPO=https://github.com/maltanar/brevitas_cnv_lfc.git
-CNPY_REPO=https://github.com/rogersce/cnpy.git
-#FINN_HLS_REPO=https://github.com/Xilinx/finn-hlslib.git
-FINN_HLS_REPO=https://github.com/Tobi-Alonso/finn-hlslib.git
-PYVERILATOR_REPO=https://github.com/maltanar/pyverilator
-PYNQSHELL_REPO=https://github.com/maltanar/PYNQ-HelloWorld.git
-
-BREVITAS_LOCAL=$SCRIPTPATH/brevitas
-EXAMPLES_LOCAL=$SCRIPTPATH/brevitas_cnv_lfc
-CNPY_LOCAL=$SCRIPTPATH/cnpy
-FINN_HLS_LOCAL=$SCRIPTPATH/finn-hlslib
-PYVERILATOR_LOCAL=$SCRIPTPATH/pyverilator
-PYNQSHELL_LOCAL=$SCRIPTPATH/PYNQ-HelloWorld
 BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
 VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
-
-# clone dependency repos
-git clone --branch feature/finn_onnx_export $BREVITAS_REPO $BREVITAS_LOCAL ||  git -C "$BREVITAS_LOCAL" pull
-git clone $EXAMPLES_REPO $EXAMPLES_LOCAL ||  git -C "$EXAMPLES_LOCAL" checkout feature/rework_scaling_clipping; git -C "$EXAMPLES_LOCAL" pull
-git clone $CNPY_REPO $CNPY_LOCAL ||  git -C "$CNPY_LOCAL" pull
-git clone $FINN_HLS_REPO $FINN_HLS_LOCAL ||  git -C "$FINN_HLS_LOCAL" checkout master; git -C "$FINN_HLS_LOCAL" pull
-git clone $PYVERILATOR_REPO $PYVERILATOR_LOCAL ||  git -C "$PYVERILATOR_LOCAL" pull
-git clone $PYNQSHELL_REPO $PYNQSHELL_LOCAL ||  git -C "$PYNQSHELL_LOCAL" pull
 
 # ensure build dir exists locally
 mkdir -p $BUILD_LOCAL
 mkdir -p $VIVADO_IP_CACHE
 
 echo "Instance is named as $DOCKER_INST_NAME"
-echo "Mounting $SCRIPTPATH into /workspace/finn"
-echo "Mounting $SCRIPTPATH/brevitas into /workspace/brevitas"
-echo "Mounting $SCRIPTPATH/brevitas_cnv_lfc into /workspace/brevitas_cnv_lfc"
-echo "Mounting $SCRIPTPATH/cnpy into /workspace/cnpy"
-echo "Mounting $SCRIPTPATH/finn-hlslib into /workspace/finn-hlslib"
-echo "Mounting $SCRIPTPATH/pyverilator into /workspace/pyverilator"
-echo "Mounting $SCRIPTPATH/PYNQ-HelloWorld into /workspace/PYNQ-HelloWorld"
 echo "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
 echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
 echo "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
@@ -115,14 +87,14 @@ if [ "$1" = "test" ]; then
         DOCKER_CMD="python setup.py test"
 elif [ "$1" = "notebook" ]; then
         echo "Running Jupyter notebook server"
-        DOCKER_CMD="source ~/.bashrc; jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
+        DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
 else
         echo "Running container only"
         DOCKER_CMD="bash"
 fi
 
 # Build the FINN Docker image
-docker build --tag=$DOCKER_TAG \
+docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg GID=$DOCKER_GID \
              --build-arg GNAME=$DOCKER_GNAME \
              --build-arg UNAME=$DOCKER_UNAME \
@@ -137,12 +109,6 @@ docker run -t --rm --name $DOCKER_INST_NAME -it \
 -e "XILINX_VIVADO=$VIVADO_PATH" \
 -e "SHELL=/bin/bash" \
 -v $SCRIPTPATH:/workspace/finn \
--v $SCRIPTPATH/brevitas:/workspace/brevitas \
--v $SCRIPTPATH/brevitas_cnv_lfc:/workspace/brevitas_cnv_lfc \
--v $SCRIPTPATH/cnpy:/workspace/cnpy \
--v $SCRIPTPATH/finn-hlslib:/workspace/finn-hlslib \
--v $SCRIPTPATH/pyverilator:/workspace/pyverilator \
--v $SCRIPTPATH/PYNQ-HelloWorld:/workspace/PYNQ-HelloWorld \
 -v $BUILD_LOCAL:$BUILD_LOCAL \
 -v $VIVADO_PATH:$VIVADO_PATH \
 -e VIVADO_PATH=$VIVADO_PATH \
@@ -154,6 +120,7 @@ docker run -t --rm --name $DOCKER_INST_NAME -it \
 -e PYNQ_USERNAME=$PYNQ_USERNAME \
 -e PYNQ_PASSWORD=$PYNQ_PASSWORD \
 -e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR \
+-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS \
 -p $JUPYTER_PORT:$JUPYTER_PORT \
 -p $NETRON_PORT:$NETRON_PORT \
-$DOCKER_TAG bash -c "$DOCKER_CMD"
+$DOCKER_TAG $DOCKER_CMD

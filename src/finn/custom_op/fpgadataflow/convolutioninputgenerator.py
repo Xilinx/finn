@@ -29,7 +29,6 @@
 import os
 
 import numpy as np
-from pyverilator import PyVerilator
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
@@ -72,6 +71,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
         ishape = (1, ifm_dim, ifm_dim, ifm_ch)
         return ishape
+
+    def get_folded_input_shape(self):
+        """Assumption: No folding on input"""
+        return self.get_normal_input_shape()
 
     def get_normal_output_shape(self):
         k = self.get_nodeattr("ConvKernelDim")
@@ -122,12 +125,6 @@ class ConvolutionInputGenerator(HLSCustomOp):
         model.set_tensor_datatype(node.output[0], dtype)
 
     def verify_node(self):
-        pass
-
-    def bram_estimation(self):
-        pass
-
-    def lut_estimation(self):
         pass
 
     def get_input_datatype(self):
@@ -206,49 +203,26 @@ class ConvolutionInputGenerator(HLSCustomOp):
             did not produce expected ofolded utput shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
-            prefixed_top_name = "%s_%s" % (node.name, node.name)
-            # check if needed file exists
-            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, prefixed_top_name
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            rtlsim_inp = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            if os.path.isfile(verilog_file):
-                nbits = self.get_instream_width()
-                rtlsim_inp = npy_to_rtlsim_input(
-                    "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-                )
-                sim = PyVerilator.build(
-                    verilog_file,
-                    verilog_path=[
-                        "{}/project_{}/sol1/impl/verilog/".format(
-                            code_gen_dir, node.name
-                        )
-                    ],
-                )
-                super().reset_rtlsim(sim)
-                super().toggle_clk(sim)
-                rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-                odt = export_idt
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width()
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(
-                    rtlsim_output,
-                    out_npy_path,
-                    odt,
-                    out_shape,
-                    packed_bits,
-                    target_bits,
-                )
-                # load and reshape output
-                output = np.load(out_npy_path)
-                output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-                context[node.output[0]] = output
-            else:
-                raise Exception(
-                    """Found no verilog files for this node,
-                    did you run the codegen_ipgen transformation?"""
-                )
+            super().reset_rtlsim(sim)
+            super().toggle_clk(sim)
+            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+            odt = export_idt
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(
+                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+            )
+            # load and reshape output
+            output = np.load(out_npy_path)
+            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+            context[node.output[0]] = output
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -272,9 +246,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def defines(self, var):
         numReps = 1
         self.code_gen_dict["$DEFINES$"] = [
-            """#define ConvKernelDim1 {}\n #define IFMChannels1 {}
-            #define Input_precision1 {}\n #define IFMDim1 {}\n #define OFMDim1 {}
-            #define SIMD1 {}\n #define Stride1 {}\n #define numReps {}""".format(
+            """#define ConvKernelDim1 {}\n #define IFMChannels1 {}\n
+            #define Input_precision1 {}\n #define IFMDim1 {}\n
+            #define OFMDim1 {}\n #define SIMD1 {}\n
+            #define Stride1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("ConvKernelDim"),
                 self.get_nodeattr("IFMChannels"),
                 self.get_input_datatype().bitwidth(),

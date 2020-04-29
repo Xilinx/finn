@@ -27,7 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 exclude: '^docs/conf.py'
-
+default_language_version:
+    python: python3
 repos:
 # black
 - repo: https://github.com/ambv/black
