@@ -84,17 +84,25 @@ def execute_node(node, context, graph):
             output_list = sess.run(None, input_dict)
 
             for output_ind in range(len(node.output)):
+                #get the name of the target buffer from node.output
                 outp = node.output[output_ind]
-                if output_list[output_ind].shape != context[outp].shape:
+
+                #retrieve the index of that name in node_outputs
+                for i in range(len(node_outputs)):
+                    if outp == node_outputs[i].name:
+                        list_ind = i
+
+                #use that index to index output_list
+                if output_list[list_ind].shape != context[outp].shape:
                     raise Exception(
                         """Output shapes disagree after node execution:
                         found %s vs expected %s"""
                         % (
-                            str(output_list[output_ind].shape.shape),
+                            str(output_list[list_ind].shape.shape),
                             str(context[outp].shape),
                         )
                     )
-                context[outp] = output_list[output_ind]
+                context[outp] = output_list[list_ind]
 
 
 def execute_onnx(model, input_dict, return_full_exec_context=False):

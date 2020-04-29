@@ -58,7 +58,6 @@ class InsertTopK(Transformation):
             out_dtype = model.get_tensor_datatype(graph_out_name)
             #adjust shape
             out_shape[self.axis] = self.k
-            import pdb; pdb.set_trace()
             # make new buffer
             k_tensor = oh.make_tensor(name='k_tensor',
                         data_type=TensorProto.INT64,
@@ -77,8 +76,6 @@ class InsertTopK(Transformation):
             model.set_tensor_datatype(k_value.name, out_dtype)#TODO set to int64
             model.graph.value_info.append(topk_values)
             model.set_tensor_datatype(topk_values.name, out_dtype)
-            model.graph.value_info.append(topk_indices)
-            model.set_tensor_datatype(topk_indices.name, out_dtype)
             #create and append topk node
             k_node = oh.make_node(
                 'Constant',
@@ -91,11 +88,13 @@ class InsertTopK(Transformation):
                 inputs=[graph_out_name, k_value.name],
                 outputs=[topk_values.name, topk_indices.name],
                 axis=self.axis,
-
+                largest=self.largest,
+                sorted=self.sorted
             )
             model.graph.node.append(k_node)
             model.graph.node.append(topk_node)
-            model.graph.output[0].name = topk_values.name
-            print(topk_indices.name,topk_values.name)
+            #replace the existing output definition with topk indices
+            model.graph.output.insert(0,topk_indices)
+            model.graph.output.pop(1)
             return (model, True)
 
