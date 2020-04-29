@@ -85,6 +85,13 @@ class StreamingFIFO(HLSCustomOp):
     def verify_node(self):
         pass
 
+    def get_verilog_top_module_name(self):
+        "Return the Verilog top module name for this node."
+
+        node = self.onnx_node
+        prefixed_top_name = "%s" % (node.name)
+        return prefixed_top_name
+
     def code_generation_ipgen(self, model, fpgapart, clk):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_dir = "{}/project_{}/sol1/impl/verilog".format(
@@ -115,12 +122,7 @@ class StreamingFIFO(HLSCustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        f = open(
-            os.path.join(
-                verilog_dir, "{}_{}.v".format(self.onnx_node.name, self.onnx_node.name,)
-            ),
-            "w",
-        )
+        f = open(os.path.join(verilog_dir, "{}.v".format(self.onnx_node.name,)), "w",)
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
