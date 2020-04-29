@@ -111,7 +111,7 @@ class MakePYNQProject(Transformation):
         axi_lite_if_name = "s_axi_control_0"
         vivado_ip_cache = os.getenv("VIVADO_IP_CACHE", default="")
         # TODO get from Transformation arg or metadata_prop
-        fclk_mhz = 150.0
+        fclk_mhz = 100.0
 
         # create a temporary folder for the project
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
