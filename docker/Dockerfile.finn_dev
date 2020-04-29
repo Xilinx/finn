@@ -97,7 +97,7 @@ RUN git -C /workspace/pyverilator checkout 307fc5c82db748620836307a2002fdc9fe170
 
 # PYNQ-HelloWorld
 RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
-RUN git -C /workspace/PYNQ-HelloWorld checkout 2a8ce3f63a7a7284de9320ef8be203236aafd0e4
+RUN git -C /workspace/PYNQ-HelloWorld checkout 6a4d11cf3e96f42afed5f7a7570c40bb1802a1ab
 
 # Note that we expect the cloned finn directory on the host to be
 # mounted on /workspace/finn -- see run-docker.sh for an example
