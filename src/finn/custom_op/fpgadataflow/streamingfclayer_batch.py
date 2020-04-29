@@ -92,6 +92,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # const -- embedded weights, default, long compile/synth times
             # decoupled -- streaming weights
             "mem_mode": ("s", False, "const"),
+            # FPGA resource type for memories in decoupled mode
+            # auto -- let Vivado decide
+            # block -- use BRAM
+            # distributed -- use LUTRAM
+            # see also https://www.xilinx.com/support/answers/38070.html
+            "ram_style": ("s", False, "auto"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -534,8 +540,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             """Saves weights into .dat file"""
             # convert weight values into hexstring
             weight_width = self.get_weightstream_width()
+            # pad to nearest 4 bits to get hex strings
+            weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
             weight_tensor_unflipped = pack_innermost_dim_as_hex_string(
-                weight_tensor_unflipped, export_wdt, weight_width, prefix=""
+                weight_tensor_unflipped, export_wdt, weight_width_padded, prefix=""
             )
             weight_stream_len = np.prod(weight_tensor_unflipped.shape)
             factor = math.ceil(weight_stream_len / 1024)
@@ -990,6 +998,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$MEM_DEPTH$"] = [
                 str(roundup_to_integer_multiple(self.calc_wmem(), 1024))
             ]
+            self.code_gen_dict["$RAM_STYLE$"] = [self.get_nodeattr("ram_style")]
 
             template = self.decoupled_wrapper
 
