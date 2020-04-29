@@ -69,8 +69,8 @@ def create_one_fc_model():
     no_act = 1
     binary_xnor_mode = 0
     actval = 0
-    simd = 2
-    pe = 2
+    simd = 4
+    pe = 4
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, m])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
@@ -199,7 +199,7 @@ def create_two_fc_model():
 # exec_mode of StreamingDataflowPartition
 # @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
 def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
-    model = create_two_fc_model()
+    model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
@@ -344,8 +344,10 @@ def test_fpgadataflow_ipstitch_remote_execution():
         model = ModelWrapper(
             ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx"
         )
-        idt = DataType.INT2
-        x = gen_finn_dt_tensor(idt, (1, 4))
+        iname = "inp"
+        idt = model.get_tensor_datatype(iname)
+        ishape = model.get_tensor_shape(iname)
+        x = gen_finn_dt_tensor(idt, ishape)
         input_dict = {"inp": x}
         outp = execute_onnx(model, input_dict)
         assert np.isclose(outp["outp"], x).all()
