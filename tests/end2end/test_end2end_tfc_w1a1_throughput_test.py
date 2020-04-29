@@ -148,8 +148,6 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     fc2w.set_nodeattr("outFIFODepth", 64)
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
-    fc3w.set_nodeattr("outFIFODepth", 50)
-    fc3w.set_nodeattr("ram_style", "distributed")
     fc3w.set_nodeattr("outFIFODepth", 10)
     fc3w.set_nodeattr("ram_style", "distributed")
     model = model.transform(InsertDWC())
