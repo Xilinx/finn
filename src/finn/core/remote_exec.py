@@ -38,7 +38,7 @@ def remote_exec(model, execution_context):
     input values."""
     # TODO fix for multi input-output
     pynq_ip = model.get_metadata_prop("pynq_ip")
-    pynq_port = model.get_metadata_prop("pynq_port")
+    pynq_port = int(model.get_metadata_prop("pynq_port"))
     pynq_username = model.get_metadata_prop("pynq_username")
     pynq_password = model.get_metadata_prop("pynq_password")
     pynq_target_dir = model.get_metadata_prop("pynq_target_dir")
