@@ -30,7 +30,6 @@ import numpy as np
 from shutil import copy
 import subprocess
 
-from pyverilator import PyVerilator
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
@@ -86,12 +85,23 @@ class StreamingFIFO(HLSCustomOp):
     def verify_node(self):
         pass
 
+    def get_verilog_top_module_name(self):
+        "Return the Verilog top module name for this node."
+
+        node = self.onnx_node
+        prefixed_top_name = "%s" % (node.name)
+        return prefixed_top_name
+
     def code_generation_ipgen(self, model, fpgapart, clk):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        # copy Q_srl.v from finn-rtllib to code gen directory
+        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(
+            code_gen_dir, self.onnx_node.name
+        )
+        os.makedirs(verilog_dir)
+        # copy Q_srl.v from finn-rtllib to verilog directory
         memstream_dir = "/workspace/finn/finn-rtllib/memstream/hdl/"
         Q_file = os.path.join(memstream_dir, "Q_srl.v")
-        copy(Q_file, code_gen_dir)
+        copy(Q_file, verilog_dir)
 
         # empty code gen dictionary for new entries
         self.code_gen_dict.clear()
@@ -112,39 +122,42 @@ class StreamingFIFO(HLSCustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        f = open(os.path.join(code_gen_dir, "{}.v".format(self.onnx_node.name)), "w",)
+        f = open(os.path.join(verilog_dir, "{}.v".format(self.onnx_node.name,)), "w",)
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
 
     def ipgen_singlenode_code(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(
+            code_gen_dir, self.onnx_node.name
+        )
         # prepare the IP packaging tcl template
         template = templates.ip_package_tcl
         self.code_gen_dict.clear()
         self.code_gen_dict["$TOPNAME$"] = ["{}".format(self.onnx_node.name)]
-        self.code_gen_dict["$VERILOG_DIR$"] = [code_gen_dir]
+        self.code_gen_dict["$VERILOG_DIR$"] = [verilog_dir]
         for key in self.code_gen_dict:
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        f = open(os.path.join(code_gen_dir, "package_ip.tcl"), "w")
+        f = open(os.path.join(verilog_dir, "package_ip.tcl"), "w")
         f.write(template)
         f.close()
         # create a shell script and call Vivado to invoke the IP pkg script
-        make_project_sh = code_gen_dir + "/make_ip.sh"
+        make_project_sh = verilog_dir + "/make_ip.sh"
         working_dir = os.environ["PWD"]
         with open(make_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
-            f.write("cd {}\n".format(code_gen_dir))
+            f.write("cd {}\n".format(verilog_dir))
             f.write("vivado -mode batch -source package_ip.tcl\n")
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", make_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         # set ipgen_path and ip_path to point to the new packaged IP
-        self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)
+        self.set_nodeattr("ipgen_path", verilog_dir)
+        self.set_nodeattr("ip_path", verilog_dir)
         vlnv = "xilinx.com:hls:%s:1.0" % (self.onnx_node.name)
         self.set_nodeattr("ip_vlnv", vlnv)
         self.code_gen_dict.clear()
@@ -224,38 +237,30 @@ class StreamingFIFO(HLSCustomOp):
             np.save(
                 os.path.join(code_gen_dir, "input_0.npy"), reshaped_input,
             )
-            verilog_file = os.path.join(
-                code_gen_dir, "{}.v".format(self.onnx_node.name)
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            inp = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
             )
-            if os.path.isfile(verilog_file):
-                nbits = self.get_instream_width(axi_strm_padding=True)
-                inp = npy_to_rtlsim_input(
-                    "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-                )
-                sim = PyVerilator.build(verilog_file, verilog_path=[code_gen_dir],)
-                super().reset_rtlsim(sim)
-                super().toggle_clk(sim)
-                output = self.rtlsim(sim, inp)
-                odt = DataType[self.get_nodeattr("dataType")]
-                target_bits = odt.bitwidth()
-                packed_bits = self.get_outstream_width(axi_strm_padding=True)
-                out_npy_path = "{}/output.npy".format(code_gen_dir)
-                out_shape = self.get_folded_output_shape()
-                rtlsim_output_to_npy(
-                    output, out_npy_path, odt, out_shape, packed_bits, target_bits
-                )
+            super().reset_rtlsim(sim)
+            super().toggle_clk(sim)
+            output = self.rtlsim(sim, inp)
+            odt = DataType[self.get_nodeattr("dataType")]
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(
+                output, out_npy_path, odt, out_shape, packed_bits, target_bits
+            )
+            # load and reshape output
+            output = np.load(out_npy_path)
+            oshape = self.get_normal_output_shape()
+            output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+            context[node.output[0]] = output
 
-                # load and reshape output
-                output = np.load(out_npy_path)
-                oshape = self.get_normal_output_shape()
-                output = np.asarray([output], dtype=np.float32).reshape(*oshape)
-                context[node.output[0]] = output
-
-            else:
-                raise Exception(
-                    """Found no verilog files for this node,
-                    did you run the codegen_ipgen transformation?"""
-                )
+        else:
+            raise Exception("Test")
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()

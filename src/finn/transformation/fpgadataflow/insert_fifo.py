@@ -35,7 +35,6 @@ class InsertFIFO(Transformation):
 
     def apply(self, model):
         # default depth for FIFOs
-        default_depth = 2
         graph = model.graph
         node_ind = -1
         graph_modified = False
@@ -51,6 +50,18 @@ class InsertFIFO(Transformation):
                     fld_shape = n0.get_folded_output_shape()
                     dtype = n0.get_output_datatype()
 
+                    # check if outFIFOdepth attribute of first node
+                    # and inFIFOdepth attribute of consumer node is equal
+                    n0_depth = n0.get_nodeattr("outFIFODepth")
+                    n1 = getCustomOp(consumer)
+                    n1_depth = n1.get_nodeattr("inFIFODepth")
+                    if n0_depth == n1_depth:
+                        fifo_depth = n0_depth
+                    elif n0_depth != n1_depth:
+                        fifo_depth = max(n0_depth, n1_depth)
+                        n0.set_nodeattr("outFIFODepth", fifo_depth)
+                        n1.set_nodeattr("inFIFODepth", fifo_depth)
+
                     # create fifo node
                     fifo_output_tensor = oh.make_tensor_value_info(
                         model.make_new_valueinfo_name(),
@@ -65,7 +76,7 @@ class InsertFIFO(Transformation):
                         [fifo_output_tensor.name],
                         domain="finn",
                         backend="fpgadataflow",
-                        depth=default_depth,
+                        depth=fifo_depth,
                         folded_shape=fld_shape,
                         dataType=str(dtype.name),
                     )
@@ -84,6 +95,7 @@ class InsertFIFO(Transformation):
                 # determine fifo node attributes
                 fld_shape = n0.get_folded_input_shape()
                 dtype = n0.get_input_datatype()
+                fifo_depth = n0.get_nodeattr("inFIFODepth")
 
                 # create fifo node
                 fifo_output_tensor = oh.make_tensor_value_info(
@@ -99,7 +111,7 @@ class InsertFIFO(Transformation):
                     [fifo_output_tensor.name],
                     domain="finn",
                     backend="fpgadataflow",
-                    depth=default_depth,
+                    depth=fifo_depth,
                     folded_shape=fld_shape,
                     dataType=str(dtype.name),
                 )
@@ -109,7 +121,7 @@ class InsertFIFO(Transformation):
                 # set fifo output tensor as new input tensor of second node
                 n.input[0] = fifo_output_tensor.name
 
-            # insert FIFO as first node
+            # insert FIFO as last node
             if graph.node[-1].op_type != "StreamingFIFO":
                 n = graph.node[-1]
                 assert (
@@ -121,6 +133,7 @@ class InsertFIFO(Transformation):
                 # determine fifo node attributes
                 fld_shape = n0.get_folded_output_shape()
                 dtype = n0.get_output_datatype()
+                fifo_depth = n0.get_nodeattr("inFIFODepth")
 
                 # create fifo node
                 fifo_input_tensor = oh.make_tensor_value_info(
@@ -136,7 +149,7 @@ class InsertFIFO(Transformation):
                     [graph_out_name],
                     domain="finn",
                     backend="fpgadataflow",
-                    depth=default_depth,
+                    depth=fifo_depth,
                     folded_shape=fld_shape,
                     dataType=str(dtype.name),
                 )
