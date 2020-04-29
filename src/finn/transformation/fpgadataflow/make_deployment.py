@@ -53,7 +53,7 @@ class DeployToPYNQ(Transformation):
     def apply(self, model):
         # set metadata properties accordingly to user input specifications
         model.set_metadata_prop("pynq_ip", self.ip)
-        model.set_metadata_prop("pynq_port", self.port)
+        model.set_metadata_prop("pynq_port", str(self.port))
         model.set_metadata_prop("pynq_username", self.username)
         model.set_metadata_prop("pynq_password", self.password)
         model.set_metadata_prop("pynq_target_dir", self.target_dir)

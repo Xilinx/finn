@@ -246,6 +246,23 @@ def test_fpgadataflow_ipstitch_rtlsim():
         "out_r_0_tlast",
         "out_r_0_tready",
         "out_r_0_tvalid",
+        "s_axi_control_0_araddr",
+        "s_axi_control_0_arready",
+        "s_axi_control_0_arvalid",
+        "s_axi_control_0_awaddr",
+        "s_axi_control_0_awready",
+        "s_axi_control_0_awvalid",
+        "s_axi_control_0_bready",
+        "s_axi_control_0_bresp",
+        "s_axi_control_0_bvalid",
+        "s_axi_control_0_rdata",
+        "s_axi_control_0_rready",
+        "s_axi_control_0_rresp",
+        "s_axi_control_0_rvalid",
+        "s_axi_control_0_wdata",
+        "s_axi_control_0_wready",
+        "s_axi_control_0_wstrb",
+        "s_axi_control_0_wvalid",
     ]
     assert dir(sim.io) == exp_io
     model.set_metadata_prop("exec_mode", "rtlsim")
