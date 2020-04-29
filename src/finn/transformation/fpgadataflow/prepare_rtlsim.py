@@ -27,7 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import finn.custom_op.registry as registry
-import finn.util.basic as util
+from finn.util.fpgadataflow import is_fpgadataflow_node
+
 from finn.transformation import NodeLocalTransformation
 
 try:
@@ -55,22 +56,18 @@ class PrepareRTLSim(NodeLocalTransformation):
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if node.domain == "finn":
-            backend_attribute = util.get_by_name(node.attribute, "backend")
-            if backend_attribute is not None:
-                backend_value = backend_attribute.s.decode("UTF-8")
-                if backend_value == "fpgadataflow":
-                    try:
-                        # lookup op_type in registry of CustomOps
-                        inst = registry.custom_op[op_type](node)
-                        inst.prepare_rtlsim()
-                        # ensure that executable path is now set
-                        assert (
-                            inst.get_nodeattr("rtlsim_so") != ""
-                        ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
-                    except KeyError:
-                        # exception if op_type is not supported
-                        raise Exception(
-                            "Custom op_type %s is currently not supported." % op_type
-                        )
+        if is_fpgadataflow_node(node) is True:
+            try:
+                # lookup op_type in registry of CustomOps
+                inst = registry.custom_op[op_type](node)
+                inst.prepare_rtlsim()
+                # ensure that executable path is now set
+                assert (
+                    inst.get_nodeattr("rtlsim_so") != ""
+                ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
+            except KeyError:
+                # exception if op_type is not supported
+                raise Exception(
+                    "Custom op_type %s is currently not supported." % op_type
+                )
         return (node, False)
