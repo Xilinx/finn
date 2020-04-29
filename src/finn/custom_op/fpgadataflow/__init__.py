@@ -82,6 +82,9 @@ class HLSCustomOp(CustomOp):
             "res_hls": ("s", False, ""),
             "res_synth": ("s", False, ""),
             "rtlsim_so": ("s", False, ""),
+            # input and output FIFO depths
+            "inFIFODepth": ("i", False, 0),
+            "outFIFODepth": ("i", False, 0),
         }
 
     def get_verilog_top_module_name(self):

@@ -80,9 +80,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "binaryXnorMode": ("i", False, 0),
             # no-activation mode (produce accumulators)
             "noActivation": ("i", False, 0),
-            # input and output FIFO depths
-            "inFIFODepth": ("i", False, 0),
-            "outFIFODepth": ("i", False, 0),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
