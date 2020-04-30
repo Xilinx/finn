@@ -290,6 +290,17 @@ class ModelWrapper:
         except ValueError:
             return None
 
+    def find_consumers(self, tensor_name):
+        consumers = []
+        try:
+            for n in self._model_proto.graph.node:
+                for inp_tensor in n.input:
+                    if inp_tensor == tensor_name:
+                        consumers.append(n)
+            return consumers
+        except ValueError:
+            return None
+
     def get_all_tensor_names(self):
         """Returns a list of all (input, output and value_info) tensor names
         in the graph."""
