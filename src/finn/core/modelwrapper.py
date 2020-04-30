@@ -417,3 +417,13 @@ class ModelWrapper:
     def get_non_finn_nodes(self):
         """Returns a list of nodes where domain != 'finn'."""
         return list(filter(lambda x: x.domain != "finn", self.graph.node))
+
+    def get_node_index(self, node):
+        n_ind = 0
+        try:
+            for n in self.graph.node:
+                if n == node:
+                    return n_ind
+                n_ind += 1
+        except ValueError:
+            return None
