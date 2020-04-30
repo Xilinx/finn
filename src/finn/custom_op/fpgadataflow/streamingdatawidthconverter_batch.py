@@ -32,6 +32,7 @@ import numpy as np
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
+from finn.util.basic import roundup_to_integer_multiple
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # does not do anything at the ONNX node-by-node level, and input-output
@@ -150,11 +151,17 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         folded_ishape = self.get_folded_input_shape()
         return np.prod(folded_ishape[:-1])
 
-    def get_instream_width(self):
-        return self.get_nodeattr("inWidth")
+    def get_instream_width(self, axi_strm_padding=False):
+        in_width = self.get_nodeattr("inWidth")
+        if axi_strm_padding is True:
+            in_width = roundup_to_integer_multiple(in_width, 8)
+        return in_width
 
-    def get_outstream_width(self):
-        return self.get_nodeattr("outWidth")
+    def get_outstream_width(self, axi_strm_padding=False):
+        out_width = self.get_nodeattr("outWidth")
+        if axi_strm_padding is True:
+            out_width = roundup_to_integer_multiple(out_width, 8)
+        return out_width
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()

@@ -55,6 +55,7 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
@@ -138,17 +139,21 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     fc0w.set_nodeattr("PE", 16)
     fc0w.set_nodeattr("outFIFODepth", 4)
     fc0w.set_nodeattr("ram_style", "block")
+    fc1w.set_nodeattr("inFIFODepth", 4)
     fc1w.set_nodeattr("SIMD", 8)
     fc1w.set_nodeattr("PE", 8)
     fc1w.set_nodeattr("outFIFODepth", 4)
+    fc2w.set_nodeattr("inFIFODepth", 4)
     fc2w.set_nodeattr("SIMD", 16)
     fc2w.set_nodeattr("PE", 16)
     fc2w.set_nodeattr("outFIFODepth", 4)
+    fc3w.set_nodeattr("inFIFODepth", 4)
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
     fc3w.set_nodeattr("outFIFODepth", 50)
     fc3w.set_nodeattr("ram_style", "distributed")
     model = model.transform(InsertDWC())
+    model = model.transform(InsertFIFO())
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(AnnotateResources("estimate"))
@@ -199,7 +204,7 @@ def test_end2end_tfc_w1a1_verify_dataflow_part():
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
-    assert np.isclose(res_npysim, res_rtlsim_whole).all()
+    assert np.isclose(res_rtlsim_nodebynode, res_rtlsim_whole).all()
 
 
 def test_end2end_tfc_w1a1_verify_all():
