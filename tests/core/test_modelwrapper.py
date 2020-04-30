@@ -27,8 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import onnx
 from collections import Counter
-
 import brevitas.onnx as bo
 import numpy as np
 
@@ -68,3 +68,51 @@ def test_modelwrapper():
     out_prod = model.find_producer(l0_inp_tensor_name)
     assert out_prod.op_type == "Sign"
     os.remove(export_onnx_path)
+
+
+def test_modelwrapper_graph_order():
+    # create small network with properties to be tested
+    Neg_node = onnx.helper.make_node("Neg", inputs=["in1"], outputs=["neg1"],)
+    Round_node = onnx.helper.make_node("Round", inputs=["neg1"], outputs=["round1"],)
+
+    Ceil_node = onnx.helper.make_node("Ceil", inputs=["neg1"], outputs=["ceil1"],)
+    Add_node = onnx.helper.make_node(
+        "Add", inputs=["round1", "ceil1"], outputs=["out1"],
+    )
+
+    in1 = onnx.helper.make_tensor_value_info("in1", onnx.TensorProto.FLOAT, [4, 4])
+    out1 = onnx.helper.make_tensor_value_info("out1", onnx.TensorProto.FLOAT, [4, 4])
+
+    graph = onnx.helper.make_graph(
+        nodes=[Neg_node, Round_node, Ceil_node, Add_node],
+        name="simple_graph",
+        inputs=[in1],
+        outputs=[out1],
+        value_info=[
+            onnx.helper.make_tensor_value_info("neg1", onnx.TensorProto.FLOAT, [4, 4]),
+            onnx.helper.make_tensor_value_info(
+                "round1", onnx.TensorProto.FLOAT, [4, 4]
+            ),
+            onnx.helper.make_tensor_value_info("ceil1", onnx.TensorProto.FLOAT, [4, 4]),
+        ],
+    )
+
+    onnx_model = onnx.helper.make_model(graph, producer_name="simple-model")
+    model = ModelWrapper(onnx_model)
+
+    # test graph order functions
+    assert model.find_consumers("in1") == [Neg_node]
+    assert model.find_consumers("neg1") == [Round_node, Ceil_node]
+    assert model.find_consumers("round1") == [Add_node]
+    assert model.find_consumers("ceil1") == [Add_node]
+    assert model.find_consumers("out1") is None
+
+    assert model.find_successors(Neg_node) == [Round_node, Ceil_node]
+    assert model.find_successors(Round_node) == [Add_node]
+    assert model.find_successors(Ceil_node) == [Add_node]
+    assert model.find_successors(Add_node) is None
+
+    assert model.find_predecessors(Neg_node) is None
+    assert model.find_predecessors(Round_node) == [Neg_node]
+    assert model.find_predecessors(Ceil_node) == [Neg_node]
+    assert model.find_predecessors(Add_node) == [Round_node, Ceil_node]
