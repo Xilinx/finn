@@ -95,7 +95,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
         simd = self.get_nodeattr("SIMD")
         pad = 0
         ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
-        assert k * k * ifm_ch % simd == 0, "SIMD must divide sliding window size"
+        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+        assert k % stride == 0, "stride must divide kernel size k"
         wf = int((k * k * ifm_ch) // simd)
         folded_oshape = (1, ofm_dim, ofm_dim, wf, simd)
         return folded_oshape
