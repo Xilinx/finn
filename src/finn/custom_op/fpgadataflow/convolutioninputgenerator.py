@@ -74,8 +74,13 @@ class ConvolutionInputGenerator(HLSCustomOp):
         return ishape
 
     def get_folded_input_shape(self):
-        """Assumption: No folding on input"""
-        return self.get_normal_input_shape()
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        simd = self.get_nodeattr("SIMD")
+        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+        wf = int(ifm_ch / simd)
+        folded_ishape = (1, ifm_dim, ifm_dim, wf, simd)
+        return folded_ishape
 
     def get_normal_output_shape(self):
         k = self.get_nodeattr("ConvKernelDim")
@@ -143,7 +148,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ibits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
-        assert simd == ifm_ch, "SWG currently requires SIMD=IFM"
+        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
         in_width = simd * ibits
         if axi_strm_padding is True:
             in_width = roundup_to_integer_multiple(in_width, 8)
@@ -165,6 +170,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
+        folded_ishape = self.get_folded_input_shape()
         folded_oshape = self.get_folded_output_shape()
 
         # TODO ensure codegen dir exists
@@ -192,7 +198,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
             export_idt = DataType.BINARY
         else:
             export_idt = self.get_input_datatype()
-        # no reshaping for input since assuming no folding on input
+        # reshape input into folded form
+        inp = inp.reshape(folded_ishape)
         # make copy before saving array
         reshaped_input = inp.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
