@@ -10,14 +10,15 @@ from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
 
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 
-# from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 
-# from finn.util.basic import gen_finn_dt_tensor
+from finn.util.basic import gen_finn_dt_tensor
 
-# import finn.core.onnx_exec as oxe
+import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
@@ -25,6 +26,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 from finn.util.basic import pynq_part_map
+from finn.core.throughput_test import throughput_test
 
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
@@ -71,22 +73,30 @@ def prepare_inputs(input_tensor, dt):
 # inWidth
 @pytest.mark.parametrize("folded_shape", [[1, 1, 128]])
 # outWidth
-@pytest.mark.parametrize("depth", [256])
+@pytest.mark.parametrize("depth", [16])
 # finn_dtype
 @pytest.mark.parametrize("finn_dtype", [DataType.BIPOLAR])  # , DataType.INT2])
 def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
 
     # generate input data
-    # x = gen_finn_dt_tensor(finn_dtype, Shape)
-    #    input_dict = prepare_inputs(x, finn_dtype)
+    x = gen_finn_dt_tensor(finn_dtype, Shape)
+    input_dict = prepare_inputs(x, finn_dtype)
 
     model = make_single_fifo_modelwrapper(Shape, depth, folded_shape, finn_dtype)
 
-    # model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynth_IPGen())
+    model = model.transform(PrepareRTLSim())
+    y = oxe.execute_onnx(model, input_dict)["outp"]
+    assert (
+        y == x
+    ).all(), """The output values are not the same as the
+       input values anymore."""
+    assert y.shape == tuple(Shape), """The output shape is incorrect."""
+
     model = model.transform(ReplaceVerilogRelPaths())
     model = model.transform(CodeGen_ipstitch(test_fpga_part))
     model = model.transform(MakePYNQProject(test_pynq_board))
@@ -99,10 +109,16 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
     target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
     model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
 
-    # y = oxe.execute_onnx(model, input_dict)["outp"]
-
-    # assert (
-    #    y == x
-    # ).all(), """The output values are not the same as the
-    #    input values anymore."""
-    # assert y.shape == tuple(Shape), """The output shape is incorrect."""
+    res = throughput_test(model)
+    expected_dict = {}
+    expected_dict["runtime[ms]"] = []
+    expected_dict["throughput[images/s]"] = []
+    expected_dict["DRAM_in_bandwidth[Mb/s]"] = []
+    expected_dict["DRAM_out_bandwidth[Mb/s]"] = []
+    for key in expected_dict:
+        assert (
+            key in res
+        ), """Throughput test not successful, no value for {}
+        in result dictionary""".format(
+            key
+        )
