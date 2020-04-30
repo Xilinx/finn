@@ -82,34 +82,26 @@ def node_inputs_in_expected_order(model):
 
 
 def nodes_in_expected_order(model):
-    """Verifies that the graph is topologically sorted. Only works on graphs
-    linear graphs.
+    """Verifies that the graph is topologically sorted.
 
     Returns {"nodes_in_expected_order": Bool}."""
 
-    # start by creating a list with the nodes in the right order
-    # by getting the consumer of output tensor of each node
-    graph = model.graph
-    global_in = graph.input[0].name
-    global_out = graph.output[0].name
+    # start by creating a dictionary with every node and corresponding index
+    index_dict = {}
+    ind = 0
+    for n in model.graph.node:
+        index_dict[str(n)] = ind
+        ind += 1
 
-    node = model.find_consumer(global_in)
-    node_output = node.output[0]
+    # get successors of every node and check that
+    # successor index > current node index
 
-    node_list = [node]
-    while node_output != global_out:
-        next_node = model.find_consumer(node_output)
-        node_output = next_node.output[0]
-        node_list.append(next_node)
-
-    # compare graph intern node list with created reference node list
     all_OK = True
-    i = 0
-    for n in graph.node:
-        if n == node_list[i]:
-            i += 1
-        else:
-            all_OK = False
-            break
+    for n in model.graph.node:
+        successors = model.find_successors(n)
+        for successor in successors:
+            # check the condition by checking the antithesis
+            if index_dict[str(n)] > index_dict[str(successor)]:
+                all_OK = False
 
     return {"nodes_in_expected_order": all_OK}
