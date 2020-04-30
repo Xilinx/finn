@@ -151,6 +151,12 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
 
+    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator")
+    for i in range(len(swg_layers)):
+        swg_inst = getCustomOp(swg_layers[i])
+        simd = folding[i][1]
+        swg_inst.set_nodeattr("SIMD", simd)
+
     model = model.transform(InsertDWC())
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
