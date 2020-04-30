@@ -86,13 +86,6 @@ def nodes_in_expected_order(model):
 
     Returns {"nodes_in_expected_order": Bool}."""
 
-    # start by creating a dictionary with every node and corresponding index
-    index_dict = {}
-    ind = 0
-    for n in model.graph.node:
-        index_dict[str(n)] = ind
-        ind += 1
-
     # get successors of every node and check that
     # successor index > current node index
 
@@ -101,7 +94,9 @@ def nodes_in_expected_order(model):
         successors = model.find_successors(n)
         for successor in successors:
             # check the condition by checking the antithesis
-            if index_dict[str(n)] > index_dict[str(successor)]:
+            index_n = model.get_node_index(n)
+            index_suc = model.get_node_index(successor)
+            if index_n > index_suc:
                 all_OK = False
 
     return {"nodes_in_expected_order": all_OK}
