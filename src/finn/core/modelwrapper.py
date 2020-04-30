@@ -292,34 +292,36 @@ class ModelWrapper:
 
     def find_consumers(self, tensor_name):
         consumers = []
-        try:
-            for n in self._model_proto.graph.node:
-                for inp_tensor in n.input:
-                    if inp_tensor == tensor_name:
-                        consumers.append(n)
+        for n in self._model_proto.graph.node:
+            for inp_tensor in n.input:
+                if inp_tensor == tensor_name:
+                    consumers.append(n)
+        if consumers != []:
             return consumers
-        except ValueError:
+        else:
             return None
 
     def find_successors(self, node):
         successors = []
-        try:
-            for outp_tensor in node.output:
-                tensor_consumer_list = self.find_consumers(outp_tensor)
+        for outp_tensor in node.output:
+            tensor_consumer_list = self.find_consumers(outp_tensor)
+            if tensor_consumer_list is not None:
                 for consumer in tensor_consumer_list:
                     successors.append(consumer)
+        if successors != []:
             return successors
-        except ValueError:
+        else:
             return None
 
     def find_predecessors(self, node):
         predecessors = []
-        try:
-            for inp_tensor in node.input:
-                producer = self.find_producer(inp_tensor)
+        for inp_tensor in node.input:
+            producer = self.find_producer(inp_tensor)
+            if producer is not None:
                 predecessors.append(producer)
+        if predecessors != []:
             return predecessors
-        except ValueError:
+        else:
             return None
 
     def get_all_tensor_names(self):
