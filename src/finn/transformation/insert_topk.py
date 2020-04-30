@@ -32,6 +32,7 @@ from onnx import TensorProto
 from onnx import helper as oh
 
 from finn.transformation import Transformation
+from finn.core.datatype import DataType
 
 
 class InsertTopK(Transformation):
@@ -87,4 +88,9 @@ class InsertTopK(Transformation):
             # replace the existing output definition with topk indices
             model.graph.output.insert(0, topk_indices)
             model.graph.output.pop(1)
+            # set quantization annotation for indices
+            # minimal output dtype for TopK indices dependens on num. classes
+            # assuming UINT32 is large enough for now (FINN has currently no
+            # DataType.INT64)
+            model.set_tensor_datatype(topk_indices.name, DataType.UINT32)
             return (model, True)
