@@ -290,6 +290,38 @@ class ModelWrapper:
         except ValueError:
             return None
 
+    def find_consumers(self, tensor_name):
+        consumers = []
+        try:
+            for n in self._model_proto.graph.node:
+                for inp_tensor in n.input:
+                    if inp_tensor == tensor_name:
+                        consumers.append(n)
+            return consumers
+        except ValueError:
+            return None
+
+    def find_successors(self, node):
+        successors = []
+        try:
+            for outp_tensor in node.output:
+                tensor_consumer_list = self.find_consumers(outp_tensor)
+                for consumer in tensor_consumer_list:
+                    successors.append(consumer)
+            return successors
+        except ValueError:
+            return None
+
+    def find_predecessors(self, node):
+        predecessors = []
+        try:
+            for inp_tensor in node.input:
+                producer = self.find_producer(inp_tensor)
+                predecessors.append(producer)
+            return predecessors
+        except ValueError:
+            return None
+
     def get_all_tensor_names(self):
         """Returns a list of all (input, output and value_info) tensor names
         in the graph."""

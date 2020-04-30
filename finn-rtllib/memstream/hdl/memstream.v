@@ -37,7 +37,8 @@ module memstream
     parameter MEM_DEPTH = 13824,
     parameter MEM_WIDTH = 32,
     parameter MEM_INIT = "./",
-    
+    parameter RAM_STYLE = "auto",
+
     //widths per stream
 	parameter STRM0_WIDTH = 32,
 	parameter STRM1_WIDTH = 32,
@@ -73,38 +74,38 @@ module memstream
 	input config_we,
 	input [31:0] config_d0,
 	output [31:0] config_q0,
-       
+
     //multiple output AXI Streams, TDATA width rounded to multiple of 8 bits
     input m_axis_0_afull,
     input m_axis_0_tready,
     output m_axis_0_tvalid,
     output [((STRM0_WIDTH+7)/8)*8-1:0] m_axis_0_tdata,
-    
+
     input m_axis_1_afull,
     input m_axis_1_tready,
     output m_axis_1_tvalid,
     output [((STRM1_WIDTH+7)/8)*8-1:0] m_axis_1_tdata,
-    
+
     input m_axis_2_afull,
     input m_axis_2_tready,
     output m_axis_2_tvalid,
     output [((STRM2_WIDTH+7)/8)*8-1:0] m_axis_2_tdata,
-    
+
     input m_axis_3_afull,
     input m_axis_3_tready,
     output m_axis_3_tvalid,
     output [((STRM3_WIDTH+7)/8)*8-1:0] m_axis_3_tdata,
-    
+
     input m_axis_4_afull,
     input m_axis_4_tready,
     output m_axis_4_tvalid,
     output [((STRM4_WIDTH+7)/8)*8-1:0] m_axis_4_tdata,
-    
+
     input m_axis_5_afull,
     input m_axis_5_tready,
     output m_axis_5_tvalid,
     output [((STRM5_WIDTH+7)/8)*8-1:0] m_axis_5_tdata
-    
+
 
 );
 
@@ -191,7 +192,7 @@ reg strm4_ready;
 reg strm5_ready;
 
 //arbiter: work on one stream at a time
-//multiplex each port between (up to) half of the streams 
+//multiplex each port between (up to) half of the streams
 reg [1:0] current_stream_porta = 0;
 reg [1:0] current_stream_portb = 0;
 
@@ -311,12 +312,13 @@ ramb18_wf_dualport
     .ID(g),
 	.DWIDTH(MEM_WIDTH),
 	.AWIDTH(BLOCKADRWIDTH),
-	.MEM_INIT(MEM_INIT)
+	.MEM_INIT(MEM_INIT),
+  .RAM_STYLE(RAM_STYLE)
 )
 ram
 (
 	.clk(aclk),
-	
+
 	.wea(we[g]),
 	.addra(we[g] ? config_address[BLOCKADRWIDTH-1:0] : addra[BLOCKADRWIDTH-1:0]),
 	.wdataa(config_d0),
