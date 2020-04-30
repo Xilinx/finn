@@ -97,7 +97,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # block -- use BRAM
             # distributed -- use LUTRAM
             # see also https://www.xilinx.com/support/answers/38070.html
-            "decoupled_ram_style": ("s", False, "auto"),
+            "ram_style": ("s", False, "auto"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -989,9 +989,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$MEM_DEPTH$"] = [
                 str(roundup_to_integer_multiple(self.calc_wmem(), 1024))
             ]
-            self.code_gen_dict["$RAM_STYLE$"] = [
-                self.get_nodeattr("decoupled_ram_style")
-            ]
+            self.code_gen_dict["$RAM_STYLE$"] = [self.get_nodeattr("ram_style")]
 
             template = self.decoupled_wrapper
 
