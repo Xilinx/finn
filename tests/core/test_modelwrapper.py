@@ -116,3 +116,8 @@ def test_modelwrapper_graph_order():
     assert model.find_predecessors(Round_node) == [Neg_node]
     assert model.find_predecessors(Ceil_node) == [Neg_node]
     assert model.find_predecessors(Add_node) == [Round_node, Ceil_node]
+
+    assert model.get_node_index(Neg_node) == 0
+    assert model.get_node_index(Round_node) == 1
+    assert model.get_node_index(Ceil_node) == 2
+    assert model.get_node_index(Add_node) == 3
