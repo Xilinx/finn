@@ -289,6 +289,8 @@ class ModelWrapper:
             return None
 
     def find_consumers(self, tensor_name):
+        """Finds and returns a list of the nodes that consume tensor with
+        given name."""
         consumers = []
         for n in self._model_proto.graph.node:
             for inp_tensor in n.input:
@@ -300,6 +302,8 @@ class ModelWrapper:
             return None
 
     def find_successors(self, node):
+        """Finds and returns a list of the nodes that are successors of
+        given node."""
         successors = []
         for outp_tensor in node.output:
             tensor_consumer_list = self.find_consumers(outp_tensor)
@@ -312,6 +316,8 @@ class ModelWrapper:
             return None
 
     def find_predecessors(self, node):
+        """Finds and returns a list of the nodes that are predecessors of
+        given node."""
         predecessors = []
         for inp_tensor in node.input:
             producer = self.find_producer(inp_tensor)
@@ -419,6 +425,7 @@ class ModelWrapper:
         return list(filter(lambda x: x.domain != "finn", self.graph.node))
 
     def get_node_index(self, node):
+        """Returns current index of given node."""
         n_ind = 0
         try:
             for n in self.graph.node:
