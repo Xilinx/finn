@@ -61,6 +61,10 @@ def execute_node(node, context, graph):
             # onnxruntime unfortunately does not implement run_node as defined by ONNX,
             # it can only execute entire models -- so we create a model which solely
             # consists of our current node.
+            # note: ensure that the same ValueInfo does not appear both in
+            # graph.value_info as well as graph.output or graph.input
+            # nodes with multiple outputs that are a mix of value_info and
+            # input/outputs may get them reordered below
             node_inputs = list(filter(lambda x: x.name in node.input, graph.input))
             node_inputs += list(
                 filter(lambda x: x.name in node.input, graph.value_info)
@@ -84,17 +88,25 @@ def execute_node(node, context, graph):
             output_list = sess.run(None, input_dict)
 
             for output_ind in range(len(node.output)):
+                # get the name of the target buffer from node.output
                 outp = node.output[output_ind]
-                if output_list[output_ind].shape != context[outp].shape:
+
+                # retrieve the index of that name in node_outputs
+                for i in range(len(node_outputs)):
+                    if outp == node_outputs[i].name:
+                        list_ind = i
+
+                # use that index to index output_list
+                if output_list[list_ind].shape != context[outp].shape:
                     raise Exception(
                         """Output shapes disagree after node execution:
                         found %s vs expected %s"""
                         % (
-                            str(output_list[output_ind].shape.shape),
+                            str(output_list[list_ind].shape.shape),
                             str(context[outp].shape),
                         )
                     )
-                context[outp] = output_list[output_ind]
+                context[outp] = output_list[list_ind]
 
 
 def execute_onnx(model, input_dict, return_full_exec_context=False):
