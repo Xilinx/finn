@@ -253,14 +253,12 @@ class ModelWrapper:
             return None
 
     def find_producer(self, tensor_name):
-        """Finds and returns the node that produces the tensor with given name.
-        Currently only works for linear graphs."""
-        all_outputs = [x.output[0] for x in self._model_proto.graph.node]
-        try:
-            producer_ind = all_outputs.index(tensor_name)
-            return self._model_proto.graph.node[producer_ind]
-        except ValueError:
-            return None
+        """Finds and returns the node that produces the tensor with given name."""
+        ret = None
+        for x in self._model_proto.graph.node:
+            if tensor_name in x.output:
+                ret = x
+        return ret
 
     def find_upstream(self, tensor_name, finder_fxn):
         """Follow the producer chain upstream, calling finder_fxn on each upstream
@@ -291,35 +289,43 @@ class ModelWrapper:
             return None
 
     def find_consumers(self, tensor_name):
+        """Finds and returns a list of the nodes that consume tensor with
+        given name."""
         consumers = []
-        try:
-            for n in self._model_proto.graph.node:
-                for inp_tensor in n.input:
-                    if inp_tensor == tensor_name:
-                        consumers.append(n)
+        for n in self._model_proto.graph.node:
+            for inp_tensor in n.input:
+                if inp_tensor == tensor_name:
+                    consumers.append(n)
+        if consumers != []:
             return consumers
-        except ValueError:
+        else:
             return None
 
     def find_successors(self, node):
+        """Finds and returns a list of the nodes that are successors of
+        given node."""
         successors = []
-        try:
-            for outp_tensor in node.output:
-                tensor_consumer_list = self.find_consumers(outp_tensor)
+        for outp_tensor in node.output:
+            tensor_consumer_list = self.find_consumers(outp_tensor)
+            if tensor_consumer_list is not None:
                 for consumer in tensor_consumer_list:
                     successors.append(consumer)
+        if successors != []:
             return successors
-        except ValueError:
+        else:
             return None
 
     def find_predecessors(self, node):
+        """Finds and returns a list of the nodes that are predecessors of
+        given node."""
         predecessors = []
-        try:
-            for inp_tensor in node.input:
-                producer = self.find_producer(inp_tensor)
+        for inp_tensor in node.input:
+            producer = self.find_producer(inp_tensor)
+            if producer is not None:
                 predecessors.append(producer)
+        if predecessors != []:
             return predecessors
-        except ValueError:
+        else:
             return None
 
     def get_all_tensor_names(self):
@@ -419,6 +425,7 @@ class ModelWrapper:
         return list(filter(lambda x: x.domain != "finn", self.graph.node))
 
     def get_node_index(self, node):
+        """Returns current index of given node."""
         n_ind = 0
         try:
             for n in self.graph.node:
