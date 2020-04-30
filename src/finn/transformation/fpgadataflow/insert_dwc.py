@@ -3,7 +3,7 @@ from onnx import helper as oh
 
 from finn.custom_op.registry import getCustomOp
 from finn.transformation import Transformation
-from finn.util.basic import get_by_name
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def _is_dwc_node(node):
@@ -13,21 +13,9 @@ def _is_dwc_node(node):
         return False
 
 
-def _is_fpgadataflow_node(node):
-    if node.domain == "finn":
-        n_backend = get_by_name(node.attribute, "backend")
-        if n_backend is None:
-            return False
-        backend_value = n_backend.s.decode("UTF-8")
-        if backend_value == "fpgadataflow":
-            return True
-    else:
-        return False
-
-
 def _suitable_node(node):
     if node is not None:
-        if _is_fpgadataflow_node(node) is True:
+        if is_fpgadataflow_node(node) is True:
             if _is_dwc_node(node) is False:
                 return True
             else:
