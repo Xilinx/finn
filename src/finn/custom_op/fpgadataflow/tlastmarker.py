@@ -83,7 +83,7 @@ class TLastMarker(HLSCustomOp):
         self.code_gen_dict["$DEFINES$"] = [
             "#define StreamWidth %d" % stream_width,
             "#define OutDType %s" % out_stream_dtype,
-            "#define NumIters %d" % self.get_nodeattr("NumIters"),
+            "#define NumItersPerImg %d" % self.get_nodeattr("NumIters"),
         ]
 
     def read_npy_data(self):
@@ -91,12 +91,23 @@ class TLastMarker(HLSCustomOp):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            "for(int i=0; i<NumIters; i++) {",
-            "#pragma HLS PIPELINE II=1",
+            "unsigned int n = 1;",
             "OutDType t;",
-            "t.set_data(in0.read());",
             "t.set_keep(-1);",
-            "t.set_last(i==(NumIters-1));",
+            "io_section: { // start of cycle accurate region",
+            "#pragma HLS protocol fixed",
+            "// do a first read from stream before we decide on numIters",
+            "// giving software a chance to set up the numIters prior to startup",
+            "t.set_data(in0.read());",
+            "n = (numIters == 0 ? NumItersPerImg : numIters);",
+            "t.set_last(n==1);",
+            "out.write(t);",
+            "} // end of cycle accurate region",
+            "// do one less iteration than spec since we already did one",
+            "for(unsigned int i=1; i<n; i++) {",
+            "#pragma HLS PIPELINE II=1",
+            "t.set_data(in0.read());",
+            "t.set_last(i==(n-1));",
             "out.write(t);",
             "}",
         ]
@@ -110,13 +121,16 @@ class TLastMarker(HLSCustomOp):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """void %s(hls::stream<ap_uint<StreamWidth> > &in0,
-                hls::stream<OutDType> &out)"""
+                hls::stream<OutDType> &out, unsigned int numIters)"""
             % self.onnx_node.name
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE s_axilite port=numIters bundle=control"
+        )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )

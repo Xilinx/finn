@@ -72,7 +72,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
-target_clk_ns = 5
+target_clk_ns = 10
 mem_mode = "decoupled"
 
 
@@ -257,8 +257,9 @@ def test_end2end_tfc_w1a2_deploy_on_pynq():
             pytest.skip("PYNQ board IP address not specified")
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        port = os.getenv("PYNQ_PORT", 22)
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-        model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
         # save the model to be able to link it to the parent
         model.save(build_dir + "/end2end_tfc_w1a2_pynq_deploy.onnx")
     except KeyError:
