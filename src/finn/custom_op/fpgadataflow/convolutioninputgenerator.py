@@ -34,7 +34,6 @@ from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.custom_op.im2col import compute_conv_output_dim
 from onnx import TensorProto, helper
-from finn.util.basic import roundup_to_integer_multiple
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for ConvolutionInputGenerator:
@@ -142,7 +141,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self, axi_strm_padding=False):
+    def get_instream_width(self):
         """Returns stream width, input and output stream width are equal for
         the sliding window function"""
         ibits = self.get_input_datatype().bitwidth()
@@ -150,15 +149,13 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ifm_ch = self.get_nodeattr("IFMChannels")
         assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
         in_width = simd * ibits
-        if axi_strm_padding is True:
-            in_width = roundup_to_integer_multiple(in_width, 8)
         return in_width
 
-    def get_outstream_width(self, axi_strm_padding=False):
+    def get_outstream_width(self):
         """Returns stream width, input and output stream width are equal for
         the sliding window function, so the function to determine the input
         stream width can be reused."""
-        return self.get_instream_width(axi_strm_padding)
+        return self.get_instream_width()
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()

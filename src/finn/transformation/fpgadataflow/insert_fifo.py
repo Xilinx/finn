@@ -27,14 +27,20 @@ def _suitable_node(node):
 
 
 class InsertFIFO(Transformation):
-    """Ensure that the graph is terminated with a TLastMarker node, inserting
-    one if necessary."""
+    """Inserting FIFOs in the beginning and end of the graph as well as
+    between fpgadataflow nodes.
+
+    Takes the setting for the depth from the surrounding nodes by extracting
+    node attribute 'outFIFODepth' of the previous and node attribute 'inFIFODepth'
+    of the subsequent node. max() of these two values sets the FIFO depth.
+
+    The other node attributes necessary to create a FIFO node are taking from the
+    node the FIFO node is inserted after: 'folded_shape' and 'dtype'"""
 
     def __init__(self):
         super().__init__()
 
     def apply(self, model):
-        # default depth for FIFOs
         graph = model.graph
         node_ind = -1
         graph_modified = False
@@ -50,10 +56,19 @@ class InsertFIFO(Transformation):
                     fld_shape = n0.get_folded_output_shape()
                     dtype = n0.get_output_datatype()
 
+                    # check if folded_shape of output of first node and
+                    # input of the second node is equal
+                    n1 = getCustomOp(consumer)
+                    assert (
+                        fld_shape == n1.get_folded_input_shape()
+                    ), """The
+                    folded output shape of the first node is not the same as the
+                    folded output shape of the second node. A streaming fifo can't
+                    be implemented in between these nodes."""
+
                     # check if outFIFOdepth attribute of first node
                     # and inFIFOdepth attribute of consumer node is equal
                     n0_depth = n0.get_nodeattr("outFIFODepth")
-                    n1 = getCustomOp(consumer)
                     n1_depth = n1.get_nodeattr("inFIFODepth")
                     if n0_depth == n1_depth:
                         fifo_depth = n0_depth
@@ -69,6 +84,7 @@ class InsertFIFO(Transformation):
                         n0.get_normal_output_shape(),
                     )
                     graph.value_info.append(fifo_output_tensor)
+                    model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
                     fifo_node = oh.make_node(
                         "StreamingFIFO",
@@ -104,6 +120,7 @@ class InsertFIFO(Transformation):
                     n0.get_normal_input_shape(),
                 )
                 graph.value_info.append(fifo_output_tensor)
+                model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
                 fifo_node = oh.make_node(
                     "StreamingFIFO",
@@ -142,6 +159,7 @@ class InsertFIFO(Transformation):
                     n0.get_normal_output_shape(),
                 )
                 graph.value_info.append(fifo_input_tensor)
+                model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
                 fifo_node = oh.make_node(
                     "StreamingFIFO",

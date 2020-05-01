@@ -74,5 +74,4 @@ def hls_synth_res_estimation(model):
                         for this node. Please run "CodeGen_ipgen" transformation and
                         "HLSSynth_IPGen" first to generate the report files"""
                     )
-
     return res_dict
