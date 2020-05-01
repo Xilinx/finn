@@ -24,21 +24,27 @@ PYNQSHELL_COMMIT=db7e418767ce2a8e08fe732ddb3aa56ee79b7560
 gecho "Setting up known-good commit versions for FINN dependencies"
 # Brevitas
 gecho "brevitas @ $BREVITAS_COMMIT"
+git -C /workspace/brevitas pull --quiet
 git -C /workspace/brevitas checkout $BREVITAS_COMMIT --quiet
 # Brevitas examples
 gecho "brevitas_cnv_lfc @ $BREVITAS_EXAMPLES_COMMIT"
+git -C /workspace/brevitas_cnv_lfc pull --quiet
 git -C /workspace/brevitas_cnv_lfc checkout $BREVITAS_EXAMPLES_COMMIT --quiet
 # CNPY
 gecho "cnpy @ $CNPY_COMMIT"
+git -C /workspace/cnpy pull --quiet
 git -C /workspace/cnpy checkout $CNPY_COMMIT --quiet
 # FINN hlslib
 gecho "finn-hlslib @ $HLSLIB_COMMIT"
+git -C /workspace/finn-hlslib pull --quiet
 git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT --quiet
 # PyVerilator
 gecho "PyVerilator @ $PYVERILATOR_COMMIT"
+git -C /workspace/pyverilator pull --quiet
 git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT --quiet
 # PYNQ-HelloWorld
 gecho "PYNQ shell @ $PYNQSHELL_COMMIT"
+git -C /workspace/PYNQ-HelloWorld pull --quiet
 git -C /workspace/PYNQ-HelloWorld checkout $PYNQSHELL_COMMIT --quiet
 
 # source Vivado env.vars
