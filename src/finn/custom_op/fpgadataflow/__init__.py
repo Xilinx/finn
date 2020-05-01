@@ -31,7 +31,11 @@ import numpy as np
 import os
 import subprocess
 from finn.custom_op import CustomOp
-from finn.util.basic import CppBuilder, make_build_dir
+from finn.util.basic import (
+    CppBuilder,
+    make_build_dir,
+    roundup_to_integer_multiple,
+)
 from finn.util.fpgadataflow import (
     IPGenBuilder,
     pyverilate_get_liveness_threshold_cycles,
@@ -493,13 +497,21 @@ compilation transformations?
         """Returns folded output shape (according to neuron folding), if implemented."""
         raise Exception("get_folded_output_shape not implemented for this op")
 
-    def get_instream_width(self, axi_strm_padding=False):
+    def get_instream_width(self):
         """Returns input stream width, if implemented."""
         raise Exception("get_instream_width not implemented for this op")
 
-    def get_outstream_width(self, axi_strm_padding=False):
+    def get_outstream_width(self):
         """Returns output stream width, if implemented."""
         raise Exception("get_outstream_width not implemented for this op")
+
+    def get_instream_width_padded(self):
+        in_width = self.get_instream_width()
+        return roundup_to_integer_multiple(in_width, 8)
+
+    def get_outstream_width_padded(self):
+        out_width = self.get_outstream_width()
+        return roundup_to_integer_multiple(out_width, 8)
 
     def get_ap_int_max_w(self):
         instream = self.get_instream_width()
