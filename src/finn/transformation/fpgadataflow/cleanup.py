@@ -30,7 +30,7 @@ import os
 import shutil
 
 import finn.custom_op.registry as registry
-import finn.util.basic as util
+from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation import Transformation
 
 
@@ -53,36 +53,33 @@ class CleanUp(Transformation):
         model.set_metadata_prop("vivado_stitch_proj", "")
         for node in model.graph.node:
             op_type = node.op_type
-            if node.domain == "finn":
-                backend_attribute = util.get_by_name(node.attribute, "backend")
-                backend_value = backend_attribute.s.decode("UTF-8")
-                if backend_value == "fpgadataflow":
-                    try:
-                        # lookup op_type in registry of CustomOps
-                        inst = registry.custom_op[op_type](node)
-                        # delete code_gen_dir from npysim
-                        code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
-                        if os.path.isdir(code_gen_dir):
-                            shutil.rmtree(code_gen_dir)
-                        inst.set_nodeattr("code_gen_dir_npysim", "")
-                        inst.set_nodeattr("executable_path", "")
-                        # delete code_gen_dir from ipgen and project folder
-                        code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
-                        ipgen_path = inst.get_nodeattr("ipgen_path")
-                        if os.path.isdir(code_gen_dir):
-                            shutil.rmtree(code_gen_dir)
-                        if os.path.isdir(ipgen_path):
-                            shutil.rmtree(ipgen_path)
-                        inst.set_nodeattr("code_gen_dir_ipgen", "")
-                        inst.set_nodeattr("ipgen_path", "")
-                        # delete Java HotSpot Performance data log
-                        for d_name in os.listdir("/tmp/"):
-                            if "hsperfdata" in d_name:
-                                shutil.rmtree("/tmp/" + str(d_name))
+            if is_fpgadataflow_node(node) is True:
+                try:
+                    # lookup op_type in registry of CustomOps
+                    inst = registry.custom_op[op_type](node)
+                    # delete code_gen_dir from npysim
+                    code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
+                    if os.path.isdir(code_gen_dir):
+                        shutil.rmtree(code_gen_dir)
+                    inst.set_nodeattr("code_gen_dir_npysim", "")
+                    inst.set_nodeattr("executable_path", "")
+                    # delete code_gen_dir from ipgen and project folder
+                    code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
+                    ipgen_path = inst.get_nodeattr("ipgen_path")
+                    if os.path.isdir(code_gen_dir):
+                        shutil.rmtree(code_gen_dir)
+                    if os.path.isdir(ipgen_path):
+                        shutil.rmtree(ipgen_path)
+                    inst.set_nodeattr("code_gen_dir_ipgen", "")
+                    inst.set_nodeattr("ipgen_path", "")
+                    # delete Java HotSpot Performance data log
+                    for d_name in os.listdir("/tmp/"):
+                        if "hsperfdata" in d_name:
+                            shutil.rmtree("/tmp/" + str(d_name))
 
-                    except KeyError:
-                        # exception if op_type is not supported
-                        raise Exception(
-                            "Custom op_type %s is currently not supported." % op_type
-                        )
+                except KeyError:
+                    # exception if op_type is not supported
+                    raise Exception(
+                        "Custom op_type %s is currently not supported." % op_type
+                    )
         return (model, False)

@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import finn.custom_op.registry as registry
-import finn.util.basic as util
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def res_estimation(model):
@@ -37,14 +37,9 @@ def res_estimation(model):
 
     res_dict = {}
     for node in model.graph.node:
-        if node.domain == "finn":
-            backend_attribute = util.get_by_name(node.attribute, "backend")
-            if backend_attribute is None:
-                continue
-            backend_value = backend_attribute.s.decode("UTF-8")
-            if backend_value == "fpgadataflow":
-                op_type = node.op_type
-                inst = registry.custom_op[op_type](node)
-                res_dict[node.name] = inst.node_res_estimation()
+        if is_fpgadataflow_node(node) is True:
+            op_type = node.op_type
+            inst = registry.custom_op[op_type](node)
+            res_dict[node.name] = inst.node_res_estimation()
 
     return res_dict
