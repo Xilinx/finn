@@ -33,7 +33,6 @@ import subprocess
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
-from finn.util.basic import roundup_to_integer_multiple
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 from . import templates
@@ -110,7 +109,7 @@ class StreamingFIFO(HLSCustomOp):
             "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
         ]
         # make instream width a multiple of 8 for axi interface
-        in_width = self.get_instream_width(axi_strm_padding=True)
+        in_width = self.get_instream_width_padded()
         self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
         self.code_gen_dict["$OUT_RANGE$"] = ["[{}:0]".format(in_width - 1)]
         self.code_gen_dict["$WIDTH$"] = [str(in_width)]
@@ -164,6 +163,8 @@ class StreamingFIFO(HLSCustomOp):
 
     def get_normal_input_shape(self):
         depth = self.get_nodeattr("depth")
+        # depth has to be between 2 and 256 with the current
+        # StreamingFIFO implementation
         assert (
             depth >= 2
         ), """Depth is too low. Please set node attribute "depth" to a value
@@ -172,10 +173,22 @@ class StreamingFIFO(HLSCustomOp):
             depth <= 256
         ), """Depth is too high. Please set node attribute "depth" to a value
         between 2 and 256"""
+        # derive normal shape from folded shape
+        # StreamingFIFOs are inserted in between fpgadataflow nodes
+        # the folded shape could be for example (1, nf, pe)
+        # with nf (neuron folding): mh // pe
+        # the normal input shape is in this case (1, mh)
+        # so to achieve this the two inner dimensions are multiplied
+        # and together with all previous dimensions
+        # this gives the normal input shape
+
         folded_shape = self.get_nodeattr("folded_shape")
+        # extract inner dimension
         inner_dim = folded_shape[-1]
+        # multiply with the next inner dimension
         folding_factor = folded_shape[-2] * inner_dim
         normal_ishape = []
+        # create the normal_ishape
         for i in range(len(folded_shape) - 2):
             normal_ishape.append(folded_shape[i])
         normal_ishape.append(folding_factor)
@@ -191,20 +204,16 @@ class StreamingFIFO(HLSCustomOp):
     def get_folded_output_shape(self):
         return self.get_nodeattr("folded_shape")
 
-    def get_instream_width(self, axi_strm_padding=False):
+    def get_instream_width(self):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()
-        if axi_strm_padding is True:
-            in_width = roundup_to_integer_multiple(in_width, 8)
         return in_width
 
-    def get_outstream_width(self, axi_strm_padding=False):
+    def get_outstream_width(self):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()
-        if axi_strm_padding is True:
-            in_width = roundup_to_integer_multiple(in_width, 8)
         return in_width
 
     def execute_node(self, context, graph):
