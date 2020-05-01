@@ -31,11 +31,7 @@ import numpy as np
 import os
 import subprocess
 from finn.custom_op import CustomOp
-from finn.util.basic import (
-    CppBuilder,
-    make_build_dir,
-    roundup_to_integer_multiple,
-)
+from finn.util.basic import CppBuilder, make_build_dir, roundup_to_integer_multiple
 from finn.util.fpgadataflow import (
     IPGenBuilder,
     pyverilate_get_liveness_threshold_cycles,
@@ -506,14 +502,19 @@ compilation transformations?
         raise Exception("get_outstream_width not implemented for this op")
 
     def get_instream_width_padded(self):
+        """Returns input stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec."""
         in_width = self.get_instream_width()
         return roundup_to_integer_multiple(in_width, 8)
 
     def get_outstream_width_padded(self):
+        """Returns output stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec."""
         out_width = self.get_outstream_width()
         return roundup_to_integer_multiple(out_width, 8)
 
     def get_ap_int_max_w(self):
+        "Return the maximum width of any ap_int used in this module."
         instream = self.get_instream_width()
         outstream = self.get_outstream_width()
         return max([instream, outstream])
