@@ -206,15 +206,11 @@ def test_end2end_tfc_w1a1_verify_dataflow_part():
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareRTLSim())
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    for fcl in fc_layers:
-        getCustomOp(fcl).set_nodeattr("rtlsim_trace", "default")
     model.save(build_dir + "/end2end_tfc_w1a1_ipstitch_nodebynode_rtlsim.onnx")
     ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
     res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
     # whole-network (ip-stitched) rtlsim
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
     model.save(build_dir + "/end2end_tfc_w1a1_ipstitch_whole_rtlsim.onnx")
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
