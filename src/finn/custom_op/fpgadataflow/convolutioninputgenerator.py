@@ -60,6 +60,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
+            # FPGA resource type for ConvolutionInputGenerator input buffer
+            # auto -- let Vivado HLS decide
+            # block -- use BRAM
+            # distributed -- use LUTRAM
+            # ultra -- use URAM
+            "ram_style": ("s", False, "distributed"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -350,3 +356,17 @@ class ConvolutionInputGenerator(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def ipgen_extra_directives(self):
+        # add directive to control input buffer memory resources
+        ram_style = self.get_nodeattr("ram_style")
+        map_to_hls_ram_style = {
+            "auto": "RAM_2P",
+            "block": "RAM_2P_BRAM",
+            "distributed": "RAM_2P_LUTRAM",
+            "ultra": "RAM_2P_URAM",
+        }
+        hls_ram_style = map_to_hls_ram_style[ram_style]
+        directive = "set_directive_resource -core %s " % hls_ram_style
+        directive += "ConvolutionInputGenerator inputBuf"
+        return [directive]
