@@ -194,6 +194,7 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$FINNHLSLIBDIR$"] = ["/workspace/finn-hlslib"]
         self.code_gen_dict["$TOPFXN$"] = [node.name]
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
+        self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
         template = self.ipgentcl_template
 
@@ -206,6 +207,10 @@ class HLSCustomOp(CustomOp):
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return []
 
     def ipgen_singlenode_code(self):
         """Builds the bash script for ip generation using the IPGenBuilder from
