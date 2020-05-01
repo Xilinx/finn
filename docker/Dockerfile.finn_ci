@@ -43,9 +43,9 @@ RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # cloning dependency repos
 # Brevitas
-RUN git clone --branch feature/finn_onnx_export https://github.com/Xilinx/brevitas.git /workspace/brevitas
+RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
 # Brevitas examples
-RUN git clone --branch feature/rework_scaling_clipping https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
+RUN git clone https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
 # CNPY
 RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
 # FINN hlslib
@@ -53,7 +53,7 @@ RUN git clone https://github.com/maltanar/finn-hlslib.git /workspace/finn-hlslib
 # PyVerilator
 RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
 # PYNQ-HelloWorld
-RUN git clone --branch feature/synth_rpt https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
+RUN git clone feature/synth_rpt https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
 
 # checkout desired FINN branch for testing
 RUN git clone --branch $FINN_CI_BRANCH https://github.com/Xilinx/finn /workspace/finn
