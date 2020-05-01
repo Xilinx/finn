@@ -60,10 +60,6 @@ RUN pip install pytest-dependency
 RUN pip install sphinx
 RUN pip install sphinx_rtd_theme
 
-# copy entrypoint script
-COPY docker/finn_entrypoint.sh /usr/local/bin/
-RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
-
 # switch user
 RUN groupadd -g $GID $GNAME
 RUN useradd -M -u $UID $UNAME -g $GNAME
@@ -76,32 +72,20 @@ USER $UNAME
 
 # cloning dependency repos (as user)
 # Brevitas
-RUN git clone --branch feature/finn_onnx_export https://github.com/Xilinx/brevitas.git /workspace/brevitas
-RUN git -C /workspace/brevitas checkout 215cf44c76d562339fca368c8c3afee3110033e8
-
+RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
 # Brevitas examples
-RUN git clone --branch feature/rework_scaling_clipping https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
-RUN git -C /workspace/brevitas_cnv_lfc checkout 2059f96bd576bf71f32c757e7f92617a70190c90
-
+RUN git clone https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
 # CNPY
 RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
-RUN git -C /workspace/cnpy checkout 4e8810b1a8637695171ed346ce68f6984e585ef4
-
 # FINN hlslib
 RUN git clone https://github.com/maltanar/finn-hlslib.git /workspace/finn-hlslib
-RUN git -C /workspace/finn-hlslib checkout b139bf051ac8f8e0a3625509247f714127cf3317
-
 # PyVerilator
 RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
-RUN git -C /workspace/pyverilator checkout 307fc5c82db748620836307a2002fdc9fe170226
-
 # PYNQ-HelloWorld
 RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
-RUN git -C /workspace/PYNQ-HelloWorld checkout 0c82a61b0ec1a07fa275a14146233824ded7a13d
 
-# Note that we expect the cloned finn directory on the host to be
-# mounted on /workspace/finn -- see run-docker.sh for an example
-# of how to do this.
+# for this developer-oriented Docker container we assume the FINN repo is cloned and mounted from the host
+# at /workspace/finn -- see run-docker.sh for an example of how to do this.
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
@@ -110,6 +94,13 @@ ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
 
 WORKDIR /home/$UNAME/finn
 RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /home/$UNAME/.bashrc
+RUN echo "source \$VIVADO_PATH/settings64.sh" >> /home/$UNAME/.bashrc
+
+# copy entrypoint script
+USER root
+COPY docker/finn_entrypoint.sh /usr/local/bin/
+RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
+USER $UNAME
 
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]
