@@ -142,7 +142,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
         assert simd == ifm_ch, "SWG currently requires SIMD=IFM"
-        return simd * ibits
+        in_width = simd * ibits
+        return in_width
 
     def get_outstream_width(self):
         """Returns stream width, input and output stream width are equal for

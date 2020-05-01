@@ -80,9 +80,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "binaryXnorMode": ("i", False, 0),
             # no-activation mode (produce accumulators)
             "noActivation": ("i", False, 0),
-            # input and output FIFO depths
-            "inFIFODepth": ("i", False, 0),
-            "outFIFODepth": ("i", False, 0),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -284,17 +281,24 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def get_instream_width(self):
         i_bits = self.get_input_datatype().bitwidth()
-        return i_bits * self.get_nodeattr("SIMD")
+        in_width = i_bits * self.get_nodeattr("SIMD")
+        return in_width
 
     def get_outstream_width(self):
         o_bits = self.get_output_datatype().bitwidth()
-        return o_bits * self.get_nodeattr("PE")
+        out_width = o_bits * self.get_nodeattr("PE")
+        return out_width
 
     def get_weightstream_width(self):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
         wp = self.get_weight_datatype().bitwidth()
-        return pe * simd * wp
+        w_width = pe * simd * wp
+        return w_width
+
+    def get_weightstream_width_padded(self):
+        weight_width = self.get_weightstream_width()
+        return roundup_to_integer_multiple(weight_width, 8)
 
     def get_ap_int_max_w(self):
         temp_value = super().get_ap_int_max_w()
@@ -976,13 +980,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
             ]
             # make instream width a multiple of 8 for AXI stream interface
-            in_width = roundup_to_integer_multiple(self.get_instream_width(), 8)
+            in_width = self.get_instream_width_padded()
             self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
             self.code_gen_dict["$OUT_RANGE$"] = [
-                "[{}:0]".format(self.get_outstream_width() - 1)
+                "[{}:0]".format(self.get_outstream_width_padded() - 1)
             ]
             # make weight stream width a multiple of 8 for AXI stream interface
-            weight_width = roundup_to_integer_multiple(self.get_weightstream_width(), 8)
+            weight_width = self.get_weightstream_width_padded()
             self.code_gen_dict["$WEIGHT_RANGE$"] = ["[{}:0]".format(weight_width - 1)]
             self.code_gen_dict["$WEIGHT_WIDTH$"] = [str(weight_width)]
             self.code_gen_dict["$WSTREAM_DEPTH$"] = [str(self.calc_wmem())]

@@ -90,7 +90,8 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def get_instream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()
         ifm_ch = self.get_nodeattr("NumChannels")
-        return int(dt_bits * ifm_ch)
+        in_width = int(dt_bits * ifm_ch)
+        return in_width
 
     def get_outstream_width(self):
         """For streaming maxpool out stream with is the same as in stream width"""

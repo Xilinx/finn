@@ -193,7 +193,7 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count);
       if (shift_en_) begin
 	 // synthesis loop_limit 256
 	 for (a_=depth-2; a_>0; a_=a_-1) begin
-	    srl[a_] <= srl[a_-1];
+	    srl[a_] = srl[a_-1];
 	 end
 	 srl[0] <= i_d;
       end
