@@ -296,6 +296,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         w_width = pe * simd * wp
         return w_width
 
+    def get_weightstream_width_padded(self):
+        weight_width = self.get_weightstream_width()
+        return roundup_to_integer_multiple(weight_width, 8)
+
     def get_ap_int_max_w(self):
         temp_value = super().get_ap_int_max_w()
         weightstream = self.get_weightstream_width()
@@ -979,7 +983,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             in_width = self.get_instream_width_padded()
             self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
             self.code_gen_dict["$OUT_RANGE$"] = [
-                "[{}:0]".format(self.get_outstream_width_padded - 1)
+                "[{}:0]".format(self.get_outstream_width_padded() - 1)
             ]
             # make weight stream width a multiple of 8 for AXI stream interface
             weight_width = self.get_weightstream_width_padded()
