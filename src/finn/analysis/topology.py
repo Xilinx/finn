@@ -92,11 +92,12 @@ def nodes_in_expected_order(model):
     all_OK = True
     for n in model.graph.node:
         successors = model.find_successors(n)
-        for successor in successors:
-            # check the condition by checking the antithesis
-            index_n = model.get_node_index(n)
-            index_suc = model.get_node_index(successor)
-            if index_n > index_suc:
-                all_OK = False
+        if successors is not None:
+            for successor in successors:
+                # check the condition by checking the antithesis
+                index_n = model.get_node_index(n)
+                index_suc = model.get_node_index(successor)
+                if index_n > index_suc:
+                    all_OK = False
 
     return {"nodes_in_expected_order": all_OK}
