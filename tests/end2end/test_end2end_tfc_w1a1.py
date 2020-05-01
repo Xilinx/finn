@@ -204,7 +204,7 @@ def test_end2end_tfc_w1a1_verify_dataflow_part():
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
-    assert np.isclose(res_rtlsim_nodebynode, res_rtlsim_whole).all()
+    assert np.isclose(res_npysim, res_rtlsim_whole).all()
 
 
 def test_end2end_tfc_w1a1_verify_all():
