@@ -72,6 +72,7 @@ from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -134,22 +135,23 @@ def test_end2end_cnv_w1a1_create_dataflow_partition():
 def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    # each tuple is (PE, SIMD) for a layer
+    # each tuple is (PE, SIMD, in_fifo_depth) for a layer
     folding = [
-        (16, 3),
-        (32, 32),
-        (16, 32),
-        (16, 32),
-        (4, 32),
-        (1, 32),
-        (1, 4),
-        (1, 8),
-        (5, 1),
+        (16, 3, 128),
+        (32, 32, 128),
+        (16, 32, 128),
+        (16, 32, 128),
+        (4, 32, 81),
+        (1, 32, 2),
+        (1, 4, 2),
+        (1, 8, 128),
+        (5, 1, 3),
     ]
-    for fcl, (pe, simd) in zip(fc_layers, folding):
+    for fcl, (pe, simd, ififodepth) in zip(fc_layers, folding):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
+        fcl_inst.set_nodeattr("inFIFODepth", ififodepth)
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator")
     for i in range(len(swg_layers)):
@@ -158,6 +160,7 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
         swg_inst.set_nodeattr("SIMD", simd)
 
     model = model.transform(InsertDWC())
+    model = model.transform(InsertFIFO())
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(AnnotateResources("estimate"))
