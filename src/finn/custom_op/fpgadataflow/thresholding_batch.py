@@ -131,11 +131,9 @@ class Thresholding_Batch(HLSCustomOp):
         try:
             self.get_nodeattr("code_gen_dir_npysim")
             self.get_nodeattr("executable_path")
-            self.get_nodeattr("resType")
             self.get_nodeattr("NumChannels")
             self.get_nodeattr("PE")
             self.get_nodeattr("inputDataType")
-            self.get_nodeattr("weightDataType")
             self.get_nodeattr("outputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
@@ -153,7 +151,7 @@ class Thresholding_Batch(HLSCustomOp):
         A = idt.bitwidth()
         tmem = self.calc_tmem()
 
-        if style == "block":
+        if style == "block" and tmem > 1:
             return int(ceil(A * P / 16)) * int(ceil(tmem / 1024))
         else:
             return 0
@@ -169,7 +167,7 @@ class Thresholding_Batch(HLSCustomOp):
         # cost of comparators
         comparator_cost = A * P
         # cost of LUTRAM
-        if style == "distributed":
+        if style == "distributed" and tmem > 1:
             lutram_cost = P * A * int(ceil(tmem / 64))
         else:
             lutram_cost = 0
@@ -426,7 +424,6 @@ class Thresholding_Batch(HLSCustomOp):
             )
         ]
 
-    # TODO
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
         dtype = self.get_input_datatype()

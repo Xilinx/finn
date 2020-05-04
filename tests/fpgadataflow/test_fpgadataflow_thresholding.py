@@ -57,7 +57,7 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt):
 
     node_inp_list = ["inp", "thresh"]
 
-    FCLayer_node = helper.make_node(
+    Thresholding_node = helper.make_node(
         "Thresholding_Batch",
         node_inp_list,
         ["outp"],
@@ -69,7 +69,10 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt):
         outputDataType=odt.name,
     )
     graph = helper.make_graph(
-        nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]
+        nodes=[Thresholding_node],
+        name="thresholding_graph",
+        inputs=[inp],
+        outputs=[outp],
     )
 
     model = helper.make_model(graph, producer_name="thresholding-model")
