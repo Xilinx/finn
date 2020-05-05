@@ -91,7 +91,7 @@ def nodes_in_expected_order(model):
 
     all_OK = True
     for n in model.graph.node:
-        successors = model.find_successors(n)
+        successors = model.find_direct_successors(n)
         if successors is not None:
             for successor in successors:
                 # check the condition by checking the antithesis
