@@ -25,7 +25,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
+import warnings
 import os
 import xml.etree.ElementTree as ET
 
@@ -41,13 +41,21 @@ def hls_synth_res_estimation(model):
     res_dict = {}
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:
+            # init values to zero
+            res_dict[node.name] = dict()
+            res_dict[node.name]["BRAM_18K"] = 0
+            res_dict[node.name]["FF"] = 0
+            res_dict[node.name]["LUT"] = 0
+            res_dict[node.name]["DSP48E"] = 0
+            res_dict[node.name]["URAM"] = 0
             op_type = node.op_type
             inst = registry.custom_op[op_type](node)
             code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
             if code_gen_dir == "":
-                raise Exception(
-                    """Please run "CodeGen_ipgen" transformation and
-                        "HLSSynth_IPGen" first to generate the report files"""
+                warnings.warn(
+                    """Could not find report files, values will be set to zero
+                    for this node. Please run "CodeGen_ipgen" transformation and
+                    "HLSSynth_IPGen" first to generate the report files"""
                 )
             else:
                 xmlfile = "{}/project_{}/sol1/syn/report/{}_csynth.xml".format(
@@ -55,15 +63,15 @@ def hls_synth_res_estimation(model):
                 )
 
                 if os.path.isfile(xmlfile):
-                    res_dict[node.name] = dict()
                     tree = ET.parse(xmlfile)
                     root = tree.getroot()
                     for item in root.findall("AreaEstimates/Resources"):
                         for child in item:
                             res_dict[node.name][child.tag] = child.text
                 else:
-                    raise Exception(
-                        """Please run "HLSSynth_IPGen" first
-                            to generate the report files"""
+                    warnings.warn(
+                        """Could not find report files, values will be set to zero
+                        for this node. Please run "CodeGen_ipgen" transformation and
+                        "HLSSynth_IPGen" first to generate the report files"""
                     )
     return res_dict

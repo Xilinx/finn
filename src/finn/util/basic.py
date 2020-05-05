@@ -44,6 +44,19 @@ pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
 
 
+def get_rtlsim_trace_depth():
+    """Return the trace depth for rtlsim via PyVerilator. Controllable
+    via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
+    undefined, the default value of 1 is returned. A trace depth of 1
+    will only show top-level signals and yield smaller .vcd files.
+    """
+
+    try:
+        return int(os.environ["RTLSIM_TRACE_DEPTH"])
+    except KeyError:
+        return 1
+
+
 def get_num_default_workers():
     """Return the number of workers for parallel transformations. Controllable
     via the NUM_DEFAULT_WORKERS environment variable. If the env.var. is

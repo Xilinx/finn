@@ -72,7 +72,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
-target_clk_ns = 5
+target_clk_ns = 10
 mem_mode = "decoupled"
 
 
@@ -175,15 +175,11 @@ def test_end2end_tfc_w1a2_verify_dataflow_part():
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareRTLSim())
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    for fcl in fc_layers:
-        getCustomOp(fcl).set_nodeattr("rtlsim_trace", "default")
     model.save(build_dir + "/end2end_tfc_w1a2_ipstitch_nodebynode_rtlsim.onnx")
     ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
     res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
     # whole-network (ip-stitched) rtlsim
     model.set_metadata_prop("exec_mode", "rtlsim")
-    model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
     model.save(build_dir + "/end2end_tfc_w1a2_ipstitch_whole_rtlsim.onnx")
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
@@ -257,8 +253,9 @@ def test_end2end_tfc_w1a2_deploy_on_pynq():
             pytest.skip("PYNQ board IP address not specified")
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        port = os.getenv("PYNQ_PORT", 22)
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-        model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
         # save the model to be able to link it to the parent
         model.save(build_dir + "/end2end_tfc_w1a2_pynq_deploy.onnx")
     except KeyError:

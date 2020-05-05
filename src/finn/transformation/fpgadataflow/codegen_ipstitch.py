@@ -121,6 +121,11 @@ class CodeGen_ipstitch(Transformation):
                 connect_cmds.append(
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/out_r]" % inst_name
                 )
+                # make AXI lite IF external
+                connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi_control]"
+                    % inst_name
+                )
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
@@ -142,6 +147,9 @@ class CodeGen_ipstitch(Transformation):
         tcl.append('create_bd_design "%s"' % block_name)
         tcl.extend(create_cmds)
         tcl.extend(connect_cmds)
+        # TODO get from Transformation arg or metadata_prop
+        fclk_hz = 100 * 1000000
+        tcl.append("set_property CONFIG.FREQ_HZ %f [get_bd_ports /ap_clk_0]" % fclk_hz)
         tcl.append("regenerate_bd_layout")
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")

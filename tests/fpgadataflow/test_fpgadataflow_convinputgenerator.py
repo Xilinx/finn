@@ -130,13 +130,14 @@ def prepare_inputs(input_tensor):
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [4, 6, 8])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [1, 2])  # , 2, 3, 4])
+@pytest.mark.parametrize("ifm_ch", [2, 4])  # , 2, 3, 4])
 # Stride
 @pytest.mark.parametrize("stride", [1, 2])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["npysim", "rtlsim"])
-def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode):
-    simd = ifm_ch
+# input channel parallelism ("SIMD")
+@pytest.mark.parametrize("simd", [1, 2])
+def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode, simd):
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
 
     x = gen_finn_dt_tensor(idt, (1, ifm_dim, ifm_dim, ifm_ch))
