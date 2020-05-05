@@ -60,6 +60,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
+            # FPGA resource type for ConvolutionInputGenerator input buffer
+            # auto -- let Vivado HLS decide
+            # block -- use BRAM
+            # distributed -- use LUTRAM
+            # ultra -- use URAM
+            "ram_style": ("s", False, "distributed"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -73,8 +79,13 @@ class ConvolutionInputGenerator(HLSCustomOp):
         return ishape
 
     def get_folded_input_shape(self):
-        """Assumption: No folding on input"""
-        return self.get_normal_input_shape()
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        simd = self.get_nodeattr("SIMD")
+        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+        wf = int(ifm_ch / simd)
+        folded_ishape = (1, ifm_dim, ifm_dim, wf, simd)
+        return folded_ishape
 
     def get_normal_output_shape(self):
         k = self.get_nodeattr("ConvKernelDim")
@@ -94,7 +105,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
         simd = self.get_nodeattr("SIMD")
         pad = 0
         ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
-        assert k * k * ifm_ch % simd == 0, "SIMD must divide sliding window size"
+        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+        assert k % stride == 0, "stride must divide kernel size k"
         wf = int((k * k * ifm_ch) // simd)
         folded_oshape = (1, ofm_dim, ofm_dim, wf, simd)
         return folded_oshape
@@ -141,8 +153,9 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ibits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
-        assert simd == ifm_ch, "SWG currently requires SIMD=IFM"
-        return simd * ibits
+        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+        in_width = simd * ibits
+        return in_width
 
     def get_outstream_width(self):
         """Returns stream width, input and output stream width are equal for
@@ -160,6 +173,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
+        folded_ishape = self.get_folded_input_shape()
         folded_oshape = self.get_folded_output_shape()
 
         # TODO ensure codegen dir exists
@@ -187,7 +201,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
             export_idt = DataType.BINARY
         else:
             export_idt = self.get_input_datatype()
-        # no reshaping for input since assuming no folding on input
+        # reshape input into folded form
+        inp = inp.reshape(folded_ishape)
         # make copy before saving array
         reshaped_input = inp.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
@@ -341,3 +356,17 @@ class ConvolutionInputGenerator(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def ipgen_extra_directives(self):
+        # add directive to control input buffer memory resources
+        ram_style = self.get_nodeattr("ram_style")
+        map_to_hls_ram_style = {
+            "auto": "RAM_2P",
+            "block": "RAM_2P_BRAM",
+            "distributed": "RAM_2P_LUTRAM",
+            "ultra": "RAM_2P_URAM",
+        }
+        hls_ram_style = map_to_hls_ram_style[ram_style]
+        directive = "set_directive_resource -core %s " % hls_ram_style
+        directive += "ConvolutionInputGenerator inputBuf"
+        return [directive]
