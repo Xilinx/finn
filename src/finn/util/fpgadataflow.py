@@ -33,7 +33,7 @@ try:
     from pyverilator import PyVerilator
 except ModuleNotFoundError:
     PyVerilator = None
-from finn.util.basic import get_by_name, make_build_dir
+from finn.util.basic import get_by_name, make_build_dir, get_rtlsim_trace_depth
 
 
 class IPGenBuilder:
@@ -87,7 +87,10 @@ def pyverilate_stitched_ip(model):
     top_verilog = model.get_metadata_prop("wrapper_filename")
     build_dir = make_build_dir("pyverilator_ipstitched_")
     sim = PyVerilator.build(
-        top_verilog, verilog_path=all_verilog_dirs, build_dir=build_dir
+        top_verilog,
+        verilog_path=all_verilog_dirs,
+        build_dir=build_dir,
+        trace_depth=get_rtlsim_trace_depth(),
     )
     return sim
 

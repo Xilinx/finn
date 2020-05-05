@@ -31,7 +31,12 @@ import numpy as np
 import os
 import subprocess
 from finn.custom_op import CustomOp
-from finn.util.basic import CppBuilder, make_build_dir
+from finn.util.basic import (
+    CppBuilder,
+    make_build_dir,
+    roundup_to_integer_multiple,
+    get_rtlsim_trace_depth,
+)
 from finn.util.fpgadataflow import (
     IPGenBuilder,
     pyverilate_get_liveness_threshold_cycles,
@@ -82,6 +87,9 @@ class HLSCustomOp(CustomOp):
             "res_hls": ("s", False, ""),
             "res_synth": ("s", False, ""),
             "rtlsim_so": ("s", False, ""),
+            # input and output FIFO depths
+            "inFIFODepth": ("i", False, 2),
+            "outFIFODepth": ("i", False, 2),
         }
 
     def get_verilog_top_module_name(self):
@@ -125,6 +133,7 @@ class HLSCustomOp(CustomOp):
                     code_gen_dir, self.onnx_node.name
                 )
             ],
+            trace_depth=get_rtlsim_trace_depth(),
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)
@@ -191,6 +200,7 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$FINNHLSLIBDIR$"] = ["/workspace/finn-hlslib"]
         self.code_gen_dict["$TOPFXN$"] = [node.name]
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
+        self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
         template = self.ipgentcl_template
 
@@ -203,6 +213,10 @@ class HLSCustomOp(CustomOp):
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return []
 
     def ipgen_singlenode_code(self):
         """Builds the bash script for ip generation using the IPGenBuilder from
@@ -498,7 +512,20 @@ compilation transformations?
         """Returns output stream width, if implemented."""
         raise Exception("get_outstream_width not implemented for this op")
 
+    def get_instream_width_padded(self):
+        """Returns input stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec."""
+        in_width = self.get_instream_width()
+        return roundup_to_integer_multiple(in_width, 8)
+
+    def get_outstream_width_padded(self):
+        """Returns output stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec."""
+        out_width = self.get_outstream_width()
+        return roundup_to_integer_multiple(out_width, 8)
+
     def get_ap_int_max_w(self):
+        "Return the maximum width of any ap_int used in this module."
         instream = self.get_instream_width()
         outstream = self.get_outstream_width()
         return max([instream, outstream])
