@@ -120,6 +120,8 @@ class RemoteTest():
         self.ctrl_regs = self.ol.resize_accel_0
         self.ishape_packed = $INPUT_SHAPE_PACKED$
         self.oshape_packed = $OUTPUT_SHAPE_PACKED$
+        # neuron folding factor of output = iterations per sample
+        self.itersPerSample = self.oshape_packed[-2]
         # AXI lite register offset for number of iterations
         # used by TLastMarker to signal end of transmission for AXI CDMA
         self.REG_OFFSET_NUM_ITERS = 0x10
@@ -184,7 +186,7 @@ class RemoteTest():
             raise Exception("Exec mode has to be set to remote_pynq or throughput_test")
 
         # set up TLastMarker with correct num. samples
-        self.ctrl_regs.write(self.REG_OFFSET_NUM_ITERS, N)
+        self.ctrl_regs.write(self.REG_OFFSET_NUM_ITERS, N*self.itersPerSample)
 
         # allocate a PYNQ buffer for the packed input buffer
         if exec_mode == "remote_pynq":
