@@ -107,15 +107,15 @@ def test_modelwrapper_graph_order():
     assert model.find_consumers("ceil1") == [Add_node]
     assert model.find_consumers("out1") is None
 
-    assert model.find_successors(Neg_node) == [Round_node, Ceil_node]
-    assert model.find_successors(Round_node) == [Add_node]
-    assert model.find_successors(Ceil_node) == [Add_node]
-    assert model.find_successors(Add_node) is None
+    assert model.find_direct_successors(Neg_node) == [Round_node, Ceil_node]
+    assert model.find_direct_successors(Round_node) == [Add_node]
+    assert model.find_direct_successors(Ceil_node) == [Add_node]
+    assert model.find_direct_successors(Add_node) is None
 
-    assert model.find_predecessors(Neg_node) is None
-    assert model.find_predecessors(Round_node) == [Neg_node]
-    assert model.find_predecessors(Ceil_node) == [Neg_node]
-    assert model.find_predecessors(Add_node) == [Round_node, Ceil_node]
+    assert model.find_direct_predecessors(Neg_node) is None
+    assert model.find_direct_predecessors(Round_node) == [Neg_node]
+    assert model.find_direct_predecessors(Ceil_node) == [Neg_node]
+    assert model.find_direct_predecessors(Add_node) == [Round_node, Ceil_node]
 
     assert model.get_node_index(Neg_node) == 0
     assert model.get_node_index(Round_node) == 1

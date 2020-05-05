@@ -151,10 +151,12 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         return np.prod(folded_ishape[:-1])
 
     def get_instream_width(self):
-        return self.get_nodeattr("inWidth")
+        in_width = self.get_nodeattr("inWidth")
+        return in_width
 
     def get_outstream_width(self):
-        return self.get_nodeattr("outWidth")
+        out_width = self.get_nodeattr("outWidth")
+        return out_width
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()

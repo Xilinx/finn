@@ -301,7 +301,7 @@ class ModelWrapper:
         else:
             return None
 
-    def find_successors(self, node):
+    def find_direct_successors(self, node):
         """Finds and returns a list of the nodes that are successors of
         given node."""
         successors = []
@@ -315,7 +315,7 @@ class ModelWrapper:
         else:
             return None
 
-    def find_predecessors(self, node):
+    def find_direct_predecessors(self, node):
         """Finds and returns a list of the nodes that are predecessors of
         given node."""
         predecessors = []
