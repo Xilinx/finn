@@ -69,8 +69,8 @@ def create_one_fc_model():
     no_act = 1
     binary_xnor_mode = 0
     actval = 0
-    simd = 2
-    pe = 2
+    simd = 4
+    pe = 4
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, m])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
@@ -199,7 +199,7 @@ def create_two_fc_model():
 # exec_mode of StreamingDataflowPartition
 # @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
 def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
-    model = create_two_fc_model()
+    model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
@@ -246,6 +246,23 @@ def test_fpgadataflow_ipstitch_rtlsim():
         "out_r_0_tlast",
         "out_r_0_tready",
         "out_r_0_tvalid",
+        "s_axi_control_0_araddr",
+        "s_axi_control_0_arready",
+        "s_axi_control_0_arvalid",
+        "s_axi_control_0_awaddr",
+        "s_axi_control_0_awready",
+        "s_axi_control_0_awvalid",
+        "s_axi_control_0_bready",
+        "s_axi_control_0_bresp",
+        "s_axi_control_0_bvalid",
+        "s_axi_control_0_rdata",
+        "s_axi_control_0_rready",
+        "s_axi_control_0_rresp",
+        "s_axi_control_0_rvalid",
+        "s_axi_control_0_wdata",
+        "s_axi_control_0_wready",
+        "s_axi_control_0_wstrb",
+        "s_axi_control_0_wvalid",
     ]
     assert dir(sim.io) == exp_io
     model.set_metadata_prop("exec_mode", "rtlsim")
@@ -295,8 +312,9 @@ def test_fpgadataflow_ipstitch_pynq_deployment_folder():
         )
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        port = os.getenv("PYNQ_PORT", 22)
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-        model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
         pynq_ip = model.get_metadata_prop("pynq_ip")
         pynq_username = model.get_metadata_prop("pynq_username")
         pynq_password = model.get_metadata_prop("pynq_password")
@@ -326,8 +344,10 @@ def test_fpgadataflow_ipstitch_remote_execution():
         model = ModelWrapper(
             ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx"
         )
-        idt = DataType.INT2
-        x = gen_finn_dt_tensor(idt, (1, 4))
+        iname = "inp"
+        idt = model.get_tensor_datatype(iname)
+        ishape = model.get_tensor_shape(iname)
+        x = gen_finn_dt_tensor(idt, ishape)
         input_dict = {"inp": x}
         outp = execute_onnx(model, input_dict)
         assert np.isclose(outp["outp"], x).all()

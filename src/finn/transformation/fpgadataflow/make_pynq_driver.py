@@ -87,14 +87,25 @@ class MakePYNQDriver(Transformation):
         # fill in the driver template
         driver_py = pynq_driver_dir + "/driver.py"
         driver = templates.pynq_driver_template
+
+        def mss(x, batch_var_name="N"):
+            # "make shape string"
+            # for a shape like (1, ...) emit a string (N, ...)
+            # where N is the default value for batch_var_name
+            # this lets the driver work with a batch of samples at once
+            ret = str(x)
+            ret = ret.replace("(1,", "(%s," % batch_var_name)
+            ret = ret.replace("[1,", "[%s," % batch_var_name)
+            return ret
+
         driver = driver.replace("$INPUT_FINN_DATATYPE$", str(i_tensor_dt))
-        driver = driver.replace("$INPUT_SHAPE_NORMAL$", str(i_tensor_shape_normal))
-        driver = driver.replace("$INPUT_SHAPE_FOLDED$", str(i_tensor_shape_folded))
-        driver = driver.replace("$INPUT_SHAPE_PACKED$", str(i_tensor_shape_packed))
+        driver = driver.replace("$INPUT_SHAPE_NORMAL$", mss(i_tensor_shape_normal))
+        driver = driver.replace("$INPUT_SHAPE_FOLDED$", mss(i_tensor_shape_folded))
+        driver = driver.replace("$INPUT_SHAPE_PACKED$", mss(i_tensor_shape_packed))
         driver = driver.replace("$OUTPUT_FINN_DATATYPE$", str(o_tensor_dt))
-        driver = driver.replace("$OUTPUT_SHAPE_NORMAL$", str(o_tensor_shape_normal))
-        driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", str(o_tensor_shape_folded))
-        driver = driver.replace("$OUTPUT_SHAPE_PACKED$", str(o_tensor_shape_packed))
+        driver = driver.replace("$OUTPUT_SHAPE_NORMAL$", mss(o_tensor_shape_normal))
+        driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", mss(o_tensor_shape_folded))
+        driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
 
         with open(driver_py, "w") as f:
             f.write(driver)

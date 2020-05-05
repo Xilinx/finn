@@ -72,12 +72,13 @@ from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 5
-mem_mode = "const"
+mem_mode = "decoupled"
 
 
 def test_end2end_cnv_w1a1_export():
@@ -134,35 +135,32 @@ def test_end2end_cnv_w1a1_create_dataflow_partition():
 def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx")
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    fc0w = getCustomOp(fc_layers[0])
-    fc1w = getCustomOp(fc_layers[1])
-    fc2w = getCustomOp(fc_layers[2])
-    fc3w = getCustomOp(fc_layers[3])
-    fc4w = getCustomOp(fc_layers[4])
-    fc5w = getCustomOp(fc_layers[5])
-    fc6w = getCustomOp(fc_layers[6])
-    fc7w = getCustomOp(fc_layers[7])
-    fc8w = getCustomOp(fc_layers[8])
-    fc0w.set_nodeattr("SIMD", 27)
-    fc0w.set_nodeattr("PE", 8)
-    fc1w.set_nodeattr("SIMD", 32)
-    fc1w.set_nodeattr("PE", 8)
-    fc2w.set_nodeattr("SIMD", 32)
-    fc2w.set_nodeattr("PE", 16)
-    fc3w.set_nodeattr("SIMD", 32)
-    fc3w.set_nodeattr("PE", 16)
-    fc4w.set_nodeattr("SIMD", 32)
-    fc4w.set_nodeattr("PE", 32)
-    fc5w.set_nodeattr("SIMD", 64)
-    fc5w.set_nodeattr("PE", 16)
-    fc6w.set_nodeattr("SIMD", 32)
-    fc6w.set_nodeattr("PE", 16)
-    fc7w.set_nodeattr("SIMD", 64)
-    fc7w.set_nodeattr("PE", 8)
-    fc8w.set_nodeattr("SIMD", 16)
-    fc8w.set_nodeattr("PE", 10)
+    # each tuple is (PE, SIMD, in_fifo_depth) for a layer
+    folding = [
+        (16, 3, 128),
+        (32, 32, 128),
+        (16, 32, 128),
+        (16, 32, 128),
+        (4, 32, 81),
+        (1, 32, 2),
+        (1, 4, 2),
+        (1, 8, 128),
+        (5, 1, 3),
+    ]
+    for fcl, (pe, simd, ififodepth) in zip(fc_layers, folding):
+        fcl_inst = getCustomOp(fcl)
+        fcl_inst.set_nodeattr("PE", pe)
+        fcl_inst.set_nodeattr("SIMD", simd)
+        fcl_inst.set_nodeattr("inFIFODepth", ififodepth)
+
+    swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator")
+    for i in range(len(swg_layers)):
+        swg_inst = getCustomOp(swg_layers[i])
+        simd = folding[i][1]
+        swg_inst.set_nodeattr("SIMD", simd)
 
     model = model.transform(InsertDWC())
+    model = model.transform(InsertFIFO())
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(AnnotateResources("estimate"))
@@ -284,8 +282,9 @@ def test_end2end_cnv_w1a1_deploy_on_pynq():
             pytest.skip("PYNQ board IP address not specified")
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        port = os.getenv("PYNQ_PORT", 22)
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-        model = model.transform(DeployToPYNQ(ip, username, password, target_dir))
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
         # save the model to be able to link it to the parent
         model.save(build_dir + "/end2end_cnv_w1a1_pynq_deploy.onnx")
     except KeyError:
