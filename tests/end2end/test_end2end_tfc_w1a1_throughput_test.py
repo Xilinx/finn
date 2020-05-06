@@ -131,46 +131,24 @@ def test_end2end_tfc_w1a1_create_dataflow_partition():
 def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_dataflow_model.onnx")
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    fc0w = getCustomOp(fc_layers[0])
-    fc1w = getCustomOp(fc_layers[1])
-    fc2w = getCustomOp(fc_layers[2])
-    fc3w = getCustomOp(fc_layers[3])
-    fc0w.set_nodeattr("inFIFODepth", 256)
-    fc0w.set_nodeattr("SIMD", 196)
-    fc0w.set_nodeattr("PE", 16)
-    fc0w.set_nodeattr("outFIFODepth", 64)
-    fc1w.set_nodeattr("inFIFODepth", 64)
-    fc0w.set_nodeattr("ram_style", "block")
-    fc1w.set_nodeattr("SIMD", 16)
-    fc1w.set_nodeattr("PE", 16)
-    fc1w.set_nodeattr("outFIFODepth", 64)
-    fc2w.set_nodeattr("inFIFODepth", 64)
-    fc2w.set_nodeattr("SIMD", 16)
-    fc2w.set_nodeattr("PE", 16)
-    fc2w.set_nodeattr("outFIFODepth", 64)
-    fc3w.set_nodeattr("inFIFODepth", 64)
-    fc3w.set_nodeattr("SIMD", 16)
-    fc3w.set_nodeattr("PE", 10)
-    fc3w.set_nodeattr("outFIFODepth", 10)
-    fc3w.set_nodeattr("ram_style", "distributed")
+    # (PE, SIMD, in_fifo_depth, out_fifo_depth, ramstyle) for each layer
+    config = [
+        (16, 49, 16, 64, "block"),
+        (8, 8, 64, 64, "auto"),
+        (8, 8, 64, 64, "auto"),
+        (10, 8, 64, 10, "distributed"),
+    ]
+    for fcl, (pe, simd, ififo, ofifo, ramstyle) in zip(fc_layers, config):
+        fcl_inst = getCustomOp(fcl)
+        fcl_inst.set_nodeattr("PE", pe)
+        fcl_inst.set_nodeattr("SIMD", simd)
+        fcl_inst.set_nodeattr("inFIFODepth", ififo)
+        fcl_inst.set_nodeattr("outFIFODepth", ofifo)
+        fcl_inst.set_nodeattr("ram_style", ramstyle)
     model = model.transform(InsertDWC())
     model = model.transform(InsertFIFO())
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
-    fifos = []
-    for n in model.graph.node:
-        if n.op_type == "StreamingFIFO":
-            fifos.append(n)
-    fifo0 = getCustomOp(fifos[0])
-    fifo1 = getCustomOp(fifos[1])
-    fifo2 = getCustomOp(fifos[2])
-    fifo3 = getCustomOp(fifos[3])
-    fifo4 = getCustomOp(fifos[4])
-    fifo0.set_nodeattr("depth", 256)
-    fifo1.set_nodeattr("depth", 64)
-    fifo2.set_nodeattr("depth", 64)
-    fifo3.set_nodeattr("depth", 64)
-    fifo4.set_nodeattr("depth", 10)
     model = model.transform(AnnotateResources("estimate"))
     model.save(build_dir + "/end2end_tfc_w1a1_folded.onnx")
 
