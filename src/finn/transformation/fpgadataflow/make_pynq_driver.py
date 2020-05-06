@@ -70,8 +70,8 @@ class MakePYNQDriver(Transformation):
         # extract HLSCustomOp instances to get folded i/o shapes
         first_node = getCustomOp(model.find_consumer(i_tensor_name))
         last_node = getCustomOp(model.find_producer(o_tensor_name))
-        i_tensor_shape_folded = first_node.get_folded_input_shape()
-        o_tensor_shape_folded = last_node.get_folded_output_shape()
+        i_tensor_shape_folded = tuple(first_node.get_folded_input_shape())
+        o_tensor_shape_folded = tuple(last_node.get_folded_output_shape())
         # generate dummy folded i/o tensors and their packed versions
         i_tensor_dummy_folded = gen_finn_dt_tensor(i_tensor_dt, i_tensor_shape_folded)
         o_tensor_dummy_folded = gen_finn_dt_tensor(o_tensor_dt, o_tensor_shape_folded)
