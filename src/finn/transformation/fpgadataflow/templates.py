@@ -104,7 +104,8 @@ from finn.core.datatype import DataType
 
 class FINNAccelDriver():
     def __init__(self, N, bitfile):
-        # batchsize
+        \"\"\"Instantiate the FINN accelerator driver.
+        Gets batchsize (N) as integer and path to bitfile as string.\"\"\"
         self.N = N
         # input FINN DataType
         self.idt = $INPUT_FINN_DATATYPE$
@@ -115,8 +116,8 @@ class FINNAccelDriver():
         self.oshape_normal = $OUTPUT_SHAPE_NORMAL$
         self.ishape_folded = $INPUT_SHAPE_FOLDED$
         self.oshape_folded = $OUTPUT_SHAPE_FOLDED$
-        self.ishape_packed = $INPUT_SHAPE_PACKED$
-        self.oshape_packed = $OUTPUT_SHAPE_PACKED$
+        self.ishape_packed = $INPUT_SHAPE_PACKED$   # datatype np.uint8
+        self.oshape_packed = $OUTPUT_SHAPE_PACKED$  # datatype np.uint8
         # load bitfile and set up accelerator
         self.ol = Overlay(bitfile)
         self.dma = self.ol.axi_dma_0
@@ -134,40 +135,45 @@ class FINNAccelDriver():
         self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8)
 
     def fold_input(self, ibuf_normal):
-        # reshape input in desired shape
-        N = self.N
+        \"\"\"Reshapes input in desired shape.
+        Gets input data (ibuf_normal), checks if data is in expected normal shape.
+        Returns folded input.\"\"\"
+        # ensure that shape is as expected
+        assert ibuf_normal.shape == self.ishape_normal
         # convert to folded form
         ibuf_folded = ibuf_normal.reshape(self.ishape_folded)
         return ibuf_folded
 
     def pack_input(self, ibuf_folded):
-        # pack the input buffer, reversing both SIMD dim and endianness
-        N = self.N
+        \"\"\"Packs folded input and reverses both SIMD dim and endianness.
+        Gets input data in folded shape and returns packed input data.\"\"\"
         ibuf_packed = finnpy_to_packed_bytearray(
             ibuf_folded, self.idt, reverse_endian=True, reverse_inner=True
         )
         return ibuf_packed
 
     def unpack_output(self, obuf_packed):
-        # unpack the packed output buffer from accelerator
-        N = self.N
+        \"\"\"Unpacks the packed output buffer from accelerator.
+        Gets packed output and returns output data in folded shape.\"\"\"
         obuf_folded = packed_bytearray_to_finnpy(
             obuf_packed, self.odt, self.oshape_folded, reverse_endian=True, reverse_inner=True
         )
         return obuf_folded
 
     def unfold_output(self, obuf_folded):
-        # unfold to normal shape
-        N = self.N
+        \"\"\"Unfolds output data to normal shape.
+        Gets folded output data and returns output data in normal shape.\"\"\"
         obuf_normal = obuf_folded.reshape(self.oshape_normal)
         return obuf_normal
 
-    def copy_data_to_pynqbuffer(self, data):
-        # copy data to PYNQ buffer
+    def copy_input_data_to_device(self, data):
+        \"\"\"Copies given input data to PYNQ buffer.\"\"\"
         np.copyto(self.ibuf_packed_device, data)
 
-    def execute_accel(self):
-        # set up the DMA and wait until all transfers complete
+    def execute(self):
+        \"\"\"Executes accelerator by setting up the DMA and
+        waiting until all transfers complete. Uses only member variables and
+        returns nothing.\"\"\"
         dma = self.dma
         dma.sendchannel.transfer(self.ibuf_packed_device)
         dma.recvchannel.transfer(self.obuf_packed_device)
@@ -177,8 +183,8 @@ class FINNAccelDriver():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Set exec mode, batchsize N, bitfile name, inputfile name and outputfile name')
-    parser.add_argument('--exec_mode', help='Please select functional verification ("remote_pynq") or throughput test ("throughput_test")')
-    parser.add_argument('--batchsize', help='number of samples for inference', type=int)
+    parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
+    parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
     parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
     parser.add_argument('--inputfile', help='name of input npy file (i.e. "input.npy")', default="input.npy")
     parser.add_argument('--outputfile', help='name of output npy file (i.e. "output.npy")', default="output.npy")
@@ -195,14 +201,12 @@ if __name__ == "__main__":
 
     # for the remote execution the data from the input npy file has to be loaded,
     # packed and copied to the PYNQ buffer
-    if exec_mode == "remote_pynq":
+    if exec_mode == "execute":
         # load desired input .npy file
         ibuf_normal = np.load(inputfile)
-        # ensure that shape is as expected
-        assert ibuf_normal.shape == finnDriver.ishape_normal
         ibuf_folded = finnDriver.fold_input(ibuf_normal)
         ibuf_packed = finnDriver.pack_input(ibuf_folded)
-        finnDriver.copy_data_to_pynqbuffer(ibuf_packed)
+        finnDriver.copy_input_data_to_device(ibuf_packed)
     elif exec_mode != "throughput_test":
         raise Exception("Exec mode has to be set to remote_pynq or throughput_test")
 
@@ -214,7 +218,7 @@ if __name__ == "__main__":
         res={}
 
     # execute accelerator
-    finnDriver.execute_accel()
+    finnDriver.execute()
 
     # measure run time and fill dictionary with results of the throughput test
     if exec_mode == "throughput_test":
@@ -228,7 +232,7 @@ if __name__ == "__main__":
         file.write(str(res))
         file.close()
 
-    # if remote execution is selected unpack, unfold and save output to output npy file
+    # if execution is selected unpack, unfold and save output to output npy file
     else:
         obuf_folded = finnDriver.unpack_output(finnDriver.obuf_packed_device)
         obuf_normal = finnDriver.unfold_output(obuf_folded)
