@@ -51,12 +51,14 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.test import get_test_model_trained
 
+import pytest
 
 export_onnx_path = "test_output_tfc.onnx"
 export_onnx_path_cnv = "test_output_cnv.onnx"
 
-
-def test_convert_to_hls_layers_tfc_w1a1():
+# Standalone or fused thresholding-based activation
+@pytest.mark.parametrize("fused_activation", [True, False])
+def test_convert_to_hls_layers_tfc_w1a1(fused_activation):
     tfc = get_test_model_trained("TFC", 1, 1)
     bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
@@ -69,23 +71,54 @@ def test_convert_to_hls_layers_tfc_w1a1():
     model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
     model = model.transform(RoundAndClipThresholds())
+
+    # if we infer thresholding first, all MultiThresholds get converted to HLS
+    # subsequently, the FC inference will generate passthrough MVAUs
+    if not fused_activation:
+        model = model.transform(to_hls.InferThresholdingLayer())
     model = model.transform(to_hls.InferBinaryStreamingFCLayer())
-    fc0 = model.graph.node[2]
+
+    layer_idx = 2
+    fc0 = model.graph.node[layer_idx]
     assert fc0.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
     assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
-    assert model.get_tensor_shape(fc0.input[2]) == [64, 1]
-    fc1 = model.graph.node[3]
+    if fused_activation:
+        assert model.get_tensor_shape(fc0.input[2]) == [64, 1]
+    else:
+        layer_idx += 1
+        thr0 = model.graph.node[layer_idx]
+        assert thr0.op_type == "Thresholding_Batch"
+        assert model.get_tensor_shape(thr0.input[0]) == [1, 64]
+        assert model.get_tensor_shape(thr0.input[1]) == [64, 1]
+    layer_idx += 1
+    fc1 = model.graph.node[layer_idx]
     assert fc1.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
-    assert model.get_tensor_shape(fc1.input[2]) == [64, 1]
-    fc2 = model.graph.node[4]
+    if fused_activation:
+        assert model.get_tensor_shape(fc1.input[2]) == [64, 1]
+    else:
+        layer_idx += 1
+        thr1 = model.graph.node[layer_idx]
+        assert thr1.op_type == "Thresholding_Batch"
+        assert model.get_tensor_shape(thr1.input[0]) == [1, 64]
+        assert model.get_tensor_shape(thr1.input[1]) == [64, 1]
+    layer_idx += 1
+    fc2 = model.graph.node[layer_idx]
     assert fc2.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
-    assert model.get_tensor_shape(fc2.input[2]) == [64, 1]
-    fc3 = model.graph.node[5]
+    if fused_activation:
+        assert model.get_tensor_shape(fc2.input[2]) == [64, 1]
+    else:
+        layer_idx += 1
+        thr2 = model.graph.node[layer_idx]
+        assert thr2.op_type == "Thresholding_Batch"
+        assert model.get_tensor_shape(thr2.input[0]) == [1, 64]
+        assert model.get_tensor_shape(thr2.input[1]) == [64, 1]
+    layer_idx += 1
+    fc3 = model.graph.node[layer_idx]
     assert fc3.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
@@ -107,6 +140,14 @@ def test_convert_to_hls_layers_tfc_w1a1():
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
 
+    if not fused_activation:
+        thr0w = getCustomOp(thr0)
+        thr0w.set_nodeattr("PE", 16)
+        thr1w = getCustomOp(thr1)
+        thr1w.set_nodeattr("PE", 16)
+        thr2w = getCustomOp(thr2)
+        thr2w.set_nodeattr("PE", 16)
+
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
     model = model.transform(SetExecMode("npysim"))
@@ -125,7 +166,9 @@ def test_convert_to_hls_layers_tfc_w1a1():
     assert np.isclose(produced, expected, atol=1e-3).all()
 
 
-def test_convert_to_hls_layers_tfc_w1a2():
+# Standalone or fused thresholding-based activation
+@pytest.mark.parametrize("fused_activation", [True, False])
+def test_convert_to_hls_layers_tfc_w1a2(fused_activation):
     tfc = get_test_model_trained("TFC", 1, 2)
     bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
@@ -134,31 +177,58 @@ def test_convert_to_hls_layers_tfc_w1a2():
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
-    from finn.transformation.fpgadataflow.convert_to_hls_layers import (
-        InferQuantizedStreamingFCLayer,
-    )
 
-    model = model.transform(InferQuantizedStreamingFCLayer())
+    # if we infer thresholding first, all MultiThresholds get converted to HLS
+    # subsequently, the FC inference will generate passthrough MVAUs
+    if not fused_activation:
+        model = model.transform(to_hls.InferThresholdingLayer())
+    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
 
-    fc0 = model.graph.node[2]
+    layer_idx = 2
+    fc0 = model.graph.node[layer_idx]
     assert fc0.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
     assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
-    assert model.get_tensor_shape(fc0.input[2]) == [64, 2]
-    fc1 = model.graph.node[3]
+    if fused_activation:
+        assert model.get_tensor_shape(fc0.input[2]) == [64, 2]
+    else:
+        layer_idx += 1
+        thr0 = model.graph.node[layer_idx]
+        assert thr0.op_type == "Thresholding_Batch"
+        assert model.get_tensor_shape(thr0.input[0]) == [1, 64]
+        assert model.get_tensor_shape(thr0.input[1]) == [64, 2]
+    layer_idx += 1
+    fc1 = model.graph.node[layer_idx]
     assert fc1.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
-    assert model.get_tensor_shape(fc1.input[2]) == [64, 2]
-    fc2 = model.graph.node[4]
+    if fused_activation:
+        assert model.get_tensor_shape(fc1.input[2]) == [64, 2]
+    else:
+        layer_idx += 1
+        thr1 = model.graph.node[layer_idx]
+        assert thr1.op_type == "Thresholding_Batch"
+        assert model.get_tensor_shape(thr1.input[0]) == [1, 64]
+        assert model.get_tensor_shape(thr1.input[1]) == [64, 2]
+    layer_idx += 1
+    fc2 = model.graph.node[layer_idx]
     assert fc2.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
-    assert model.get_tensor_shape(fc2.input[2]) == [64, 2]
-    fc3 = model.graph.node[5]
+    if fused_activation:
+        assert model.get_tensor_shape(fc2.input[2]) == [64, 2]
+    else:
+        layer_idx += 1
+        thr2 = model.graph.node[layer_idx]
+        assert thr2.op_type == "Thresholding_Batch"
+        assert model.get_tensor_shape(thr2.input[0]) == [1, 64]
+        assert model.get_tensor_shape(thr2.input[1]) == [64, 2]
+    layer_idx += 1
+    fc3 = model.graph.node[layer_idx]
     assert fc3.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
+
     fc0w = getCustomOp(fc0)
     fc0w.set_nodeattr("SIMD", 784)
     fc0w.set_nodeattr("PE", 16)
@@ -171,6 +241,15 @@ def test_convert_to_hls_layers_tfc_w1a2():
     fc3w = getCustomOp(fc3)
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
+
+    if not fused_activation:
+        thr0w = getCustomOp(thr0)
+        thr0w.set_nodeattr("PE", 16)
+        thr1w = getCustomOp(thr1)
+        thr1w.set_nodeattr("PE", 16)
+        thr2w = getCustomOp(thr2)
+        thr2w.set_nodeattr("PE", 16)
+
     model = model.transform(CodeGen_npysim())
     model = model.transform(Compile())
     model = model.transform(SetExecMode("npysim"))

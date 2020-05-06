@@ -398,3 +398,61 @@ class InferQuantizedStreamingFCLayer(Transformation):
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
+
+
+class InferThresholdingLayer(Transformation):
+    """Convert any MultiThreshold into a standalone thresholding HLS layer."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "MultiThreshold":
+                thl_input = node.input[0]
+                thl_threshold = node.input[1]
+                thl_output = node.output[0]
+                thl_in_shape = model.get_tensor_shape(thl_input)
+                thl_out_shape = model.get_tensor_shape(thl_output)
+                idt = model.get_tensor_datatype(thl_input)
+
+                # skip conversion for layers with float input
+                if not idt.is_integer():
+                    continue
+
+                # extract weight shape, note that ONNX and finn-hlslib
+                # make different assumptions about dim order here
+                # ONNX assumes W has (in, out) shape
+                # finn-hlslib assumes W has (out, in) shape
+                ifc = int(thl_in_shape[-1])
+                # create node with no parallelization first
+                pe = 1
+                assert ifc % pe == 0, "Requirement IFC divisable by PE is violated."
+
+                # no activation, matmul only
+                odt = model.get_tensor_datatype(thl_output)
+                model.set_tensor_shape(thl_input, thl_in_shape)
+                model.set_tensor_shape(thl_output, thl_out_shape)
+                # create and insert new StreamingFCLayer node
+                new_node = helper.make_node(
+                    "Thresholding_Batch",
+                    [thl_input, thl_threshold],
+                    [thl_output],
+                    domain="finn",
+                    backend="fpgadataflow",
+                    NumChannels=ifc,
+                    PE=pe,
+                    inputDataType=idt.name,
+                    outputDataType=odt.name,
+                    numInputVectors=list(thl_in_shape[:-1]),
+                )
+                graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
