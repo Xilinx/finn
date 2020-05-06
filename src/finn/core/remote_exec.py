@@ -65,7 +65,8 @@ def remote_exec(model, execution_context):
     cmd = (
         "sshpass -p {} ssh {}@{} -p {} "
         '"cd {}/{}; echo "{}" | '
-        'sudo -S python3.6 driver.py --exec_mode="remote_pynq" --batchsize=1"'
+        'sudo -S python3.6 driver.py --exec_mode="execute" --batchsize=1" '
+        '--bitfile="resizer.bit" --inputfile="input.npy" --outputfile="output.npy"'
     ).format(
         pynq_password,
         pynq_username,
