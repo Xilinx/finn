@@ -42,11 +42,10 @@ from finn.util.data_packing import (
 )
 from . import templates
 
-# ONNX i/o tensor shape assumptions for StreamingFCLayer:
-# input 0 is the input tensor, shape (.., i_size) = (..., MW)
-# input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
-# (optional) input 2 is the thresholds tensor, shape (o_size, n_thres)
-# output 0 is the output tensor, shape (.., o_size) = (..., MH)
+# ONNX i/o tensor shape assumptions for Thresholding:
+# input 0 is the input tensor, shape (..., NumChannels)
+# input 1 is the threshold tensor, shape (NumChannels, n_thres)
+# output 0 is the output tensor, shape (..., NumChannels) - same as input
 # the ... here can be any shape (representing groups of vectors)
 
 
@@ -417,7 +416,7 @@ class Thresholding_Batch(HLSCustomOp):
     # TODO check and add whatever missing
     def defines(self, var):
         numInputVectors = list(self.get_nodeattr("numInputVectors"))
-        numReps = np.prod(numInputVectors)
+        numReps = numInputVectors[0]
         self.code_gen_dict["$DEFINES$"] = [
             """#define NumChannels1 {}\n #define PE1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("NumChannels"), self.get_nodeattr("PE"), numReps,
@@ -457,13 +456,17 @@ class Thresholding_Batch(HLSCustomOp):
         # TODO: why put some template parameters into defines and not others?
         # should ImgDim be defined or just filled in here like we do now?
         node = self.onnx_node
+        ishape = self.get_folded_input_shape()
+        if len(ishape) == 3:
+            imgdim = 1
+        elif len(ishape) == 5:
+            imgdim = ishape[1]
+        else:
+            raise Exception("""Unexpeted input shape""")
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<{}, NumChannels1, PE1, {}, {}>
             (in0, out, threshs, numReps);""".format(
-                node.op_type,
-                self.get_folded_input_shape()[-2],
-                tmpl_args["TSrcI"],
-                tmpl_args["TDstI"],
+                node.op_type, imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"],
             )
         ]
 
