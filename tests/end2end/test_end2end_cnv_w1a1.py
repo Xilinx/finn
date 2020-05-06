@@ -220,6 +220,7 @@ def test_end2end_cnv_w1a1_verify_all():
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     x = input_tensor
     # x = np.zeros(ishape, dtype=np.float32)
@@ -253,6 +254,7 @@ def test_end2end_cnv_w1a1_verify_all():
     assert np.isclose(y_golden, y_npysim).all()
     assert np.isclose(y_golden, y_nodebynode_rtlsim).all()
     assert np.isclose(y_golden, y_whole_rtlsim).all()
+    assert np.argmax(y_golden) == 3
 
 
 def test_end2end_cnv_w1a1_make_pynq_proj():
@@ -299,6 +301,7 @@ def test_end2end_cnv_w1a1_run_on_pynq():
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     x = input_tensor
     # run using FINN-based execution
@@ -320,6 +323,7 @@ def test_end2end_cnv_w1a1_run_on_pynq():
         ret = execute_onnx(parent_model, {iname: x}, True)
         y = ret[oname]
         assert np.isclose(y, y_golden).all()
+        assert np.argmax(y) == 3
 
     except KeyError:
         pytest.skip("PYNQ board IP address not specified")

@@ -59,6 +59,7 @@ def test_brevitas_cnv_export_exec(wbits, abits):
     model = model.transform(FoldConstants())
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     # run using FINN-based execution
     input_dict = {model.graph.input[0].name: input_tensor}
@@ -68,4 +69,5 @@ def test_brevitas_cnv_export_exec(wbits, abits):
     input_tensor = torch.from_numpy(input_tensor).float()
     expected = cnv.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
+    assert np.argmax(produced) == 3
     os.remove(export_onnx_path)
