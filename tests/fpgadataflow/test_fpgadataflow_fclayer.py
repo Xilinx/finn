@@ -149,7 +149,7 @@ def prepare_inputs(input_tensor, idt, wdt):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
-def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -190,7 +190,7 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
-    model = model.transform(SetExecMode("npysim"))
+    model = model.transform(SetExecMode("cppsim"))
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
     # prepare input data
@@ -215,7 +215,7 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 
     y_produced = y_produced.reshape(y_expected.shape)
 
-    assert (y_produced == y_expected).all(), "npysim failed"
+    assert (y_produced == y_expected).all(), "cppsim failed"
 
 
 # mem_mode: const or decoupled

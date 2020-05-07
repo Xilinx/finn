@@ -12,7 +12,7 @@ Network Preparation
 
 The main principle of FINN are analysis and transformation passes. If you like to have more information about these please have a look at section :ref:`analysis_pass` and :ref:`transformation_pass` or at chapter :ref:`tutorials` about the provided Jupyter notebooks.
 
-This page is about the network preparation, the flow step that comes after the :ref:`brevitas_export`. Its main idea is to optimize the network and convert the nodes to custom nodes that correspond to `finn-hlslib <https://github.com/Xilinx/finn-hlslib>`_ functions. In this way we get a network that we can bring to hardware with the help of Vivado. For that we have to apply several transformations on the ONNX model, which this flow step receives wrapped in the :ref:`modelwrapper`. 
+This page is about the network preparation, the flow step that comes after the :ref:`brevitas_export`. Its main idea is to optimize the network and convert the nodes to custom nodes that correspond to `finn-hlslib <https://github.com/Xilinx/finn-hlslib>`_ functions. In this way we get a network that we can bring to hardware with the help of Vivado. For that we have to apply several transformations on the ONNX model, which this flow step receives wrapped in the :ref:`modelwrapper`.
 
 Various transformations are involved in the network preparation. The following is a short overview of these.
 
@@ -42,11 +42,11 @@ Pairs of binary XNORPopcountMatMul layers are converted to StreamingFCLayers and
 Dataflow Partitioning
 =====================
 
-In the next step the graph is split and the part consisting of HLS layers is further processed in the FINN flow. The parent graph containing the non-HLS layers remains. The PE and SIMD are set to 1 by default, so the result is a network of only HLS layers with maximum folding. The model can be verified using the *npysim* simulation. It is a simulation using C++ and is described in more detail in chapter :ref:`verification`.
+In the next step the graph is split and the part consisting of HLS layers is further processed in the FINN flow. The parent graph containing the non-HLS layers remains. The PE and SIMD are set to 1 by default, so the result is a network of only HLS layers with maximum folding. The model can be verified using the *cppsim* simulation. It is a simulation using C++ and is described in more detail in chapter :ref:`verification`.
 
 Folding
 =======
 
-To adjust the folding, the values for PE and SIMD can be increased to achieve also an increase in the performance. The result can be verified using the same simulation flow as for the network with maximum folding (*npysim* using C++), for details please have a look at chapter :ref:`verification`.
+To adjust the folding, the values for PE and SIMD can be increased to achieve also an increase in the performance. The result can be verified using the same simulation flow as for the network with maximum folding (*cppsim* using C++), for details please have a look at chapter :ref:`verification`.
 
 The result is a network of HLS layers with desired folding and it can be passed to :ref:`vivado_synth`.

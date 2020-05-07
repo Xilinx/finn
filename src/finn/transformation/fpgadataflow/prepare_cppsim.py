@@ -36,22 +36,22 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 def _codegen_single_node(node, model):
     """Calls C++ code generation for one node. Resulting code can be used
-    to simulate node using npysim."""
+    to simulate node using cppsim."""
 
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
         inst = registry.custom_op[op_type](node)
         # get the path of the code generation directory
-        code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
         # ensure that there is a directory
         if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
             code_gen_dir = make_build_dir(
-                prefix="code_gen_npysim_" + str(node.name) + "_"
+                prefix="code_gen_cppsim_" + str(node.name) + "_"
             )
-            inst.set_nodeattr("code_gen_dir_npysim", code_gen_dir)
+            inst.set_nodeattr("code_gen_dir_cppsim", code_gen_dir)
         # ensure that there is generated code inside the dir
-        inst.code_generation_npysim(model)
+        inst.code_generation_cppsim(model)
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)
@@ -62,8 +62,8 @@ class PrepareCppSim(Transformation):
     and create folder that contains all the generated files.
     All nodes in the graph must have the fpgadataflow backend attribute.
 
-    Outcome if succesful: Node attribute "code_gen_dir_npysim" contains path to folder
-    that contains generated C++ code that can be used to simulate node using npysim.
+    Outcome if succesful: Node attribute "code_gen_dir_cppsim" contains path to folder
+    that contains generated C++ code that can be used to simulate node using cppsim.
     The subsequent transformation is CompileCppSim"""
 
     def apply(self, model):

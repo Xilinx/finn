@@ -188,13 +188,13 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     inp_name = model.graph.input[0].name
     out_name = model.graph.output[0].name
     inp_dict = {inp_name: x}
-    # npysim
+    # cppsim
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
-    model = model.transform(SetExecMode("npysim"))
-    model.save(build_dir + "/end2end_cnv_w1a1_ipgen_npysim.onnx")
-    ret_npysim = execute_onnx(model, inp_dict, True)
-    res_npysim = ret_npysim[out_name]
+    model = model.transform(SetExecMode("cppsim"))
+    model.save(build_dir + "/end2end_cnv_w1a1_ipgen_cppsim.onnx")
+    ret_cppsim = execute_onnx(model, inp_dict, True)
+    res_cppsim = ret_cppsim[out_name]
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareRTLSim())
@@ -208,8 +208,8 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     os.environ["LIVENESS_THRESHOLD"] = "-1"
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
-    assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
-    assert np.isclose(res_npysim, res_rtlsim_whole).all()
+    assert np.isclose(res_cppsim, res_rtlsim_nodebynode).all()
+    assert np.isclose(res_cppsim, res_rtlsim_whole).all()
 
 
 def test_end2end_cnv_w1a1_verify_all():
@@ -231,12 +231,12 @@ def test_end2end_cnv_w1a1_verify_all():
     parent_model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_parent.onnx")
     iname = parent_model.graph.input[0].name
     oname = parent_model.graph.output[0].name
-    # produce results with npysim
+    # produce results with cppsim
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
     sdp_node = getCustomOp(sdp_node)
-    sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_ipgen_npysim.onnx")
-    ret_npysim = execute_onnx(parent_model, {iname: x}, True)
-    y_npysim = ret_npysim[oname]
+    sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_ipgen_cppsim.onnx")
+    ret_cppsim = execute_onnx(parent_model, {iname: x}, True)
+    y_cppsim = ret_cppsim[oname]
     # produce results with node-by-node rtlsim
     sdp_node.set_nodeattr(
         "model", build_dir + "/end2end_cnv_w1a1_ipgen_nodebynode_rtlsim.onnx"
@@ -251,7 +251,7 @@ def test_end2end_cnv_w1a1_verify_all():
     os.environ["LIVENESS_THRESHOLD"] = "-1"
     ret_whole_rtlsim = execute_onnx(parent_model, {iname: x}, True)
     y_whole_rtlsim = ret_whole_rtlsim[oname]
-    assert np.isclose(y_golden, y_npysim).all()
+    assert np.isclose(y_golden, y_cppsim).all()
     assert np.isclose(y_golden, y_nodebynode_rtlsim).all()
     assert np.isclose(y_golden, y_whole_rtlsim).all()
     assert np.argmax(y_golden) == 3
@@ -316,7 +316,7 @@ def test_end2end_cnv_w1a1_run_on_pynq():
         ip = os.environ["PYNQ_IP"]  # NOQA
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
-        # produce results with npysim
+        # produce results with cppsim
         sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
         sdp_node = getCustomOp(sdp_node)
         sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_pynq_deploy.onnx")

@@ -13,7 +13,7 @@ finn.transformation.fpgadataflow.cleanup
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.codegen\_ipgen
+finn.transformation.fpgadataflow.prepare\_ip
 -----------------------------------------------
 
 .. automodule:: finn.transformation.fpgadataflow.prepare_ip
@@ -21,7 +21,7 @@ finn.transformation.fpgadataflow.codegen\_ipgen
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.codegen\_ipstitch
+finn.transformation.fpgadataflow.create\_stitched\_ip
 --------------------------------------------------
 
 .. automodule:: finn.transformation.fpgadataflow.create_stitched_ip
@@ -29,7 +29,7 @@ finn.transformation.fpgadataflow.codegen\_ipstitch
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.codegen\_npysim
+finn.transformation.fpgadataflow.prepare\_cppsim
 ------------------------------------------------
 
 .. automodule:: finn.transformation.fpgadataflow.prepare_cppsim
@@ -37,7 +37,7 @@ finn.transformation.fpgadataflow.codegen\_npysim
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.compile_cppsim
+finn.transformation.fpgadataflow.compile\_cppsim
 ----------------------------------------
 
 .. automodule:: finn.transformation.fpgadataflow.compile_cppsim
@@ -61,7 +61,7 @@ finn.transformation.fpgadataflow.create\_dataflow\_partition
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.hlssynth\_ipgen
+finn.transformation.fpgadataflow.hlssynth\_ip
 ------------------------------------------------
 
 .. automodule:: finn.transformation.fpgadataflow.hlssynth_ip

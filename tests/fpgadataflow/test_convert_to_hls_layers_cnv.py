@@ -115,7 +115,7 @@ def test_convert_to_hls_layers_cnv_w1a1():
     # model.save("cnv-pre-compile.onnx")
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
-    model = model.transform(SetExecMode("npysim"))
+    model = model.transform(SetExecMode("cppsim"))
     # model.save("cnv-post-compile.onnx")
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]

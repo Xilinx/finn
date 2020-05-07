@@ -120,7 +120,7 @@ def prepare_inputs(input_tensor):
 # input channels
 @pytest.mark.parametrize("ifm_ch", [1, 2])  # , 2, 3, 4])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["rtlsim", "npysim"])
+@pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
 def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
     stride = k
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
@@ -136,8 +136,8 @@ def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
 
     model = make_single_streamingmaxpool_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt)
 
-    if exec_mode == "npysim":
-        model = model.transform(SetExecMode("npysim"))
+    if exec_mode == "cppsim":
+        model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
     elif exec_mode == "rtlsim":

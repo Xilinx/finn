@@ -79,7 +79,7 @@ def test_code_gen_trafo():
 
     model = model.transform(PrepareCppSim())
     for node in model.graph.node:
-        code_gen_attribute = util.get_by_name(node.attribute, "code_gen_dir_npysim")
+        code_gen_attribute = util.get_by_name(node.attribute, "code_gen_dir_cppsim")
         tmp_dir = code_gen_attribute.s.decode("UTF-8")
         assert os.path.isdir(
             tmp_dir

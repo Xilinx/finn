@@ -32,11 +32,11 @@ from finn.transformation import NodeLocalTransformation
 
 
 class CompileCppSim(NodeLocalTransformation):
-    """For every node: compile C++ code in node attribute "code_gen_dir_npysim"
+    """For every node: compile C++ code in node attribute "code_gen_dir_cppsim"
     and save path to executables in node attribute "executable_path".
     All nodes in the graph must have the fpgadataflow backend attribute.
 
-    To use these executables, exec_mode must be set to "npysim" (using transformation
+    To use these executables, exec_mode must be set to "cppsim" (using transformation
     SetExecMode) and the model has to be executed using execute_onnx() from
     finn.core.onnx_exec
 
@@ -55,9 +55,9 @@ class CompileCppSim(NodeLocalTransformation):
                 inst = registry.custom_op[op_type](node)
                 # ensure that code is generated
                 assert (
-                    inst.get_nodeattr("code_gen_dir_npysim") != ""
+                    inst.get_nodeattr("code_gen_dir_cppsim") != ""
                 ), """Node
-                attribute "code_gen_dir_npysim" is not set. Please run
+                attribute "code_gen_dir_cppsim" is not set. Please run
                 Transformation PrepareCppSim first."""
                 # call the compilation function for this node
                 inst.compile_singlenode_code()

@@ -134,7 +134,7 @@ def prepare_inputs(input_tensor):
 # Stride
 @pytest.mark.parametrize("stride", [1, 2])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["npysim", "rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # input channel parallelism ("SIMD")
 @pytest.mark.parametrize("simd", [1, 2])
 def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode, simd):
@@ -145,8 +145,8 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode, 
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
 
-    if exec_mode == "npysim":
-        model = model.transform(SetExecMode("npysim"))
+    if exec_mode == "cppsim":
+        model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
     elif exec_mode == "rtlsim":
