@@ -288,7 +288,7 @@ class HLSCustomOp(CustomOp):
         if code_gen_dir == "":
             raise Exception(
                 """
-Found no codegen dir for this node, did you run the codegen_npysim transformation?
+Found no codegen dir for this node, did you run the prepare_cppsim transformation?
             """
             )
         # create a npy file for each input of the node (in_ind is input index)

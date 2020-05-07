@@ -58,7 +58,7 @@ class Compile(NodeLocalTransformation):
                     inst.get_nodeattr("code_gen_dir_npysim") != ""
                 ), """Node
                 attribute "code_gen_dir_npysim" is not set. Please run
-                Transformation CodeGen_npysim first."""
+                Transformation PrepareCppSim first."""
                 # call the compilation function for this node
                 inst.compile_singlenode_code()
                 # ensure that executable path is now set

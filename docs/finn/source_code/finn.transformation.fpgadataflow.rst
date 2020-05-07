@@ -32,7 +32,7 @@ finn.transformation.fpgadataflow.codegen\_ipstitch
 finn.transformation.fpgadataflow.codegen\_npysim
 ------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.codegen_npysim
+.. automodule:: finn.transformation.fpgadataflow.prepare_cppsim
    :members:
    :undoc-members:
    :show-inheritance:

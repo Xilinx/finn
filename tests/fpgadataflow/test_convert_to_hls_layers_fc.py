@@ -42,7 +42,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
@@ -107,7 +107,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
 
-    model = model.transform(CodeGen_npysim())
+    model = model.transform(PrepareCppSim())
     model = model.transform(Compile())
     model = model.transform(SetExecMode("npysim"))
 
@@ -171,7 +171,7 @@ def test_convert_to_hls_layers_tfc_w1a2():
     fc3w = getCustomOp(fc3)
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
-    model = model.transform(CodeGen_npysim())
+    model = model.transform(PrepareCppSim())
     model = model.transform(Compile())
     model = model.transform(SetExecMode("npysim"))
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")

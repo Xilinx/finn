@@ -62,7 +62,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
@@ -189,7 +189,7 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     out_name = model.graph.output[0].name
     inp_dict = {inp_name: x}
     # npysim
-    model = model.transform(CodeGen_npysim())
+    model = model.transform(PrepareCppSim())
     model = model.transform(Compile())
     model = model.transform(SetExecMode("npysim"))
     model.save(build_dir + "/end2end_cnv_w1a1_ipgen_npysim.onnx")

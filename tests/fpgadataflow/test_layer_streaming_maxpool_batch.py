@@ -34,7 +34,7 @@ import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -138,7 +138,7 @@ def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
 
     if exec_mode == "npysim":
         model = model.transform(SetExecMode("npysim"))
-        model = model.transform(CodeGen_npysim())
+        model = model.transform(PrepareCppSim())
         model = model.transform(Compile())
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))

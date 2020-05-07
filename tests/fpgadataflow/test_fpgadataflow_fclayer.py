@@ -39,7 +39,7 @@ from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.multithreshold import multithreshold
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -191,7 +191,7 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
     model = model.transform(SetExecMode("npysim"))
-    model = model.transform(CodeGen_npysim())
+    model = model.transform(PrepareCppSim())
     model = model.transform(Compile())
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
