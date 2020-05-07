@@ -37,10 +37,10 @@ finn.transformation.fpgadataflow.codegen\_npysim
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.compile
+finn.transformation.fpgadataflow.compile_cppsim
 ----------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.compile
+.. automodule:: finn.transformation.fpgadataflow.compile_cppsim
    :members:
    :undoc-members:
    :show-inheritance:

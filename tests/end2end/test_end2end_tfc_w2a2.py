@@ -46,7 +46,7 @@ from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -168,7 +168,7 @@ def test_end2end_tfc_w2a2_verify_dataflow_part():
     inp_dict = {inp_name: x}
     # npysim
     model = model.transform(PrepareCppSim())
-    model = model.transform(Compile())
+    model = model.transform(CompileCppSim())
     model = model.transform(SetExecMode("npysim"))
     model.save(build_dir + "/end2end_tfc_w2a2_ipstitch_npysim.onnx")
     ret_npysim = execute_onnx(model, inp_dict, True)

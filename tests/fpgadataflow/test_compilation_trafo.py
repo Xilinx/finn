@@ -34,7 +34,7 @@ import finn.util.basic as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 
 
 def test_compilation_trafo():
@@ -79,7 +79,7 @@ def test_compilation_trafo():
     model.set_initializer("weights", W)
 
     model = model.transform(PrepareCppSim())
-    model = model.transform(Compile())
+    model = model.transform(CompileCppSim())
     for node in model.graph.node:
         compilation_attribute = util.get_by_name(node.attribute, "executable_path")
         executable = compilation_attribute.s.decode("UTF-8")

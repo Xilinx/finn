@@ -64,7 +64,7 @@ class PrepareCppSim(Transformation):
 
     Outcome if succesful: Node attribute "code_gen_dir_npysim" contains path to folder
     that contains generated C++ code that can be used to simulate node using npysim.
-    The subsequent transformation is Compile"""
+    The subsequent transformation is CompileCppSim"""
 
     def apply(self, model):
         for node in model.graph.node:

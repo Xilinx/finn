@@ -31,7 +31,7 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation import NodeLocalTransformation
 
 
-class Compile(NodeLocalTransformation):
+class CompileCppSim(NodeLocalTransformation):
     """For every node: compile C++ code in node attribute "code_gen_dir_npysim"
     and save path to executables in node attribute "executable_path".
     All nodes in the graph must have the fpgadataflow backend attribute.
