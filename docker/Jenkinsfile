@@ -35,7 +35,7 @@ pipeline {
         stage('Test') {
             steps {
                 sh """
-                docker run --name $DOCKER_INST_NAME \
+                docker run --name $DOCKER_INST_NAME --init \
                 --hostname $DOCKER_INST_NAME \
                 -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
                 -e NUM_DEFAULT_WORKERS=${params.NUM_DEFAULT_WORKERS} \
