@@ -47,7 +47,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -164,7 +164,7 @@ def test_end2end_tfc_w1a1_gen_hls_ip():
 def test_end2end_tfc_w1a1_ip_stitch():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_ipgen.onnx")
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part))
     model.save(build_dir + "/end2end_tfc_w1a1_ipstitch.onnx")
 
 

@@ -38,7 +38,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -220,7 +220,7 @@ def test_fpgadataflow_ipstitch_do_stitch():
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
     )
     model = model.transform(rvp.ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
     assert os.path.isdir(vivado_stitch_proj_dir)

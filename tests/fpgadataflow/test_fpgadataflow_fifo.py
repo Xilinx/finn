@@ -6,7 +6,7 @@ from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 
@@ -98,7 +98,7 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
     assert y.shape == tuple(Shape), """The output shape is incorrect."""
 
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part))
     model = model.transform(MakePYNQProject(test_pynq_board))
     model = model.transform(SynthPYNQProject())
     model = model.transform(MakePYNQDriver())

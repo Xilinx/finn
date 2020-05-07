@@ -60,7 +60,7 @@ from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
 from finn.transformation.fpgadataflow.compile import Compile
@@ -178,7 +178,7 @@ def test_end2end_cnv_w1a1_gen_hls_ip():
 def test_end2end_cnv_w1a1_ip_stitch():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part))
     model.save(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
 
 

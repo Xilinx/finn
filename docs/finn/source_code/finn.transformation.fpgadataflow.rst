@@ -1,5 +1,5 @@
 *****************************
-Transformation - fpgadataflow 
+Transformation - fpgadataflow
 *****************************
 
 Transformations (fpgadataflow)
@@ -24,7 +24,7 @@ finn.transformation.fpgadataflow.codegen\_ipgen
 finn.transformation.fpgadataflow.codegen\_ipstitch
 --------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.codegen_ipstitch
+.. automodule:: finn.transformation.fpgadataflow.create_stitched_ip
    :members:
    :undoc-members:
    :show-inheritance:
@@ -140,4 +140,3 @@ finn.transformation.fpgadataflow.templates
    :members:
    :undoc-members:
    :show-inheritance:
-
