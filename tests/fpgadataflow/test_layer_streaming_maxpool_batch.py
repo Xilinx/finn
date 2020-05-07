@@ -33,7 +33,7 @@ from onnx import TensorProto, helper
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
@@ -143,7 +143,7 @@ def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+        model = model.transform(PrepareIP("xc7z020clg400-1", 5))
         model = model.transform(HLSSynth_IPGen())
         model = model.transform(PrepareRTLSim())
     else:

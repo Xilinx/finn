@@ -16,7 +16,7 @@ finn.transformation.fpgadataflow.cleanup
 finn.transformation.fpgadataflow.codegen\_ipgen
 -----------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.codegen_ipgen
+.. automodule:: finn.transformation.fpgadataflow.prepare_ip
    :members:
    :undoc-members:
    :show-inheritance:

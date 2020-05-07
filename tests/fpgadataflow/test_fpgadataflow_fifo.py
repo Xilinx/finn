@@ -5,7 +5,7 @@ from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
@@ -87,7 +87,7 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynth_IPGen())
     model = model.transform(PrepareRTLSim())
     y = oxe.execute_onnx(model, input_dict)["outp"]

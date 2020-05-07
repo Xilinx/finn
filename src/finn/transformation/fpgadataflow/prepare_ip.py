@@ -57,7 +57,7 @@ def _codegen_single_node(node, model, fpgapart, clk):
         raise Exception("Custom op_type %s is currently not supported." % op_type)
 
 
-class CodeGen_ipgen(Transformation):
+class PrepareIP(Transformation):
     """Call custom implementation to generate code for single custom node
     and create folder that contains all the generated files.
     All nodes in the graph must have the fpgadataflow backend attribute and

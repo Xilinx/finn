@@ -46,7 +46,7 @@ from finn.core.throughput_test import throughput_test
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -155,7 +155,7 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
 
 def test_end2end_tfc_w1a1_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_folded.onnx")
-    model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynth_IPGen())
     model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_tfc_w1a1_ipgen.onnx")

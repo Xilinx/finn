@@ -58,7 +58,7 @@ class HLSSynth_IPGen(NodeLocalTransformation):
                     inst.get_nodeattr("code_gen_dir_ipgen") != ""
                 ), """Node
                 attribute "code_gen_dir_ipgen" is empty. Please run
-                transformation CodeGen_ipgen first."""
+                transformation PrepareIP first."""
                 # call the compilation function for this node
                 inst.ipgen_singlenode_code()
                 # ensure that executable path is now set

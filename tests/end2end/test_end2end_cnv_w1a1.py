@@ -55,7 +55,7 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
@@ -169,7 +169,7 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
 
 def test_end2end_cnv_w1a1_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_folded.onnx")
-    model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynth_IPGen())
     model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")

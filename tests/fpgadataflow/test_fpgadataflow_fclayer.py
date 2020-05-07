@@ -38,7 +38,7 @@ from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_es
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.multithreshold import multithreshold
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
@@ -297,7 +297,7 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     # works for parametrized tests...
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
     model = model.transform(ReplaceVerilogRelPaths())
     model = model.transform(PrepareRTLSim())
@@ -389,7 +389,7 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
     # works for parametrized tests...
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynth_IPGen())
     model = model.transform(ReplaceVerilogRelPaths())
     model = model.transform(PrepareRTLSim())
