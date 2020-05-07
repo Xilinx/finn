@@ -52,6 +52,8 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
@@ -121,23 +123,22 @@ def test_end2end_tfc_w2a2_create_dataflow_partition():
 def test_end2end_tfc_w2a2_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_tfc_w2a2_dataflow_model.onnx")
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    fc0w = getCustomOp(fc_layers[0])
-    fc1w = getCustomOp(fc_layers[1])
-    fc2w = getCustomOp(fc_layers[2])
-    fc3w = getCustomOp(fc_layers[3])
-    fc0w.set_nodeattr("inFIFODepth", 50)
-    fc0w.set_nodeattr("SIMD", 8)
-    fc0w.set_nodeattr("PE", 16)
-    fc0w.set_nodeattr("outFIFODepth", 4)
-    fc1w.set_nodeattr("SIMD", 16)
-    fc1w.set_nodeattr("PE", 16)
-    fc1w.set_nodeattr("outFIFODepth", 4)
-    fc2w.set_nodeattr("SIMD", 16)
-    fc2w.set_nodeattr("PE", 16)
-    fc2w.set_nodeattr("outFIFODepth", 4)
-    fc3w.set_nodeattr("SIMD", 16)
-    fc3w.set_nodeattr("PE", 10)
-    fc3w.set_nodeattr("outFIFODepth", 50)
+    # (PE, SIMD, in_fifo_depth, out_fifo_depth, ramstyle) for each layer
+    config = [
+        (16, 49, 16, 64, "block"),
+        (8, 8, 64, 64, "auto"),
+        (8, 8, 64, 64, "auto"),
+        (10, 8, 64, 10, "distributed"),
+    ]
+    for fcl, (pe, simd, ififo, ofifo, ramstyle) in zip(fc_layers, config):
+        fcl_inst = getCustomOp(fcl)
+        fcl_inst.set_nodeattr("PE", pe)
+        fcl_inst.set_nodeattr("SIMD", simd)
+        fcl_inst.set_nodeattr("inFIFODepth", ififo)
+        fcl_inst.set_nodeattr("outFIFODepth", ofifo)
+        fcl_inst.set_nodeattr("ram_style", ramstyle)
+    model = model.transform(InsertDWC())
+    model = model.transform(InsertFIFO())
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(AnnotateResources("estimate"))
