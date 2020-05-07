@@ -69,7 +69,7 @@ class PrepareIP(Transformation):
 
     Outcome if succesful: Node attribute "code_gen_dir_ipgen" contains path to folder
     that contains generated C++ code that can be used to generate a Vivado IP block.
-    The subsequent transformation is HLSSynth_IPGen"""
+    The subsequent transformation is HLSSynthIP"""
 
     def __init__(self, fpgapart, clk):
         super().__init__()

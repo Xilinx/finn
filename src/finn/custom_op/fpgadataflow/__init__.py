@@ -121,7 +121,7 @@ class HLSCustomOp(CustomOp):
         assert (
             code_gen_dir != ""
         ), """Node attribute "code_gen_dir_ipgen" is
-        not set. Please run HLSSynth_IPGen first."""
+        not set. Please run HLSSynthIP first."""
         verilog_file = self.get_verilog_top_filename()
         assert os.path.isfile(verilog_file), "Cannot find top-level Verilog file."
         # build the Verilator emu library

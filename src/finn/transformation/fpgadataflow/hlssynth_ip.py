@@ -31,7 +31,7 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation import NodeLocalTransformation
 
 
-class HLSSynth_IPGen(NodeLocalTransformation):
+class HLSSynthIP(NodeLocalTransformation):
     """For each node: generate IP block from code in folder
     that is referenced in node attribute "code_gen_dir_ipgen"
     and save path of generated project in node attribute "ipgen_path".
@@ -65,7 +65,7 @@ class HLSSynth_IPGen(NodeLocalTransformation):
                 assert (
                     inst.get_nodeattr("ipgen_path") != ""
                 ), """Transformation
-                HLSSynth_IPGen was not successful. Node attribute "ipgen_path"
+                HLSSynthIP was not successful. Node attribute "ipgen_path"
                 is empty."""
             except KeyError:
                 # exception if op_type is not supported

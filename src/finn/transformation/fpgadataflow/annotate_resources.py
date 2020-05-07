@@ -41,7 +41,7 @@ class AnnotateResources(Transformation):
     * 'hls' -- use results from the HLS synthesis report
 
     No annotations can be provided unless the relevant transformation for the
-    chosen mode (e.g. HLSSynth_IPGen for hls) was previously run.
+    chosen mode (e.g. HLSSynthIP for hls) was previously run.
     """
 
     def __init__(self, mode):

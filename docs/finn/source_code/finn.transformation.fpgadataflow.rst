@@ -64,7 +64,7 @@ finn.transformation.fpgadataflow.create\_dataflow\_partition
 finn.transformation.fpgadataflow.hlssynth\_ipgen
 ------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.hlssynth_ipgen
+.. automodule:: finn.transformation.fpgadataflow.hlssynth_ip
    :members:
    :undoc-members:
    :show-inheritance:

@@ -53,7 +53,7 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -156,7 +156,7 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
 def test_end2end_tfc_w1a1_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_folded.onnx")
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynth_IPGen())
+    model = model.transform(HLSSynthIP())
     model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_tfc_w1a1_ipgen.onnx")
 
