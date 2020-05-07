@@ -269,7 +269,12 @@ class StreamingFIFO(HLSCustomOp):
             context[node.output[0]] = output
 
         else:
-            raise Exception("Test")
+            raise Exception(
+                """Invalid value for attribute exec_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
