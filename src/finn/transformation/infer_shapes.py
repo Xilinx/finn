@@ -33,7 +33,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation import Transformation
 
 
-def _make_shape_compatible_op(node):
+def _make_shape_compatible_op(node, model):
     """Return a shape-compatible non-FINN op for a given FINN op. Used for
     shape inference with custom ops."""
     assert node.domain == "finn", 'Node domain is not set to "finn".'
@@ -41,7 +41,7 @@ def _make_shape_compatible_op(node):
     try:
         # lookup op_type in registry of CustomOps
         inst = registry.custom_op[op_type](node)
-        return inst.make_shape_compatible_op()
+        return inst.make_shape_compatible_op(model)
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)
@@ -56,7 +56,7 @@ def _hide_finn_ops(model):
     for node in model.graph.node:
         node_ind += 1
         if node.domain == "finn":
-            new_node = _make_shape_compatible_op(node)
+            new_node = _make_shape_compatible_op(node, model)
             hidden_ops[str(new_node)] = node
             model.graph.node.insert(node_ind, new_node)
             model.graph.node.remove(node)

@@ -51,7 +51,9 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.test import get_test_model_trained
 
+
 export_onnx_path = "test_output_tfc.onnx"
+export_onnx_path_cnv = "test_output_cnv.onnx"
 
 
 def test_convert_to_hls_layers_tfc_w1a1():

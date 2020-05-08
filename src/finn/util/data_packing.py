@@ -119,7 +119,9 @@ def npbytearray2hexstring(npbytearray, prefix="0x"):
     return prefix + binascii.hexlify(bytearray(npbytearray)).decode("utf-8")
 
 
-def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner=False):
+def pack_innermost_dim_as_hex_string(
+    ndarray, dtype, pad_to_nbits, reverse_inner=False, prefix="0x"
+):
     """Pack the innermost dimension of the given numpy ndarray into hex
     strings using array2hexstring.
 
@@ -143,7 +145,9 @@ def pack_innermost_dim_as_hex_string(ndarray, dtype, pad_to_nbits, reverse_inner
         ndarray = np.asarray(ndarray, dtype=np.float32)
 
     def fun(x):
-        return array2hexstring(x, dtype, pad_to_nbits, reverse=reverse_inner)
+        return array2hexstring(
+            x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix
+        )
 
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 
@@ -228,6 +232,7 @@ def numpy_to_hls_code(
     if pack_innermost_dim:
         idimlen = ndarray.shape[-1]
         idimbits = idimlen * dtype.bitwidth()
+        idimbits = roundup_to_integer_multiple(idimbits, 4)
         ndarray = pack_innermost_dim_as_hex_string(ndarray, dtype, idimbits)
         hls_dtype = "ap_uint<%d>" % idimbits
     ndims = ndarray.ndim
@@ -270,6 +275,7 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=Tru
     finn.util.basic.pack_innermost_dim_as_hex_string() for more info on how the
     packing works. If reverse_inner is set, the innermost dimension will be
     reversed prior to packing."""
+    pad_to_nbits = roundup_to_integer_multiple(pad_to_nbits, 4)
     if issubclass(type(input_file), np.ndarray):
         inp = input_file
     elif os.path.isfile(input_file):
@@ -297,6 +303,8 @@ def rtlsim_output_to_npy(
     out_array = unpack_innermost_dim_from_hex_string(
         output, dtype, shape, packedBits=packedBits, reverse_inner=reverse_inner
     )
+    # make copy before saving the array
+    out_array = out_array.copy()
     np.save(path, out_array)
     return out_array
 

@@ -69,6 +69,14 @@ finn.transformation.fpgadataflow.hlssynth\_ipgen
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.fpgadataflow.insert\_dwc
+--------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.insert_dwc
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.transformation.fpgadataflow.insert\_tlastmarker
 ----------------------------------------------------
 
@@ -132,3 +140,4 @@ finn.transformation.fpgadataflow.templates
    :members:
    :undoc-members:
    :show-inheritance:
+

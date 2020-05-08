@@ -21,6 +21,23 @@ Base Class
    :undoc-members:
    :show-inheritance:
 
+
+finn.custom\_op.im2col
+----------------------
+
+.. automodule:: finn.custom_op.im2col
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.maxpoolnhwc
+---------------------------
+
+.. automodule:: finn.custom_op.maxpoolnhwc
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.multithreshold
 ------------------------------
 
@@ -52,4 +69,5 @@ finn.custom\_op.xnorpopcount
    :members:
    :undoc-members:
    :show-inheritance:
+
 

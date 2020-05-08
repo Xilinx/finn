@@ -253,14 +253,30 @@ class ModelWrapper:
             return None
 
     def find_producer(self, tensor_name):
-        """Finds and returns the node that produces the tensor with given name.
-        Currently only works for linear graphs."""
-        all_outputs = [x.output[0] for x in self._model_proto.graph.node]
-        try:
-            producer_ind = all_outputs.index(tensor_name)
-            return self._model_proto.graph.node[producer_ind]
-        except ValueError:
-            return None
+        """Finds and returns the node that produces the tensor with given name."""
+        ret = None
+        for x in self._model_proto.graph.node:
+            if tensor_name in x.output:
+                ret = x
+        return ret
+
+    def find_upstream(self, tensor_name, finder_fxn):
+        """Follow the producer chain upstream, calling finder_fxn on each upstream
+        node until it returns True or there are no nodes left. Returns the list
+        of nodes visited, or None if finder_fxn did not return True."""
+        visit_list = []
+        current_tensor = tensor_name
+        while True:
+            current_producer = self.find_producer(current_tensor)
+            if current_producer is None:
+                return []
+            else:
+                found = finder_fxn(current_producer)
+                visit_list.append(current_producer)
+                if found:
+                    return visit_list
+                else:
+                    current_tensor = current_producer.input[0]
 
     def find_consumer(self, tensor_name):
         """Finds and returns the node that consumes the tensor with given name.
@@ -355,3 +371,15 @@ class ModelWrapper:
             self.model.metadata_props.append(metadata_prop)
         else:
             metadata_prop.value = value
+
+    def get_nodes_by_op_type(self, op_type):
+        """Returns a list of nodes with specified op_type."""
+        return list(filter(lambda x: x.op_type == op_type, self.graph.node))
+
+    def get_finn_nodes(self):
+        """Returns a list of nodes where domain == 'finn'."""
+        return list(filter(lambda x: x.domain == "finn", self.graph.node))
+
+    def get_non_finn_nodes(self):
+        """Returns a list of nodes where domain != 'finn'."""
+        return list(filter(lambda x: x.domain != "finn", self.graph.node))

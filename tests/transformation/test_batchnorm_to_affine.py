@@ -28,10 +28,12 @@
 
 import os
 from pkgutil import get_data
+import pkg_resources as pk
 
 import brevitas.onnx as bo
 import onnx
 import onnx.numpy_helper as nph
+import numpy as np
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
@@ -39,8 +41,32 @@ from finn.transformation.batchnorm_to_affine import BatchNormToAffine
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
+from finn.transformation.double_to_single_float import DoubleToSingleFloat
 
 export_onnx_path = "test_output_bn2affine.onnx"
+
+
+def test_batchnorm_to_affine_cnv_w1a1():
+    lfc = get_test_model_trained("CNV", 1, 1)
+    bo.export_finn_onnx(lfc, (1, 3, 32, 32), export_onnx_path)
+    model = ModelWrapper(export_onnx_path)
+    model = model.transform(DoubleToSingleFloat())
+    model = model.transform(InferShapes())
+    model = model.transform(FoldConstants())
+    fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
+    input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    assert input_tensor.shape == (1, 3, 32, 32)
+    input_dict = {"0": input_tensor}
+    output_dict = oxe.execute_onnx(model, input_dict)
+    expected = output_dict[list(output_dict.keys())[0]]
+    new_model = model.transform(BatchNormToAffine())
+    # check that there are no BN nodes left
+    op_types = list(map(lambda x: x.op_type, new_model.graph.node))
+    assert "BatchNormalization" not in op_types
+    output_dict_p = oxe.execute_onnx(new_model, input_dict)
+    produced = output_dict_p[list(output_dict_p.keys())[0]]
+    assert np.isclose(expected, produced).all()
+    os.remove(export_onnx_path)
 
 
 def test_batchnorm_to_affine_lfc_w1a1():
@@ -56,20 +82,3 @@ def test_batchnorm_to_affine_lfc_w1a1():
     input_dict = {"0": nph.to_array(input_tensor)}
     assert oxe.compare_execution(model, new_model, input_dict)
     os.remove(export_onnx_path)
-
-
-# cnv batchnorm to affine not yet supported
-
-# def test_batchnorm_to_affine_cnv_w1a1():
-#    lfc = get_test_model_trained("CNV", 1, 1)
-#    bo.export_finn_onnx(lfc, (1, 3, 32, 32), export_onnx_path)
-#    model = ModelWrapper(export_onnx_path)
-#    model = model.transform(InferShapes())
-#    model = model.transform(FoldConstants())
-#    # TODO shape inference failing on transformed model below -- needs debug
-#    new_model = model.transform(BatchNormToAffine())
-#    # check that there are no BN nodes left
-#    # TODO replace this with execution test
-#    op_types = list(map(lambda x: x.op_type, new_model.graph.node))
-#    assert "BatchNormalization" not in op_types
-#    os.remove(export_onnx_path)

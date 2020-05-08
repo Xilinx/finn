@@ -31,12 +31,22 @@ import numpy as np
 import os
 import subprocess
 from finn.custom_op import CustomOp
-from finn.util.basic import CppBuilder
+from finn.util.basic import (
+    CppBuilder,
+    make_build_dir,
+    roundup_to_integer_multiple,
+    get_rtlsim_trace_depth,
+)
 from finn.util.fpgadataflow import (
     IPGenBuilder,
     pyverilate_get_liveness_threshold_cycles,
 )
 from . import templates
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 
 
 class HLSCustomOp(CustomOp):
@@ -68,18 +78,84 @@ class HLSCustomOp(CustomOp):
             "code_gen_dir_ipgen": ("s", False, ""),
             "executable_path": ("s", False, ""),
             "ipgen_path": ("s", False, ""),
+            "ip_path": ("s", False, ""),
+            "ip_vlnv": ("s", False, ""),
             "exec_mode": ("s", False, ""),
             "sim_cycles": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
+            "res_estimate": ("s", False, ""),
+            "res_hls": ("s", False, ""),
+            "res_synth": ("s", False, ""),
+            "rtlsim_so": ("s", False, ""),
+            # input and output FIFO depths
+            "inFIFODepth": ("i", False, 2),
+            "outFIFODepth": ("i", False, 2),
         }
+
+    def get_verilog_top_module_name(self):
+        "Return the Verilog top module name for this node."
+
+        node = self.onnx_node
+        prefixed_top_name = "%s_%s" % (node.name, node.name)
+        return prefixed_top_name
+
+    def get_verilog_top_filename(self):
+        "Return the Verilog top module filename for this node."
+
+        verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
+            self.get_nodeattr("code_gen_dir_ipgen"),
+            self.onnx_node.name,
+            self.get_verilog_top_module_name(),
+        )
+        return verilog_file
+
+    def prepare_rtlsim(self):
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+        # ensure that code is generated
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        assert (
+            code_gen_dir != ""
+        ), """Node attribute "code_gen_dir_ipgen" is
+        not set. Please run HLSSynth_IPGen first."""
+        verilog_file = self.get_verilog_top_filename()
+        assert os.path.isfile(verilog_file), "Cannot find top-level Verilog file."
+        # build the Verilator emu library
+        sim = PyVerilator.build(
+            verilog_file,
+            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            verilog_path=[
+                "{}/project_{}/sol1/impl/verilog/".format(
+                    code_gen_dir, self.onnx_node.name
+                )
+            ],
+            trace_depth=get_rtlsim_trace_depth(),
+        )
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", sim.lib._name)
+        return sim
+
+    def get_rtlsim(self):
+        """Return a PyVerilator wrapper for the Verilator emulation library
+        for this node."""
+
+        rtlsim_so = self.get_nodeattr("rtlsim_so")
+        assert os.path.isfile(rtlsim_so), "Cannot find rtlsim library."
+        # create PyVerilator wrapper
+        sim = PyVerilator(rtlsim_so)
+        return sim
 
     def node_res_estimation(self):
         """Returns summarized resource estimation of BRAMs and LUTs
-        of the node."""
-        resources = []
-        resources.append("BRAMs: " + str(self.bram_estimation()))
-        resources.append("LUTs: " + str(self.lut_estimation()))
-        return resources
+        of the node as a dictionary."""
+        ret = dict()
+        ret["BRAM_18K"] = self.bram_estimation()
+        ret["LUT"] = self.lut_estimation()
+        return ret
 
     def bram_estimation(self):
         """Function for BRAM resource estimation, is member function of
@@ -97,6 +173,7 @@ class HLSCustomOp(CustomOp):
 
         # generate top cpp file for ip generation
         path = self.get_nodeattr("code_gen_dir_ipgen")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
         self.defines("ipgen")
@@ -123,6 +200,7 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$FINNHLSLIBDIR$"] = ["/workspace/finn-hlslib"]
         self.code_gen_dict["$TOPFXN$"] = [node.name]
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
+        self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
         template = self.ipgentcl_template
 
@@ -136,6 +214,10 @@ class HLSCustomOp(CustomOp):
         f.close()
         self.code_gen_dict.clear()
 
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+        return []
+
     def ipgen_singlenode_code(self):
         """Builds the bash script for ip generation using the IPGenBuilder from
         finn.util.fpgadataflow."""
@@ -146,16 +228,21 @@ class HLSCustomOp(CustomOp):
         builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
         builder.build(code_gen_dir)
         self.set_nodeattr("ipgen_path", builder.ipgen_path)
+        self.set_nodeattr("ip_path", builder.ipgen_path + "/sol1/impl/ip")
+        vlnv = "xilinx.com:hls:%s:1.0" % node.name
+        self.set_nodeattr("ip_vlnv", vlnv)
 
     def code_generation_npysim(self, model):
         """Generates c++ code for simulation (npysim)."""
         node = self.onnx_node
         path = self.get_nodeattr("code_gen_dir_npysim")
+        self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
         self.defines("npysim")
         self.read_npy_data()
         self.strm_decl()
+        self.pragmas()
         self.docompute()
         self.dataoutstrm()
         self.save_as_npy()
@@ -184,6 +271,7 @@ class HLSCustomOp(CustomOp):
         builder.append_includes("-I/workspace/finn-hlslib")
         builder.append_includes("-I{}/include".format(os.environ["VIVADO_PATH"]))
         builder.append_includes("--std=c++11")
+        builder.append_includes("-O3")
         builder.append_sources(code_gen_dir + "/*.cpp")
         builder.append_sources("/workspace/cnpy/cnpy.cpp")
         builder.append_includes("-lz")
@@ -207,9 +295,10 @@ Found no codegen dir for this node, did you run the codegen_npysim transformatio
         # assuming dynamic inputs start from 0
         for in_ind in range(count):
             current_input_name = node.input[in_ind]
+            # make copy before saving array
+            input_array = context[current_input_name].copy()
             np.save(
-                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                context[current_input_name],
+                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)), input_array
             )
 
     def npy_to_dynamic_output(self, context):
@@ -422,3 +511,21 @@ compilation transformations?
     def get_outstream_width(self):
         """Returns output stream width, if implemented."""
         raise Exception("get_outstream_width not implemented for this op")
+
+    def get_instream_width_padded(self):
+        """Returns input stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec."""
+        in_width = self.get_instream_width()
+        return roundup_to_integer_multiple(in_width, 8)
+
+    def get_outstream_width_padded(self):
+        """Returns output stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec."""
+        out_width = self.get_outstream_width()
+        return roundup_to_integer_multiple(out_width, 8)
+
+    def get_ap_int_max_w(self):
+        "Return the maximum width of any ap_int used in this module."
+        instream = self.get_instream_width()
+        outstream = self.get_outstream_width()
+        return max([instream, outstream])

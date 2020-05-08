@@ -31,6 +31,7 @@ import subprocess
 
 from finn.transformation import Transformation
 from finn.util.basic import get_by_name, make_build_dir
+from finn.custom_op.registry import getCustomOp
 
 
 class CodeGen_ipstitch(Transformation):
@@ -65,16 +66,11 @@ class CodeGen_ipstitch(Transformation):
                 backend_value == "fpgadataflow"
             ), """Backend node attribute is not
             set to "fpgadataflow"."""
-            ip_dir_attribute = get_by_name(node.attribute, "ipgen_path")
-            assert (
-                ip_dir_attribute is not None
-            ), """Node attribute "ipgen_path" is not set.
-            Please run transformation CodeGen_ipgen first."""
-            ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
-            ip_dir_value += "/sol1/impl/ip"
+            node_inst = getCustomOp(node)
+            ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
-            vlnv = "xilinx.com:hls:%s:1.0" % node.name
+            vlnv = node_inst.get_nodeattr("ip_vlnv")
             inst_name = node.name
             create_cmd = "create_bd_cell -type ip -vlnv %s %s" % (vlnv, inst_name)
             create_cmds += [create_cmd]
@@ -125,6 +121,11 @@ class CodeGen_ipstitch(Transformation):
                 connect_cmds.append(
                     "make_bd_intf_pins_external [get_bd_intf_pins %s/out_r]" % inst_name
                 )
+                # make AXI lite IF external
+                connect_cmds.append(
+                    "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi_control]"
+                    % inst_name
+                )
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
@@ -146,6 +147,9 @@ class CodeGen_ipstitch(Transformation):
         tcl.append('create_bd_design "%s"' % block_name)
         tcl.extend(create_cmds)
         tcl.extend(connect_cmds)
+        # TODO get from Transformation arg or metadata_prop
+        fclk_hz = 100 * 1000000
+        tcl.append("set_property CONFIG.FREQ_HZ %f [get_bd_ports /ap_clk_0]" % fclk_hz)
         tcl.append("regenerate_bd_layout")
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
@@ -180,7 +184,8 @@ class CodeGen_ipstitch(Transformation):
         tcl.append("set all_v_files [get_files -filter {FILE_TYPE == Verilog}]")
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
         tcl.append("set fp [open %s w]" % v_file_list)
-        tcl.append("puts $fp $all_v_files")
+        # write each verilog filename to all_verilog_srcs.txt
+        tcl.append("foreach vf $all_v_files {puts $fp $vf}")
         tcl.append("close $fp")
         # write the project creator tcl script
         tcl_string = "\n".join(tcl) + "\n"

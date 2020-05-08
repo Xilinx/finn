@@ -27,51 +27,49 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import finn.custom_op.registry as registry
-import finn.util.basic as util
-from finn.transformation import Transformation
+from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.transformation import NodeLocalTransformation
 
 
-class Compile(Transformation):
+class Compile(NodeLocalTransformation):
     """For every node: compile C++ code in node attribute "code_gen_dir_npysim"
     and save path to executables in node attribute "executable_path".
     All nodes in the graph must have the fpgadataflow backend attribute.
 
     To use these executables, exec_mode must be set to "npysim" (using transformation
     SetExecMode) and the model has to be executed using execute_onnx() from
-    finn.core.onnx_exec"""
+    finn.core.onnx_exec
 
-    def __init__(self):
-        super().__init__()
+    * num_workers (int or None) number of parallel workers, see documentation in
+      NodeLocalTransformation for more details.
+    """
 
-    def apply(self, model):
-        for node in model.graph.node:
-            op_type = node.op_type
-            if node.domain == "finn":
-                backend_attribute = util.get_by_name(node.attribute, "backend")
-                if backend_attribute is None:
-                    continue
-                backend_value = backend_attribute.s.decode("UTF-8")
-                if backend_value == "fpgadataflow":
-                    try:
-                        # lookup op_type in registry of CustomOps
-                        inst = registry.custom_op[op_type](node)
-                        # ensure that code is generated
-                        assert (
-                            inst.get_nodeattr("code_gen_dir_npysim") != ""
-                        ), """Node
-                        attribute "code_gen_dir_npysim" is not set. Please run
-                        Transformation CodeGen_npysim first."""
-                        # call the compilation function for this node
-                        inst.compile_singlenode_code()
-                        # ensure that executable path is now set
-                        assert (
-                            inst.get_nodeattr("executable_path") != ""
-                        ), """Transformation
-                        compile was not successful, there is no path to executables set
-                        in node attribute "executable_path"."""
-                    except KeyError:
-                        # exception if op_type is not supported
-                        raise Exception(
-                            "Custom op_type %s is currently not supported." % op_type
-                        )
-        return (model, False)
+    def __init__(self, num_workers=None):
+        super().__init__(num_workers=num_workers)
+
+    def applyNodeLocal(self, node):
+        op_type = node.op_type
+        if is_fpgadataflow_node(node) is True:
+            try:
+                # lookup op_type in registry of CustomOps
+                inst = registry.custom_op[op_type](node)
+                # ensure that code is generated
+                assert (
+                    inst.get_nodeattr("code_gen_dir_npysim") != ""
+                ), """Node
+                attribute "code_gen_dir_npysim" is not set. Please run
+                Transformation CodeGen_npysim first."""
+                # call the compilation function for this node
+                inst.compile_singlenode_code()
+                # ensure that executable path is now set
+                assert (
+                    inst.get_nodeattr("executable_path") != ""
+                ), """Transformation
+                compile was not successful, there is no path to executables set
+                in node attribute "executable_path"."""
+            except KeyError:
+                # exception if op_type is not supported
+                raise Exception(
+                    "Custom op_type %s is currently not supported." % op_type
+                )
+        return (node, False)

@@ -254,3 +254,24 @@ def test_execute_custom_node_multithreshold():
     ex_cu_node.execute_custom_node(node_def, execution_context, graph_def)
     outputs_scaled = 2.0 * outputs - 1.0
     assert (execution_context["out"] == outputs_scaled).all()
+
+    # test the optional data layout option for MultiThreshold
+    node_def = helper.make_node(
+        "MultiThreshold",
+        ["v", "thresholds"],
+        ["out"],
+        domain="finn",
+        data_layout="NHWC",
+    )
+
+    v_nhwc = helper.make_tensor_value_info("v", TensorProto.FLOAT, [6, 2, 2, 3])
+    out_nhwc = helper.make_tensor_value_info("out", TensorProto.FLOAT, [6, 2, 2, 3])
+    inputs_nhwc = np.transpose(inputs, (0, 2, 3, 1))  # NCHW -> NHWC
+    outputs_nhwc = np.transpose(outputs, (0, 2, 3, 1))  # NCHW -> NHWC
+    execution_context["v"] = inputs_nhwc
+
+    graph_def = helper.make_graph(
+        [node_def], "test_model", [v_nhwc, thresholds], [out_nhwc]
+    )
+    ex_cu_node.execute_custom_node(node_def, execution_context, graph_def)
+    assert (execution_context["out"] == outputs_nhwc).all()

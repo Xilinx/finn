@@ -70,13 +70,12 @@ class MakePYNQProject(Transformation):
         # collect list of all IP dirs
         ip_dirs = ["list"]
         for node in model.graph.node:
-            ip_dir_attribute = get_by_name(node.attribute, "ipgen_path")
+            ip_dir_attribute = get_by_name(node.attribute, "ip_path")
             assert (
                 ip_dir_attribute is not None
-            ), """Node attribute "ipgen_path" is
+            ), """Node attribute "ip_path" is
             empty. Please run transformation HLSSynth_ipgen first."""
             ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
-            ip_dir_value += "/sol1/impl/ip"
             assert os.path.isdir(
                 ip_dir_value
             ), """The directory that should
@@ -109,16 +108,23 @@ class MakePYNQProject(Transformation):
         out_if_name = "out_r_0"
         clk_name = "ap_clk_0"
         nrst_name = "ap_rst_n_0"
+        axi_lite_if_name = "s_axi_control_0"
         vivado_ip_cache = os.getenv("VIVADO_IP_CACHE", default="")
+        # TODO get from Transformation arg or metadata_prop
+        fclk_mhz = 100.0
 
         # create a temporary folder for the project
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
         model.set_metadata_prop("vivado_pynq_proj", vivado_pynq_proj_dir)
+        # filename for the synth utilization report
+        synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
+        model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
 
         ip_config_tcl = templates.ip_config_tcl_template % (
             vivado_pynq_proj_dir,
             ip_dirs_str,
             vivado_pynq_proj_dir,
+            synth_report_filename,
             vivado_stitch_vlnv,
             in_bytes,
             out_bytes,
@@ -126,7 +132,9 @@ class MakePYNQProject(Transformation):
             out_if_name,
             clk_name,
             nrst_name,
+            axi_lite_if_name,
             vivado_ip_cache,
+            fclk_mhz,
         )
 
         with open(vivado_pynq_proj_dir + "/ip_config.tcl", "w") as f:

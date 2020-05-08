@@ -29,10 +29,17 @@
 import os
 
 import numpy as np
-from pyverilator import PyVerilator
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.im2col import compute_conv_output_dim
+from onnx import TensorProto, helper
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
+# ONNX i/o tensor shape assumptions for ConvolutionInputGenerator:
+# input 0 is the input tensor, shape NHWC = (1, IFMDim, IFMDim, IFMChannels)
+# output 0 is the output tensor, shape NHWC:
+#     = (1, OFMDim, OFMDim, (ConvKernelDim^2)*IFMChannels)
 
 
 class ConvolutionInputGenerator(HLSCustomOp):
@@ -46,7 +53,6 @@ class ConvolutionInputGenerator(HLSCustomOp):
         my_attrs = {
             "ConvKernelDim": ("i", True, 0),
             "IFMChannels": ("i", True, 0),
-            "Input_precision": ("i", True, 0),
             "IFMDim": ("i", True, 0),
             "OFMDim": ("i", True, 0),
             "SIMD": ("i", True, 0),
@@ -54,23 +60,83 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
+            # FPGA resource type for ConvolutionInputGenerator input buffer
+            # auto -- let Vivado HLS decide
+            # block -- use BRAM
+            # distributed -- use LUTRAM
+            # ultra -- use URAM
+            "ram_style": ("s", False, "distributed"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def make_shape_compatible_op(self):
-        pass
+    def get_normal_input_shape(self):
+
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+
+        ishape = (1, ifm_dim, ifm_dim, ifm_ch)
+        return ishape
+
+    def get_folded_input_shape(self):
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        simd = self.get_nodeattr("SIMD")
+        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+        wf = int(ifm_ch / simd)
+        folded_ishape = (1, ifm_dim, ifm_dim, wf, simd)
+        return folded_ishape
+
+    def get_normal_output_shape(self):
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        stride = self.get_nodeattr("Stride")
+        pad = 0
+        ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
+        oshape = (1, ofm_dim, ofm_dim, k * k * ifm_ch)
+        return oshape
+
+    def get_folded_output_shape(self):
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        stride = self.get_nodeattr("Stride")
+        simd = self.get_nodeattr("SIMD")
+        pad = 0
+        ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
+        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+        assert k % stride == 0, "stride must divide kernel size k"
+        wf = int((k * k * ifm_ch) // simd)
+        folded_oshape = (1, ofm_dim, ofm_dim, wf, simd)
+        return folded_oshape
+
+    def make_shape_compatible_op(self, model):
+        exp_ishape = self.get_normal_input_shape()
+        oshape = self.get_normal_output_shape()
+        ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
+        assert ishape == exp_ishape, "Unexpect input shape for ConvInpGen."
+        # implement tensor with correct shape
+        values = np.random.randn(*oshape).astype(np.float32)
+        return helper.make_node(
+            "Constant",
+            inputs=[],
+            outputs=[self.onnx_node.output[0]],
+            value=helper.make_tensor(
+                name="const_tensor",
+                data_type=TensorProto.FLOAT,
+                dims=values.shape,
+                vals=values.flatten().astype(float),
+            ),
+        )
 
     def infer_node_datatype(self, model):
-        pass
+        node = self.onnx_node
+        # data type stays the same
+        dtype = model.get_tensor_datatype(node.input[0])
+        model.set_tensor_datatype(node.output[0], dtype)
 
     def verify_node(self):
-        pass
-
-    def bram_estimation(self):
-        pass
-
-    def lut_estimation(self):
         pass
 
     def get_input_datatype(self):
@@ -81,122 +147,40 @@ class ConvolutionInputGenerator(HLSCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_stream_width(self):
+    def get_instream_width(self):
         """Returns stream width, input and output stream width are equal for
         the sliding window function"""
-        return self.get_nodeattr("SIMD") * self.get_nodeattr("Input_precision")
+        ibits = self.get_input_datatype().bitwidth()
+        simd = self.get_nodeattr("SIMD")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
+        in_width = simd * ibits
+        return in_width
+
+    def get_outstream_width(self):
+        """Returns stream width, input and output stream width are equal for
+        the sliding window function, so the function to determine the input
+        stream width can be reused."""
+        return self.get_instream_width()
 
     def get_number_output_values(self):
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ofm_dim = self.get_nodeattr("OFMDim")
-        out_pix = ofm_dim * ofm_dim
-
-        return out_pix * k * k * ifm_ch
+        folded_oshape = self.get_folded_output_shape()
+        num_output_elems = np.prod(folded_oshape[:-1])
+        return num_output_elems
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_dim = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ofm_dim = self.get_nodeattr("OFMDim")
-        out_pix = ofm_dim * ofm_dim
+        exp_ishape = self.get_normal_input_shape()
+        exp_oshape = self.get_normal_output_shape()
+        folded_ishape = self.get_folded_input_shape()
+        folded_oshape = self.get_folded_output_shape()
 
+        # TODO ensure codegen dir exists
         if mode == "npysim":
-            idt = self.get_input_datatype()
-            if idt == DataType.BIPOLAR:
-                # use binary for bipolar storage
-                idt = DataType.BINARY
-
-            # TODO ensure codegen dir exists
             code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
-            # create a npy file for input of the node
-
-            inp = context[node.input[0]]
-            assert str(inp.dtype) == "float32", "Input datatype is not float32"
-            assert inp.shape == (
-                1,
-                ifm_ch,
-                ifm_dim,
-                ifm_dim,
-            ), """Input shape doesn't
-            match expected shape (1, ifm_ch, ifm_dim, ifm_dim)."""
-            reshaped_inp = inp.transpose(0, 2, 3, 1)
-            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_inp)
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            if self.get_output_datatype() == DataType.BIPOLAR:
-                out = context[node.output[0]]
-                out = 2 * out - 1
-                context[node.output[0]] = out
-            assert context[node.output[0]].shape == (
-                1,
-                out_pix,
-                k * k,
-                ifm_ch,
-            ), """Output
-            shape doesn't match expected shape (1, out_pix, k*k, ifm_ch)."""
-            # reshape output to have expected shape
-            context[node.output[0]] = context[node.output[0]].reshape(
-                1, out_pix, k * k * ifm_ch
-            )
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-            prefixed_top_name = "%s_%s" % (node.name, node.name)
-            # check if needed file exists
-            verilog_file = "{}/project_{}/sol1/impl/verilog/{}.v".format(
-                code_gen_dir, node.name, prefixed_top_name
-            )
-            if os.path.isfile(verilog_file):
-                inp = context[node.input[0]]
-                inp = inp.transpose(0, 2, 3, 1)
-                inp = inp.flatten()
-
-                # TODO: check how to sort inputs for multichannel inputs
-                # a = []
-                # for i in range(len(inp)):
-                #     if (i+1) % 2 == 0:
-                #         a.append((int(inp[i-1]) << 1) + int(inp[i]))
-                # inp = a
-                sim = PyVerilator.build(
-                    verilog_file,
-                    verilog_path=[
-                        "{}/project_{}/sol1/impl/verilog/".format(
-                            code_gen_dir, node.name
-                        )
-                    ],
-                )
-                super().reset_rtlsim(sim)
-                super().toggle_clk(sim)
-                output = self.rtlsim(sim, inp)
-                output = [int(x) for x in output]
-                odt = self.get_output_datatype()
-                if odt == DataType.BIPOLAR:
-                    output = [2 * x - 1 for x in output]
-
-                # pyverilator interprets int2 as uint2, so output has to be corrected
-                elif odt == DataType.INT2:
-                    mask = 2 ** (odt.bitwidth() - 1)
-                    output = [-(x & mask) + (x & ~mask) for x in output]
-                # TODO: check how to sort inputs for multichannel inputs
-                # output = [bin(x)[2:].zfill(ifm_ch) for x in output]
-                # output_ch1 = [int(x[:1]) for x in output]
-                # output_ch2 = [int(x[1:]) for x in output]
-
-                # reshape output
-                output = np.asarray([output], dtype=np.float32).reshape(
-                    1, out_pix, k * k * ifm_ch
-                )
-                context[node.output[0]] = output
-
-            else:
-                raise Exception(
-                    """Found no verilog files for this node,
-                    did you run the codegen_ipgen transformation?"""
-                )
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
@@ -205,18 +189,85 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 )
             )
 
+        inp = context[node.input[0]]
+        assert str(inp.dtype) == "float32", "Input datatype is not float32"
+        assert (
+            inp.shape == exp_ishape
+        ), """Input shape doesn't
+        match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
+        if self.get_input_datatype() == DataType.BIPOLAR:
+            # store bipolar activations as binary
+            inp = (inp + 1) / 2
+            export_idt = DataType.BINARY
+        else:
+            export_idt = self.get_input_datatype()
+        # reshape input into folded form
+        inp = inp.reshape(folded_ishape)
+        # make copy before saving array
+        reshaped_input = inp.copy()
+        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
+
+        if mode == "npysim":
+            # execute the precompiled model
+            super().exec_precompiled_singlenode_model()
+            # load output npy file
+            super().npy_to_dynamic_output(context)
+            assert (
+                context[node.output[0]].shape == folded_oshape
+            ), "npysim \
+            did not produce expected ofolded utput shape"
+            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
+        elif mode == "rtlsim":
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            rtlsim_inp = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+            )
+            super().reset_rtlsim(sim)
+            super().toggle_clk(sim)
+            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+            odt = export_idt
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(
+                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+            )
+            # load and reshape output
+            output = np.load(out_npy_path)
+            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+            context[node.output[0]] = output
+        else:
+            raise Exception(
+                """Invalid value for attribute exec_mode! Is currently set to: {}
+            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+                    mode
+                )
+            )
+        # binary -> bipolar if needed
+        if self.get_output_datatype() == DataType.BIPOLAR:
+            out = context[node.output[0]]
+            out = 2 * out - 1
+            context[node.output[0]] = out
+        assert (
+            context[node.output[0]].shape == exp_oshape
+        ), """Output
+        shape doesn't match expected shape (1, ofm_dim, ofm_dim, k*k*ifm_ch)."""
+
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
 
     def defines(self, var):
         numReps = 1
         self.code_gen_dict["$DEFINES$"] = [
-            """#define ConvKernelDim1 {}\n #define IFMChannels1 {}
-            #define Input_precision1 {}\n #define IFMDim1 {}\n #define OFMDim1 {}
-            #define SIMD1 {}\n #define Stride1 {}\n #define numReps {}""".format(
+            """#define ConvKernelDim1 {}\n #define IFMChannels1 {}\n
+            #define Input_precision1 {}\n #define IFMDim1 {}\n
+            #define OFMDim1 {}\n #define SIMD1 {}\n
+            #define Stride1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("ConvKernelDim"),
                 self.get_nodeattr("IFMChannels"),
-                self.get_nodeattr("Input_precision"),
+                self.get_input_datatype().bitwidth(),
                 self.get_nodeattr("IFMDim"),
                 self.get_nodeattr("OFMDim"),
                 self.get_nodeattr("SIMD"),
@@ -232,7 +283,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # use binary for bipolar storage
             dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
-        packed_bits = self.get_stream_width()
+        packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
@@ -246,10 +297,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_stream_width())
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_stream_width())
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
@@ -268,17 +319,13 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # use binary for bipolar storage
             dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
-        packed_bits = self.get_stream_width()
+        packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_out = "%s/output.npy" % code_gen_dir
-        ofm_dim = self.get_nodeattr("OFMDim")
-        out_pix = ofm_dim * ofm_dim
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        shape = (1, out_pix, k * k, ifm_ch)
-        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
+        oshape = self.get_folded_output_shape()
+        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
@@ -287,7 +334,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 elem_hls_type,
                 elem_bits,
                 npy_type,
-                shape_cpp_str,
+                oshape_cpp_str,
                 npy_out,
             )
         ]
@@ -309,3 +356,17 @@ class ConvolutionInputGenerator(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def ipgen_extra_directives(self):
+        # add directive to control input buffer memory resources
+        ram_style = self.get_nodeattr("ram_style")
+        map_to_hls_ram_style = {
+            "auto": "RAM_2P",
+            "block": "RAM_2P_BRAM",
+            "distributed": "RAM_2P_LUTRAM",
+            "ultra": "RAM_2P_URAM",
+        }
+        hls_ram_style = map_to_hls_ram_style[ram_style]
+        directive = "set_directive_resource -core %s " % hls_ram_style
+        directive += "ConvolutionInputGenerator inputBuf"
+        return [directive]

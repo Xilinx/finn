@@ -31,6 +31,9 @@ from onnx import helper as oh
 
 from finn.core.datatype import DataType
 from finn.transformation import Transformation
+from finn.util.basic import get_by_name
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.infer_datatypes import InferDataTypes
 
 
 class AbsorbAddIntoMultiThreshold(Transformation):
@@ -55,7 +58,8 @@ class AbsorbAddIntoMultiThreshold(Transformation):
                     start_name = n.input[0]
                     # we can only absorb 0d or 1d adds
                     is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
-                    is_1d = A.ndim > 0 and np.prod(A.shape) == A.shape[-1]
+                    actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
+                    is_1d = actual_ndims == 1
                     if is_scalar or is_1d:
                         Tnew = T - A.reshape(-1, 1)
                         # Tnew = T - A.reshape(-1, T.shape[1])
@@ -85,7 +89,8 @@ class AbsorbMulIntoMultiThreshold(Transformation):
                 assert A is not None, "Initializer for mul weights is not set."
                 is_signed = (A < 0).any()
                 is_scalar = A.ndim == 0 or all(x == 1 for x in A.shape)
-                is_1d = A.ndim > 0 and np.prod(A.shape) == A.shape[-1]
+                actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
+                is_1d = actual_ndims == 1
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MultiThreshold":
                     if not is_signed and (is_1d or is_scalar):
@@ -122,7 +127,8 @@ class FactorOutMulSignMagnitude(Transformation):
                 A = model.get_initializer(mul_weight_name)
                 assert A is not None, "Initializer for mul weights is not set."
                 is_scalar = np.prod(A.shape) == 1
-                is_1d = len(A.shape) == 2 and A.shape[0] == 1
+                actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
+                is_1d = actual_ndims == 1
                 is_not_bipolar = (
                     model.get_tensor_datatype(mul_weight_name) != DataType.BIPOLAR
                 )
@@ -161,6 +167,7 @@ class Absorb1BitMulIntoMatMul(Transformation):
             if n.op_type == "MatMul":
                 matmul_weight_name = n.input[1]
                 W = model.get_initializer(matmul_weight_name)
+                Wdt = model.get_tensor_datatype(matmul_weight_name)
                 assert W is not None, "Initializer for matmul weights is not set."
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "Mul":
@@ -174,8 +181,104 @@ class Absorb1BitMulIntoMatMul(Transformation):
                             Wnew.shape == W.shape
                         ), """Shape of new weights is not
                         the same as the shape of the weight matrix before."""
-                        model.set_initializer(matmul_weight_name, Wnew)
-                        n.output[0] = consumer.output[0]
-                        graph.node.remove(consumer)
-                        graph_modified = True
+                        check_fxn = np.vectorize(lambda x: Wdt.allowed(x))
+                        # only absorb if permitted by W datatype
+                        if check_fxn(Wnew).all():
+                            model.set_initializer(matmul_weight_name, Wnew)
+                            n.output[0] = consumer.output[0]
+                            graph.node.remove(consumer)
+                            graph_modified = True
+        return (model, graph_modified)
+
+
+class Absorb1BitMulIntoConv(Transformation):
+    """Absorb bipolar or binary multiplications into the preciding convolution."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Conv":
+                conv_weight_name = n.input[1]
+                W = model.get_initializer(conv_weight_name)
+                Wdt = model.get_tensor_datatype(conv_weight_name)
+                assert W is not None, "Initializer for conv weights is not set."
+                consumer = model.find_consumer(n.output[0])
+                if consumer is not None and consumer.op_type == "Mul":
+                    mul_weight_name = consumer.input[1]
+                    A = model.get_initializer(mul_weight_name)
+                    assert A is not None, "Initializer for mul weights is not set."
+                    is_1bit = model.get_tensor_datatype(mul_weight_name).bitwidth() == 1
+                    is_scalar = np.prod(A.shape) == 1
+                    actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
+                    is_1d = actual_ndims == 1
+                    if is_1bit and (is_1d or is_scalar):
+                        # move the mul to the OFM position, since the mul is
+                        # applied on the outputs channelwise or as scalar
+                        Wnew = A.reshape(-1, 1, 1, 1) * W
+                        assert (
+                            Wnew.shape == W.shape
+                        ), """Shape of new weights is not
+                        the same as the shape of the conv weights before."""
+                        check_fxn = np.vectorize(lambda x: Wdt.allowed(x))
+                        # only absorb if permitted by W datatype
+                        if check_fxn(Wnew).all():
+                            model.set_initializer(conv_weight_name, Wnew)
+                            n.output[0] = consumer.output[0]
+                            graph.node.remove(consumer)
+                            graph_modified = True
+        return (model, graph_modified)
+
+
+class AbsorbTransposeIntoMultiThreshold(Transformation):
+    """Change (NHWCTranpose -> MultiThreshold -> NCHWTranspose) to (MultiThreshold)
+    with NHWC mode."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Transpose":
+                perms = list(get_by_name(n.attribute, "perm").ints)
+                if perms == [0, 3, 1, 2]:
+                    mt_cand = model.find_consumer(n.output[0])
+                    if mt_cand.op_type == "MultiThreshold":
+                        final_t_cand = model.find_consumer(mt_cand.output[0])
+                        if final_t_cand.op_type == "Transpose":
+                            perms = list(
+                                get_by_name(final_t_cand.attribute, "perm").ints
+                            )
+                            if perms == [0, 2, 3, 1]:
+                                mt = getCustomOp(mt_cand)
+                                mt.set_nodeattr("data_layout", "NHWC")
+                                # get rid of tranpose nodes, wire MT directly
+                                mt_cand.input[0] = n.input[0]
+                                mt_cand.output[0] = final_t_cand.output[0]
+                                graph.node.remove(n)
+                                graph.node.remove(final_t_cand)
+                                graph_modified = True
+                        elif final_t_cand.op_type == "Reshape":
+                            oshape = model.get_tensor_shape(final_t_cand.output[0])
+                            if len(oshape) == 2:
+                                # transition to FC part, can still use NHWC
+                                mt = getCustomOp(mt_cand)
+                                mt.set_nodeattr("data_layout", "NHWC")
+                                # get rid of first tranpose node
+                                mt_cand.input[0] = n.input[0]
+                                # fix output shape for MultiThreshold
+                                mt_ishape = model.get_tensor_shape(mt_cand.input[0])
+                                (b, h, w, c) = mt_ishape
+                                assert (
+                                    h == 1 and w == 1
+                                ), """Untested spatial dim
+                                in conv->fc transition, proceed with caution!"""
+                                model.set_tensor_shape(mt_cand.output[0], mt_ishape)
+                                graph.node.remove(n)
+                                graph_modified = True
+        if graph_modified:
+            model = model.transform(InferDataTypes())
         return (model, graph_modified)

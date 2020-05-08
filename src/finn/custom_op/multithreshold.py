@@ -50,7 +50,9 @@ def multithreshold(v, thresholds, out_scale=None, out_bias=None):
     or equal to.
 
     The output tensor will be scaled by out_scale and biased by out_bias."""
-    # the inputs are expected to be in the shape (N,C,H,W)
+    # the inputs are expected to be in the shape (N,C,H,W) or (N, C)
+    # the MultiThreshold node supports a data_layout attribute that can be set
+    # to 'NHWC' to support (N,H,W,C) data layout mode for in-out as well
     # N : Batch size
     # C : Number of channels
     # H : Heigth of the input images
@@ -104,9 +106,10 @@ class MultiThreshold(CustomOp):
             "out_dtype": ("s", True, ""),
             "out_scale": ("f", False, 1.0),
             "out_bias": ("f", False, 0.0),
+            "data_layout": ("s", False, "NCHW"),
         }
 
-    def make_shape_compatible_op(self):
+    def make_shape_compatible_op(self, model):
         node = self.onnx_node
         return helper.make_node("Relu", [node.input[0]], [node.output[0]])
 
@@ -123,25 +126,39 @@ class MultiThreshold(CustomOp):
         # retrieve attributes if output scaling is used
         out_scale = self.get_nodeattr("out_scale")
         out_bias = self.get_nodeattr("out_bias")
+        # transpose input if NHWC data layout is chosen
+        data_layout = self.get_nodeattr("data_layout")
+        if data_layout == "NHWC":
+            if v.ndim == 4:
+                # NHWC -> NCHW
+                v = np.transpose(v, (0, 3, 1, 2))
+            elif v.ndim == 2:
+                # no HW dimension means NHWC and NCHW layouts are equivalent
+                pass
+            else:
+                raise Exception(
+                    "Unknown data_layout and input ndim"
+                    " combination for MultiThreshold."
+                )
         # calculate output
         output = multithreshold(v, thresholds, out_scale, out_bias)
         # setting context according to output
+        if data_layout == "NHWC":
+            if output.ndim == 4:
+                # NCHW -> NHWC
+                output = np.transpose(output, (0, 2, 3, 1))
+            elif output.ndim == 2:
+                # no HW dimension means NHWC and NCHW layouts are equivalent
+                pass
+            else:
+                raise Exception(
+                    "Unknown data_layout and output ndim"
+                    " combination for MultiThreshold."
+                )
         context[node.output[0]] = output
 
     def verify_node(self):
         info_messages = []
-
-        # verify number of attributes
-        num_of_attr = 3
-        if len(self.onnx_node.attribute) == num_of_attr:
-            info_messages.append("The number of attributes is correct")
-        else:
-            info_messages.append(
-                """The number of attributes is incorrect,
-            {} should have {} attributes""".format(
-                    self.onnx_node.op_type, num_of_attr
-                )
-            )
 
         # verify that "domain" is set to "finn"
         domain_value = self.onnx_node.domain
@@ -152,8 +169,6 @@ class MultiThreshold(CustomOp):
 
         # verify that all necessary attributes exist
         try:
-            self.get_nodeattr("out_scale")
-            self.get_nodeattr("out_bias")
             self.get_nodeattr("out_dtype")
             info_messages.append("All necessary attributes exist")
         except Exception:

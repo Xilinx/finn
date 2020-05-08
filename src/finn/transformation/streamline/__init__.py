@@ -30,6 +30,7 @@ from finn.transformation import Transformation
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import (
     ConvertSubToAdd,
+    ConvertDivToMul,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
 )
@@ -39,6 +40,7 @@ from finn.transformation.streamline.absorb import (
     AbsorbMulIntoMultiThreshold,
     FactorOutMulSignMagnitude,
     Absorb1BitMulIntoMatMul,
+    Absorb1BitMulIntoConv,
 )
 
 from finn.transformation.streamline.collapse_repeated import (
@@ -50,6 +52,8 @@ from finn.transformation.streamline.reorder import (
     MoveAddPastMul,
     MoveScalarMulPastMatMul,
     MoveScalarAddPastMatMul,
+    MoveScalarAddPastConv,
+    MoveScalarMulPastConv,
 )
 
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
@@ -63,11 +67,14 @@ class Streamline(Transformation):
     def apply(self, model):
         streamline_transformations = [
             ConvertSubToAdd(),
+            ConvertDivToMul(),
             BatchNormToAffine(),
             ConvertSignToThres(),
             MoveAddPastMul(),
             MoveScalarAddPastMatMul(),
+            MoveScalarAddPastConv(),
             MoveScalarMulPastMatMul(),
+            MoveScalarMulPastConv(),
             MoveAddPastMul(),
             CollapseRepeatedAdd(),
             CollapseRepeatedMul(),
@@ -75,6 +82,7 @@ class Streamline(Transformation):
             FactorOutMulSignMagnitude(),
             AbsorbMulIntoMultiThreshold(),
             Absorb1BitMulIntoMatMul(),
+            Absorb1BitMulIntoConv(),
             RoundAndClipThresholds(),
         ]
         for trn in streamline_transformations:
