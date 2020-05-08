@@ -496,6 +496,14 @@ compilation transformations?
         HLSCustomOp class but has to be filled by every node."""
         pass
 
+    def get_normal_input_shape(self):
+        """Returns normal input shape if implemented."""
+        raise Exception("get_normal_input_shape not implemented for this op")
+
+    def get_normal_output_shape(self):
+        """Returns folded output shape if implemented."""
+        raise Exception("get_normal_output_shape not implemented for this op")
+
     def get_folded_input_shape(self):
         """Returns folded input shape (according to synapse folding), if implemented."""
         raise Exception("get_folded_input_shape not implemented for this op")

@@ -146,10 +146,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def get_number_input_values(self):
-        folded_ishape = self.get_folded_input_shape()
-        return np.prod(folded_ishape[:-1])
-
     def get_instream_width(self):
         in_width = self.get_nodeattr("inWidth")
         return in_width
