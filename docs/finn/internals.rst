@@ -158,12 +158,17 @@ Const mode
 In *const* mode the weights are "baked in" into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *const* mode IP block generation the `StreamingFCLayer_Batch function <https://github.com/Xilinx/finn-hlslib/blob/07a8353f6cdfd8bcdd81e309a5581044c2a93d3b/fclayer.h#L94>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
 
 Advantages:
+
 * smaller resource footprint
+
 * easier to debug layer in cppsim since no additional components
+
 * well-tested and mature components
 
 Disadvantages:
+
 * can lead to very long HLS synthesis times for certain weight array shapes
+
 * less control over the weight memory FPGA primitives, Vivado HLS doesn't always make the best resource allocation decisions
 
 Decoupled mode
@@ -171,13 +176,19 @@ Decoupled mode
 In *decoupled* mode a different variant of the MVAU with three ports is used. Besides the input and output streams, which are fed into the circuit via Verilog FIFOs, there is another input, which is used to stream the weights. For this the `streaming MVAU <https://github.com/Xilinx/finn-hlslib/blob/07a8353f6cdfd8bcdd81e309a5581044c2a93d3b/mvau.hpp#L213>`_ from the finn-hls library is used. To make the streaming possible a Verilog weight streamer component accesses the weight memory and sends the values via another FIFO to the MVAU. This component can be found in the `finn-rtllib <https://github.com/Xilinx/finn/tree/dev/finn-rtllib>`_ under the name *memstream.v*. For the IP block generation this component, the IP block resulting from the synthesis of the HLS code of the streaming MVAU and a FIFO for the weight stream are combined in a verilog wrapper. The weight values are saved in .dat files and stored in the weight memory from which the weight streamer reads. The resulting verilog component, which is named after the name of the node and has the suffix "_memstream.v", exposes only two ports to the outside, the data input and output. It therefore behaves externally in the same way as the MVAU in *const* mode.
 
 Advantages:
+
 * better control over the used memory primivites used (see the ram_style attribute in StreamingFCLayer)
+
 * potentially faster HLS synthesis time since weight array shape is no longer part of HLS synthesis
+
 * (future work) will enable placing memory and compute into different clock domains, combining different layers into same weight memory for higher packing efficiency, sourcing the weight stream from other sources such as DRAM
 
 Disadvantages:
+
 * somewhat less well-tested compared to the const mode
+
 * higher resource footprint due to additional weight streamer and weight FIFO
+
 
 How to set *mem_mode*
 ---------------------
