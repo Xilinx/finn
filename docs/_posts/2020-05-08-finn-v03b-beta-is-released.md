@@ -8,7 +8,7 @@ We're happy to announce the v0.3b (beta) release of the FINN compiler.
 The full changelog is quite large as we've been working on a lot of exciting
 new features, but here is a summary:
 
-<img src="https://xilinx.github.io/finn/img/cnv-mp-fc.png" width=800 align="center"/>
+<img src="https://xilinx.github.io/finn/img/cnv-mp-fc.png" width="800" align="center"/>
 
 
 **Initial support for ConvNets and end-to-end notebook example.** The
@@ -17,7 +17,7 @@ preliminary support for convolutions is now in place. Head over to the new
 end-to-end notebook</a> to try out the end-to-end flow for convolutions
 and build the demonstrator for a simple binarized CNN on CIFAR-10.
 
-<img src="https://xilinx.github.io/finn/img/parallel-speedup.png" width=500 align="center"/>
+<img src="https://xilinx.github.io/finn/img/parallel-speedup.png" width="500" align="center"/>
 
 **Parallel transformations.** When working with larger designs, HLS synthesis
 and simulation compile times can be quite long. Thanks to a contribution by
