@@ -24,7 +24,7 @@ FINN uses many custom operations (op_type in ONNX NodeProto) that are not define
 Custom ONNX Execution Flow
 ==========================
 
-To verify correct operation of FINN-ONNX graphs, FINN provides its own ONNX execution flow (:py:mod:`finn.core.onnx_exec`). This flow supports the standard set of ONNX operations as well as the custom FINN operations. 
+To verify correct operation of FINN-ONNX graphs, FINN provides its own ONNX execution flow (:py:mod:`finn.core.onnx_exec`). This flow supports the standard set of ONNX operations as well as the custom FINN operations.
 
 .. warning:: This execution flow is only meant for checking the correctness of models after applying transformations, and not for high performance inference.
 
@@ -39,7 +39,7 @@ Some of the helper functions are described in more detail below.
 
 Create a ModelWrapper instance
 ------------------------------
-The ModelWrapper instance can be created using a model in .onnx format or by directly passing a ModelProto instance to the wrapper. The code block below gives an example of how to use the wrapper on a model in .onnx format. 
+The ModelWrapper instance can be created using a model in .onnx format or by directly passing a ModelProto instance to the wrapper. The code block below gives an example of how to use the wrapper on a model in .onnx format.
 ::
 
   from finn.core.modelwrapper import ModelWrapper
@@ -49,7 +49,7 @@ Access the ONNX GraphProto through ModelWrapper
 -----------------------------------------------
 The ONNX ModelProto can be accessed with following command:
 ::
-  
+
   modelproto = model.model
 
 The graph can be accessed using:
@@ -62,7 +62,7 @@ The node list is accessed by:
 
   nodes = model.graph.node
 
-The individual nodes can be selected via their indices. 
+The individual nodes can be selected via their indices.
 ::
 
   # first node
@@ -79,7 +79,7 @@ Helper functions for tensors
 
 A list of all tensors (names) can easily be accessed using:
 ::
-  
+
   tensor_list = model.get_all_tensor_names()
 
 If we take a single tensor from that list (by index), we can determine their producer or consumer node by using one of the following functions. Note that it may be that a tensor does not have a producer or consumer node, for example if the tensor represents a constant that is already set. In that case `None` will be returned.
@@ -105,13 +105,13 @@ Optionally, the dtype (container datatype) of the tensor can also be specified a
 
 As mentioned above there are FINN DataTypes additional to the container datatype, these can be accessed and set for a tensor with the following functions:
 ::
-  
+
   # get tensor dataype of third tensor in model tensor list
   model.get_tensor_datatype(tensor_list[2])
 
   # set tensor datatype of third tensor in model tensor list
   from finn.core.datatype import DataType
-  
+
   finn_dtype = DataType.BIPOLAR
   model.set_tensor_datatype(tensor_list[2], finn_dtype)
 
@@ -138,3 +138,29 @@ Transformation Pass
 
 A transformation passes changes (transforms) the given model, it gets the model in the ModelWrapper as input and returns the changed model (ModelWrapper) to the FINN flow. Additional the flag *model_was_changed* which indicates if a transformation has to be performed more than once, is returned. If you are interested in how to write a transformation pass for FINN, please take a look at the Jupyter notebook about how to write a transformation pass, see chapter :ref:`tutorials` for details. For more information about existing transformation passes in FINN, see module :py:mod:`finn.transformation`.
 
+StreamingFCLayer *mem_mode*
+===========================
+
+FINN supports two types of the so-called *mem_mode* for the node StreamingFCLayer. With the selection of this mode it is decided in which way the weight values are accessed during the execution. That means the mode setting has direct influence on the resulting circuit. Currently two settings for the *mem_mode* are supported in FINN:
+
+* "const"
+
+* "decoupled"
+
+The following picture shows the idea behind the two modes.
+
+.. image:: img/mem_mode.png
+   :scale: 55%
+   :align: center
+
+Const mode
+----------
+In *const* mode the weights are baked into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *const* mode IP block generation the `StreamingFCLayer_Batch function <https://github.com/Xilinx/finn-hlslib/blob/07a8353f6cdfd8bcdd81e309a5581044c2a93d3b/fclayer.h#L94>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
+
+Decoupled mode
+--------------
+In *decoupled* mode the MVAU has three ports. Besides the input and output streams, which are fed into the circuit via verilog FIFOs, there is another input, which is used to stream the weights. For this the `streaming MVAU <https://github.com/Xilinx/finn-hlslib/blob/07a8353f6cdfd8bcdd81e309a5581044c2a93d3b/mvau.hpp#L213>`_ from the finn-hls library is used. To make the streaming possible a verilog weight streamer component accesses the weight memory and sends the values via FIFO to the MVAU. This component can be found in the `finn-rtllib <https://github.com/Xilinx/finn/tree/dev/finn-rtllib>`_ under the name *memstream.v*. For the IP block generation this component, the IP block resulting from the synthesis of the HLS code of the streaming MVAU and a FIFO for the weight stream are combined in a verilog wrapper. The weight values are saved in .dat files and stored in the weight memory from which the weight streamer reads. The resulting verilog component, which is named after the name of the node and has the suffix "_memstream.v", exposes only two ports to the outside, the data input and output. It therefore behaves externally in the same way as the MVAU in *const* mode.
+
+How to set *mem_mode*
+---------------------
+When the nodes in the network are converted to HLS layers, the *mem_mode* can be passed. More detailed information about the transformations that prepare the network and the transformation that performs the conversion to HLS layers can be found in chapter :ref:`nw_prep`. The *mem_mode* is passed as argument. Note that if no argument is passed, the default is *const*.
