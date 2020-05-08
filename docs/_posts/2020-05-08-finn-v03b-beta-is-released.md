@@ -8,34 +8,29 @@ We're happy to announce the v0.3b (beta) release of the FINN compiler.
 The full changelog is quite large as we've been working on a lot of exciting
 new features, but here is a summary:
 
-| <img src="https://xilinx.github.io/finn/img/cnv-mp-fc.jpg" width="450" height="500" align="center"/>|
-| :---:|
-| *[FINN-R](https://arxiv.org/abs/1910.10261) style hardware architecture for CNNs* |
+<img src="https://xilinx.github.io/finn/img/cnv-mp-fc.png" width=800 align="center"/>
 
-<b>Initial support for ConvNets and end-to-end notebook example.</b> The
+
+**Initial support for ConvNets and end-to-end notebook example.** The
 preliminary support for convolutions is now in place. Head over to the new
 <a href="https://github.com/Xilinx/finn/blob/staging/v0.3b/notebooks/end2end_example/cnv_end2end_example.ipynb">
 end-to-end notebook</a> to try out the end-to-end flow for convolutions
 and build the demonstrator for a simple binarized CNN on CIFAR-10.
 
-| <img src="https://xilinx.github.io/finn/img/parallel-speedup.png" width="450" height="500" align="center"/>|
-| :---:|
-| *HLS synthesis speedup by parallelization. Courtesy of @HenniOVP.* |
+<img src="https://xilinx.github.io/finn/img/parallel-speedup.png" width=500 align="center"/>
 
-<b>Parallel transformations.</b> When working with larger designs, HLS synthesis
+**Parallel transformations.** When working with larger designs, HLS synthesis
 and simulation compile times can be quite long. Thanks to a contribution by
 @HenniOVP we now support multi-process parallelization several FINN transformations.
 You can read more about those <a href="https://github.com/Xilinx/finn/blob/staging/v0.3b/notebooks/advanced/1_custom_transformation_pass.ipynb">here</a>.
 
-| <img src="https://xilinx.github.io/finn/finn/img/mem_mode.png" width="450" height="500" align="center"/>|
-| :---:|
-| *Const and decoupled mem_modes for MVAUs.* |
+<img src="https://xilinx.github.io/finn/finn/img/mem_mode.png" width="600" align="center"/>
 
-<b>Decoupled memory mode for MVAUs.</b> To have more control over how the weight
+**Decoupled memory mode for MVAUs.** To have more control over how the weight
 memories are implemented, you can now specify the `mem_mode` and `ram_style`
 attributes when instantiating compute engines. Read more <a href="https://finn.readthedocs.io/en/latest/internals.html#streamingfclayer-mem-mode">here.</a>
 
-<b>Throughput testing and optimizations.</b> To do a quick assessment of the
+**Throughput testing and optimizations.** To do a quick assessment of the
 customized accelerators you build, we now support a throughput test mode that
 lets you benchmark the accelerator with a configurable number of samples.
 To get better utilization from the heterogeneous streaming architectures FINN
