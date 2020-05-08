@@ -34,10 +34,10 @@ from finn.util.basic import get_by_name, make_build_dir
 from finn.custom_op.registry import getCustomOp
 
 
-class CodeGen_ipstitch(Transformation):
+class CreateStitchedIP(Transformation):
     """Create a Vivado IP Block Design project from all the generated IPs of a
     graph. All nodes in the graph must have the fpgadataflow backend attribute,
-    and the CodeGen_ipgen transformation must have been previously run on
+    and the PrepareIP transformation must have been previously run on
     the graph. The resulting block design is also packaged as IP. The
     transformation gets the fpgapart as a string.
 

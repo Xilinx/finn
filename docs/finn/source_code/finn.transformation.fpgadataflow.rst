@@ -1,5 +1,5 @@
 *****************************
-Transformation - fpgadataflow 
+Transformation - fpgadataflow
 *****************************
 
 Transformations (fpgadataflow)
@@ -13,34 +13,34 @@ finn.transformation.fpgadataflow.cleanup
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.codegen\_ipgen
+finn.transformation.fpgadataflow.prepare\_ip
 -----------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.codegen_ipgen
+.. automodule:: finn.transformation.fpgadataflow.prepare_ip
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.codegen\_ipstitch
+finn.transformation.fpgadataflow.create\_stitched\_ip
 --------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.codegen_ipstitch
+.. automodule:: finn.transformation.fpgadataflow.create_stitched_ip
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.codegen\_npysim
+finn.transformation.fpgadataflow.prepare\_cppsim
 ------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.codegen_npysim
+.. automodule:: finn.transformation.fpgadataflow.prepare_cppsim
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.compile
+finn.transformation.fpgadataflow.compile\_cppsim
 ----------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.compile
+.. automodule:: finn.transformation.fpgadataflow.compile_cppsim
    :members:
    :undoc-members:
    :show-inheritance:
@@ -61,10 +61,10 @@ finn.transformation.fpgadataflow.create\_dataflow\_partition
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.hlssynth\_ipgen
+finn.transformation.fpgadataflow.hlssynth\_ip
 ------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.hlssynth_ipgen
+.. automodule:: finn.transformation.fpgadataflow.hlssynth_ip
    :members:
    :undoc-members:
    :show-inheritance:
@@ -140,4 +140,3 @@ finn.transformation.fpgadataflow.templates
    :members:
    :undoc-members:
    :show-inheritance:
-

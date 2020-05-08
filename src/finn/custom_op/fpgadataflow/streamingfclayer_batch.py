@@ -181,7 +181,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # verify that all necessary attributes exist
         # TODO collect automatically from get_nodeattr_types
         try:
-            self.get_nodeattr("code_gen_dir_npysim")
+            self.get_nodeattr("code_gen_dir_cppsim")
             self.get_nodeattr("executable_path")
             self.get_nodeattr("resType")
             self.get_nodeattr("MW")
@@ -508,10 +508,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             f_weights.close()
 
         elif mem_mode == "decoupled":
-            """Saves weights in corresponding file format for npysim or rtlsim"""
+            """Saves weights in corresponding file format for cppsim or rtlsim"""
             # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
             # and save as unflipped weight tensor to be able to differentiate between
-            # flipped an unflipped weight tensor (has to be flipped for npysim)
+            # flipped an unflipped weight tensor (has to be flipped for cppsim)
 
             weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
 
@@ -613,14 +613,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         node = self.onnx_node
 
         # TODO ensure codegen dir exists
-        if mode == "npysim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        if mode == "cppsim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
                     mode
                 )
             )
@@ -654,7 +654,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 raise Exception("Unexpected input found for StreamingFCLayer")
             in_ind += 1
 
-        if mode == "npysim":
+        if mode == "cppsim":
             # execute the precompiled model
             super().exec_precompiled_singlenode_model()
             # load output npy file
@@ -696,7 +696,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
                     mode
                 )
             )
@@ -744,7 +744,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
 
     def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage
@@ -841,7 +841,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
 
     def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage
