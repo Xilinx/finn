@@ -71,9 +71,9 @@ def test_streamline_cnv(size, wbits, abits):
     input_dict = {"global_in": input_tensor}
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
-    model.save("orig_cnv.onnx")
+    # model.save("orig_cnv.onnx")
     model = model.transform(Streamline())
-    model.save("streamlined_cnv.onnx")
+    # model.save("streamlined_cnv.onnx")
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
     assert np.isclose(expected, produced, atol=1e-3).all()
