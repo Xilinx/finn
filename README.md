@@ -23,8 +23,8 @@ Please see the [Getting Started](https://finn.readthedocs.io/en/latest/getting_s
 
 ## What's New in FINN?
 
+* **2020-05-08:** v0.3b (beta) is released, with initial support for convolutions, parallel transformations, more flexible memory allocation for MVAUs, throughput testing and many other smaller improvements and bugfixes. Read more on the <a href="https://xilinx.github.io/finn/2020/05/08/finn-v03b-beta-is-released.html">release blog post</a>.
 * **2020-04-15:** FINN v0.2.1b (beta): use fixed commit versions for dependency repos, otherwise identical to 0.2b
-
 * **2020-02-28:** FINN v0.2b (beta) is released, which is a clean-slate reimplementation of the framework. Currently only fully-connected networks are supported for the end-to-end flow. Please see the release blog post for a summary of the key features.
 
 ## Documentation
@@ -33,7 +33,9 @@ You can view the documentation on [readthedocs](https://finn.readthedocs.io) or 
 
 ## Community
 
-We have a [gitter channel](https://gitter.im/xilinx-finn/community) where you can ask questions. You can use the GitHub issue tracker to report bugs, but please don't file issues to ask questions as this is better handled in the gitter channel. We also heartily welcome contributors to the project but do not yet have guidelines in place for this, so if you are interested just get in touch over gitter.
+We have a [gitter channel](https://gitter.im/xilinx-finn/community) where you can ask questions. You can use the GitHub issue tracker to report bugs, but please don't file issues to ask questions as this is better handled in the gitter channel.
+
+We also heartily welcome contributions to the project, please check out the [contribution guidelines](CONTRIBUTING.md) and the [list of open issues](https://github.com/Xilinx/finn/issues). Don't hesitate to get in touch over [Gitter](https://gitter.im/xilinx-finn/community) to discuss your ideas.
 
 ## Citation
 

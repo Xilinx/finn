@@ -55,14 +55,6 @@ Running the test suite directly
 
 FINN comes with a set of tests which can be launched using the command above. Note that some of the tests involve extra compilation and the entire test suite may take some time to complete.
 
-Running the test suite using Jenkins
-************************************
-::
-
-  sh run-docker.sh jenkins
-
-This will launch `Jenkins <https://jenkins.io/>`_ inside a Docker container and print an initial password for the user to use together with the username "admin" to open Jenkins in the webbrowser. The script forwards port 8080 for Jenkins and also configures a smee client to access port 8080. `Smee <https://smee.io/>`_ is a webhook payload delivery service and the FINN GitHub repository has a webhook set up to trigger the smee client (that is set in the run_docker script) when a push event is happening. Through Jenkins the user can set up a test for FINN, which is started at every push event.
-
 Environment variables
 **********************
 
@@ -72,6 +64,8 @@ These are summarized below:
 * `VIVADO_PATH` points to your Vivado installation on the host
 * `JUPYTER_PORT` (default 8888) changes the port for Jupyter inside Docker
 * `NETRON_PORT` (default 8081) changes the port for Netron inside Docker
+* `NUM_DEFAULT_WORKERS` (default 1) specifies the degree of parallelization for the transformations that can be run in parallel
 * `PYNQ_BOARD` specifies the type of PYNQ board used (Pynq-Z1, Pynq-Z2, Ultra96, ZCU104) for the test suite
+* `PYNQ_IP` and `PYNQ_PORT` specify ip address and port number to access the PYNQ board
 * `PYNQ_USERNAME` and `PYNQ_PASSWORD` specify the PYNQ board access credentials for the test suite
 * `PYNQ_TARGET_DIR` specifies the target dir on the PYNQ board for the test suite

@@ -55,6 +55,7 @@ def test_batchnorm_to_affine_cnv_w1a1():
     model = model.transform(FoldConstants())
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     input_dict = {"0": input_tensor}
     output_dict = oxe.execute_onnx(model, input_dict)
@@ -66,6 +67,7 @@ def test_batchnorm_to_affine_cnv_w1a1():
     output_dict_p = oxe.execute_onnx(new_model, input_dict)
     produced = output_dict_p[list(output_dict_p.keys())[0]]
     assert np.isclose(expected, produced).all()
+    assert np.argmax(produced) == 3
     os.remove(export_onnx_path)
 
 
