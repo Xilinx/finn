@@ -41,6 +41,7 @@ from finn.custom_op.streamingdataflowpartition import StreamingDataflowPartition
 from finn.custom_op.xnorpopcount import XnorPopcountMatMul
 from finn.custom_op.maxpoolnhwc import MaxPoolNHWC
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
+from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
@@ -59,6 +60,7 @@ custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 custom_op["MaxPoolNHWC"] = MaxPoolNHWC
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
 custom_op["Thresholding_Batch"] = Thresholding_Batch
+custom_op["LabelSelect_Batch"] = LabelSelect_Batch
 custom_op["StreamingFIFO"] = StreamingFIFO
 
 
