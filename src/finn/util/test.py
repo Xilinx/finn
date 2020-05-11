@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import torch
+import numpy as np
 from models.CNV import CNV
 from models.LFC import LFC
 from models.SFC import SFC
@@ -72,3 +73,12 @@ def get_test_model_untrained(netname, wbits, abits):
         ibits = abits
     fc = model_def_fxn(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=ibits)
     return fc.eval()
+
+
+def soft_verify_topk(invec, idxvec, k):
+    """Check that the topK indices provided actually point to the topK largest
+    values in the input vector"""
+    np_topk = np.flip(invec.flatten().argsort())[:k]
+    soft_expected = invec.flatten()[np_topk.astype(np.int).flatten()]
+    soft_produced = invec.flatten()[idxvec.astype(np.int).flatten()]
+    return (soft_expected == soft_produced).all()

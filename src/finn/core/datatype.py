@@ -53,6 +53,7 @@ class DataType(Enum):
     UINT8 = auto()
     UINT16 = auto()
     UINT32 = auto()
+    UINT64 = auto()
     BIPOLAR = auto()
     TERNARY = auto()
     INT2 = auto()
@@ -61,6 +62,7 @@ class DataType(Enum):
     INT8 = auto()
     INT16 = auto()
     INT32 = auto()
+    INT64 = auto()
     FLOAT32 = auto()
 
     def bitwidth(self):
