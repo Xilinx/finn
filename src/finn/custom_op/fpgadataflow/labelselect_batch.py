@@ -47,7 +47,7 @@ class LabelSelect_Batch(HLSCustomOp):
             "Labels": ("i", True, 0),
             "PE": ("i", True, 0),
             "K": ("i", True, 0),
-            # FINN DataTypes for inputs, weights, outputs
+            # FINN DataTypes for input
             "inputDataType": ("s", True, ""),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
@@ -89,23 +89,23 @@ class LabelSelect_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for ConvInpGen."
+        assert ishape == exp_ishape, "Unexpect input shape."
         # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
+        values = np.random.randn(*oshape).astype(np.int64)
         return helper.make_node(
             "Constant",
             inputs=[],
             outputs=[self.onnx_node.output[0]],
             value=helper.make_tensor(
                 name="const_tensor",
-                data_type=TensorProto.FLOAT,
+                data_type=TensorProto.INT64,
                 dims=values.shape,
-                vals=values.flatten().astype(float),
+                vals=values.flatten(),
             ),
         )
 
     def infer_node_datatype(self, model):
-        model.set_tensor_datatype(self.onnx_node.output[0], DataType.UINT32)
+        model.set_tensor_datatype(self.onnx_node.output[0], DataType.INT64)
 
     def verify_node(self):
         info_messages = []

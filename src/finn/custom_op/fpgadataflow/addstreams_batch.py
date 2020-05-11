@@ -99,7 +99,7 @@ class AddStreams_Batch(HLSCustomOp):
         )
 
     def infer_node_datatype(self, model):
-        odt = self.get_nodeattr("outputDataType")
+        odt = DataType[self.get_nodeattr("outputDataType")]
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
 
     def verify_node(self):

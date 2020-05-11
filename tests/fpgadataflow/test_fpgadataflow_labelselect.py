@@ -28,7 +28,6 @@
 
 import pytest
 
-import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
@@ -42,6 +41,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
+from finn.util.test import soft_verify_topk
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
@@ -119,23 +119,8 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode):
     else:
         raise Exception("Unknown exec_mode")
 
-    # prepare input data
+    # prepare input data and execute
     input_dict = prepare_inputs(x, idt)
+    y = oxe.execute_onnx(model, input_dict)["outp"]
 
-    oshape = model.get_tensor_shape("outp")
-    y = np.flip(x.flatten().argsort())[:k]
-    y_expected = y.reshape(oshape)
-    # execute model
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-
-    y_produced = y_produced.reshape(y_expected.shape)
-
-    # we want to check that the actual values selected are the same
-    # this is because sometimes the order of equal elements differs
-    # in y_expected vs y_produced, but that is not relevant in practice
-    selected_x_vals_expected = x.flatten()[tuple(y_expected.astype(np.int))]
-    selected_x_vals_produced = x.flatten()[tuple(y_produced.astype(np.int))]
-
-    assert (selected_x_vals_expected == selected_x_vals_produced).all(), (
-        exec_mode + " failed"
-    )
+    assert soft_verify_topk(x, y, k), exec_mode + " failed"
