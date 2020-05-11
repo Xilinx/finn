@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 import brevitas.onnx as bo
@@ -41,3 +42,4 @@ def test_brevitas_act_export(abits, narrow_range, max_val):
     inp_tensor = torch.from_numpy(inp_tensor).float()
     expected = b_act.forward(inp_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
+    os.remove(export_onnx_path)
