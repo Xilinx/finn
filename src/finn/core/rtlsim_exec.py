@@ -94,7 +94,7 @@ def rtlsim_exec(model, execution_context):
     model.set_metadata_prop("sim_cycles", str(ret[1]))
     # unpack output and put into context
     o_folded_tensor = rtlsim_output_to_npy(
-        packed_output, "out.npy", o_dt, o_folded_shape, packedBits, targetBits
+        packed_output, None, o_dt, o_folded_shape, packedBits, targetBits
     )
     execution_context[o_name] = o_folded_tensor.reshape(o_shape)
 

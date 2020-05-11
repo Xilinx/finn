@@ -146,10 +146,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def get_number_input_values(self):
-        folded_ishape = self.get_folded_input_shape()
-        return np.prod(folded_ishape[:-1])
-
     def get_instream_width(self):
         in_width = self.get_nodeattr("inWidth")
         return in_width
@@ -226,7 +222,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         ]
 
     def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage
@@ -260,7 +256,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         ]
 
     def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
         if dtype == DataType.BIPOLAR:
             # use binary for bipolar storage
@@ -313,14 +309,14 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         folded_ishape = self.get_folded_input_shape()
 
         # TODO ensure codegen dir exists
-        if mode == "npysim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        if mode == "cppsim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
                     mode
                 )
             )
@@ -343,7 +339,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         reshaped_input = reshaped_input.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
-        if mode == "npysim":
+        if mode == "cppsim":
             output = inp
             output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
             context[node.output[0]] = output

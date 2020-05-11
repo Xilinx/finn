@@ -103,6 +103,7 @@ def pyverilate_get_liveness_threshold_cycles():
 
 
 def is_fpgadataflow_node(node):
+    """Returns True if given node is fpgadataflow node. Otherwise False."""
     is_node = False
     if node is not None:
         if node.domain == "finn":

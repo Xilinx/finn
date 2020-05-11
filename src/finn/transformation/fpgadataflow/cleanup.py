@@ -57,11 +57,11 @@ class CleanUp(Transformation):
                 try:
                     # lookup op_type in registry of CustomOps
                     inst = registry.custom_op[op_type](node)
-                    # delete code_gen_dir from npysim
-                    code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
+                    # delete code_gen_dir from cppsim
+                    code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
                     if os.path.isdir(code_gen_dir):
                         shutil.rmtree(code_gen_dir)
-                    inst.set_nodeattr("code_gen_dir_npysim", "")
+                    inst.set_nodeattr("code_gen_dir_cppsim", "")
                     inst.set_nodeattr("executable_path", "")
                     # delete code_gen_dir from ipgen and project folder
                     code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")

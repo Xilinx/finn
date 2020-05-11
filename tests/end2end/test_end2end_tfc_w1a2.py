@@ -43,14 +43,16 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
@@ -121,23 +123,22 @@ def test_end2end_tfc_w1a2_create_dataflow_partition():
 def test_end2end_tfc_w1a2_fold_and_tlastmarker():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a2_dataflow_model.onnx")
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    fc0w = getCustomOp(fc_layers[0])
-    fc1w = getCustomOp(fc_layers[1])
-    fc2w = getCustomOp(fc_layers[2])
-    fc3w = getCustomOp(fc_layers[3])
-    fc0w.set_nodeattr("inFIFODepth", 50)
-    fc0w.set_nodeattr("SIMD", 8)
-    fc0w.set_nodeattr("PE", 16)
-    fc0w.set_nodeattr("outFIFODepth", 4)
-    fc1w.set_nodeattr("SIMD", 16)
-    fc1w.set_nodeattr("PE", 16)
-    fc1w.set_nodeattr("outFIFODepth", 4)
-    fc2w.set_nodeattr("SIMD", 16)
-    fc2w.set_nodeattr("PE", 16)
-    fc2w.set_nodeattr("outFIFODepth", 4)
-    fc3w.set_nodeattr("SIMD", 16)
-    fc3w.set_nodeattr("PE", 10)
-    fc3w.set_nodeattr("outFIFODepth", 50)
+    # (PE, SIMD, in_fifo_depth, out_fifo_depth, ramstyle) for each layer
+    config = [
+        (16, 49, 16, 64, "block"),
+        (8, 8, 64, 64, "auto"),
+        (8, 8, 64, 64, "auto"),
+        (10, 8, 64, 10, "distributed"),
+    ]
+    for fcl, (pe, simd, ififo, ofifo, ramstyle) in zip(fc_layers, config):
+        fcl_inst = getCustomOp(fcl)
+        fcl_inst.set_nodeattr("PE", pe)
+        fcl_inst.set_nodeattr("SIMD", simd)
+        fcl_inst.set_nodeattr("inFIFODepth", ififo)
+        fcl_inst.set_nodeattr("outFIFODepth", ofifo)
+        fcl_inst.set_nodeattr("ram_style", ramstyle)
+    model = model.transform(InsertDWC())
+    model = model.transform(InsertFIFO())
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(AnnotateResources("estimate"))
@@ -146,8 +147,8 @@ def test_end2end_tfc_w1a2_fold_and_tlastmarker():
 
 def test_end2end_tfc_w1a2_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a2_folded.onnx")
-    model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynth_IPGen())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
     model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_tfc_w1a2_ipgen.onnx")
 
@@ -155,7 +156,7 @@ def test_end2end_tfc_w1a2_gen_hls_ip():
 def test_end2end_tfc_w1a2_ip_stitch():
     model = ModelWrapper(build_dir + "/end2end_tfc_w1a2_ipgen.onnx")
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part))
     model.save(build_dir + "/end2end_tfc_w1a2_ipstitch.onnx")
 
 
@@ -165,13 +166,13 @@ def test_end2end_tfc_w1a2_verify_dataflow_part():
     inp_name = model.graph.input[0].name
     out_name = model.graph.output[0].name
     inp_dict = {inp_name: x}
-    # npysim
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
-    model = model.transform(SetExecMode("npysim"))
-    model.save(build_dir + "/end2end_tfc_w1a2_ipstitch_npysim.onnx")
-    ret_npysim = execute_onnx(model, inp_dict, True)
-    res_npysim = ret_npysim[out_name]
+    # cppsim
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
+    model.save(build_dir + "/end2end_tfc_w1a2_ipstitch_cppsim.onnx")
+    ret_cppsim = execute_onnx(model, inp_dict, True)
+    res_cppsim = ret_cppsim[out_name]
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareRTLSim())
@@ -183,8 +184,8 @@ def test_end2end_tfc_w1a2_verify_dataflow_part():
     model.save(build_dir + "/end2end_tfc_w1a2_ipstitch_whole_rtlsim.onnx")
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
-    assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
-    assert np.isclose(res_npysim, res_rtlsim_whole).all()
+    assert np.isclose(res_cppsim, res_rtlsim_nodebynode).all()
+    assert np.isclose(res_cppsim, res_rtlsim_whole).all()
 
 
 def test_end2end_tfc_w1a2_verify_all():
@@ -203,12 +204,12 @@ def test_end2end_tfc_w1a2_verify_all():
     parent_model = ModelWrapper(build_dir + "/end2end_tfc_w1a2_dataflow_parent.onnx")
     iname = parent_model.graph.input[0].name
     oname = parent_model.graph.output[0].name
-    # produce results with npysim
+    # produce results with cppsim
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
     sdp_node = getCustomOp(sdp_node)
-    sdp_node.set_nodeattr("model", build_dir + "/end2end_tfc_w1a2_ipstitch_npysim.onnx")
-    ret_npysim = execute_onnx(parent_model, {iname: x}, True)
-    y_npysim = ret_npysim[oname]
+    sdp_node.set_nodeattr("model", build_dir + "/end2end_tfc_w1a2_ipstitch_cppsim.onnx")
+    ret_cppsim = execute_onnx(parent_model, {iname: x}, True)
+    y_cppsim = ret_cppsim[oname]
     # produce results with node-by-node rtlsim
     sdp_node.set_nodeattr(
         "model", build_dir + "/end2end_tfc_w1a2_ipstitch_nodebynode_rtlsim.onnx"
@@ -221,7 +222,7 @@ def test_end2end_tfc_w1a2_verify_all():
     )
     ret_whole_rtlsim = execute_onnx(parent_model, {iname: x}, True)
     y_whole_rtlsim = ret_whole_rtlsim[oname]
-    assert np.isclose(y_golden, y_npysim).all()
+    assert np.isclose(y_golden, y_cppsim).all()
     assert np.isclose(y_golden, y_nodebynode_rtlsim).all()
     assert np.isclose(y_golden, y_whole_rtlsim).all()
 
@@ -283,7 +284,7 @@ def test_end2end_tfc_w1a2_run_on_pynq():
         ip = os.environ["PYNQ_IP"]  # NOQA
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
-        # produce results with npysim
+        # produce results with cppsim
         sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
         sdp_node = getCustomOp(sdp_node)
         sdp_node.set_nodeattr("model", build_dir + "/end2end_tfc_w1a2_pynq_deploy.onnx")

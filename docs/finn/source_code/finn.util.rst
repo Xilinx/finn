@@ -6,7 +6,7 @@ Utility Modules
 ===============
 
 finn.util.basic
----------------
+----------------------
 
 .. automodule:: finn.util.basic
    :members:
@@ -14,7 +14,7 @@ finn.util.basic
    :show-inheritance:
 
 finn.util.data\_packing
------------------------
+------------------------------
 
 .. automodule:: finn.util.data_packing
    :members:
@@ -22,7 +22,7 @@ finn.util.data\_packing
    :show-inheritance:
 
 finn.util.fpgadataflow
-----------------------
+-----------------------------
 
 .. automodule:: finn.util.fpgadataflow
    :members:
@@ -30,7 +30,7 @@ finn.util.fpgadataflow
    :show-inheritance:
 
 finn.util.onnx
---------------
+---------------------
 
 .. automodule:: finn.util.onnx
    :members:
@@ -38,10 +38,17 @@ finn.util.onnx
    :show-inheritance:
 
 finn.util.test
---------------
+---------------------
 
 .. automodule:: finn.util.test
    :members:
    :undoc-members:
    :show-inheritance:
 
+finn.util.visualization
+------------------------------
+
+.. automodule:: finn.util.visualization
+   :members:
+   :undoc-members:
+   :show-inheritance:

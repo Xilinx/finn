@@ -54,8 +54,8 @@ def hls_synth_res_estimation(model):
             if code_gen_dir == "":
                 warnings.warn(
                     """Could not find report files, values will be set to zero
-                    for this node. Please run "CodeGen_ipgen" transformation and
-                    "HLSSynth_IPGen" first to generate the report files"""
+                    for this node. Please run "PrepareIP" transformation and
+                    "HLSSynthIP" first to generate the report files"""
                 )
             else:
                 xmlfile = "{}/project_{}/sol1/syn/report/{}_csynth.xml".format(
@@ -71,7 +71,7 @@ def hls_synth_res_estimation(model):
                 else:
                     warnings.warn(
                         """Could not find report files, values will be set to zero
-                        for this node. Please run "CodeGen_ipgen" transformation and
-                        "HLSSynth_IPGen" first to generate the report files"""
+                        for this node. Please run "PrepareIP" transformation and
+                        "HLSSynthIP" first to generate the report files"""
                     )
     return res_dict

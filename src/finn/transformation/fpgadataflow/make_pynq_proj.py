@@ -40,7 +40,7 @@ class MakePYNQProject(Transformation):
     """Create a Vivado PYNQ overlay project (including the shell infrastructure)
     from the already-stitched IP block for this graph.
     All nodes in the graph must have the fpgadataflow backend attribute,
-    and the CodeGen_ipstitch transformation must have been previously run on
+    and the CreateStitchedIP transformation must have been previously run on
     the graph.
 
     Outcome if successful: sets the vivado_pynq_proj attribute in the ONNX
@@ -59,12 +59,12 @@ class MakePYNQProject(Transformation):
         ipstitch_path = model.get_metadata_prop("vivado_stitch_proj")
         if ipstitch_path is None or (not os.path.isdir(ipstitch_path)):
             raise Exception(
-                "No stitched IPI design found, apply CodeGen_ipstitch first."
+                "No stitched IPI design found, apply CreateStitchedIP first."
             )
         vivado_stitch_vlnv = model.get_metadata_prop("vivado_stitch_vlnv")
         if vivado_stitch_vlnv is None:
             raise Exception(
-                "No vlnv for stitched IP found, apply CodeGen_ipstitch first."
+                "No vlnv for stitched IP found, apply CreateStitchedIP first."
             )
 
         # collect list of all IP dirs
