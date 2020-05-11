@@ -81,10 +81,11 @@ def node_inputs_in_expected_order(model):
     return {"node_inputs_in_expected_order": all_OK}
 
 
-def nodes_in_expected_order(model):
-    """Verifies that the graph is topologically sorted.
+def nodes_topologically_sorted(model):
+    """Verifies that graph.node is topologically sorted. This is required by the
+    ONNX specification.
 
-    Returns {"nodes_in_expected_order": Bool}."""
+    Returns {"nodes_topologically_sorted": Bool}."""
 
     # get successors of every node and check that
     # successor index > current node index
@@ -100,4 +101,4 @@ def nodes_in_expected_order(model):
                 if index_n > index_suc:
                     all_OK = False
 
-    return {"nodes_in_expected_order": all_OK}
+    return {"nodes_topologically_sorted": all_OK}
