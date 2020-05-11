@@ -48,9 +48,10 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart):
+    def __init__(self, fpgapart, fclk_mhz):
         super().__init__()
         self.fpgapart = fpgapart
+        self.fclk_mhz = fclk_mhz
 
     def apply(self, model):
         ip_dirs = ["list"]
@@ -147,8 +148,8 @@ class CreateStitchedIP(Transformation):
         tcl.append('create_bd_design "%s"' % block_name)
         tcl.extend(create_cmds)
         tcl.extend(connect_cmds)
-        # TODO get from Transformation arg or metadata_prop
-        fclk_hz = 100 * 1000000
+        fclk_hz = self.fclk_mhz * 1000000
+        model.set_metadata_prop("fclk_MHz", str(self.fclk_mhz))
         tcl.append("set_property CONFIG.FREQ_HZ %f [get_bd_ports /ap_clk_0]" % fclk_hz)
         tcl.append("regenerate_bd_layout")
         tcl.append("validate_bd_design")

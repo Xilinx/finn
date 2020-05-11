@@ -110,8 +110,6 @@ class MakePYNQProject(Transformation):
         nrst_name = "ap_rst_n_0"
         axi_lite_if_name = "s_axi_control_0"
         vivado_ip_cache = os.getenv("VIVADO_IP_CACHE", default="")
-        # TODO get from Transformation arg or metadata_prop
-        fclk_mhz = 100.0
 
         # create a temporary folder for the project
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
@@ -119,6 +117,9 @@ class MakePYNQProject(Transformation):
         # filename for the synth utilization report
         synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
+
+        # get metadata property for clock frequency
+        fclk_mhz = float(model.get_metadata_prop("fclk_MHz"))
 
         ip_config_tcl = templates.ip_config_tcl_template % (
             vivado_pynq_proj_dir,
