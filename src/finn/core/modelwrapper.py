@@ -288,6 +288,46 @@ class ModelWrapper:
         except ValueError:
             return None
 
+    def find_consumers(self, tensor_name):
+        """Finds and returns a list of the nodes that consume tensor with
+        given name."""
+        consumers = []
+        for n in self._model_proto.graph.node:
+            for inp_tensor in n.input:
+                if inp_tensor == tensor_name:
+                    consumers.append(n)
+        if consumers != []:
+            return consumers
+        else:
+            return None
+
+    def find_direct_successors(self, node):
+        """Finds and returns a list of the nodes that are successors of
+        given node."""
+        successors = []
+        for outp_tensor in node.output:
+            tensor_consumer_list = self.find_consumers(outp_tensor)
+            if tensor_consumer_list is not None:
+                for consumer in tensor_consumer_list:
+                    successors.append(consumer)
+        if successors != []:
+            return successors
+        else:
+            return None
+
+    def find_direct_predecessors(self, node):
+        """Finds and returns a list of the nodes that are predecessors of
+        given node."""
+        predecessors = []
+        for inp_tensor in node.input:
+            producer = self.find_producer(inp_tensor)
+            if producer is not None:
+                predecessors.append(producer)
+        if predecessors != []:
+            return predecessors
+        else:
+            return None
+
     def get_all_tensor_names(self):
         """Returns a list of all (input, output and value_info) tensor names
         in the graph."""
@@ -383,3 +423,14 @@ class ModelWrapper:
     def get_non_finn_nodes(self):
         """Returns a list of nodes where domain != 'finn'."""
         return list(filter(lambda x: x.domain != "finn", self.graph.node))
+
+    def get_node_index(self, node):
+        """Returns current index of given node."""
+        n_ind = 0
+        try:
+            for n in self.graph.node:
+                if n == node:
+                    return n_ind
+                n_ind += 1
+        except ValueError:
+            return None
