@@ -73,8 +73,6 @@ USER $UNAME
 # cloning dependency repos (as user)
 # Brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
-# Brevitas examples
-RUN git clone https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
 # CNPY
 RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
 # FINN hlslib
