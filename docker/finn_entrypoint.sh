@@ -13,7 +13,7 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-BREVITAS_COMMIT=215cf44c76d562339fca368c8c3afee3110033e8
+BREVITAS_COMMIT=5b22bc02bada6e699bf80fd602a00eb44789dc22
 BREVITAS_EXAMPLES_COMMIT=2059f96bd576bf71f32c757e7f92617a70190c90
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=6b88db826bb023937506913a23d964775a7606af
@@ -26,6 +26,7 @@ gecho "Setting up known-good commit versions for FINN dependencies"
 gecho "brevitas @ $BREVITAS_COMMIT"
 git -C /workspace/brevitas pull --quiet
 git -C /workspace/brevitas checkout $BREVITAS_COMMIT --quiet
+pip install --user -e /workspace/brevitas
 # Brevitas examples
 gecho "brevitas_cnv_lfc @ $BREVITAS_EXAMPLES_COMMIT"
 git -C /workspace/brevitas_cnv_lfc pull --quiet
