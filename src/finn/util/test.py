@@ -26,49 +26,38 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import torch
-from models.CNV import CNV
-from models.LFC import LFC
-from models.SFC import SFC
-from models.TFC import TFC
+from brevitas_examples import bnn_pynq
+
+# map of (wbits,abits) -> model
+example_map = {
+    ("CNV", 1, 1): bnn_pynq.cnv_1w1a,
+    ("CNV", 1, 2): bnn_pynq.cnv_1w2a,
+    ("CNV", 2, 2): bnn_pynq.cnv_2w2a,
+    ("LFC", 1, 1): bnn_pynq.lfc_1w1a,
+    ("LFC", 1, 2): bnn_pynq.lfc_1w2a,
+    ("SFC", 1, 1): bnn_pynq.sfc_1w1a,
+    ("SFC", 1, 2): bnn_pynq.sfc_1w2a,
+    ("SFC", 2, 2): bnn_pynq.sfc_2w2a,
+    ("TFC", 1, 1): bnn_pynq.tfc_1w1a,
+    ("TFC", 1, 2): bnn_pynq.tfc_1w2a,
+    ("TFC", 2, 2): bnn_pynq.tfc_2w2a,
+}
 
 
-def get_trained_checkpoint(netname, wbits, abits):
-    """Returns the weights and activations from the FINN Brevitas test networks
-    for given netname and the number of bits for weights and activations"""
-    # TODO get from config instead, hardcoded to Docker path for now
-    nname = "%s_%dW%dA" % (netname, wbits, abits)
-    root = "/workspace/brevitas_cnv_lfc/pretrained_models/%s/checkpoints/best.tar"
-    return root % nname
-
-
-def get_test_model_def_fxn(netname):
-    """Returns the PyTorch model instantation function related to netname."""
-    model_def_map = {"LFC": LFC, "SFC": SFC, "TFC": TFC, "CNV": CNV}
-    return model_def_map[netname]
+def get_test_model(netname, wbits, abits, pretrained):
+    """Returns the model specified by input arguments from the Brevitas BNN-PYNQ
+    test networks. Pretrained weights loaded if pretrained is True."""
+    model_cfg = (netname, wbits, abits)
+    model_def_fxn = example_map[model_cfg]
+    fc = model_def_fxn(pretrained)
+    return fc.eval()
 
 
 def get_test_model_trained(netname, wbits, abits):
-    """Returns the pretrained model specified by input arguments loaded with weights
-    and activations from the FINN Brevitas test networks."""
-    model_def_fxn = get_test_model_def_fxn(netname)
-    checkpoint_loc = get_trained_checkpoint(netname, wbits, abits)
-    if netname == "CNV":
-        ibits = 8
-    else:
-        ibits = abits
-    fc = model_def_fxn(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=ibits)
-    checkpoint = torch.load(checkpoint_loc, map_location="cpu")
-    fc.load_state_dict(checkpoint["state_dict"])
-    return fc.eval()
+    "get_test_model with pretrained=True"
+    return get_test_model(netname, wbits, abits, pretrained=True)
 
 
 def get_test_model_untrained(netname, wbits, abits):
-    """Returns untrained model specified by input arguments."""
-    model_def_fxn = get_test_model_def_fxn(netname)
-    if netname == "CNV":
-        ibits = 8
-    else:
-        ibits = abits
-    fc = model_def_fxn(weight_bit_width=wbits, act_bit_width=abits, in_bit_width=ibits)
-    return fc.eval()
+    "get_test_model with pretrained=False"
+    return get_test_model(netname, wbits, abits, pretrained=False)
