@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import warnings
 import subprocess
 
 from finn.custom_op.registry import getCustomOp
@@ -118,8 +119,14 @@ class MakePYNQProject(Transformation):
         synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
 
-        # get metadata property for clock frequency
-        fclk_mhz = float(model.get_metadata_prop("fclk_MHz"))
+        # get metadata property clk_ns to calculate clock frequency
+        clk_ns = float(model.get_metadata_prop("clk_ns"))
+        if clk_ns not in [5.0, 10.0, 20.0]:
+            warnings.warn(
+                """The chosen frequency may lead to failure due to clock divider
+                constraints."""
+            )
+        fclk_mhz = 1 / (clk_ns * 0.001)
 
         ip_config_tcl = templates.ip_config_tcl_template % (
             vivado_pynq_proj_dir,
