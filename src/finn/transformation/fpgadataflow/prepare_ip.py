@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-
+import warnings
 import finn.custom_op.registry as registry
 from finn.transformation import Transformation
 from finn.util.basic import make_build_dir
@@ -75,6 +75,11 @@ class PrepareIP(Transformation):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk = clk
+        if float(clk) not in [5.0, 10.0, 20.0]:
+            warnings.warn(
+                """The chosen frequency may lead to failure due to clock divider
+                constraints."""
+            )
 
     def apply(self, model):
         for node in model.graph.node:
