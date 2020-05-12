@@ -79,3 +79,26 @@ def node_inputs_in_expected_order(model):
         if n.op_type != "Add":
             all_OK = all_OK and (model.get_initializer(n.input[1]) is not None)
     return {"node_inputs_in_expected_order": all_OK}
+
+
+def nodes_topologically_sorted(model):
+    """Verifies that graph.node is topologically sorted. This is required by the
+    ONNX specification.
+
+    Returns {"nodes_topologically_sorted": Bool}."""
+
+    # get successors of every node and check that
+    # successor index > current node index
+
+    all_OK = True
+    for n in model.graph.node:
+        successors = model.find_direct_successors(n)
+        if successors is not None:
+            for successor in successors:
+                # check the condition by checking the antithesis
+                index_n = model.get_node_index(n)
+                index_suc = model.get_node_index(successor)
+                if index_n > index_suc:
+                    all_OK = False
+
+    return {"nodes_topologically_sorted": all_OK}
