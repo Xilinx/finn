@@ -47,8 +47,7 @@ def throughput_test(model):
     cmd = (
         "sshpass -p {} ssh {}@{} -p {} "
         '"cd {}/{}; echo "{}" | '
-        "sudo -S python3.6 driver.py throughput_test 1000 "
-        'resizer.bit input.npy output.npy"'
+        'sudo -S python3.6 driver.py --exec_mode="throughput_test" --batchsize=1000"'
     ).format(
         pynq_password,
         pynq_username,

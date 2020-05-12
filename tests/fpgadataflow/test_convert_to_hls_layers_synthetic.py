@@ -41,8 +41,8 @@ from finn.util.test import soft_verify_topk
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.insert_topk import InsertTopK
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 import pytest
@@ -132,9 +132,9 @@ def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt, odt):
     label_nodes = model.get_nodes_by_op_type("LabelSelect_Batch")
     assert len(label_nodes) == 1
 
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
-    model = model.transform(SetExecMode("npysim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
 
     output_dict = oxe.execute_onnx(model, input_dict, True)
     produced_topk_hls = output_dict[model.graph.output[0].name]

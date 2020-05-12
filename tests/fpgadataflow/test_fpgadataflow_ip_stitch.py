@@ -37,12 +37,12 @@ from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.custom_op.registry import getCustomOp
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
@@ -208,8 +208,8 @@ def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
         model.set_metadata_prop("exec_mode", "remote_pynq")
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen(test_fpga_part, 5))
-    model = model.transform(HLSSynth_IPGen())
+    model = model.transform(PrepareIP(test_fpga_part, 5))
+    model = model.transform(HLSSynthIP())
     assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
     assert model.graph.node[-1].op_type == "TLastMarker"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx")
@@ -220,7 +220,7 @@ def test_fpgadataflow_ipstitch_do_stitch():
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
     )
     model = model.transform(rvp.ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
     assert os.path.isdir(vivado_stitch_proj_dir)

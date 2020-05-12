@@ -14,4 +14,3 @@ Modules
    finn.custom_op
    finn.transformation
    finn.util
-

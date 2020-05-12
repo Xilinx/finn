@@ -36,10 +36,10 @@ from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_es
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.multithreshold import multithreshold
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -104,7 +104,7 @@ def prepare_inputs(input_tensor, idt):
 # number of input features
 @pytest.mark.parametrize("ich", [16])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["rtlsim", "npysim"])
+@pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
 def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     if nf == -1:
         nf = ich
@@ -127,19 +127,19 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
 
     model = make_single_thresholding_modelwrapper(T, pe, idt, odt)
 
-    if exec_mode == "npysim":
-        model = model.transform(SetExecMode("npysim"))
-        model = model.transform(CodeGen_npysim())
-        model = model.transform(Compile())
+    if exec_mode == "cppsim":
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
-        model = model.transform(HLSSynth_IPGen())
+        model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+        model = model.transform(HLSSynthIP())
         model = model.transform(ReplaceVerilogRelPaths())
         model = model.transform(PrepareRTLSim())
     else:
-        raise Exception("Unknown exec_mode in test_fpgadataflow_thresholding")
+        raise Exception("Unknown exec_mode")
 
     # prepare input data
     input_dict = prepare_inputs(x, idt)
@@ -159,7 +159,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
 
     y_produced = y_produced.reshape(y_expected.shape)
 
-    assert (y_produced == y_expected).all(), "npysim failed"
+    assert (y_produced == y_expected).all(), "cppsim failed"
 
     if exec_mode == "rtlsim":
         hls_synt_res_est = model.analysis(hls_synth_res_estimation)

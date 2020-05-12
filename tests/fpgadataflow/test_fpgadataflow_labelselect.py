@@ -33,10 +33,10 @@ from onnx import TensorProto, helper
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -89,7 +89,7 @@ def prepare_inputs(input_tensor, idt):
 # number of top labels to select
 @pytest.mark.parametrize("k", [1, 5])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["npysim", "rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode):
     if fold == -1:
         pe = 1
@@ -105,15 +105,15 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode):
 
     model = make_labelselect_modelwrapper(labels, pe, k, idt)
 
-    if exec_mode == "npysim":
-        model = model.transform(SetExecMode("npysim"))
-        model = model.transform(CodeGen_npysim())
-        model = model.transform(Compile())
+    if exec_mode == "cppsim":
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
-        model = model.transform(HLSSynth_IPGen())
+        model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+        model = model.transform(HLSSynthIP())
         model = model.transform(ReplaceVerilogRelPaths())
         model = model.transform(PrepareRTLSim())
     else:

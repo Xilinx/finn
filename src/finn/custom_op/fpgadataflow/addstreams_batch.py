@@ -120,7 +120,7 @@ class AddStreams_Batch(HLSCustomOp):
 
         # verify that all necessary attributes exist
         try:
-            self.get_nodeattr("code_gen_dir_npysim")
+            self.get_nodeattr("code_gen_dir_cppsim")
             self.get_nodeattr("executable_path")
             self.get_nodeattr("NumChannels")
             self.get_nodeattr("PE")
@@ -167,14 +167,14 @@ class AddStreams_Batch(HLSCustomOp):
         folded_ishape = self.get_folded_input_shape()
         folded_oshape = self.get_folded_output_shape()
 
-        if mode == "npysim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        if mode == "cppsim":
+            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
                     mode
                 )
             )
@@ -204,14 +204,14 @@ class AddStreams_Batch(HLSCustomOp):
         reshaped_input = inp.copy()
         np.save(os.path.join(code_gen_dir, "input_1.npy"), reshaped_input)
 
-        if mode == "npysim":
+        if mode == "cppsim":
             # execute the precompiled model
             super().exec_precompiled_singlenode_model()
             # load output npy file
             super().npy_to_dynamic_output(context)
             assert (
                 context[node.output[0]].shape == folded_oshape
-            ), "npysim did not produce expected folded output shape"
+            ), "cppsim did not produce expected folded output shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
@@ -240,7 +240,7 @@ class AddStreams_Batch(HLSCustomOp):
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
                     mode
                 )
             )
@@ -256,7 +256,7 @@ class AddStreams_Batch(HLSCustomOp):
         self.code_gen_dict["$DEFINES$"] = []
 
     def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
@@ -301,7 +301,7 @@ class AddStreams_Batch(HLSCustomOp):
         ]
 
     def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()

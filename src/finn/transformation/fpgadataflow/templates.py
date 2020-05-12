@@ -102,144 +102,141 @@ from finn.util.data_packing import (
 )
 from finn.core.datatype import DataType
 
-class RemoteTest():
-    def __init__(
-        self,
-        exec_mode,
-        N,
-        bitfile="resizer.bit",
-        inputfile="input.npy",
-        outputfile="output.npy"):
-
-        self.exec_mode = exec_mode
+class FINNAccelDriver():
+    def __init__(self, N, bitfile):
+        \"\"\"Instantiate the FINN accelerator driver.
+        Gets batchsize (N) as integer and path to bitfile as string.\"\"\"
         self.N = N
-        self.inputfile = inputfile
-        self.outputfile = outputfile
+        # input FINN DataType
+        self.idt = $INPUT_FINN_DATATYPE$
+        # output FINN DataType
+        self.odt = $OUTPUT_FINN_DATATYPE$
+        # input and output shapes
+        self.ishape_normal = $INPUT_SHAPE_NORMAL$
+        self.oshape_normal = $OUTPUT_SHAPE_NORMAL$
+        self.ishape_folded = $INPUT_SHAPE_FOLDED$
+        self.oshape_folded = $OUTPUT_SHAPE_FOLDED$
+        self.ishape_packed = $INPUT_SHAPE_PACKED$   # datatype np.uint8
+        self.oshape_packed = $OUTPUT_SHAPE_PACKED$  # datatype np.uint8
+        # load bitfile and set up accelerator
         self.ol = Overlay(bitfile)
         self.dma = self.ol.axi_dma_0
         self.ctrl_regs = self.ol.resize_accel_0
-        self.ishape_packed = $INPUT_SHAPE_PACKED$
-        self.oshape_packed = $OUTPUT_SHAPE_PACKED$
         # neuron folding factor of output = iterations per sample
         self.itersPerSample = self.oshape_packed[-2]
         # AXI lite register offset for number of iterations
         # used by TLastMarker to signal end of transmission for AXI CDMA
         self.REG_OFFSET_NUM_ITERS = 0x10
+        # set up TLastMarker with correct num. samples
+        self.ctrl_regs.write(self.REG_OFFSET_NUM_ITERS, self.N*self.itersPerSample)
 
-    def load_input(self):
-        N = self.N
-        ishape_normal = $INPUT_SHAPE_NORMAL$
-        # load desired input .npy file
-        ibuf_normal = np.load(self.inputfile)
+        # allocate a PYNQ buffer for the packed input and buffer
+        self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8)
+        self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8)
+
+    def fold_input(self, ibuf_normal):
+        \"\"\"Reshapes input in desired shape.
+        Gets input data (ibuf_normal), checks if data is in expected normal shape.
+        Returns folded input.\"\"\"
         # ensure that shape is as expected
-        assert ibuf_normal.shape == ishape_normal
-        return ibuf_normal
-
-    def pack_input(self, ibuf_normal):
-        N = self.N
-        # input FINN DataType
-        idt = $INPUT_FINN_DATATYPE$
-        ishape_folded = $INPUT_SHAPE_FOLDED$
+        assert ibuf_normal.shape == self.ishape_normal
         # convert to folded form
-        ibuf_folded = ibuf_normal.reshape(ishape_folded)
-        # pack the input buffer, reversing both SIMD dim and endianness
+        ibuf_folded = ibuf_normal.reshape(self.ishape_folded)
+        return ibuf_folded
+
+    def pack_input(self, ibuf_folded):
+        \"\"\"Packs folded input and reverses both SIMD dim and endianness.
+        Gets input data in folded shape and returns packed input data.\"\"\"
         ibuf_packed = finnpy_to_packed_bytearray(
-            ibuf_folded, idt, reverse_endian=True, reverse_inner=True
+            ibuf_folded, self.idt, reverse_endian=True, reverse_inner=True
         )
         return ibuf_packed
 
     def unpack_output(self, obuf_packed):
-        N = self.N
-        # output FINN DataType
-        odt = $OUTPUT_FINN_DATATYPE$
-        oshape_folded = $OUTPUT_SHAPE_FOLDED$
-        # unpack the packed output buffer from accelerator
+        \"\"\"Unpacks the packed output buffer from accelerator.
+        Gets packed output and returns output data in folded shape.\"\"\"
         obuf_folded = packed_bytearray_to_finnpy(
-            obuf_packed, odt, oshape_folded, reverse_endian=True, reverse_inner=True
+            obuf_packed, self.odt, self.oshape_folded, reverse_endian=True, reverse_inner=True
         )
         return obuf_folded
 
-    def save_output(self, obuf_folded):
-        N = self.N
-        # convert to normal reshape and save
-        oshape_normal = $OUTPUT_SHAPE_NORMAL$
-        obuf_normal = obuf_folded.reshape(oshape_normal)
-        np.save(self.outputfile, obuf_normal)
+    def unfold_output(self, obuf_folded):
+        \"\"\"Unfolds output data to normal shape.
+        Gets folded output data and returns output data in normal shape.\"\"\"
+        obuf_normal = obuf_folded.reshape(self.oshape_normal)
+        return obuf_normal
 
-    def allocate_pynqbuffer(self, shape, data=None):
-        buf_device = allocate(shape=shape, dtype=np.uint8)
+    def copy_input_data_to_device(self, data):
+        \"\"\"Copies given input data to PYNQ buffer.\"\"\"
+        np.copyto(self.ibuf_packed_device, data)
 
-        # if necessary copy the packed data into the PYNQ buffer
-        # TODO optimization: pack directly into the PYNQ buffer?
-        if data is not None:
-            np.copyto(buf_device, data)
-
-        return buf_device
-
-
-    def run_nw(self):
-        exec_mode = self.exec_mode
-        if exec_mode == "remote_pynq":
-            ibuf_normal = self.load_input()
-            ibuf_packed = self.pack_input(ibuf_normal)
-        elif exec_mode != "throughput_test":
-            raise Exception("Exec mode has to be set to remote_pynq or throughput_test")
-
-        # set up TLastMarker with correct num. samples
-        self.ctrl_regs.write(self.REG_OFFSET_NUM_ITERS, N*self.itersPerSample)
-
-        # allocate a PYNQ buffer for the packed input buffer
-        if exec_mode == "remote_pynq":
-            ibuf_packed_device = self.allocate_pynqbuffer(self.ishape_packed, ibuf_packed)
-        else:
-            ibuf_packed_device = self.allocate_pynqbuffer(self.ishape_packed)
-
-        # allocate a PYNQ buffer for the returned packed output buffer
-        obuf_packed = self.allocate_pynqbuffer(self.oshape_packed)
-
-        if exec_mode == "throughput_test":
-            # measure runtime of network
-            start = time.time()
-            res={}
-
-        # set up the DMA and wait until all transfers complete
+    def execute(self):
+        \"\"\"Executes accelerator by setting up the DMA and
+        waiting until all transfers complete. Uses only member variables and
+        returns nothing.\"\"\"
         dma = self.dma
-        dma.sendchannel.transfer(ibuf_packed_device)
-        dma.recvchannel.transfer(obuf_packed)
+        dma.sendchannel.transfer(self.ibuf_packed_device)
+        dma.recvchannel.transfer(self.obuf_packed_device)
         dma.sendchannel.wait()
         dma.recvchannel.wait()
 
 
-        if exec_mode == "throughput_test":
-            end = time.time()
-            runtime = end - start
-            res["runtime[ms]"] = runtime*1000
-            res["throughput[images/s]"] = N / runtime
-            res["DRAM_in_bandwidth[Mb/s]"] = np.prod(self.ishape_packed)*0.000001 / runtime
-            res["DRAM_out_bandwidth[Mb/s]"] = np.prod(self.oshape_packed)*0.000001 / runtime
-            file = open("nw_metrics.txt", "w")
-            file.write(str(res))
-            file.close()
-        else:
-            obuf_folded = self.unpack_output(obuf_packed)
-            self.save_output(obuf_folded)
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Set exec mode, batchsize N, bitfile name, inputfile name and outputfile name')
-    parser.add_argument('exec_mode', help='Please select functional verification ("remote_pynq") or throughput test ("throughput_test")')
-    parser.add_argument('N', help='number of samples for inference', type=int)
-    parser.add_argument('bitfile', default="resizer.bit")
-    parser.add_argument('inputfile', default="input.npy")
-    parser.add_argument('outputfile', default="output.npy")
+    parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
+    parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
+    parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
+    parser.add_argument('--inputfile', help='name of input npy file (i.e. "input.npy")', default="input.npy")
+    parser.add_argument('--outputfile', help='name of output npy file (i.e. "output.npy")', default="output.npy")
+    # parse arguments
     args = parser.parse_args()
     exec_mode = args.exec_mode
-    N = args.N
+    N = args.batchsize
     bitfile = args.bitfile
     inputfile = args.inputfile
     outputfile = args.outputfile
 
-    Test = RemoteTest(exec_mode, N, bitfile, inputfile, outputfile)
-    Test.run_nw()
+    # instantiate FINN accelerator driver and pass batchsize and bitfile
+    finnDriver = FINNAccelDriver(N, bitfile)
+
+    # for the remote execution the data from the input npy file has to be loaded,
+    # packed and copied to the PYNQ buffer
+    if exec_mode == "execute":
+        # load desired input .npy file
+        ibuf_normal = np.load(inputfile)
+        ibuf_folded = finnDriver.fold_input(ibuf_normal)
+        ibuf_packed = finnDriver.pack_input(ibuf_folded)
+        finnDriver.copy_input_data_to_device(ibuf_packed)
+    elif exec_mode != "throughput_test":
+        raise Exception("Exec mode has to be set to remote_pynq or throughput_test")
+
+    # for the throughput test the runtime of the network has to be measured
+    if exec_mode == "throughput_test":
+        # measure runtime of network
+        start = time.time()
+        # dictionary for results of throughput test
+        res={}
+
+    # execute accelerator
+    finnDriver.execute()
+
+    # measure run time and fill dictionary with results of the throughput test
+    if exec_mode == "throughput_test":
+        end = time.time()
+        runtime = end - start
+        res["runtime[ms]"] = runtime*1000
+        res["throughput[images/s]"] = N / runtime
+        res["DRAM_in_bandwidth[Mb/s]"] = np.prod(finnDriver.ishape_packed)*0.000001 / runtime
+        res["DRAM_out_bandwidth[Mb/s]"] = np.prod(finnDriver.oshape_packed)*0.000001 / runtime
+        file = open("nw_metrics.txt", "w")
+        file.write(str(res))
+        file.close()
+
+    # if execution is selected unpack, unfold and save output to output npy file
+    else:
+        obuf_folded = finnDriver.unpack_output(finnDriver.obuf_packed_device)
+        obuf_normal = finnDriver.unfold_output(obuf_folded)
+        np.save(outputfile, obuf_normal)
+
 
 """

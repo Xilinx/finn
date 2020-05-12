@@ -74,7 +74,7 @@ class HLSCustomOp(CustomOp):
     def get_nodeattr_types(self):
         return {
             "backend": ("s", True, "fpgadataflow"),
-            "code_gen_dir_npysim": ("s", False, ""),
+            "code_gen_dir_cppsim": ("s", False, ""),
             "code_gen_dir_ipgen": ("s", False, ""),
             "executable_path": ("s", False, ""),
             "ipgen_path": ("s", False, ""),
@@ -121,19 +121,24 @@ class HLSCustomOp(CustomOp):
         assert (
             code_gen_dir != ""
         ), """Node attribute "code_gen_dir_ipgen" is
-        not set. Please run HLSSynth_IPGen first."""
-        verilog_file = self.get_verilog_top_filename()
-        assert os.path.isfile(verilog_file), "Cannot find top-level Verilog file."
+        not set. Please run HLSSynthIP first."""
+
+        verilog_path = "{}/project_{}/sol1/impl/verilog/".format(
+            code_gen_dir, self.onnx_node.name
+        )
+
+        verilog_files = []
+        for f in os.listdir(verilog_path):
+            if f.endswith(".v"):
+                verilog_files += [f]
+
         # build the Verilator emu library
         sim = PyVerilator.build(
-            verilog_file,
+            verilog_files,
             build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=[
-                "{}/project_{}/sol1/impl/verilog/".format(
-                    code_gen_dir, self.onnx_node.name
-                )
-            ],
+            verilog_path=[verilog_path],
             trace_depth=get_rtlsim_trace_depth(),
+            top_module_name=self.get_verilog_top_module_name(),
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)
@@ -232,14 +237,14 @@ class HLSCustomOp(CustomOp):
         vlnv = "xilinx.com:hls:%s:1.0" % node.name
         self.set_nodeattr("ip_vlnv", vlnv)
 
-    def code_generation_npysim(self, model):
-        """Generates c++ code for simulation (npysim)."""
+    def code_generation_cppsim(self, model):
+        """Generates c++ code for simulation (cppsim)."""
         node = self.onnx_node
-        path = self.get_nodeattr("code_gen_dir_npysim")
+        path = self.get_nodeattr("code_gen_dir_cppsim")
         self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
         self.generate_params(model, path)
         self.global_includes()
-        self.defines("npysim")
+        self.defines("cppsim")
         self.read_npy_data()
         self.strm_decl()
         self.pragmas()
@@ -253,7 +258,7 @@ class HLSCustomOp(CustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         f = open(os.path.join(code_gen_dir, "execute_{}.cpp".format(node.op_type)), "w")
         f.write(template)
         f.close()
@@ -262,7 +267,7 @@ class HLSCustomOp(CustomOp):
     def compile_singlenode_code(self):
         """Builds the bash script for compilation using the CppBuilder from
         finn.util.basic and executes the script to produce the executable."""
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         builder = CppBuilder()
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
@@ -284,11 +289,11 @@ class HLSCustomOp(CustomOp):
 
         Count indicates the number of inputs that have to be saved."""
         node = self.onnx_node
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         if code_gen_dir == "":
             raise Exception(
                 """
-Found no codegen dir for this node, did you run the codegen_npysim transformation?
+Found no codegen dir for this node, did you run the prepare_cppsim transformation?
             """
             )
         # create a npy file for each input of the node (in_ind is input index)
@@ -306,7 +311,7 @@ Found no codegen dir for this node, did you run the codegen_npysim transformatio
         the context dictionary."""
         # TODO support multi-output nodes as needed
         node = self.onnx_node
-        code_gen_dir = self.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         output = np.load("{}/output.npy".format(code_gen_dir))
         context[node.output[0]] = output
 
@@ -336,7 +341,7 @@ compilation transformations?
         sim.io.ap_clk = 1
         sim.io.ap_clk = 0
 
-    def rtlsim(self, sim, inp):
+    def rtlsim(self, sim, inp, inp2=None):
         """Runs the pyverilator simulation by passing the input values to the simulation,
         toggle the clock and observing the execution time. Function contains also an
         observation loop that can abort the simulation if no output value is produced
@@ -368,6 +373,13 @@ compilation transformations?
             sim.io.in0_V_V_TDATA = inputs[0] if len(inputs) > 0 else 0
             if sim.io.in0_V_V_TREADY == 1 and sim.io.in0_V_V_TVALID == 1:
                 inputs = inputs[1:]
+
+            if inp2 is not None:
+                sim.io.in1_V_V_TVALID = 1 if len(inp2) > 0 else 0
+                sim.io.in1_V_V_TDATA = inp2[0] if len(inp2) > 0 else 0
+                if sim.io.in1_V_V_TREADY == 1 and sim.io.in1_V_V_TVALID == 1:
+                    inp2 = inp2[1:]
+
             if sim.io.out_V_V_TVALID == 1 and sim.io.out_V_V_TREADY == 1:
                 outputs = outputs + [sim.io.out_V_V_TDATA]
             sim.io.ap_clk = 1
@@ -399,9 +411,9 @@ compilation transformations?
         return outputs
 
     def execute_node(self, context, graph):
-        """Executes single node using npysim or rtlsim."""
+        """Executes single node using cppsim or rtlsim."""
         mode = self.get_nodeattr("exec_mode")
-        if mode == "npysim":
+        if mode == "cppsim":
             # save input(s)
             self.dynamic_input_to_npy(context, 1)
             # execute the precompiled model
@@ -414,7 +426,7 @@ compilation transformations?
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
                     mode
                 )
             )
@@ -435,14 +447,14 @@ compilation transformations?
     @abstractmethod
     def global_includes(self):
         """Function to set the global includes for c++ code that has to be generated
-        for npysim or rtlsim, is member function of HLSCustomOp class but has to
+        for cppsim or rtlsim, is member function of HLSCustomOp class but has to
         be filled by every node."""
         pass
 
     @abstractmethod
     def defines(self, var):
         """Function to set the define commands for c++ code that has to be generated
-        for npysim or rtlsim, is member function of HLSCustomOp class but has to
+        for cppsim or rtlsim, is member function of HLSCustomOp class but has to
         be filled by every node.
 
         var: makes it possible to reuse the function for different c++ code generation.
@@ -495,6 +507,14 @@ compilation transformations?
         """Function to generate the pragma commands in c++, is member function of
         HLSCustomOp class but has to be filled by every node."""
         pass
+
+    def get_normal_input_shape(self):
+        """Returns normal input shape if implemented."""
+        raise Exception("get_normal_input_shape not implemented for this op")
+
+    def get_normal_output_shape(self):
+        """Returns folded output shape if implemented."""
+        raise Exception("get_normal_output_shape not implemented for this op")
 
     def get_folded_input_shape(self):
         """Returns folded input shape (according to synapse folding), if implemented."""
