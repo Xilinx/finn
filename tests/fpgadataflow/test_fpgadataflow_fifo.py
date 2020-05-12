@@ -98,7 +98,7 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
     assert y.shape == tuple(Shape), """The output shape is incorrect."""
 
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CreateStitchedIP(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model = model.transform(MakePYNQProject(test_pynq_board))
     model = model.transform(SynthPYNQProject())
     model = model.transform(MakePYNQDriver())
