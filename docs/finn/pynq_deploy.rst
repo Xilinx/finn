@@ -15,7 +15,7 @@ This chapter is about the hardware generation and deployment on PYNQ. If you nee
 Create PYNQ Shell Project
 =========================
 
-To deploy the network on A PYNQ platform, it needs to be put inside an appropriate *shell*. This *shell* bridges the network with the interfaces the underlying system exposes. This can be done using the transformation MakePYNQProject, see :py:mod:`finn.transformation.fpgadataflow.make_pynq_proj.MakePYNQProject`. 
+To deploy the network on A PYNQ platform, it needs to be put inside an appropriate *shell*. This *shell* bridges the network with the interfaces the underlying system exposes. This can be done using the transformation MakePYNQProject, see :py:mod:`finn.transformation.fpgadataflow.make_pynq_proj.MakePYNQProject`.
 
 Test on Hardware
 ================
@@ -28,9 +28,14 @@ After integrating the model into the PYNQ shell, Vivado *Synthesis, Place and Ro
 Generate PYNQ runtime code
 --------------------------
 
-Additionally, a Python code is necessary to execute the model on the board. This is done by transformation pass :py:mod:`finn.transformation.fpgadataflow.make_pynq_driver.MakePYNQDriver`. 
+Additionally, a Python code is necessary to execute the model on the board. This is done by transformation pass :py:mod:`finn.transformation.fpgadataflow.make_pynq_driver.MakePYNQDriver`.
 
 Deployment and Remote Execution
 -------------------------------
 
 The bitfile and the driver file(s) are copied to the PYNQ board and can be executed there using the *onnx_exec* function with the right *exec_mode* settings. For details please have a look at transformation :py:mod:`finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ` and the execution function :py:mod:`finn.core.onnx_exec`.
+
+Throughput Test
+---------------
+
+Finn also offers the possibility to measure the network performance directly on the PYNQ board. This can be done by using :py:mod:`finn.core.throughput_test`. When running this function the metrics of the network are returned as dictionary.

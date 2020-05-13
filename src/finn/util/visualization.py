@@ -26,36 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import finn.custom_op.registry as registry
-from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.transformation import Transformation
+import inspect
+import netron
+from IPython.display import IFrame
 
 
-class SetExecMode(Transformation):
-    """Set attribute exec_mode in all fpgadataflow nodes to specify which
-    kind of execution should be used ("cppsim" or "rtlsim")"""
+def showSrc(what):
+    print("".join(inspect.getsourcelines(what)[0]))
 
-    def __init__(self, mode):
-        super().__init__()
-        self.mode = mode
 
-    def apply(self, model):
-        for node in model.graph.node:
-            op_type = node.op_type
-            if is_fpgadataflow_node(node) is True:
-                try:
-                    # lookup op_type in registry of CustomOps
-                    inst = registry.custom_op[op_type](node)
-                    # set sim_mode accordingly to argument mode
-                    inst.set_nodeattr("exec_mode", self.mode)
-                    # ensure that sim_mode is now set
-                    assert (
-                        inst.get_nodeattr("exec_mode") != ""
-                    ), """Transformation
-                        was not successful. Node attribute "exec_mode" is not set"""
-                except KeyError:
-                    # exception if op_type is not supported
-                    raise Exception(
-                        "Custom op_type %s is currently not supported." % op_type
-                    )
-        return (model, False)
+def showInNetron(model_filename):
+    netron.start(model_filename, port=8081, host="0.0.0.0")
+    return IFrame(src="http://0.0.0.0:8081/", width="100%", height=400)

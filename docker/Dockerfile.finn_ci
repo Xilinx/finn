@@ -44,8 +44,6 @@ RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 # cloning dependency repos
 # Brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
-# Brevitas examples
-RUN git clone https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
 # CNPY
 RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
 # FINN hlslib
@@ -63,8 +61,6 @@ RUN apt update; apt install nano
 RUN pip install pytest-dependency
 
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
 ENV VIVADO_IP_CACHE "$BUILD_PATH/vivado_ip_cache"

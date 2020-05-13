@@ -34,40 +34,50 @@ from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-def _codegen_single_node(node, model):
+def _codegen_single_node(node, model, fpgapart, clk):
     """Calls C++ code generation for one node. Resulting code can be used
-    to simulate node using npysim."""
+    to generate a Vivado IP block for the node."""
 
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
         inst = registry.custom_op[op_type](node)
         # get the path of the code generation directory
-        code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
+        code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
         # ensure that there is a directory
         if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
             code_gen_dir = make_build_dir(
-                prefix="code_gen_npysim_" + str(node.name) + "_"
+                prefix="code_gen_ipgen_" + str(node.name) + "_"
             )
-            inst.set_nodeattr("code_gen_dir_npysim", code_gen_dir)
+            inst.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
         # ensure that there is generated code inside the dir
-        inst.code_generation_npysim(model)
+        inst.code_generation_ipgen(model, fpgapart, clk)
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)
 
 
-class CodeGen_npysim(Transformation):
+class PrepareIP(Transformation):
     """Call custom implementation to generate code for single custom node
     and create folder that contains all the generated files.
-    All nodes in the graph must have the fpgadataflow backend attribute.
+    All nodes in the graph must have the fpgadataflow backend attribute and
+    transformation gets additional arguments:
 
-    Outcome if succesful: Node attribute "code_gen_dir_npysim" contains path to folder
-    that contains generated C++ code that can be used to simulate node using npysim.
-    The subsequent transformation is Compile"""
+    * fpgapart (string)
+
+    * clk in ns (int)
+
+    Outcome if succesful: Node attribute "code_gen_dir_ipgen" contains path to folder
+    that contains generated C++ code that can be used to generate a Vivado IP block.
+    The subsequent transformation is HLSSynthIP"""
+
+    def __init__(self, fpgapart, clk):
+        super().__init__()
+        self.fpgapart = fpgapart
+        self.clk = clk
 
     def apply(self, model):
         for node in model.graph.node:
             if is_fpgadataflow_node(node) is True:
-                _codegen_single_node(node, model)
+                _codegen_single_node(node, model, self.fpgapart, self.clk)
         return (model, False)

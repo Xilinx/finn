@@ -1,3 +1,4 @@
+import os
 import onnx
 from finn.util.test import get_test_model_trained
 import brevitas.onnx as bo
@@ -56,3 +57,4 @@ def test_topk_insert(k):
     output_pysim_topk = output_pysim_topk.astype(np.int).flatten()
 
     assert np.array_equal(output_golden_topk, output_pysim_topk)
+    os.remove(export_onnx_path)

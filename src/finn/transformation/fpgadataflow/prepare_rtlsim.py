@@ -38,7 +38,7 @@ except ModuleNotFoundError:
 
 
 class PrepareRTLSim(NodeLocalTransformation):
-    """For a graph with generated RTL sources (after HLSSynth_IPGen), create a
+    """For a graph with generated RTL sources (after HLSSynthIP), create a
     Verilator emulation library for each node to prepare for rtlsim
     execution and set the rtlsim_so property to the path to the generated
     emulation library.

@@ -165,7 +165,7 @@ class InsertFIFO(Transformation):
                 # determine fifo node attributes
                 fld_shape = n0.get_folded_output_shape()
                 dtype = n0.get_output_datatype()
-                fifo_depth = n0.get_nodeattr("inFIFODepth")
+                fifo_depth = n0.get_nodeattr("outFIFODepth")
 
                 # create fifo node
                 fifo_input_tensor = oh.make_tensor_value_info(

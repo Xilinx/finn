@@ -33,7 +33,7 @@ from onnx import TensorProto, helper
 import finn.util.basic as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 
 
 def test_code_gen_trafo():
@@ -77,9 +77,9 @@ def test_code_gen_trafo():
     W = util.gen_finn_dt_tensor(wdt, (mw, mh))
     model.set_initializer("weights", W)
 
-    model = model.transform(CodeGen_npysim())
+    model = model.transform(PrepareCppSim())
     for node in model.graph.node:
-        code_gen_attribute = util.get_by_name(node.attribute, "code_gen_dir_npysim")
+        code_gen_attribute = util.get_by_name(node.attribute, "code_gen_dir_cppsim")
         tmp_dir = code_gen_attribute.s.decode("UTF-8")
         assert os.path.isdir(
             tmp_dir
