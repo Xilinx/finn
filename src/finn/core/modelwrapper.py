@@ -328,6 +328,22 @@ class ModelWrapper:
         else:
             return None
 
+    def is_fork_node(self, node):
+        """Checks if the given node is a fork, that is, the node has multiple
+        direct successors"""
+        direct_successors = self.find_direct_successors(node)
+        is_fork = False if direct_successors is None else (len(direct_successors) > 1)
+        return is_fork
+
+    def is_join_node(self, node):
+        """Checks if the given node is a join, that is, the node has multiple
+        direct predecessors"""
+        direct_predecessors = self.find_direct_predecessors(node)
+        is_join = (
+            False if direct_predecessors is None else (len(direct_predecessors) > 1)
+        )
+        return is_join
+
     def get_all_tensor_names(self):
         """Returns a list of all (input, output and value_info) tensor names
         in the graph."""
