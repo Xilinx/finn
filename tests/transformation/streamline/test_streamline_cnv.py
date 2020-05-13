@@ -65,15 +65,17 @@ def test_streamline_cnv(size, wbits, abits):
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     # run using FINN-based execution
     input_dict = {"global_in": input_tensor}
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
-    model.save("orig_cnv.onnx")
+    # model.save("orig_cnv.onnx")
     model = model.transform(Streamline())
-    model.save("streamlined_cnv.onnx")
+    # model.save("streamlined_cnv.onnx")
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
     assert np.isclose(expected, produced, atol=1e-3).all()
     assert model.graph.node[0].op_type == "MultiThreshold"
+    assert np.argmax(produced) == 3

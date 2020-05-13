@@ -1,11 +1,12 @@
 import onnx  # noqa
+import os
 import numpy as np
 import torch
 import brevitas.onnx as bo
 from brevitas.nn import QuantHardTanh
 from brevitas.core.restrict_val import RestrictValueType
+from brevitas.core.quant import QuantType
 from brevitas.core.scaling import ScalingImplType
-from models.common import get_quant_type
 import pytest
 from finn.core.modelwrapper import ModelWrapper
 import finn.core.onnx_exec as oxe
@@ -22,6 +23,14 @@ export_onnx_path = "test_act.onnx"
     "scaling_impl_type", [ScalingImplType.CONST, ScalingImplType.PARAMETER]
 )
 def test_brevitas_act_export(abits, narrow_range, min_val, max_val, scaling_impl_type):
+    def get_quant_type(bit_width):
+        if bit_width is None:
+            return QuantType.FP
+        elif bit_width == 1:
+            return QuantType.BINARY
+        else:
+            return QuantType.INT
+
     act_quant_type = get_quant_type(abits)
     ishape = (1, 15)
     b_act = QuantHardTanh(
@@ -79,3 +88,4 @@ tensor_quant.scaling_impl.learned_value": torch.tensor(
         print("expec:", ", ".join(["{:8.4f}".format(x) for x in expected[0]]))
 
     assert np.isclose(produced, expected, atol=1e-3).all()
+    os.remove(export_onnx_path)

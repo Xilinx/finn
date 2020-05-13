@@ -296,7 +296,8 @@ def rtlsim_output_to_npy(
     """Convert a flattened sequence of Python arbitrary-precision integers
     output into a NumPy array, saved as npy file at path. Each arbitrary-precision
     integer is assumed to be a packed array of targetBits-bit elements, which
-    will be unpacked as the innermost dimension of the NumPy array."""
+    will be unpacked as the innermost dimension of the NumPy array. If path is
+    not None it will also be saved as a npy file."""
 
     # TODO should have its own testbench?
     output = np.asarray([hex(int(x)) for x in output])
@@ -305,7 +306,8 @@ def rtlsim_output_to_npy(
     )
     # make copy before saving the array
     out_array = out_array.copy()
-    np.save(path, out_array)
+    if path is not None:
+        np.save(path, out_array)
     return out_array
 
 

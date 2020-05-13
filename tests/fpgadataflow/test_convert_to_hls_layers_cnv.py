@@ -45,8 +45,8 @@ from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.custom_op.registry import getCustomOp
 
@@ -72,6 +72,7 @@ def test_convert_to_hls_layers_cnv_w1a1():
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     # generate expected value from streamlined net
     input_dict = {"global_in": input_tensor}
@@ -112,11 +113,12 @@ def test_convert_to_hls_layers_cnv_w1a1():
     mp_nodes = model.get_nodes_by_op_type("StreamingMaxPool_Batch")
     assert len(mp_nodes) == 2
     # model.save("cnv-pre-compile.onnx")
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
-    model = model.transform(SetExecMode("npysim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
     # model.save("cnv-post-compile.onnx")
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
     assert np.isclose(expected, produced, atol=1e-3).all()
+    assert np.argmax(produced) == 3
     os.remove(export_onnx_path_cnv)

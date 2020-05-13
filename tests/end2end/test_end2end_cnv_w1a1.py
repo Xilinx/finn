@@ -41,7 +41,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.move_reshape import MoveReshape
+from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.streamline import Streamline
@@ -55,15 +55,15 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
@@ -117,7 +117,7 @@ def test_end2end_cnv_w1a1_convert_to_hls_layers():
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
-    model = model.transform(MoveReshape())
+    model = model.transform(RemoveCNVtoFCFlatten())
     model.save(build_dir + "/end2end_cnv_w1a1_hls_layers.onnx")
 
 
@@ -169,8 +169,8 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
 
 def test_end2end_cnv_w1a1_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_folded.onnx")
-    model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynth_IPGen())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
     model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
 
@@ -178,7 +178,7 @@ def test_end2end_cnv_w1a1_gen_hls_ip():
 def test_end2end_cnv_w1a1_ip_stitch():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part))
     model.save(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
 
 
@@ -188,13 +188,13 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     inp_name = model.graph.input[0].name
     out_name = model.graph.output[0].name
     inp_dict = {inp_name: x}
-    # npysim
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
-    model = model.transform(SetExecMode("npysim"))
-    model.save(build_dir + "/end2end_cnv_w1a1_ipgen_npysim.onnx")
-    ret_npysim = execute_onnx(model, inp_dict, True)
-    res_npysim = ret_npysim[out_name]
+    # cppsim
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
+    model.save(build_dir + "/end2end_cnv_w1a1_ipgen_cppsim.onnx")
+    ret_cppsim = execute_onnx(model, inp_dict, True)
+    res_cppsim = ret_cppsim[out_name]
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareRTLSim())
@@ -208,8 +208,8 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     os.environ["LIVENESS_THRESHOLD"] = "-1"
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
-    assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
-    assert np.isclose(res_npysim, res_rtlsim_whole).all()
+    assert np.isclose(res_cppsim, res_rtlsim_nodebynode).all()
+    assert np.isclose(res_cppsim, res_rtlsim_whole).all()
 
 
 def test_end2end_cnv_w1a1_verify_all():
@@ -220,6 +220,7 @@ def test_end2end_cnv_w1a1_verify_all():
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     x = input_tensor
     # x = np.zeros(ishape, dtype=np.float32)
@@ -230,12 +231,12 @@ def test_end2end_cnv_w1a1_verify_all():
     parent_model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_dataflow_parent.onnx")
     iname = parent_model.graph.input[0].name
     oname = parent_model.graph.output[0].name
-    # produce results with npysim
+    # produce results with cppsim
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
     sdp_node = getCustomOp(sdp_node)
-    sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_ipgen_npysim.onnx")
-    ret_npysim = execute_onnx(parent_model, {iname: x}, True)
-    y_npysim = ret_npysim[oname]
+    sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_ipgen_cppsim.onnx")
+    ret_cppsim = execute_onnx(parent_model, {iname: x}, True)
+    y_cppsim = ret_cppsim[oname]
     # produce results with node-by-node rtlsim
     sdp_node.set_nodeattr(
         "model", build_dir + "/end2end_cnv_w1a1_ipgen_nodebynode_rtlsim.onnx"
@@ -250,9 +251,10 @@ def test_end2end_cnv_w1a1_verify_all():
     os.environ["LIVENESS_THRESHOLD"] = "-1"
     ret_whole_rtlsim = execute_onnx(parent_model, {iname: x}, True)
     y_whole_rtlsim = ret_whole_rtlsim[oname]
-    assert np.isclose(y_golden, y_npysim).all()
+    assert np.isclose(y_golden, y_cppsim).all()
     assert np.isclose(y_golden, y_nodebynode_rtlsim).all()
     assert np.isclose(y_golden, y_whole_rtlsim).all()
+    assert np.argmax(y_golden) == 3
 
 
 def test_end2end_cnv_w1a1_make_pynq_proj():
@@ -299,6 +301,7 @@ def test_end2end_cnv_w1a1_run_on_pynq():
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+    input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)
     x = input_tensor
     # run using FINN-based execution
@@ -313,13 +316,14 @@ def test_end2end_cnv_w1a1_run_on_pynq():
         ip = os.environ["PYNQ_IP"]  # NOQA
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
-        # produce results with npysim
+        # produce results with cppsim
         sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
         sdp_node = getCustomOp(sdp_node)
         sdp_node.set_nodeattr("model", build_dir + "/end2end_cnv_w1a1_pynq_deploy.onnx")
         ret = execute_onnx(parent_model, {iname: x}, True)
         y = ret[oname]
         assert np.isclose(y, y_golden).all()
+        assert np.argmax(y) == 3
 
     except KeyError:
         pytest.skip("PYNQ board IP address not specified")

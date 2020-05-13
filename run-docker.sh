@@ -104,7 +104,9 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg NETRON_PORT=$NETRON_PORT \
              .
 # Launch container with current directory mounted
-docker run -t --rm --name $DOCKER_INST_NAME -it \
+# important to pass the --init flag here for correct Vivado operation, see:
+# https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
+docker run -t --rm --name $DOCKER_INST_NAME -it --init \
 --hostname $DOCKER_INST_NAME \
 -e "XILINX_VIVADO=$VIVADO_PATH" \
 -e "SHELL=/bin/bash" \
