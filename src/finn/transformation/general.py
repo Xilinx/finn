@@ -81,6 +81,54 @@ class GiveReadableTensorNames(Transformation):
         return (model, False)
 
 
+class GiveUniqueParameterTensors(Transformation):
+    """Make every parameter tensor unique. The aim is to avoid affecting
+    other nodes apart from the one the system is currently operating on."""
+
+    def apply(self, model):
+        model_tensor_names = model.get_all_tensor_names()
+
+        graph = model.graph
+        graph_modified = False
+        seen_parameters = []
+        for n in graph.node:
+            # copy inputs since they may be modified
+            node_inputs_list = [x for x in n.input]
+            for input_idx, node_input in enumerate(node_inputs_list):
+                # check if it's a parameter
+                input_init = model.get_initializer(node_input)
+                if input_init is None:
+                    # dynamic input
+                    continue
+
+                # check if repeated
+                if node_input not in seen_parameters:
+                    # first occurance
+                    seen_parameters += [node_input]
+                    continue
+
+                # Give new name to tensor
+                for trials in range(10):
+                    new_param_name = util.random_string(stringLength=6)
+                    if new_param_name not in model_tensor_names:
+                        break
+                else:
+                    raise Exception(
+                        "Not able to create new tensor name"
+                        + "after 10 trials. Net too big for the random tensor"
+                        + "name lenght chosen? Try larger stringLength?"
+                    )
+
+                model_tensor_names += [new_param_name]
+
+                model.set_initializer(new_param_name, input_init)
+
+                # point node input to new tensor
+                n.input[input_idx] = new_param_name
+
+        return (model, graph_modified)
+
+
 class ConvertSubToAdd(Transformation):
     """Convert subtract-a-constant nodes to add-a-constant nodes."""
 
