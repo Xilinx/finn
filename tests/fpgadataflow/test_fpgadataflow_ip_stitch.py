@@ -220,7 +220,7 @@ def test_fpgadataflow_ipstitch_do_stitch():
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
     )
     model = model.transform(rvp.ReplaceVerilogRelPaths())
-    model = model.transform(CreateStitchedIP(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part, 5))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
     assert os.path.isdir(vivado_stitch_proj_dir)
