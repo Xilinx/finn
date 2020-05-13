@@ -39,10 +39,6 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_lfc.onnx"
-# TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_checkpoint = (
-    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
-)
 
 
 def test_infer_datatypes():

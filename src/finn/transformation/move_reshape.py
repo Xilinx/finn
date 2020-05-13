@@ -17,7 +17,7 @@ def _is_fpgadataflow_node(node):
         return False
 
 
-class MoveReshape(Transformation):
+class RemoveCNVtoFCFlatten(Transformation):
     """Removes a node that implements a (1, -1) reshape if it is
     between two fpgadataflow nodes"""
 
@@ -27,13 +27,13 @@ class MoveReshape(Transformation):
         graph_modified = False
         for n in graph.node:
             if n.op_type == "Reshape":
-                graph_modified = True
                 shape = model.get_initializer(n.input[1])
                 if (shape == [1, -1]).all():
                     producer = model.find_producer(n.input[0])
                     if _is_fpgadataflow_node(producer) is True:
                         consumer = model.find_consumer(n.output[0])
                         if _is_fpgadataflow_node(consumer) is True:
+                            graph_modified = True
                             consumer.input[0] = n.input[0]
                             graph.node.remove(n)
 

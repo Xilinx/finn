@@ -35,6 +35,7 @@ from finn.transformation import Transformation
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.util.basic import get_by_name
+from finn.custom_op.registry import getCustomOp
 
 
 class ConvertBipolarMatMulToXnorPopcount(Transformation):
@@ -71,10 +72,19 @@ class ConvertBipolarMatMulToXnorPopcount(Transformation):
                         )
                     graph_modified = True
                     mt = mt_chain[-1]
-                    bin_dt_attr = "BINARY".encode("utf-8")
-                    get_by_name(mt.attribute, "out_dtype").s = bin_dt_attr
-                    get_by_name(mt.attribute, "out_scale").f = 1.0
-                    get_by_name(mt.attribute, "out_bias").f = 0
+                    mt_inst = getCustomOp(mt)
+                    # ensure old scale/bias were correct for BIPOLAR
+                    scale_ok = mt_inst.get_nodeattr("out_scale") == 2.0
+                    bias_ok = mt_inst.get_nodeattr("out_bias") == -1.0
+                    assert (
+                        scale_ok and bias_ok
+                    ), """Unexpected scale/bias
+                    attributes for BIPOLAR MultiThreshold node."""
+                    # start conversion, set MT output to binary
+                    # (this is what XnorPopcountMatMul expects)
+                    mt_inst.set_nodeattr("out_dtype", "BINARY")
+                    mt_inst.set_nodeattr("out_scale", 1.0)
+                    mt_inst.set_nodeattr("out_bias", 0.0)
                     model.set_tensor_datatype(mm_input, DataType.BINARY)
                     # change node type and domain
                     n.op_type = "XnorPopcountMatMul"
