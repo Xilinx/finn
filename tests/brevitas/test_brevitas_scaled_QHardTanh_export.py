@@ -14,7 +14,7 @@ from finn.transformation.infer_shapes import InferShapes
 export_onnx_path = "test_act.onnx"
 
 
-@pytest.mark.parametrize("abits", [1, 2, 4, 8])
+@pytest.mark.parametrize("abits", [2, 4, 8])
 @pytest.mark.parametrize("narrow_range", [False, True])
 @pytest.mark.parametrize("min_val", [-1.0, -(1 - 2 ** (-7)), -2])
 @pytest.mark.parametrize("max_val", [1.0, 1 - 2 ** (-7), 2])
