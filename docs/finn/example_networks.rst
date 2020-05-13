@@ -4,7 +4,7 @@
 Example Networks
 ****************
 
-FINN uses `several pre-trained QNNs <https://github.com/maltanar/brevitas_cnv_lfc>`_ that serve as examples and testcases.
+FINN uses `several pre-trained QNNs <https://github.com/Xilinx/brevitas/tree/master/brevitas_examples/bnn_pynq>`_ that serve as examples and testcases.
 You can find a status summary below for each network.
 
 * TFC, SFC, LFC... are fully-connected networks trained on the MNIST dataset

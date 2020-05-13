@@ -4,8 +4,8 @@ import torch
 import brevitas.onnx as bo
 from brevitas.nn import QuantHardTanh
 from brevitas.core.restrict_val import RestrictValueType
+from brevitas.core.quant import QuantType
 from brevitas.core.scaling import ScalingImplType
-from models.common import get_quant_type
 import pytest
 from finn.core.modelwrapper import ModelWrapper
 import finn.core.onnx_exec as oxe
@@ -18,6 +18,14 @@ export_onnx_path = "test_act.onnx"
 @pytest.mark.parametrize("narrow_range", [False, True])
 @pytest.mark.parametrize("max_val", [1.0, 1 - 2 ** (-7)])
 def test_brevitas_act_export(abits, narrow_range, max_val):
+    def get_quant_type(bit_width):
+        if bit_width is None:
+            return QuantType.FP
+        elif bit_width == 1:
+            return QuantType.BINARY
+        else:
+            return QuantType.INT
+
     act_quant_type = get_quant_type(abits)
     min_val = -1.0
     ishape = (1, 10)

@@ -41,7 +41,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.move_reshape import MoveReshape
+from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.streamline import Streamline
@@ -117,7 +117,7 @@ def test_end2end_cnv_w1a1_convert_to_hls_layers():
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
-    model = model.transform(MoveReshape())
+    model = model.transform(RemoveCNVtoFCFlatten())
     model.save(build_dir + "/end2end_cnv_w1a1_hls_layers.onnx")
 
 
