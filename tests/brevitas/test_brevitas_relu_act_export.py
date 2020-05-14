@@ -1,3 +1,4 @@
+import os
 import onnx  # noqa
 import numpy as np
 import torch
@@ -65,3 +66,4 @@ scaling_impl.learned_value": torch.tensor(
         print("expec:", ", ".join(["{:8.4f}".format(x) for x in expected[0]]))
 
     assert np.isclose(produced, expected, atol=1e-3).all()
+    os.remove(export_onnx_path)
