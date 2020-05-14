@@ -321,13 +321,12 @@ class GlobalAccPool_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        pe = self.get_nodeattr("PE")
-        bwin = self.get_input_datatype().bitwidth()
-        bwout = self.get_output_datatype().bitwidth()
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """void {}(hls::stream<ap_uint<{}>> &in0,
                 hls::stream<ap_uint<{}>> &out)""".format(
-                self.onnx_node.name, pe * bwin, pe * bwout,
+                self.onnx_node.name,
+                self.get_instream_width(),
+                self.get_outstream_width(),
             )
         ]
 
