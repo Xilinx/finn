@@ -156,7 +156,7 @@ def test_end2end_tfc_w2a2_gen_hls_ip():
 def test_end2end_tfc_w2a2_ip_stitch():
     model = ModelWrapper(build_dir + "/end2end_tfc_w2a2_ipgen.onnx")
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CreateStitchedIP(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model.save(build_dir + "/end2end_tfc_w2a2_ipstitch.onnx")
 
 

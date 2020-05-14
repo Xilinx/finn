@@ -178,7 +178,7 @@ def test_end2end_cnv_w1a1_gen_hls_ip():
 def test_end2end_cnv_w1a1_ip_stitch():
     model = ModelWrapper(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CreateStitchedIP(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model.save(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
 
 

@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-
 import finn.custom_op.registry as registry
 from finn.transformation import Transformation
 from finn.util.basic import make_build_dir
