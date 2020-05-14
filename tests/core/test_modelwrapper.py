@@ -66,18 +66,18 @@ def test_modelwrapper():
     inp_cons = model.find_consumer(l0_inp_tensor_name)
     assert inp_cons.op_type == "MatMul"
     out_prod = model.find_producer(l0_inp_tensor_name)
-    assert out_prod.op_type == "Sign"
+    assert out_prod.op_type == "MultiThreshold"
     os.remove(export_onnx_path)
 
 
 def test_modelwrapper_graph_order():
     # create small network with properties to be tested
-    Neg_node = onnx.helper.make_node("Neg", inputs=["in1"], outputs=["neg1"],)
-    Round_node = onnx.helper.make_node("Round", inputs=["neg1"], outputs=["round1"],)
+    Neg_node = onnx.helper.make_node("Neg", inputs=["in1"], outputs=["neg1"])
+    Round_node = onnx.helper.make_node("Round", inputs=["neg1"], outputs=["round1"])
 
-    Ceil_node = onnx.helper.make_node("Ceil", inputs=["neg1"], outputs=["ceil1"],)
+    Ceil_node = onnx.helper.make_node("Ceil", inputs=["neg1"], outputs=["ceil1"])
     Add_node = onnx.helper.make_node(
-        "Add", inputs=["round1", "ceil1"], outputs=["out1"],
+        "Add", inputs=["round1", "ceil1"], outputs=["out1"]
     )
 
     in1 = onnx.helper.make_tensor_value_info("in1", onnx.TensorProto.FLOAT, [4, 4])
