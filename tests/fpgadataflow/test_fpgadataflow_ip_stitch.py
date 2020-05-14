@@ -199,6 +199,7 @@ def create_two_fc_model():
 
 # exec_mode of StreamingDataflowPartition
 # @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
     model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
@@ -216,6 +217,7 @@ def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx")
 
 
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_do_stitch():
     model = load_test_checkpoint_or_skip(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
@@ -232,6 +234,7 @@ def test_fpgadataflow_ipstitch_do_stitch():
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
 
 
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_rtlsim():
     model = load_test_checkpoint_or_skip(
         ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx"
@@ -278,6 +281,7 @@ def test_fpgadataflow_ipstitch_rtlsim():
     assert (rtlsim_res == x).all()
 
 
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_pynq_projgen():
     model = load_test_checkpoint_or_skip(
         ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx"
@@ -290,6 +294,7 @@ def test_fpgadataflow_ipstitch_pynq_projgen():
 
 
 @pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_pynq_synth():
     model = load_test_checkpoint_or_skip(
         ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx"

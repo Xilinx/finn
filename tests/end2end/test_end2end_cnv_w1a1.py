@@ -173,6 +173,7 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
 
 
 @pytest.mark.slow
+@pytest.mark.vivado
 def test_end2end_cnv_w1a1_gen_hls_ip():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_cnv_w1a1_folded.onnx")
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
@@ -181,6 +182,7 @@ def test_end2end_cnv_w1a1_gen_hls_ip():
     model.save(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
 
 
+@pytest.mark.vivado
 def test_end2end_cnv_w1a1_ip_stitch():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_cnv_w1a1_ipgen.onnx")
     model = model.transform(ReplaceVerilogRelPaths())
@@ -188,6 +190,7 @@ def test_end2end_cnv_w1a1_ip_stitch():
     model.save(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
 
 
+@pytest.mark.vivado
 def test_end2end_cnv_w1a1_verify_dataflow_part():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
     x = np.zeros((1, 32, 32, 3), dtype=np.float32)
@@ -218,6 +221,7 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     assert np.isclose(res_cppsim, res_rtlsim_whole).all()
 
 
+@pytest.mark.vivado
 def test_end2end_cnv_w1a1_verify_all():
     # use the streamlined model as the "golden" model for right answers
     golden = load_test_checkpoint_or_skip(
@@ -274,6 +278,7 @@ def test_end2end_cnv_w1a1_verify_all():
     assert np.argmax(y_golden) == 3
 
 
+@pytest.mark.vivado
 def test_end2end_cnv_w1a1_make_pynq_proj():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_cnv_w1a1_ipstitch.onnx")
     model = model.transform(MakePYNQProject(test_pynq_board))
@@ -281,6 +286,7 @@ def test_end2end_cnv_w1a1_make_pynq_proj():
 
 
 @pytest.mark.slow
+@pytest.mark.vivado
 def test_end2end_cnv_w1a1_synth_pynq_project():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_cnv_w1a1_pynq_project.onnx"

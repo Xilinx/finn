@@ -122,6 +122,7 @@ def prepare_inputs(input_tensor):
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
 @pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
     stride = k
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
