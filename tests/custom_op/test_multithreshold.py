@@ -40,7 +40,7 @@ def compare(x, y):
     else:
         return 0.0
 
-
+# naive implementation of thresholding for performance comparison
 def multithreshold_elementwise(v, thresholds, out_scale=None, out_bias=None):
     """Given a set of threshold values t={t_0, t_1 ... t_n} the successive
     thresholding maps any real number x to an integer in the interval [0, n],
@@ -96,7 +96,7 @@ def multithreshold_elementwise(v, thresholds, out_scale=None, out_bias=None):
     return out_scale * ret.reshape(v.shape) + out_bias
 
 
-def test_execute_multi_thresholding():
+def test_multithreshold():
 
     inputs = np.ndarray(
         shape=(6, 3, 2, 2),
@@ -315,8 +315,8 @@ def test_execute_multi_thresholding():
 
 
 if __name__ == "__main__":
-    vector_runtime, non_vector_runtime = test_execute_multi_thresholding()
+    vector_runtime, non_vector_runtime = test_multithreshold()
 
-    print("Runtime non vector: ", non_vector_runtime, "s")
+    print("Runtime non-vectorized: ", non_vector_runtime, "s")
     print("Runtime vectorized: ", vector_runtime, "s")
     print("Speed-up: ", non_vector_runtime / vector_runtime)
