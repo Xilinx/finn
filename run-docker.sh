@@ -99,6 +99,9 @@ gecho "Using default PYNQ board $PYNQ_BOARD"
 if [ "$1" = "test" ]; then
         gecho "Running test suite (all tests)"
         DOCKER_CMD="python setup.py test"
+elif [ "$1" = "quicktest" ]; then
+        gecho "Running test suite (non-Vivado, non-slow tests)"
+        DOCKER_CMD="quicktest.sh"
 elif [ "$1" = "notebook" ]; then
         gecho "Running Jupyter notebook server"
         DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
