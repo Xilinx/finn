@@ -43,6 +43,7 @@ from finn.custom_op.maxpoolnhwc import MaxPoolNHWC
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
+from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
 
 # create a mapping of all known CustomOp names and classes
 custom_op = {}
@@ -58,6 +59,7 @@ custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 custom_op["MaxPoolNHWC"] = MaxPoolNHWC
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
 custom_op["StreamingFIFO"] = StreamingFIFO
+custom_op["LabelSelect_Batch"] = LabelSelect_Batch
 
 
 def getCustomOp(node):
