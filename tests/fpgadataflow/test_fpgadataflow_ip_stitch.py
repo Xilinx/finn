@@ -284,6 +284,7 @@ def test_fpgadataflow_ipstitch_pynq_projgen():
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
 
 
+@pytest.mark.slow
 def test_fpgadataflow_ipstitch_pynq_synth():
     model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
     model = model.transform(SynthPYNQProject())

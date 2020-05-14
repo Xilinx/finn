@@ -145,6 +145,7 @@ def test_end2end_tfc_w2a2_fold_and_tlastmarker():
     model.save(build_dir + "/end2end_tfc_w2a2_folded.onnx")
 
 
+@pytest.mark.slow
 def test_end2end_tfc_w2a2_gen_hls_ip():
     model = ModelWrapper(build_dir + "/end2end_tfc_w2a2_folded.onnx")
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
@@ -233,6 +234,7 @@ def test_end2end_tfc_w2a2_make_pynq_proj():
     model.save(build_dir + "/end2end_tfc_w2a2_pynq_project.onnx")
 
 
+@pytest.mark.slow
 def test_end2end_tfc_w2a2_synth_pynq_project():
     model = ModelWrapper(build_dir + "/end2end_tfc_w2a2_pynq_project.onnx")
     model = model.transform(SynthPYNQProject())
