@@ -295,6 +295,7 @@ def test_execute_multi_thresholding():
     assert (results_scaled == outputs_scaled).all()
 
     # performance and random test
+    np.random.seed(0)
     inputs = np.random.random((1, 256, 64, 64))
     thresholds = (np.array([[1, 2, 3, 4, 5, 6]]) - 0.5) / 6
 
