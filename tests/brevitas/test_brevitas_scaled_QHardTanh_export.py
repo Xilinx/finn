@@ -22,7 +22,9 @@ export_onnx_path = "test_act.onnx"
 @pytest.mark.parametrize(
     "scaling_impl_type", [ScalingImplType.CONST, ScalingImplType.PARAMETER]
 )
-def test_brevitas_act_export(abits, narrow_range, min_val, max_val, scaling_impl_type):
+def test_brevitas_act_export_qhardtanh_scaled(
+    abits, narrow_range, min_val, max_val, scaling_impl_type
+):
     def get_quant_type(bit_width):
         if bit_width is None:
             return QuantType.FP

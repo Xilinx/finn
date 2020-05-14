@@ -20,7 +20,7 @@ export_onnx_path = "test_act.onnx"
 @pytest.mark.parametrize(
     "scaling_impl_type", [ScalingImplType.CONST, ScalingImplType.PARAMETER]
 )
-def test_brevitas_relu_act_export(abits, max_val, scaling_impl_type):
+def test_brevitas_act_export_relu(abits, max_val, scaling_impl_type):
     min_val = -1.0
     ishape = (1, 15)
     b_act = QuantReLU(

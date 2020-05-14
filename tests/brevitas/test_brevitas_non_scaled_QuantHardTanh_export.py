@@ -1,3 +1,4 @@
+import os
 import onnx  # noqa
 import numpy as np
 import torch
@@ -17,7 +18,7 @@ export_onnx_path = "test_act.onnx"
 @pytest.mark.parametrize("abits", [1, 2, 4, 8])
 @pytest.mark.parametrize("narrow_range", [False, True])
 @pytest.mark.parametrize("max_val", [1.0, 1 - 2 ** (-7)])
-def test_brevitas_act_export(abits, narrow_range, max_val):
+def test_brevitas_act_export_qhardtanh_nonscaled(abits, narrow_range, max_val):
     def get_quant_type(bit_width):
         if bit_width is None:
             return QuantType.FP
@@ -50,3 +51,4 @@ def test_brevitas_act_export(abits, narrow_range, max_val):
     inp_tensor = torch.from_numpy(inp_tensor).float()
     expected = b_act.forward(inp_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
+    os.remove(export_onnx_path)
