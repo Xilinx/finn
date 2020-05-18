@@ -63,7 +63,7 @@ def make_accpool_modelwrapper(ch, pe, idim, idt):
         numInputVectors=[1, idim, idim],
     )
     graph = helper.make_graph(
-        nodes=[accpool_node], name="graph", inputs=[inp], outputs=[outp],
+        nodes=[accpool_node], name="graph", inputs=[inp], outputs=[outp]
     )
 
     model = helper.make_model(graph, producer_name="thresholding-model")
@@ -88,6 +88,7 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("imdim", [7])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.vivado
 def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
     if fold == -1:
         pe = 1
