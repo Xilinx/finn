@@ -79,9 +79,9 @@ def prepare_inputs(input_tensor, idt):
     return {"inp": input_tensor}
 
 
-# TODO: folded inputs and INTx inputs fail, likely problem in hlslib
-# input datatype
-@pytest.mark.parametrize("idt", [DataType.UINT8, DataType.UINT16])
+# TODO: folded inputs fail, likely problem in hlslib
+# input datatype -- checked by assertion in HLSCustomOp
+@pytest.mark.parametrize("idt", [DataType.UINT8, DataType.INT16])
 # labels
 @pytest.mark.parametrize("labels", [10, 1000])
 # folding
