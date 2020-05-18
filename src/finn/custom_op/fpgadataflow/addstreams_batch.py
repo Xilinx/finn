@@ -66,6 +66,7 @@ class AddStreams_Batch(HLSCustomOp):
     def get_folded_input_shape(self):
         ich = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
+        assert ich % pe == 0, "PE must divide NumChannels"
         vecs = list(self.get_nodeattr("numInputVectors"))
         ishape = tuple(vecs + [ich // pe, pe])
         return ishape
@@ -144,6 +145,8 @@ class AddStreams_Batch(HLSCustomOp):
     def get_output_datatype(self):
         """Returns FINN DataType of output."""
         # we need to set output datatype to the next larger int or uint
+        # enhancement: consider specifying w/ explicit outputDataType attribute
+        # to allow overflow and use the same idt if user wants
         idt = DataType[self.get_nodeattr("inputDataType")]
         if idt.signed():
             return DataType.get_smallest_possible(2 * idt.min())
