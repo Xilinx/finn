@@ -44,6 +44,7 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
 from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
+from finn.custom_op.fpgadataflow.sameresize_batch import SameResize_Batch
 
 # create a mapping of all known CustomOp names and classes
 custom_op = {}
@@ -60,6 +61,7 @@ custom_op["MaxPoolNHWC"] = MaxPoolNHWC
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["GlobalAccPool_Batch"] = GlobalAccPool_Batch
+custom_op["SameResize_Batch"] = SameResize_Batch
 
 
 def getCustomOp(node):
