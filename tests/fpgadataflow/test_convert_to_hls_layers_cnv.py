@@ -31,7 +31,7 @@ import pkg_resources as pk
 
 import brevitas.onnx as bo
 import numpy as np
-
+import pytest
 import finn.core.onnx_exec as oxe
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
@@ -53,6 +53,7 @@ from finn.custom_op.registry import getCustomOp
 export_onnx_path_cnv = "test_output_cnv.onnx"
 
 
+@pytest.mark.vivado
 def test_convert_to_hls_layers_cnv_w1a1():
     cnv = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path_cnv)
