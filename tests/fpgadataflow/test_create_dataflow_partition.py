@@ -29,7 +29,6 @@
 import os.path
 from pkgutil import get_data
 
-import pytest
 
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
@@ -38,11 +37,11 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.util.basic import make_build_dir
+from finn.util.test import load_test_checkpoint_or_skip
 
 build_dir = make_build_dir("test_dataflow_partition_")
 
 
-@pytest.mark.dependency()
 def test_dataflow_partition_create():
     # load the onnx model
     raw_m = get_data(
@@ -57,9 +56,10 @@ def test_dataflow_partition_create():
     model.save(build_dir + "/test_dataflow_partition_create.onnx")
 
 
-@pytest.mark.dependency(depends=["test_dataflow_partition_create"])
 def test_dataflow_partition_tlastmarker():
-    model = ModelWrapper(build_dir + "/test_dataflow_partition_create.onnx")
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/test_dataflow_partition_create.onnx"
+    )
     model_path = getCustomOp(model.graph.node[2]).get_nodeattr("model")
     model = ModelWrapper(model_path)
     model = model.transform(InsertTLastMarker())
