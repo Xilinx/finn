@@ -3,14 +3,18 @@ import pytest
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.util.basic import gen_finn_dt_tensor
+import finn.core.onnx_exec as oxe
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 
 
-def make_single_sameresize_modelwrapper(idim, kdim, stride, num_ch, idt, pad_style):
-    assert idim % stride == 0, "Stride must divide input dimension."
-    # number of "same" windows over the input data
-    same_windows = idim // stride
-    odim = kdim + stride * (same_windows - 1)
+def make_single_sameresize_modelwrapper(
+    idim, odim, kdim, stride, num_ch, idt, pad_style
+):
     inp = helper.make_tensor_value_info(
         "inp", TensorProto.FLOAT, [1, idim, idim, num_ch]
     )
@@ -58,7 +62,24 @@ def make_single_sameresize_modelwrapper(idim, kdim, stride, num_ch, idt, pad_sty
 # PaddingStyle: distribution of added values to achieve "same" padding
 @pytest.mark.parametrize("pad_style", [2])
 def test_fpgadataflow_sameresize(idim, kdim, stride, num_ch, idt, pad_style):
+    assert idim % stride == 0, "Stride must divide input dimension."
+    # number of "same" windows over the input data
+    same_windows = idim // stride
+    odim = kdim + stride * (same_windows - 1)
+
+    # generate input data
+    x = gen_finn_dt_tensor(idt, [1, idim, idim, num_ch])
+    input_dict = {"inp": x}
+
     model = make_single_sameresize_modelwrapper(
-        idim, kdim, stride, num_ch, idt, pad_style
+        idim, odim, kdim, stride, num_ch, idt, pad_style
     )
     model = model.transform(InferShapes())
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    y = oxe.execute_onnx(model, input_dict)["outp"]
+
+    expected_oshape = (1, odim, odim, num_ch)
+    assert y.shape == expected_oshape
