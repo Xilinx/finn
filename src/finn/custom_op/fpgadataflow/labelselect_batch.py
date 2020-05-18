@@ -105,7 +105,9 @@ class LabelSelect_Batch(HLSCustomOp):
         )
 
     def infer_node_datatype(self, model):
-        model.set_tensor_datatype(self.onnx_node.output[0], DataType.INT64)
+        # currently set to uint32 to be compatible with hlslib
+        # enhancement: consider finding smallest power-of-two int for reduced output bandwidth
+        model.set_tensor_datatype(self.onnx_node.output[0], DataType.UINT32)
 
     def verify_node(self):
         info_messages = []
