@@ -217,7 +217,7 @@ class LabelSelect_Batch(HLSCustomOp):
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            odt = DataType.UINT32
+            odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
