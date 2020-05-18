@@ -272,7 +272,12 @@ class MoveScalarMulPastConv(Transformation):
 
 
 class MoveScalarLinearPastEltwiseAdd(Transformation):
-    """Move scalar linear operations (mul, add) past elementwise operations."""
+    """Move scalar linear operations (mul, add) past elementwise add operations where possible. Specifically,
+       matches and transforms the following patterns:
+       (x*C) + (y*C) -> (x + y) * C
+       (x+A) + (y+B) -> (x + y) + (A + B)
+       where x and y are dynamic inputs, A, B, C are constants.
+    """
 
     def move_node(self, graph, n, prod0, prod1, node_ind):
         # found! move one of the muls to output, remove the other one
