@@ -149,7 +149,9 @@ class LabelSelect_Batch(HLSCustomOp):
 
     def get_input_datatype(self):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
+        ret = DataType[self.get_nodeattr("inputDataType")]
+        assert ret.signed() is False, "LabelSelect is currently broken for signed inputs"
+        return ret
 
     def get_output_datatype(self):
         """Returns FINN DataType of output."""
