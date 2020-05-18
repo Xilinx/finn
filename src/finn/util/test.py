@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from brevitas_examples import bnn_pynq
+from brevitas_examples import bnn_pynq, imagenet_classification
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -41,6 +41,7 @@ example_map = {
     ("TFC", 1, 1): bnn_pynq.tfc_1w1a,
     ("TFC", 1, 2): bnn_pynq.tfc_1w2a,
     ("TFC", 2, 2): bnn_pynq.tfc_2w2a,
+    ("mobilenet", 4, 4): imagenet_classification.quant_mobilenet_v1_4b,
 }
 
 
