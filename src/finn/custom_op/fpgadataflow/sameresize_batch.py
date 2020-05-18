@@ -3,6 +3,7 @@ import numpy as np
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 class SameResize_Batch(HLSCustomOp):
@@ -111,8 +112,8 @@ class SameResize_Batch(HLSCustomOp):
         return obits * num_ch
 
     def get_number_output_values(self):
-        oshape = self.get_normal_output_shape()
-        return np.prod(oshape)
+        folded_oshape = self.get_folded_output_shape()
+        return np.prod(folded_oshape[:-1])
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
@@ -200,7 +201,12 @@ class SameResize_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        pass
+        packed_bits = self.get_instream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
+            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+        ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
@@ -237,9 +243,9 @@ class SameResize_Batch(HLSCustomOp):
         if self.get_input_datatype() == DataType.BIPOLAR:
             # store bipolar activations as binary
             inp = (inp + 1) / 2
-            # export_idt = DataType.BINARY
-        # else:
-        # export_idt = self.get_input_datatype()
+            export_idt = DataType.BINARY
+        else:
+            export_idt = self.get_input_datatype()
 
         # no reshaping for input since assuming no folding on input
         # make copy before saving array
@@ -256,3 +262,40 @@ class SameResize_Batch(HLSCustomOp):
             ), "cppsim \
             did not produce expected ofolded utput shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
+        elif mode == "rtlsim":
+            sim = self.get_rtlsim()
+            nbits = self.get_instream_width()
+            rtlsim_inp = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+            )
+            super().reset_rtlsim(sim)
+            super().toggle_clk(sim)
+            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+            odt = export_idt
+            target_bits = odt.bitwidth()
+            packed_bits = self.get_outstream_width()
+            out_npy_path = "{}/output.npy".format(code_gen_dir)
+            out_shape = self.get_folded_output_shape()
+            rtlsim_output_to_npy(
+                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+            )
+            # load and reshape output
+            output = np.load(out_npy_path)
+            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+            context[node.output[0]] = output
+        else:
+            raise Exception(
+                """Invalid value for attribute exec_mode! Is currently set to: {}
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
+                    mode
+                )
+            )
+        # binary -> bipolar if needed
+        if self.get_output_datatype() == DataType.BIPOLAR:
+            out = context[node.output[0]]
+            out = 2 * out - 1
+            context[node.output[0]] = out
+        assert (
+            context[node.output[0]].shape == exp_oshape
+        ), """Output shape doesn't match expected shape
+            (1, OutputDim, OutputDim, NumChannels)."""
