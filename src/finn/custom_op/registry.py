@@ -43,6 +43,7 @@ from finn.custom_op.maxpoolnhwc import MaxPoolNHWC
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
+from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 
 # create a mapping of all known CustomOp names and classes
@@ -59,6 +60,7 @@ custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 custom_op["MaxPoolNHWC"] = MaxPoolNHWC
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
 custom_op["StreamingFIFO"] = StreamingFIFO
+custom_op["GlobalAccPool_Batch"] = GlobalAccPool_Batch
 custom_op["Thresholding_Batch"] = Thresholding_Batch
 
 

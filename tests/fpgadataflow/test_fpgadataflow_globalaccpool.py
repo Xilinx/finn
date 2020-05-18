@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+import numpy as np
 
 from onnx import TensorProto, helper
 
@@ -38,119 +39,84 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
 
 
-def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt):
-    odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ifm_ch]
-    )
+def make_accpool_modelwrapper(ch, pe, idim, idt):
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim, idim, ch])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 1, ch])
 
-    mp_node = helper.make_node(
-        "MaxPoolNHWC",
-        ["inp"],
-        ["outp"],
-        domain="finn",
-        kernel_shape=[k, k],
-        strides=[k, k],
-        pads=[0, 0, 0, 0],
-    )
-    graph = helper.make_graph(
-        nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
-    )
-
-    model = helper.make_model(graph, producer_name="mp-model")
-    model = ModelWrapper(model)
-
-    model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype("outp", odt)
-
-    return model
-
-
-def make_single_streamingmaxpool_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt):
-    odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ifm_ch]
-    )
-
-    smp_node = helper.make_node(
-        "StreamingMaxPool_Batch",
+    accpool_node = helper.make_node(
+        "GlobalAccPool_Batch",
         ["inp"],
         ["outp"],
         domain="finn",
         backend="fpgadataflow",
-        PoolDim=k,
-        NumChannels=ifm_ch,
-        ImgDim=ifm_dim,
-        dataType=idt.name,
+        NumChannels=ch,
+        PE=pe,
+        inputDataType=idt.name,
+        numInputVectors=[1, idim, idim],
     )
     graph = helper.make_graph(
-        nodes=[smp_node], name="smp_graph", inputs=[inp], outputs=[outp]
+        nodes=[accpool_node], name="graph", inputs=[inp], outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="smp-model")
+    model = helper.make_model(graph, producer_name="thresholding-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype("outp", odt)
 
     return model
 
 
-def prepare_inputs(input_tensor):
+def prepare_inputs(input_tensor, idt):
     return {"inp": input_tensor}
 
 
-# input datatype
-@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
-# kernel size
-@pytest.mark.parametrize("k", [2, 4])
-# input dimension
-@pytest.mark.parametrize("ifm_dim", [4, 6, 8])
-# input channels
-@pytest.mark.parametrize("ifm_ch", [1, 2])  # , 2, 3, 4])
+# data type
+@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.UINT16])
+# channels
+@pytest.mark.parametrize("ch", [64])
+# folding
+@pytest.mark.parametrize("fold", [-1, 2, 1])
+# image dimension
+@pytest.mark.parametrize("imdim", [7])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
-    stride = k
-    ofm_dim = int(((ifm_dim - k) / stride) + 1)
-    if ifm_dim % k != 0:
-        pytest.skip("Skipping StreamingMaxPool test w/ ImgDim % PoolDim != 0")
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
+    if fold == -1:
+        pe = 1
+    else:
+        pe = ch // fold
+    assert ch % pe == 0
 
-    x = gen_finn_dt_tensor(idt, (1, ifm_dim, ifm_dim, ifm_ch))
-    # prepare input data
-    input_dict = prepare_inputs(x)
+    # generate input data
+    x = gen_finn_dt_tensor(idt, (1, imdim, imdim, ch))
 
-    golden = make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt)
-    y_expected = oxe.execute_onnx(golden, input_dict)["outp"]
-
-    model = make_single_streamingmaxpool_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt)
+    model = make_accpool_modelwrapper(ch, pe, imdim, idt)
 
     if exec_mode == "cppsim":
-        model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP("xc7z020clg400-1", 5))
         model = model.transform(HLSSynthIP())
+        model = model.transform(ReplaceVerilogRelPaths())
         model = model.transform(PrepareRTLSim())
     else:
-        raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow")
+        raise Exception("Unknown exec_mode")
 
-    # execute model
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    assert (y_produced == y_expected).all()
+    # prepare input data and execute
+    input_dict = prepare_inputs(x, idt)
+    y = oxe.execute_onnx(model, input_dict)["outp"]
+    expected_y = np.sum(x, axis=(1, 2)).flatten()
+
+    assert (y == expected_y).all(), exec_mode + " failed"
