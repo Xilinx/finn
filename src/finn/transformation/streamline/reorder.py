@@ -34,6 +34,8 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.core.onnx_exec import execute_node
 from finn.util.basic import get_by_name
 
+def is_scalar(x):
+    return np.prod(x.shape) == 1
 
 class MoveAddPastMul(Transformation):
     """Move add operations past multiply operations. The aim is to have them
@@ -325,6 +327,10 @@ class MoveScalarLinearPastEltwiseAdd(Transformation):
                 init1 = model.get_initializer(prod1.input[1])
                 # if either initializer is None, skip
                 if init0 is None or init1 is None:
+                    continue
+                # if either initializer is non-scalar, skip
+                # TODO relax this to 1D tensors?
+                if (not is_scalar(init0)) or (not is_scalar(init1)):
                     continue
                 if prod0.op_type == "Mul" and prod1.op_type == "Mul":
                     if np.array_equal(init0, init1):
