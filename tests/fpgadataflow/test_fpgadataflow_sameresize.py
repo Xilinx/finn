@@ -1,5 +1,6 @@
 import pytest
 import os
+import numpy as np
 
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
@@ -89,10 +90,35 @@ def test_fpgadataflow_sameresize_cppsim(idim, kdim, stride, num_ch, idt, pad_sty
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
-    y = oxe.execute_onnx(model, input_dict)["outp"]
-
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     expected_oshape = (1, odim, odim, num_ch)
-    assert y.shape == expected_oshape
+    assert y_produced.shape == expected_oshape
+
+    # calculate reference
+    # calculate correct padding according to parameters
+    pad = odim - idim
+    if pad_style == 2:
+        if pad % 2 == 0:
+            pad_up = pad // 2
+            pad_left = pad // 2
+        else:
+            pad_up = pad // 2 + 1
+            pad_left = pad // 2 + 1
+    else:
+        pad_up = pad // 2
+        pad_left = pad // 2
+    pad_down = pad - pad_up
+    pad_right = pad - pad_left
+
+    # reshape input to be 3D
+    x_ref = x.reshape(idim, idim, num_ch)
+    # use numpy padding function as reference
+    y_expected = np.pad(
+        x_ref, ((pad_up, pad_down), (pad_left, pad_right), (0, 0)), "constant"
+    )
+    y_expected = y_expected.reshape(expected_oshape)
+
+    assert (y_produced == y_expected).all()
 
 
 # image dimension
