@@ -49,11 +49,30 @@ The run-docker.sh script forwards ports 8888 for Jupyter and 8081 for Netron, an
 
 Running the test suite directly
 *******************************
+FINN comes with a set of tests to check for regressions. The full test suite
+(which will take several hours to run and require a PYNQ board) can be executed
+by:
+
 ::
 
   sh run-docker.sh test
 
-FINN comes with a set of tests which can be launched using the command above. Note that some of the tests involve extra compilation and the entire test suite may take some time to complete.
+There is a quicker variant of the test suite that skips the tests marked as
+requiring Vivado or as slow-running tests:
+
+::
+
+  sh run-docker.sh quicktest
+
+If you want to run individual tests, you can do this *inside the Docker container
+from the FINN root directory* as follows:
+
+::
+
+  python setup.py test --addopts "-k test_end2end_tfc_w1a2"
+
+Please see the pytest documentation for more about picking tests by marks or
+by name.
 
 Environment variables
 **********************
