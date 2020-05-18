@@ -69,7 +69,7 @@ class LabelSelect_Batch(HLSCustomOp):
         pe = self.get_nodeattr("PE")
         vecs = list(self.get_nodeattr("numInputVectors"))
         assert nlabels % pe == 0, "PE must divide Labels"
-        assert nlabels == pe, "LabelSelect currently fails with folding"
+        assert pe == 1, "LabelSelect currently fails with folding"
         folds = int(nlabels / pe)
         folded_ishape = tuple(vecs + [folds, pe])
         return folded_ishape
