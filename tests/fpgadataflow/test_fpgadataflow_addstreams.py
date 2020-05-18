@@ -86,6 +86,7 @@ def prepare_inputs(input1, input2):
 @pytest.mark.parametrize("fold", [-1, 2, 1])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.vivado
 def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     if fold == -1:
         pe = 1
