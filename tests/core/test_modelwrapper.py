@@ -31,6 +31,7 @@ import onnx
 from collections import Counter
 import brevitas.onnx as bo
 import numpy as np
+import finn.core.data_layout as data_layout
 
 from finn.core.modelwrapper import ModelWrapper
 from finn.util.test import get_test_model_trained
@@ -69,7 +70,7 @@ def test_modelwrapper():
     assert out_prod.op_type == "MultiThreshold"
     inp_layout = model.get_tensor_layout(inp_name)
     assert inp_layout is None
-    inp_layout = ["N", "C", "H", "W"]
+    inp_layout = data_layout.NCHW
     model.set_tensor_layout(inp_name, inp_layout)
     assert model.get_tensor_layout(inp_name) == inp_layout
     os.remove(export_onnx_path)
