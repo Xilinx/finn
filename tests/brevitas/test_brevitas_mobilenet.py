@@ -2,8 +2,6 @@ from PIL import Image
 import numpy as np
 import brevitas.onnx as bo
 
-# import onnx
-# import onnx.numpy_helper as nph
 import torch
 from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
