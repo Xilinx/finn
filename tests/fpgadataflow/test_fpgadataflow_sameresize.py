@@ -61,18 +61,19 @@ def make_single_sameresize_modelwrapper(
 
 
 # image dimension
-@pytest.mark.parametrize("idim", [4])
+@pytest.mark.parametrize("idim", [8, 16])
 # kernel dimension
-@pytest.mark.parametrize("kdim", [2])
+@pytest.mark.parametrize("kdim", [2, 3])
 # stride
-@pytest.mark.parametrize("stride", [1])
+@pytest.mark.parametrize("stride", [1, 2])
 # number of channels
-@pytest.mark.parametrize("num_ch", [2])
+@pytest.mark.parametrize("num_ch", [1, 2])
 # FINN input datatype
-@pytest.mark.parametrize("idt", [DataType.INT2])
-# PaddingStyle: distribution of added values to achieve "same" padding
-@pytest.mark.parametrize("pad_style", [2])
-def test_fpgadataflow_sameresize_cppsim(idim, kdim, stride, num_ch, idt, pad_style):
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT4])
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_sameresize_cppsim(idim, kdim, stride, num_ch, idt):
+    pad_style = 2
     assert idim % stride == 0, "Stride must divide input dimension."
     # number of "same" windows over the input data
     same_windows = idim // stride
@@ -110,32 +111,36 @@ def test_fpgadataflow_sameresize_cppsim(idim, kdim, stride, num_ch, idt, pad_sty
     pad_down = pad - pad_up
     pad_right = pad - pad_left
 
-    # reshape input to be 3D
-    x_ref = x.reshape(idim, idim, num_ch)
     # use numpy padding function as reference
-    y_expected = np.pad(
-        x_ref, ((pad_up, pad_down), (pad_left, pad_right), (0, 0)), "constant"
-    )
-    y_expected = y_expected.reshape(expected_oshape)
+    if idt == DataType.BIPOLAR:
+        y_expected = np.pad(
+            x,
+            ((0, 0), (pad_up, pad_down), (pad_left, pad_right), (0, 0)),
+            "constant",
+            constant_values=-1,
+        )
+    else:
+        y_expected = np.pad(
+            x, ((0, 0), (pad_up, pad_down), (pad_left, pad_right), (0, 0)), "constant"
+        )
 
     assert (y_produced == y_expected).all()
 
 
 # image dimension
-@pytest.mark.parametrize("idim", [4])
+@pytest.mark.parametrize("idim", [8, 16])
 # kernel dimension
-@pytest.mark.parametrize("kdim", [2])
+@pytest.mark.parametrize("kdim", [2, 3])
 # stride
-@pytest.mark.parametrize("stride", [1])
+@pytest.mark.parametrize("stride", [1, 2])
 # number of channels
-@pytest.mark.parametrize("num_ch", [2])
+@pytest.mark.parametrize("num_ch", [1, 2])
 # FINN input datatype
-@pytest.mark.parametrize("idt", [DataType.INT2])
-# PaddingStyle: distribution of added values to achieve "same" padding
-@pytest.mark.parametrize("pad_style", [2])
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT4])
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_sameresize_rtlsim(idim, kdim, stride, num_ch, idt, pad_style):
+def test_fpgadataflow_sameresize_rtlsim(idim, kdim, stride, num_ch, idt):
+    pad_style = 2
     assert idim % stride == 0, "Stride must divide input dimension."
     # number of "same" windows over the input data
     same_windows = idim // stride
@@ -153,7 +158,38 @@ def test_fpgadataflow_sameresize_rtlsim(idim, kdim, stride, num_ch, idt, pad_sty
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
-    y = oxe.execute_onnx(model, input_dict)["outp"]
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
 
     expected_oshape = (1, odim, odim, num_ch)
-    assert y.shape == expected_oshape
+    assert y_produced.shape == expected_oshape
+
+    # calculate reference
+    # calculate correct padding according to parameters
+    pad = odim - idim
+    if pad_style == 2:
+        if pad % 2 == 0:
+            pad_up = pad // 2
+            pad_left = pad // 2
+        else:
+            pad_up = pad // 2 + 1
+            pad_left = pad // 2 + 1
+    else:
+        pad_up = pad // 2
+        pad_left = pad // 2
+    pad_down = pad - pad_up
+    pad_right = pad - pad_left
+
+    # use numpy padding function as reference
+    if idt == DataType.BIPOLAR:
+        y_expected = np.pad(
+            x,
+            ((0, 0), (pad_up, pad_down), (pad_left, pad_right), (0, 0)),
+            "constant",
+            constant_values=-1,
+        )
+    else:
+        y_expected = np.pad(
+            x, ((0, 0), (pad_up, pad_down), (pad_left, pad_right), (0, 0)), "constant"
+        )
+
+    assert (y_produced == y_expected).all()
