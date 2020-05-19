@@ -68,10 +68,10 @@ class DeployToPYNQ(Transformation):
         for file in os.listdir(vivado_pynq_proj):
             if file.endswith(".bit"):
                 bitfile = os.path.join(vivado_pynq_proj, file)
+                copy(bitfile, deployment_dir)
             elif file.endswith(".hwh"):
                 hwhfile = os.path.join(vivado_pynq_proj, file)
-        copy(bitfile, deployment_dir)
-        copy(hwhfile, deployment_dir)
+                copy(hwhfile, deployment_dir)
 
         # driver.py and python libraries
         pynq_driver_dir = model.get_metadata_prop("pynq_driver_dir")

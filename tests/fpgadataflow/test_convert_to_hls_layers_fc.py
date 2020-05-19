@@ -34,7 +34,7 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-
+import pytest
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -56,6 +56,7 @@ export_onnx_path = "test_output_tfc.onnx"
 export_onnx_path_cnv = "test_output_cnv.onnx"
 
 
+@pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a1():
     tfc = get_test_model_trained("TFC", 1, 1)
     bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
@@ -125,6 +126,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
     assert np.isclose(produced, expected, atol=1e-3).all()
 
 
+@pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a2():
     tfc = get_test_model_trained("TFC", 1, 2)
     bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
