@@ -344,7 +344,7 @@ compilation transformations?
         sim.io.ap_clk = 1
         sim.io.ap_clk = 0
 
-    def rtlsim(self, sim, inp):
+    def rtlsim(self, sim, inp, inp2=None):
         """Runs the pyverilator simulation by passing the input values to the simulation,
         toggle the clock and observing the execution time. Function contains also an
         observation loop that can abort the simulation if no output value is produced
@@ -376,6 +376,13 @@ compilation transformations?
             sim.io.in0_V_V_TDATA = inputs[0] if len(inputs) > 0 else 0
             if sim.io.in0_V_V_TREADY == 1 and sim.io.in0_V_V_TVALID == 1:
                 inputs = inputs[1:]
+
+            if inp2 is not None:
+                sim.io.in1_V_V_TVALID = 1 if len(inp2) > 0 else 0
+                sim.io.in1_V_V_TDATA = inp2[0] if len(inp2) > 0 else 0
+                if sim.io.in1_V_V_TREADY == 1 and sim.io.in1_V_V_TVALID == 1:
+                    inp2 = inp2[1:]
+
             if sim.io.out_V_V_TVALID == 1 and sim.io.out_V_V_TREADY == 1:
                 outputs = outputs + [sim.io.out_V_V_TDATA]
             sim.io.ap_clk = 1
