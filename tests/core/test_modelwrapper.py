@@ -31,6 +31,7 @@ import onnx
 from collections import Counter
 import brevitas.onnx as bo
 import numpy as np
+import finn.core.data_layout as DataLayout
 
 from finn.core.modelwrapper import ModelWrapper
 from finn.util.test import get_test_model_trained
@@ -67,6 +68,11 @@ def test_modelwrapper():
     assert inp_cons.op_type == "MatMul"
     out_prod = model.find_producer(l0_inp_tensor_name)
     assert out_prod.op_type == "MultiThreshold"
+    inp_layout = model.get_tensor_layout(inp_name)
+    assert inp_layout is None
+    inp_layout = DataLayout.NCHW
+    model.set_tensor_layout(inp_name, inp_layout)
+    assert model.get_tensor_layout(inp_name) == inp_layout
     os.remove(export_onnx_path)
 
 

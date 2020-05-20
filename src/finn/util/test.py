@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from brevitas_examples import bnn_pynq
+import numpy as np
 import pytest
 import warnings
 from finn.core.modelwrapper import ModelWrapper
@@ -64,6 +65,15 @@ def get_test_model_trained(netname, wbits, abits):
 def get_test_model_untrained(netname, wbits, abits):
     "get_test_model with pretrained=False"
     return get_test_model(netname, wbits, abits, pretrained=False)
+
+
+def soft_verify_topk(invec, idxvec, k):
+    """Check that the topK indices provided actually point to the topK largest
+    values in the input vector"""
+    np_topk = np.flip(invec.flatten().argsort())[:k]
+    soft_expected = invec.flatten()[np_topk.astype(np.int).flatten()]
+    soft_produced = invec.flatten()[idxvec.astype(np.int).flatten()]
+    return (soft_expected == soft_produced).all()
 
 
 def load_test_checkpoint_or_skip(filename):
