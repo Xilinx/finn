@@ -81,6 +81,41 @@ class GiveReadableTensorNames(Transformation):
         return (model, False)
 
 
+class GiveUniqueParameterTensors(Transformation):
+    """Make every parameter tensor unique. The aim is to avoid affecting
+    other nodes apart from the one the system is currently operating on."""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        seen_parameters = []
+        for n in graph.node:
+            # copy inputs since they may be modified
+            node_inputs_list = [x for x in n.input]
+            for input_idx, node_input in enumerate(node_inputs_list):
+                # check if it's a parameter
+                input_init = model.get_initializer(node_input)
+                if input_init is None:
+                    # dynamic input
+                    continue
+
+                # check if repeated
+                if node_input not in seen_parameters:
+                    # first occurance
+                    seen_parameters += [node_input]
+                    continue
+                    
+                new_param_name = model.make_new_valueinfo_name()
+
+                model.set_initializer(new_param_name, input_init)
+                model.set_tensor_datatype(new_param_name, model.get_tensor_datatype(node_input))
+
+                # point node input to new tensor
+                n.input[input_idx] = new_param_name
+
+        return (model, graph_modified)
+
+
 class ConvertSubToAdd(Transformation):
     """Convert subtract-a-constant nodes to add-a-constant nodes."""
 
