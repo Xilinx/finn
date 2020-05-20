@@ -122,18 +122,23 @@ class HLSCustomOp(CustomOp):
             code_gen_dir != ""
         ), """Node attribute "code_gen_dir_ipgen" is
         not set. Please run HLSSynthIP first."""
-        verilog_file = self.get_verilog_top_filename()
-        assert os.path.isfile(verilog_file), "Cannot find top-level Verilog file."
+
+        verilog_path = "{}/project_{}/sol1/impl/verilog/".format(
+            code_gen_dir, self.onnx_node.name
+        )
+
+        verilog_files = []
+        for f in os.listdir(verilog_path):
+            if f.endswith(".v"):
+                verilog_files += [f]
+
         # build the Verilator emu library
         sim = PyVerilator.build(
-            verilog_file,
+            verilog_files,
             build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=[
-                "{}/project_{}/sol1/impl/verilog/".format(
-                    code_gen_dir, self.onnx_node.name
-                )
-            ],
+            verilog_path=[verilog_path],
             trace_depth=get_rtlsim_trace_depth(),
+            top_module_name=self.get_verilog_top_module_name(),
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)
