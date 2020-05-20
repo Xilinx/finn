@@ -83,14 +83,27 @@ def pyverilate_stitched_ip(model):
     def file_to_dir(x):
         return os.path.dirname(os.path.realpath(x))
 
+    def file_to_basename(x):
+        return os.path.basename(os.path.realpath(x))
+
     all_verilog_dirs = list(map(file_to_dir, all_verilog_srcs))
-    top_verilog = model.get_metadata_prop("wrapper_filename")
+    all_verilog_files = list(
+        set(
+            filter(
+                lambda x: x.endswith(".v"),
+                list(map(file_to_basename, all_verilog_srcs)),
+            )
+        )
+    )
+    top_module_name = model.get_metadata_prop("wrapper_filename")
+    top_module_name = file_to_basename(top_module_name).strip(".v")
     build_dir = make_build_dir("pyverilator_ipstitched_")
     sim = PyVerilator.build(
-        top_verilog,
+        all_verilog_files,
         verilog_path=all_verilog_dirs,
         build_dir=build_dir,
         trace_depth=get_rtlsim_trace_depth(),
+        top_module_name=top_module_name,
     )
     return sim
 
