@@ -105,6 +105,8 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("ich", [16])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
+@pytest.mark.vivado
+@pytest.mark.slow
 def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     if nf == -1:
         nf = ich
