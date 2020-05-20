@@ -3,17 +3,16 @@ name: QuicktestPRAgainstDev
 on:
   pull_request:
     branches: [ dev ]
+
 jobs:
 
-  build:
-
+  test:
+    name: Run quicktest on PR branch
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Build the Docker image
-      run: |
-        git clone --branch feature/mark_slow_tests https://github.com/Xilinx/finn.git
-        cd finn
-        docker build -t finn_ci -f docker/Dockerfile.finn_ci --build-arg BUILD_PATH=/tmp/finn_ci --build-arg FINN_CI_BRANCH=dev docker/
-        docker run --name finn_ci --init --hostname finn_ci -e NUM_DEFAULT_WORKERS=4 -e FINN_INST_NAME=finn_ci finn_ci quicktest.sh
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: DockerRunQuicktest
+        run: sh run-docker.sh quicktest
