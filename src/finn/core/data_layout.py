@@ -32,3 +32,4 @@
 NHWC = ["N", "H", "W", "C"]
 NCHW = ["N", "C", "H", "W"]
 NC = ["N", "C"]
+UNKNOWN = []
