@@ -137,11 +137,16 @@ class ModelWrapper:
         qnt_annotations = graph.quantization_annotation
         ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
         if ret is not None:
-            ret = util.get_by_name(
+            ret_dt = util.get_by_name(
                 ret.quant_parameter_tensor_names, "finn_datatype", "key"
             )
-            if ret is not None:
-                ret.value = datatype.name
+            if ret_dt is not None:
+                ret_dt.value = datatype.name
+            else:
+                dt = onnx.StringStringEntryProto()
+                dt.key = "finn_datatype"
+                dt.value = datatype.name
+                ret.quant_parameter_tensor_names.append(dt)
         else:
             qa = onnx.TensorAnnotation()
             dt = onnx.StringStringEntryProto()
@@ -471,11 +476,16 @@ class ModelWrapper:
         qnt_annotations = graph.quantization_annotation
         ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
         if ret is not None:
-            ret = util.get_by_name(
+            ret_tl = util.get_by_name(
                 ret.quant_parameter_tensor_names, "tensor_layout", "key"
             )
-            if ret is not None:
-                ret.value = str(data_layout)
+            if ret_tl is not None:
+                ret_tl.value = str(data_layout)
+            else:
+                tl = onnx.StringStringEntryProto()
+                tl.key = "tensor_layout"
+                tl.value = str(data_layout)
+                ret.quant_parameter_tensor_names.append(tl)
         else:
             qa = onnx.TensorAnnotation()
             dt = onnx.StringStringEntryProto()
