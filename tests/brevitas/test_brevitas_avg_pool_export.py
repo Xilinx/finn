@@ -1,6 +1,7 @@
 import onnx  # noqa
 import brevitas.onnx as bo
 from brevitas.nn import QuantAvgPool2d
+from brevitas.core.quant import QuantType
 import pytest
 
 export_onnx_path = "test_avg_pool.onnx"
@@ -19,5 +20,6 @@ def test_brevitas_avg_pool_export(kernel_size, stride, signed, bit_width):
         signed=signed,
         min_overall_bit_width=bit_width,
         max_overall_bit_width=bit_width,
+        quant_type=QuantType.INT,
     )
     bo.export_finn_onnx(b_avgpool, ishape, export_onnx_path)
