@@ -39,6 +39,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
@@ -71,6 +72,7 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
+    model = model.transform(InferDataLayouts())
     # model.save("golden.onnx")
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")

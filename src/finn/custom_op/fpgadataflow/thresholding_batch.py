@@ -222,12 +222,7 @@ class Thresholding_Batch(HLSCustomOp):
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
         # fill in TSrcI
-        # TODO checks/adjustments for bipolar inputs
-        inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        if inp_is_bipolar:
-            ret["TSrcI"] = "Recast<Binary>"
-        else:
-            ret["TSrcI"] = "Slice<%s>" % inp_hls_str
+        ret["TSrcI"] = "Slice<%s>" % inp_hls_str
         # fill in TDstI
         ret["TDstI"] = "Slice<%s>" % out_hls_str
 
@@ -237,7 +232,7 @@ class Thresholding_Batch(HLSCustomOp):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
         * ensure MH % PE == 0
-        * for bipolar weights&inputs, ensure thresholds are positive
+        * for unsigned inputs, ensure thresholds are positive
         * interleave rows between PEs
         * reshape into (PE, TMEM, n_thres_steps) and return
         """
@@ -250,12 +245,11 @@ class Thresholding_Batch(HLSCustomOp):
         ), """Threshold matrix dimension is
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
-        inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        if inp_is_bipolar:
+        if not self.get_input_datatype().signed():
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
-            # ensure all thresholds are integer
-            assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
+        # ensure all thresholds are integer
+        assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
@@ -286,10 +280,6 @@ class Thresholding_Batch(HLSCustomOp):
 
         threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
         tdt = DataType.INT32
-        # use UINT32 threshold export for bipolar times bipolar
-        inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        if inp_is_bipolar:
-            tdt = DataType.UINT32
         thresholds_hls_code = numpy_to_hls_code(
             threshold_tensor, tdt, "thresholds", False, True
         )
@@ -426,9 +416,6 @@ class Thresholding_Batch(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        if dtype == DataType.BIPOLAR:
-            # use binary for bipolar storage
-            dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits

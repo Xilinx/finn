@@ -33,6 +33,7 @@ from finn.transformation import Transformation
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
+import finn.core.data_layout as DataLayout
 
 
 class InferConvInpGen(Transformation):
@@ -414,25 +415,24 @@ class InferThresholdingLayer(Transformation):
                 thl_threshold = node.input[1]
                 thl_output = node.output[0]
                 thl_in_shape = model.get_tensor_shape(thl_input)
-                thl_out_shape = model.get_tensor_shape(thl_output)
                 idt = model.get_tensor_datatype(thl_input)
 
                 # skip conversion for layers with float input
                 if not idt.is_integer():
                     continue
 
-                # extract weight shape, note that ONNX and finn-hlslib
-                # make different assumptions about dim order here
-                # ONNX assumes W has (in, out) shape
-                # finn-hlslib assumes W has (out, in) shape
+                # skip conversion if input is not NHWC or NC
+                thl_in_layout = model.get_tensor_layout(thl_input)
+                if thl_in_layout != DataLayout.NHWC and thl_in_layout != DataLayout.NC:
+                    continue
+
+                # now safe to assume number of channels is in last dimension
                 ifc = int(thl_in_shape[-1])
                 # create node with no parallelization first
                 pe = 1
                 assert ifc % pe == 0, "Requirement IFC divisable by PE is violated."
 
                 odt = model.get_tensor_datatype(thl_output)
-                model.set_tensor_shape(thl_input, thl_in_shape)
-                model.set_tensor_shape(thl_output, thl_out_shape)
                 # create and insert new StreamingFCLayer node
                 new_node = helper.make_node(
                     "Thresholding_Batch",

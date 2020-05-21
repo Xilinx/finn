@@ -86,25 +86,16 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt):
     return model
 
 
-def prepare_inputs(input_tensor, idt):
-    if idt == DataType.BIPOLAR:
-        # convert bipolar to binary
-        return {"inp": (input_tensor + 1) / 2}
-    else:
-        return {"inp": input_tensor}
-
-
-# TODO binary/bipolar inputs/outputs
 # activation: None or DataType
-@pytest.mark.parametrize("act", [DataType.INT4])
+@pytest.mark.parametrize("act", [DataType.INT4, DataType.BIPOLAR])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.INT2, DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType.INT16, DataType.UINT16])
 # folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2, 1])
 # number of input features
 @pytest.mark.parametrize("ich", [16])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
@@ -121,11 +112,6 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     T = np.random.randint(idt.min(), idt.max() + 1, (ich, n_steps)).astype(np.float32)
     # provide non-decreasing thresholds
     T = np.sort(T, axis=1)
-    # generate thresholds for activation
-    if idt == DataType.BIPOLAR:
-        # bias thresholds to be positive
-        T = np.ceil((T + ich) / 2)
-        assert (T >= 0).all()
 
     model = make_single_thresholding_modelwrapper(T, pe, idt, odt)
 
@@ -143,8 +129,8 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     else:
         raise Exception("Unknown exec_mode")
 
-    # prepare input data
-    input_dict = prepare_inputs(x, idt)
+    # package input data as dictionary
+    input_dict = {"inp": x}
 
     y = multithreshold(x, T)
     if act == DataType.BIPOLAR:
