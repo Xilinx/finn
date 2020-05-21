@@ -47,6 +47,7 @@ from finn.util.data_packing import (
 
 @pytest.mark.parametrize("dtype", [DataType.BINARY, DataType.INT2, DataType.INT32])
 @pytest.mark.parametrize("test_shape", [(1, 2, 4), (1, 1, 64), (2, 64)])
+@pytest.mark.vivado
 def test_npy2apintstream(test_shape, dtype):
     ndarray = cutil.gen_finn_dt_tensor(dtype, test_shape)
     test_dir = cutil.make_build_dir(prefix="test_npy2apintstream_")

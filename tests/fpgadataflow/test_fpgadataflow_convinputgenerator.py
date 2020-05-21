@@ -137,6 +137,8 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # input channel parallelism ("SIMD")
 @pytest.mark.parametrize("simd", [1, 2])
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode, simd):
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
 
