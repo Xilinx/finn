@@ -73,6 +73,8 @@ RUN mkdir -p $VIVADO_IP_CACHE
 WORKDIR /workspace/finn
 
 COPY finn_entrypoint.sh /usr/local/bin/
+COPY quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
+RUN chmod 755 /usr/local/bin/quicktest.sh
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]
