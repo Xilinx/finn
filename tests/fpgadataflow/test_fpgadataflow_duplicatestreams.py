@@ -118,8 +118,9 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, exec_mode):
 
     # prepare input data and execute
     input_dict = prepare_inputs(x, idt)
-    y0 = oxe.execute_onnx(model, input_dict)["outp0"]
-    y1 = oxe.execute_onnx(model, input_dict)["outp1"]
+    output_dict = oxe.execute_onnx(model, input_dict)
+    y0 = output_dict["outp0"]
+    y1 = output_dict["outp1"]
     expected_y = x
 
     assert (y0 == expected_y).all(), exec_mode + " failed"
