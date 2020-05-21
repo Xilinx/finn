@@ -40,6 +40,7 @@ from finn.util.basic import (
 from finn.util.fpgadataflow import (
     IPGenBuilder,
     pyverilate_get_liveness_threshold_cycles,
+    rtlsim_multi_io,
 )
 from . import templates
 
@@ -318,16 +319,18 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
             )
 
     def npy_to_dynamic_output(self, context):
-        """Reads the output from a .npy file and saves it at the right place in
-        the context dictionary."""
+        """Reads the output from an output.npy file generated from cppsim and
+        places its content into the context dictionary."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         output = np.load("{}/output.npy".format(code_gen_dir))
         context[node.output[0]] = output
 
     def npy_to_dynamic_outputs(self, context, npy_list):
-        """Reads the output from .npy files and saves it at the right place in
-        the context dictionary."""
+        """Reads the output from .npy files generated from cppsim and places
+        their content into the context dictionary.
+        npy_list is a list specifying which files to read, and its order must
+        match the order of node outputs."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         for i in range(len(npy_list)):
@@ -430,85 +433,14 @@ compilation transformations?
         return outputs
 
     def rtlsim_multi_io(self, sim, io_dict):
-        """Runs the pyverilator simulation by passing the input values to the simulation,
-        toggle the clock and observing the execution time. Function contains also an
-        observation loop that can abort the simulation if no output value is produced
-        after a set number of cycles. Accepts multiple inputs and outputs."""
+        "Run rtlsim for this node, supports multiple i/o streams."
 
         trace_file = self.get_nodeattr("rtlsim_trace")
-        if trace_file != "":
-            if trace_file == "default":
-                trace_file = self.onnx_node.name + ".vcd"
-            sim.start_vcd_trace(trace_file)
-
-        for outp in io_dict["outputs"]:
-            sim.io[outp + "_V_V_TREADY"] = 1
-
-        # observe if output is completely calculated
-        # total_cycle_count will contain the number of cycles the calculation ran
+        if trace_file == "default":
+            trace_file = self.onnx_node.name + ".vcd"
         num_out_values = self.get_number_output_values()
-        output_done = False
-        total_cycle_count = 0
-        output_count = 0
-        old_output_count = 0
-
-        # avoid infinite looping of simulation by aborting when there is no change in
-        # output values after 100 cycles
-        no_change_count = 0
-        liveness_threshold = pyverilate_get_liveness_threshold_cycles()
-
-        while not (output_done):
-            for inp in io_dict["inputs"]:
-                inputs = io_dict["inputs"][inp]
-                sim.io[inp + "_V_V_TVALID"] = 1 if len(inputs) > 0 else 0
-                sim.io[inp + "_V_V_TDATA"] = inputs[0] if len(inputs) > 0 else 0
-                if (
-                    sim.io[inp + "_V_V_TREADY"] == 1
-                    and sim.io[inp + "_V_V_TVALID"] == 1
-                ):
-                    inputs = inputs[1:]
-                io_dict["inputs"][inp] = inputs
-
-            for outp in io_dict["outputs"]:
-                outputs = io_dict["outputs"][outp]
-                if (
-                    sim.io[outp + "_V_V_TVALID"] == 1
-                    and sim.io[outp + "_V_V_TREADY"] == 1
-                ):
-                    outputs = outputs + [sim.io[outp + "_V_V_TDATA"]]
-                    output_count += 1
-                io_dict["outputs"][outp] = outputs
-
-            sim.io.ap_clk = 1
-            sim.io.ap_clk = 0
-
-            total_cycle_count = total_cycle_count + 1
-
-            if output_count == old_output_count:
-                no_change_count = no_change_count + 1
-            else:
-                no_change_count = 0
-                old_output_count = output_count
-
-            # check if all expected output words received
-            if output_count == num_out_values:
-                self.set_nodeattr("sim_cycles", total_cycle_count)
-                output_done = True
-
-            # end sim on timeout
-            if no_change_count == liveness_threshold:
-                if trace_file != "":
-                    sim.flush_vcd_trace()
-                    sim.stop_vcd_trace()
-                raise Exception(
-                    "Error in simulation! Takes too long to produce output. "
-                    "Consider setting the LIVENESS_THRESHOLD env.var. to a "
-                    "larger value."
-                )
-
-        if trace_file != "":
-            sim.flush_vcd_trace()
-            sim.stop_vcd_trace()
+        total_cycle_count = rtlsim_multi_io(sim, io_dict, num_out_values, trace_file)
+        self.set_nodeattr("sim_cycles", total_cycle_count)
 
     def execute_node(self, context, graph):
         """Executes single node using cppsim or rtlsim."""
