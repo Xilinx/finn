@@ -27,12 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-import pkg_resources as pk
 
 import brevitas.onnx as bo
-import numpy as np
-import pytest
-import finn.core.onnx_exec as oxe
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.core.modelwrapper import ModelWrapper
@@ -45,16 +41,13 @@ from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.custom_op.registry import getCustomOp
+from finn.transformation.infer_data_layouts import InferDataLayouts
+import finn.core.data_layout as DataLayout
 
 export_onnx_path_cnv = "test_output_cnv.onnx"
 
 
-@pytest.mark.vivado
-def test_convert_to_hls_layers_cnv_w1a1():
+def test_infer_data_layouts():
     cnv = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path_cnv)
     model = ModelWrapper(export_onnx_path_cnv)
@@ -64,62 +57,57 @@ def test_convert_to_hls_layers_cnv_w1a1():
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
+    model = model.transform(InferDataLayouts())
+
+    assert model.get_tensor_layout("global_in") == DataLayout.NCHW
+    assert model.get_tensor_layout("Conv_0_out0") == DataLayout.NCHW
+    assert model.get_tensor_layout("MaxPool_0_out0") == DataLayout.NCHW
+    assert model.get_tensor_layout("MultiThreshold_6_out0") == DataLayout.NCHW
+    assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
+    assert model.get_tensor_layout("MatMul_0_out0") == DataLayout.NC
+    assert model.get_tensor_layout("global_out") == DataLayout.NC
+
     model = model.transform(LowerConvsToMatMul())
     model = model.transform(MakeMaxPoolNHWC())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(InferDataLayouts())
+
+    assert model.get_tensor_layout("global_in") == DataLayout.NCHW
+    assert model.get_tensor_layout("Transpose_0_out0") == DataLayout.NHWC
+    assert model.get_tensor_layout("Im2Col_0_out0") == DataLayout.NHWC
+    # note: im2col output isn't really NHWC or any other common layout
+    # since the concept of channels changes with lowering... but it is
+    # conceptually close to NHWC since the innermost dim gets multiplied
+    assert model.get_tensor_layout("MatMul_0_out0") == DataLayout.NHWC
+    assert model.get_tensor_layout("Transpose_1_out0") == DataLayout.NCHW
+    assert model.get_tensor_layout("Transpose_2_out0") == DataLayout.NHWC
+    assert model.get_tensor_layout("MaxPoolNHWC_0_out0") == DataLayout.NHWC
+    assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
+    assert model.get_tensor_layout("global_out") == DataLayout.NC
+
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
-    # model.save("golden.onnx")
-    # load one of the test vectors
-    fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
-    input_tensor = np.load(fn)["arr_0"].astype(np.float32)
-    input_tensor = input_tensor / 255
-    assert input_tensor.shape == (1, 3, 32, 32)
-    # generate expected value from streamlined net
-    input_dict = {"global_in": input_tensor}
-    expected_ctx = oxe.execute_onnx(model, input_dict, True)
-    expected = expected_ctx[model.graph.output[0].name]
-
     model = model.transform(to_hls.InferBinaryStreamingFCLayer())
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
-    for node in model.graph.node:
-        if node.op_type == "StreamingFCLayer_Batch":
-            inst = getCustomOp(node)
-            inst.set_nodeattr("mem_mode", "decoupled")
-            mw = inst.get_nodeattr("MW")
-            mh = inst.get_nodeattr("MH")
-            if mh % 4 == 0:
-                pe = mh // 4
-            else:
-                pe = mh
-            inst.set_nodeattr("PE", pe)
-            if mw % 16 == 0:
-                simd = mw // 16
-            else:
-                simd = mw
-            inst.set_nodeattr("SIMD", simd)
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
-    # check topology status
-    finn_nodes = model.get_finn_nodes()
-    assert len(finn_nodes) == 18
-    non_finn_nodes = model.get_non_finn_nodes()
-    assert len(non_finn_nodes) == 4
-    exp_non_finn_nodes = ["Transpose", "Reshape", "Mul", "Add"]
-    assert [x.op_type for x in non_finn_nodes] == exp_non_finn_nodes
-    fc_nodes = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    assert len(fc_nodes) == 9
-    swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator")
-    assert len(swg_nodes) == 6
-    mp_nodes = model.get_nodes_by_op_type("StreamingMaxPool_Batch")
-    assert len(mp_nodes) == 2
-    # model.save("cnv-pre-compile.onnx")
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
-    model = model.transform(SetExecMode("cppsim"))
-    # model.save("cnv-post-compile.onnx")
-    produced_ctx = oxe.execute_onnx(model, input_dict, True)
-    produced = produced_ctx[model.graph.output[0].name]
-    assert np.isclose(expected, produced, atol=1e-3).all()
-    assert np.argmax(produced) == 3
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(InferDataLayouts())
+
+    assert model.get_tensor_layout("global_in") == DataLayout.NCHW
+    assert model.get_tensor_layout("Transpose_0_out0") == DataLayout.NHWC
+    # note: im2col output isn't really NHWC or any other common layout
+    # since the concept of channels changes with lowering... but it is
+    # conceptually close to NHWC since the innermost dim gets multiplied
+    assert (
+        model.get_tensor_layout("ConvolutionInputGenerator_0_out0") == DataLayout.NHWC
+    )
+    assert model.get_tensor_layout("StreamingFCLayer_Batch_3_out0") == DataLayout.NHWC
+    assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
+    assert model.get_tensor_layout("StreamingFCLayer_Batch_6_out0") == DataLayout.NC
+    assert model.get_tensor_layout("global_out") == DataLayout.NC
+
     os.remove(export_onnx_path_cnv)

@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import numpy as np
 
 from onnx import TensorProto, helper
 
@@ -47,59 +46,59 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 
 
-def make_accpool_modelwrapper(ch, pe, idim, idt):
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim, idim, ch])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 1, ch])
+def make_addstreams_modelwrapper(ch, pe, idt):
+    inp1 = helper.make_tensor_value_info("inp1", TensorProto.FLOAT, [1, ch])
+    inp2 = helper.make_tensor_value_info("inp2", TensorProto.FLOAT, [1, ch])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ch])
 
-    accpool_node = helper.make_node(
-        "GlobalAccPool_Batch",
-        ["inp"],
+    addstreams_node = helper.make_node(
+        "AddStreams_Batch",
+        ["inp1", "inp2"],
         ["outp"],
         domain="finn",
         backend="fpgadataflow",
         NumChannels=ch,
         PE=pe,
         inputDataType=idt.name,
-        numInputVectors=[1, idim, idim],
     )
     graph = helper.make_graph(
-        nodes=[accpool_node], name="graph", inputs=[inp], outputs=[outp]
+        nodes=[addstreams_node], name="graph", inputs=[inp1, inp2], outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="thresholding-model")
+    model = helper.make_model(graph, producer_name="addstreams-model")
     model = ModelWrapper(model)
 
-    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("inp1", idt)
+    model.set_tensor_datatype("inp2", idt)
 
     return model
 
 
-def prepare_inputs(input_tensor, idt):
-    return {"inp": input_tensor}
+def prepare_inputs(input1, input2):
+    return {"inp1": input1, "inp2": input2}
 
 
-# data type
-@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.UINT16])
+# data types
+@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.UINT8])
 # channels
-@pytest.mark.parametrize("ch", [64])
+@pytest.mark.parametrize("ch", [1, 64])
 # folding
 @pytest.mark.parametrize("fold", [-1, 2, 1])
-# image dimension
-@pytest.mark.parametrize("imdim", [7])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.vivado
-def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
+def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
     if fold == -1:
         pe = 1
     else:
-        pe = ch // fold
+        pe = max(1, ch // fold)
     assert ch % pe == 0
 
     # generate input data
-    x = gen_finn_dt_tensor(idt, (1, imdim, imdim, ch))
+    x1 = gen_finn_dt_tensor(idt, (1, ch))
+    x2 = gen_finn_dt_tensor(idt, (1, ch))
 
-    model = make_accpool_modelwrapper(ch, pe, imdim, idt)
+    model = make_addstreams_modelwrapper(ch, pe, idt)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -115,9 +114,14 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
     else:
         raise Exception("Unknown exec_mode")
 
-    # prepare input data and execute
-    input_dict = prepare_inputs(x, idt)
-    y = oxe.execute_onnx(model, input_dict)["outp"]
-    expected_y = np.sum(x, axis=(1, 2)).flatten()
+    # prepare input data
+    input_dict = prepare_inputs(x1, x2)
 
-    assert (y == expected_y).all(), exec_mode + " failed"
+    oshape = model.get_tensor_shape("outp")
+    y = x1 + x2
+    y_expected = y.reshape(oshape)
+    # execute model
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    y_produced = y_produced.reshape(y_expected.shape)
+
+    assert (y_produced == y_expected).all(), exec_mode + " failed"
