@@ -86,8 +86,6 @@ class GiveUniqueParameterTensors(Transformation):
     other nodes apart from the one the system is currently operating on."""
 
     def apply(self, model):
-        model_tensor_names = model.get_all_tensor_names()
-
         graph = model.graph
         graph_modified = False
         seen_parameters = []
@@ -106,22 +104,11 @@ class GiveUniqueParameterTensors(Transformation):
                     # first occurance
                     seen_parameters += [node_input]
                     continue
-
-                # Give new name to tensor
-                for trials in range(10):
-                    new_param_name = util.random_string(stringLength=6)
-                    if new_param_name not in model_tensor_names:
-                        break
-                else:
-                    raise Exception(
-                        "Not able to create new tensor name"
-                        + "after 10 trials. Net too big for the random tensor"
-                        + "name lenght chosen? Try larger stringLength?"
-                    )
-
-                model_tensor_names += [new_param_name]
+                    
+                new_param_name = model.make_new_valueinfo_name()
 
                 model.set_initializer(new_param_name, input_init)
+                model.set_tensor_datatype(new_param_name, model.get_tensor_datatype(node_input))
 
                 # point node input to new tensor
                 n.input[input_idx] = new_param_name

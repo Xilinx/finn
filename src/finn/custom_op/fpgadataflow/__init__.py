@@ -109,6 +109,31 @@ class HLSCustomOp(CustomOp):
         )
         return verilog_file
 
+    def get_all_verilog_paths(self):
+        "Return list of all folders containing Verilog code for this node."
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        assert (
+            code_gen_dir != ""
+        ), """Node attribute "code_gen_dir_ipgen" is
+        not set. Please run HLSSynthIP first."""
+        verilog_path = "{}/project_{}/sol1/impl/verilog/".format(
+            code_gen_dir, self.onnx_node.name
+        )
+        # default impl only returns the HLS verilog codegen dir
+        return [verilog_path]
+
+    def get_all_verilog_filenames(self):
+        "Return list of all Verilog files used for this node."
+
+        verilog_files = []
+        verilog_paths = self.get_all_verilog_paths()
+        for verilog_path in verilog_paths:
+            for f in os.listdir(verilog_path):
+                if f.endswith(".v"):
+                    verilog_files += [f]
+        return verilog_files
+
     def prepare_rtlsim(self):
         """Creates a Verilator emulation library for the RTL code generated
         for this node, sets the rtlsim_so attribute to its path and returns
@@ -116,24 +141,15 @@ class HLSCustomOp(CustomOp):
 
         if PyVerilator is None:
             raise ImportError("Installation of PyVerilator is required.")
-        # ensure that code is generated
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        assert (
-            code_gen_dir != ""
-        ), """Node attribute "code_gen_dir_ipgen" is
-        not set. Please run HLSSynthIP first."""
-        verilog_file = self.get_verilog_top_filename()
-        assert os.path.isfile(verilog_file), "Cannot find top-level Verilog file."
+        verilog_paths = self.get_all_verilog_paths()
+        verilog_files = self.get_all_verilog_filenames()
         # build the Verilator emu library
         sim = PyVerilator.build(
-            verilog_file,
+            verilog_files,
             build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=[
-                "{}/project_{}/sol1/impl/verilog/".format(
-                    code_gen_dir, self.onnx_node.name
-                )
-            ],
+            verilog_path=verilog_paths,
             trace_depth=get_rtlsim_trace_depth(),
+            top_module_name=self.get_verilog_top_module_name(),
         )
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)
@@ -336,7 +352,7 @@ compilation transformations?
         sim.io.ap_clk = 1
         sim.io.ap_clk = 0
 
-    def rtlsim(self, sim, inp):
+    def rtlsim(self, sim, inp, inp2=None):
         """Runs the pyverilator simulation by passing the input values to the simulation,
         toggle the clock and observing the execution time. Function contains also an
         observation loop that can abort the simulation if no output value is produced
@@ -368,6 +384,13 @@ compilation transformations?
             sim.io.in0_V_V_TDATA = inputs[0] if len(inputs) > 0 else 0
             if sim.io.in0_V_V_TREADY == 1 and sim.io.in0_V_V_TVALID == 1:
                 inputs = inputs[1:]
+
+            if inp2 is not None:
+                sim.io.in1_V_V_TVALID = 1 if len(inp2) > 0 else 0
+                sim.io.in1_V_V_TDATA = inp2[0] if len(inp2) > 0 else 0
+                if sim.io.in1_V_V_TREADY == 1 and sim.io.in1_V_V_TVALID == 1:
+                    inp2 = inp2[1:]
+
             if sim.io.out_V_V_TVALID == 1 and sim.io.out_V_V_TREADY == 1:
                 outputs = outputs + [sim.io.out_V_V_TDATA]
             sim.io.ap_clk = 1

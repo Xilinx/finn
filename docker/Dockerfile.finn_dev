@@ -95,7 +95,9 @@ RUN echo "source \$VIVADO_PATH/settings64.sh" >> /home/$UNAME/.bashrc
 # copy entrypoint script
 USER root
 COPY docker/finn_entrypoint.sh /usr/local/bin/
+COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
+RUN chmod 755 /usr/local/bin/quicktest.sh
 USER $UNAME
 
 ENTRYPOINT ["finn_entrypoint.sh"]

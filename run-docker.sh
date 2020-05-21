@@ -27,13 +27,27 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# green echo
+gecho () {
+  echo -e "${GREEN}$1${NC}"
+}
+
+# red echo
+recho () {
+  echo -e "${RED}$1${NC}"
+}
+
 if [ -z "$VIVADO_PATH" ];then
-        echo "For correct implementation please set an environment variable VIVADO_PATH that contains the path to your vivado installation directory"
-        exit 1
+        recho "Please set the VIVADO_PATH that contains the path to your Vivado installation directory."
+        recho "FINN functionality depending on Vivado or Vivado HLS will not be available."
 fi
 
 if [ -z "$PYNQ_IP" ];then
-        echo "Please set the PYNQ_IP env.var. to enable PYNQ deployment tests."
+        recho "Please set the PYNQ_IP env.var. to enable PYNQ deployment tests."
 fi
 
 DOCKER_GID=$(id -g)
@@ -74,23 +88,29 @@ VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
 mkdir -p $BUILD_LOCAL
 mkdir -p $VIVADO_IP_CACHE
 
-echo "Instance is named as $DOCKER_INST_NAME"
-echo "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
-echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
-echo "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
-echo "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
-echo "Vivado IP cache dir is at $VIVADO_IP_CACHE"
-echo "Using default PYNQ board $PYNQ_BOARD"
+gecho "Instance is named as $DOCKER_INST_NAME"
+gecho "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
+gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
+gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
+gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
+gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
+gecho "Using default PYNQ board $PYNQ_BOARD"
+
+DOCKER_INTERACTIVE = ""
 
 if [ "$1" = "test" ]; then
-        echo "Running test suite"
+        gecho "Running test suite (all tests)"
         DOCKER_CMD="python setup.py test"
+elif [ "$1" = "quicktest" ]; then
+        gecho "Running test suite (non-Vivado, non-slow tests)"
+        DOCKER_CMD="quicktest.sh"
 elif [ "$1" = "notebook" ]; then
-        echo "Running Jupyter notebook server"
+        gecho "Running Jupyter notebook server"
         DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
 else
-        echo "Running container only"
+        gecho "Running container only"
         DOCKER_CMD="bash"
+        DOCKER_INTERACTIVE="-it"
 fi
 
 # Build the FINN Docker image
@@ -106,7 +126,7 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-docker run -t --rm --name $DOCKER_INST_NAME -it --init \
+docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --init \
 --hostname $DOCKER_INST_NAME \
 -e "XILINX_VIVADO=$VIVADO_PATH" \
 -e "SHELL=/bin/bash" \
