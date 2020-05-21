@@ -539,6 +539,17 @@ class MoveMaxPoolPastMultiThreshold(Transformation):
             if n.op_type == "MaxPool" and not model.is_fork_node(n):
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MultiThreshold":
+                    is_signed = True
+                    for attr in consumer.attribute:
+                        if (
+                            attr.name == "out_dtype"
+                            and len(attr.s) >= 5
+                            and attr.s[:4] == b"UINT"
+                        ):
+                            is_signed = False
+
+                    if is_signed:
+                        continue
 
                     # remove old nodes
                     graph.node.remove(n)
