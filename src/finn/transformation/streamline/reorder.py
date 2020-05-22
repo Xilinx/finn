@@ -34,12 +34,11 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.core.onnx_exec import execute_node
 from finn.util.basic import get_by_name
 
-def is_scalar(x):
-    return np.prod(x.shape) == 1
 
 class MoveAddPastMul(Transformation):
-    """Move add operations past multiply operations. The aim is to have them
-    next to each other such that they can be collapsed into a single add."""
+    """Move add operations past multiply operations on linear segments of the graph.
+    The aim is to have them next to each other such that they can be collapsed into
+    a single add."""
 
     def apply(self, model):
         graph = model.graph
@@ -47,9 +46,17 @@ class MoveAddPastMul(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Add":
+            if (
+                n.op_type == "Add"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
                 consumer = model.find_consumer(n.output[0])
-                if consumer is not None and consumer.op_type == "Mul":
+                if (
+                    consumer is not None
+                    and consumer.op_type == "Mul"
+                    and not model.is_join_node(consumer)
+                ):
                     # have: (x) -> add(,B) -> (x+B) -> mul(,A) -> (xA+BA)
                     # want: (x) -> mul(,A) -> (xA) -> add(,BA) -> (xA+BA)
                     # assume input 0 is from the previous layer, input 1 is the
@@ -65,12 +72,16 @@ class MoveAddPastMul(Transformation):
                     end_name = consumer.output[0]
                     # compute new param value for add
                     BA = B * A
+
                     # make and insert new nodes
                     new_mul = oh.make_node(
-                        "Mul", [start_name, mul_weight_name], [middle_name]
+                        "Mul",
+                        [start_name, mul_weight_name],
+                        [middle_name],
+                        name=consumer.name,
                     )
                     new_add = oh.make_node(
-                        "Add", [middle_name, add_weight_name], [end_name]
+                        "Add", [middle_name, add_weight_name], [end_name], name=n.name
                     )
                     graph.node.insert(node_ind, new_mul)
                     graph.node.insert(node_ind + 1, new_add)
@@ -80,6 +91,7 @@ class MoveAddPastMul(Transformation):
                     graph.node.remove(n)
                     graph.node.remove(consumer)
                     graph_modified = True
+
         model = model.transform(InferShapes())
         return (model, graph_modified)
 
@@ -94,9 +106,17 @@ class MoveScalarMulPastMatMul(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Mul":
+            if (
+                n.op_type == "Mul"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
                 consumer = model.find_consumer(n.output[0])
-                if consumer is not None and consumer.op_type == "MatMul":
+                if (
+                    consumer is not None
+                    and consumer.op_type == "MatMul"
+                    and not model.is_join_node(consumer)
+                ):
                     mul_weight_name = n.input[1]
                     matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
@@ -111,10 +131,16 @@ class MoveScalarMulPastMatMul(Transformation):
                         # if the mul is scalar, we can simply swap the order of ops
                         # make and insert new nodes
                         new_matmul = oh.make_node(
-                            "MatMul", [start_name, matmul_weight_name], [middle_name]
+                            "MatMul",
+                            [start_name, matmul_weight_name],
+                            [middle_name],
+                            name=consumer.name,
                         )
                         new_mul = oh.make_node(
-                            "Mul", [middle_name, mul_weight_name], [end_name]
+                            "Mul",
+                            [middle_name, mul_weight_name],
+                            [end_name],
+                            name=n.name,
                         )
                         graph.node.insert(node_ind, new_matmul)
                         graph.node.insert(node_ind + 1, new_mul)
@@ -137,9 +163,17 @@ class MoveScalarAddPastMatMul(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Add":
+            if (
+                n.op_type == "Add"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
                 consumer = model.find_consumer(n.output[0])
-                if consumer is not None and consumer.op_type == "MatMul":
+                if (
+                    consumer is not None
+                    and consumer.op_type == "MatMul"
+                    and not model.is_join_node(consumer)
+                ):
                     add_weight_name = n.input[1]
                     matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(add_weight_name)
@@ -157,10 +191,16 @@ class MoveScalarAddPastMatMul(Transformation):
                         # update the add weight
                         model.set_initializer(add_weight_name, Anew)
                         new_matmul = oh.make_node(
-                            "MatMul", [start_name, matmul_weight_name], [middle_name]
+                            "MatMul",
+                            [start_name, matmul_weight_name],
+                            [middle_name],
+                            name=consumer.name,
                         )
                         new_add = oh.make_node(
-                            "Add", [middle_name, add_weight_name], [end_name]
+                            "Add",
+                            [middle_name, add_weight_name],
+                            [end_name],
+                            name=n.name,
                         )
                         graph.node.insert(node_ind, new_matmul)
                         graph.node.insert(node_ind + 1, new_add)
@@ -183,9 +223,17 @@ class MoveScalarAddPastConv(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Add":
+            if (
+                n.op_type == "Add"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
                 consumer = model.find_consumer(n.output[0])
-                if consumer is not None and consumer.op_type == "Conv":
+                if (
+                    consumer is not None
+                    and consumer.op_type == "Conv"
+                    and not model.is_join_node(consumer)
+                ):
                     conv_node = consumer
                     add_node = n
                     add_weight_name = n.input[1]
@@ -240,9 +288,17 @@ class MoveScalarMulPastConv(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Mul":
+            if (
+                n.op_type == "Mul"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
                 consumer = model.find_consumer(n.output[0])
-                if consumer is not None and consumer.op_type == "Conv":
+                if (
+                    consumer is not None
+                    and consumer.op_type == "Conv"
+                    and not model.is_join_node(consumer)
+                ):
                     mul_weight_name = n.input[1]
                     A = model.get_initializer(mul_weight_name)
                     assert A is not None, "Initializer for mul weights is not set."
@@ -273,12 +329,12 @@ class MoveScalarMulPastConv(Transformation):
         return (model, graph_modified)
 
 
-class MoveScalarLinearPastEltwiseAdd(Transformation):
-    """Move scalar linear operations (mul, add) past elementwise add operations where possible. Specifically,
-       matches and transforms the following patterns:
+class MoveLinearPastEltwiseAdd(Transformation):
+    """Move linear operations (mul, add) past elementwise add operations where possible.
+       Specifically,matches and transforms the following patterns:
        (x*C) + (y*C) -> (x + y) * C
        (x+A) + (y+B) -> (x + y) + (A + B)
-       where x and y are dynamic inputs, A, B, C are constants.
+       where x and y are dynamic inputs, A, B, C are constant tensors (in general).
     """
 
     def move_node(self, graph, n, prod0, prod1, node_ind):
@@ -305,7 +361,8 @@ class MoveScalarLinearPastEltwiseAdd(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
-        for n in graph.node:
+        nodes = [n for n in graph.node]
+        for n in nodes:
             node_ind += 1
             if n.op_type == "Add":
                 # check for tensors on both inputs (eltwise add)
@@ -321,16 +378,15 @@ class MoveScalarLinearPastEltwiseAdd(Transformation):
                 # check for mul with same initializer on both inputs
                 prod0 = model.find_producer(in0)
                 prod1 = model.find_producer(in1)
-                if prod0 is None or prod1 is None:
+                # Also check case when both branches are empty and come
+                # from the same node: (prod0 == prod1)
+                # Other transform should handle that
+                if prod0 is None or prod1 is None or (prod0 == prod1):
                     continue
                 init0 = model.get_initializer(prod0.input[1])
                 init1 = model.get_initializer(prod1.input[1])
                 # if either initializer is None, skip
                 if init0 is None or init1 is None:
-                    continue
-                # if either initializer is non-scalar, skip
-                # TODO relax this to 1D tensors?
-                if (not is_scalar(init0)) or (not is_scalar(init1)):
                     continue
                 if prod0.op_type == "Mul" and prod1.op_type == "Mul":
                     if np.array_equal(init0, init1):
