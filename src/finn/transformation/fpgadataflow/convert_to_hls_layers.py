@@ -33,6 +33,7 @@ from finn.transformation import Transformation
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
+import finn.core.data_layout as DataLayout
 
 
 class InferConvInpGen(Transformation):
@@ -394,6 +395,62 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         # remove old node
                         graph.node.remove(n)
                         graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferThresholdingLayer(Transformation):
+    """Convert any MultiThreshold into a standalone thresholding HLS layer."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "MultiThreshold":
+                thl_input = node.input[0]
+                thl_threshold = node.input[1]
+                thl_output = node.output[0]
+                thl_in_shape = model.get_tensor_shape(thl_input)
+                idt = model.get_tensor_datatype(thl_input)
+
+                # skip conversion for layers with float input
+                if not idt.is_integer():
+                    continue
+
+                # skip conversion if input is not NHWC or NC
+                thl_in_layout = model.get_tensor_layout(thl_input)
+                if thl_in_layout != DataLayout.NHWC and thl_in_layout != DataLayout.NC:
+                    continue
+
+                # now safe to assume number of channels is in last dimension
+                ifc = int(thl_in_shape[-1])
+                # create node with no parallelization first
+                pe = 1
+                assert ifc % pe == 0, "Requirement IFC divisable by PE is violated."
+
+                odt = model.get_tensor_datatype(thl_output)
+                # create and insert new StreamingFCLayer node
+                new_node = helper.make_node(
+                    "Thresholding_Batch",
+                    [thl_input, thl_threshold],
+                    [thl_output],
+                    domain="finn",
+                    backend="fpgadataflow",
+                    NumChannels=ifc,
+                    PE=pe,
+                    inputDataType=idt.name,
+                    outputDataType=odt.name,
+                    numInputVectors=list(thl_in_shape[:-1]),
+                )
+                graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
