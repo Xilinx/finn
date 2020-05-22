@@ -259,11 +259,10 @@ class ModelWrapper:
 
     def find_producer(self, tensor_name):
         """Finds and returns the node that produces the tensor with given name."""
-        ret = None
         for x in self._model_proto.graph.node:
             if tensor_name in x.output:
-                ret = x
-        return ret
+                return x
+        return None
 
     def find_upstream(self, tensor_name, finder_fxn):
         """Follow the producer chain upstream, calling finder_fxn on each upstream
