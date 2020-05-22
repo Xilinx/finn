@@ -17,7 +17,7 @@ def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
     return thres
 
 
-def test_move_past_fork():
+def test_move_maxpool_past_multithreshold():
     # generate test vectors of correct shape
     ch = 64
     ifmdim = 16
