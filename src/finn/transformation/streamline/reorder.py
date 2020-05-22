@@ -246,10 +246,9 @@ class MoveScalarAddPastConv(Transformation):
                     conv_out_shape = model.get_tensor_shape(end_name)
 
                     using_padding = True
-                    for att_idx, attr in enumerate(consumer.attribute):
-                        if attr.name == "pads":
-                            if sum(attr.ints) == 0:
-                                using_padding = False
+                    pads = list(get_by_name(consumer.attribute, "pads").ints)
+                    if sum(pads) == 0:
+                        using_padding = False
                     if all(x == 1 for x in A.shape) and not using_padding:
                         # create a tensor filled with the add constant, in
                         # the shape expected by the convolution
