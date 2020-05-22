@@ -53,7 +53,7 @@ def test_move_maxpool_past_multithreshold():
             ["t2"],
             domain="finn",
             out_dtype="BIPOLAR",
-            out_bias=-3.0,
+            out_bias=-1.0,
             out_scale_f=1.0,
         )
     ]
