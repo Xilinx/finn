@@ -244,7 +244,12 @@ class MoveScalarAddPastConv(Transformation):
                     start_name = n.input[0]
                     end_name = consumer.output[0]
                     conv_out_shape = model.get_tensor_shape(end_name)
-                    if all(x == 1 for x in A.shape):
+
+                    using_padding = True
+                    pads = list(get_by_name(consumer.attribute, "pads").ints)
+                    if sum(pads) == 0:
+                        using_padding = False
+                    if all(x == 1 for x in A.shape) and not using_padding:
                         # create a tensor filled with the add constant, in
                         # the shape expected by the convolution
                         conv_in_const = np.zeros(conv_in_shape, dtype=np.float32)
@@ -256,7 +261,8 @@ class MoveScalarAddPastConv(Transformation):
                         execute_node(conv_node, exec_ctx, model.graph)
                         # retrieve the conv output
                         Anew = exec_ctx[end_name]
-                        # strip out repetition
+
+                        # strip out repetition if no padding
                         Anew = Anew[0, :, 0, 0].reshape(1, -1, 1, 1)
                         # update the add weight
                         model.set_initializer(add_weight_name, Anew)
@@ -274,6 +280,7 @@ class MoveScalarAddPastConv(Transformation):
                         graph.node.remove(add_node)
                         graph.node.insert(node_ind, add_node)
                         graph_modified = True
+
         model = model.transform(InferShapes())
         return (model, graph_modified)
 
