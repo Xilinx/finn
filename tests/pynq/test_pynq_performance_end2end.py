@@ -10,11 +10,10 @@ from finn.core.throughput_test import throughput_test
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 
 
-@pytest.mark.vivado
-@pytest.mark.slow
-def test_pynq_performance_tfc_w1a1():
+@pytest.mark.parametrize("end2end_example", ["tfc_w1a1", "cnv_w1a1"])
+def test_pynq_performance_end2end(end2end_example):
     model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_tfc_w1a1_pynq_deploy.onnx"
+        build_dir + "/end2end_%s_pynq_deploy.onnx" % end2end_example
     )
     try:
         ip = os.environ["PYNQ_IP"]  # NOQA
@@ -31,7 +30,7 @@ def test_pynq_performance_tfc_w1a1():
         y = [ret[key]["runtime[ms]"] for key in bsize_range]
         lrret = linregress(bsize_range, y)
         ret_str = ""
-        ret_str += "\n" + "TFC-w1a1 Throughput Test Results"
+        ret_str += "\n" + "%s Throughput Test Results" % end2end_example
         ret_str += "\n" + "-----------------------------"
         ret_str += "\n" + "From linear regression:"
         ret_str += "\n" + "Invocation overhead: %f ms" % lrret.intercept
