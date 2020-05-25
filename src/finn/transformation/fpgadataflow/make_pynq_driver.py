@@ -107,6 +107,13 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", mss(o_tensor_shape_folded))
         driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
 
+        # clock settings for driver
+        clk_ns = float(model.get_metadata_prop("clk_ns"))
+        fclk_mhz = 1 / (clk_ns * 0.001)
+        # TODO change according to PYNQ board?
+        driver = driver.replace("$CLK_NAME$", "fclk0_mhz")
+        driver = driver.replace("$CLOCK_FREQ_MHZ$", str(fclk_mhz))
+
         with open(driver_py, "w") as f:
             f.write(driver)
         # copy all the dependencies into the driver folder

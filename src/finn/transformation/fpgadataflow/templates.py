@@ -119,8 +119,12 @@ class FINNAccelDriver():
         self.oshape_folded = $OUTPUT_SHAPE_FOLDED$
         self.ishape_packed = $INPUT_SHAPE_PACKED$   # datatype np.uint8
         self.oshape_packed = $OUTPUT_SHAPE_PACKED$  # datatype np.uint8
+        # clock frequency
+        self.fclk_mhz = $CLOCK_FREQ_MHZ$
         # load bitfile and set up accelerator
         self.ol = Overlay(bitfile)
+        # set the clock frequency as specified by user during transformations
+        Clocks.$CLK_NAME$ = self.fclk_mhz
         self.dma = self.ol.axi_dma_0
         self.ctrl_regs = self.ol.resize_accel_0
         # neuron folding factor of output = iterations per sample
