@@ -101,6 +101,7 @@ from finn.util.data_packing import (
     packed_bytearray_to_finnpy
 )
 from finn.core.datatype import DataType
+from pynq.ps import Clocks
 
 class FINNAccelDriver():
     def __init__(self, N, bitfile):
@@ -228,6 +229,8 @@ if __name__ == "__main__":
         res["throughput[images/s]"] = N / runtime
         res["DRAM_in_bandwidth[Mb/s]"] = np.prod(finnDriver.ishape_packed)*0.000001 / runtime
         res["DRAM_out_bandwidth[Mb/s]"] = np.prod(finnDriver.oshape_packed)*0.000001 / runtime
+        res["fclk[mhz]"] = Clocks.fclk0_mhz
+        res["N"] = N
         file = open("nw_metrics.txt", "w")
         file.write(str(res))
         file.close()
