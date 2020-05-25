@@ -30,7 +30,7 @@ import os
 import subprocess
 
 
-def throughput_test(model):
+def throughput_test(model, batchsize=1000):
     """Runs the throughput test for the given model remotely on the pynq board.
     The metadata properties related to the pynq board have to be set.
     Returns a dictionary with results of the throughput test"""
@@ -47,7 +47,8 @@ def throughput_test(model):
     cmd = (
         "sshpass -p {} ssh {}@{} -p {} "
         '"cd {}/{}; echo "{}" | '
-        'sudo -S python3.6 driver.py --exec_mode="throughput_test" --batchsize=1000"'
+        'sudo -S python3.6 driver.py --exec_mode="throughput_test" --batchsize=%d"'
+        % batchsize
     ).format(
         pynq_password,
         pynq_username,
