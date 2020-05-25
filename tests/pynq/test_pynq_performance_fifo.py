@@ -54,7 +54,7 @@ def make_single_fifo_modelwrapper(Shape, Depth, fld_shape, finn_dtype):
 
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_pynq_fifo_performance():
+def test_pynq_performance_fifo():
     try:
         ip = os.environ["PYNQ_IP"]  # NOQA
         board = os.environ["PYNQ_BOARD"]  # NOQA
