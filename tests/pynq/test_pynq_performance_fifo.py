@@ -17,7 +17,7 @@ from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 import finn.transformation.fpgadataflow.replace_verilog_relpaths as rvp
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import pynq_part_map
+from finn.util.basic import pynq_part_map, pynq_native_port_width
 from finn.core.throughput_test import throughput_test
 from scipy.stats import linregress
 import warnings
@@ -60,8 +60,9 @@ def test_pynq_performance_fifo():
         board = os.environ["PYNQ_BOARD"]  # NOQA
         if ip == "" or board == "":
             pytest.skip("PYNQ board or IP address not specified")
-        shape = (1, 128)
-        folded_shape = (1, 1, 128)
+        fifo_width = pynq_native_port_width[board]
+        shape = (1, fifo_width)
+        folded_shape = (1, 1, fifo_width)
         depth = 16
         clk_ns = 10
         dtype = DataType.BIPOLAR
@@ -86,7 +87,7 @@ def test_pynq_performance_fifo():
         ret = dict()
         # try a range of batch sizes, some may fail due to insufficient DMA
         # buffers
-        bsize_range_in = [2 ** i for i in range(16)]
+        bsize_range_in = [2 ** i for i in range(20)]
         bsize_range = []
         for bsize in bsize_range_in:
             res = throughput_test(model, bsize)
