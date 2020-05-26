@@ -84,11 +84,18 @@ def test_pynq_performance_fifo():
         model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
 
         ret = dict()
-        bsize_range = [1, 10, 100, 1000, 10000, 100000]
-        for bsize in bsize_range:
+        # try a range of batch sizes, some may fail due to insufficient DMA
+        # buffers
+        bsize_range_in = [2 ** i for i in range(16)]
+        bsize_range = []
+        for bsize in bsize_range_in:
             res = throughput_test(model, bsize)
-            assert res is not None
-            ret[bsize] = res
+            if res is not None:
+                ret[bsize] = res
+                bsize_range.append(bsize)
+            else:
+                # assume we reached largest possible N
+                break
 
         y = [ret[key]["runtime[ms]"] for key in bsize_range]
         lrret = linregress(bsize_range, y)
