@@ -33,7 +33,8 @@ import subprocess
 def throughput_test(model, batchsize=1000):
     """Runs the throughput test for the given model remotely on the pynq board.
     The metadata properties related to the pynq board have to be set.
-    Returns a dictionary with results of the throughput test"""
+    Returns a dictionary with results of the throughput test. Returns None
+    if the test fails."""
 
     pynq_ip = model.get_metadata_prop("pynq_ip")
     pynq_port = int(model.get_metadata_prop("pynq_port"))
@@ -62,6 +63,12 @@ def throughput_test(model, batchsize=1000):
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
 
+    # remove any pre-existing metrics file
+    try:
+        os.remove("{}/nw_metrics.txt".format(deployment_dir))
+    except FileNotFoundError:
+        pass
+
     cmd = "sshpass -p {} scp -P{} {}@{}:{}/{}/nw_metrics.txt {}".format(
         pynq_password,
         pynq_port,
@@ -75,7 +82,9 @@ def throughput_test(model, batchsize=1000):
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
 
-    with open("{}/nw_metrics.txt".format(deployment_dir), "r") as file:
-        res = eval(file.read())
-
-    return res
+    try:
+        with open("{}/nw_metrics.txt".format(deployment_dir), "r") as file:
+            res = eval(file.read())
+        return res
+    except FileNotFoundError:
+        return None

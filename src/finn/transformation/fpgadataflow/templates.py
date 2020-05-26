@@ -209,7 +209,10 @@ if __name__ == "__main__":
     if exec_mode == "execute":
         # remove old output file to prevent reusing old output
         # in case execution fails
-        os.remove(outputfile)
+        try:
+            os.remove(outputfile)
+        except FileNotFoundError:
+            pass
         # load desired input .npy file
         ibuf_normal = np.load(inputfile)
         ibuf_folded = finnDriver.fold_input(ibuf_normal)
@@ -221,11 +224,14 @@ if __name__ == "__main__":
     # for the throughput test the runtime of the network has to be measured
     if exec_mode == "throughput_test":
         # remove old metrics file
-        os.remove("nw_metrics.txt")
-        # measure runtime of network
-        start = time.time()
+        try:
+            os.remove("nw_metrics.txt")
+        except FileNotFoundError:
+            pass
         # dictionary for results of throughput test
         res={}
+        # measure runtime of network
+        start = time.time()
 
     # execute accelerator
     finnDriver.execute()
