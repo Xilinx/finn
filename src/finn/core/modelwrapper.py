@@ -530,16 +530,16 @@ class ModelWrapper:
         qnt_annotations = graph.quantization_annotation
         ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
         if ret is not None:
-            ret_tl = util.get_by_name(
+            ret_ts = util.get_by_name(
                 ret.quant_parameter_tensor_names, "tensor_sparsity", "key"
             )
-            if ret_tl is not None:
-                ret_tl.value = str(sparsity_dict)
+            if ret_ts is not None:
+                ret_ts.value = str(sparsity_dict)
             else:
-                tl = onnx.StringStringEntryProto()
-                tl.key = "tensor_sparsity"
-                tl.value = str(sparsity_dict)
-                ret.quant_parameter_tensor_names.append(tl)
+                ts = onnx.StringStringEntryProto()
+                ts.key = "tensor_sparsity"
+                ts.value = str(sparsity_dict)
+                ret.quant_parameter_tensor_names.append(ts)
         else:
             qa = onnx.TensorAnnotation()
             dt = onnx.StringStringEntryProto()
