@@ -91,7 +91,7 @@ cd %s
 
 pynq_driver_template = """
 import argparse
-
+import os
 from pynq import Overlay
 import numpy as np
 from pynq import allocate
@@ -207,6 +207,12 @@ if __name__ == "__main__":
     # for the remote execution the data from the input npy file has to be loaded,
     # packed and copied to the PYNQ buffer
     if exec_mode == "execute":
+        # remove old output file to prevent reusing old output
+        # in case execution fails
+        try:
+            os.remove(outputfile)
+        except FileNotFoundError:
+            pass
         # load desired input .npy file
         ibuf_normal = np.load(inputfile)
         ibuf_folded = finnDriver.fold_input(ibuf_normal)
@@ -217,10 +223,15 @@ if __name__ == "__main__":
 
     # for the throughput test the runtime of the network has to be measured
     if exec_mode == "throughput_test":
-        # measure runtime of network
-        start = time.time()
+        # remove old metrics file
+        try:
+            os.remove("nw_metrics.txt")
+        except FileNotFoundError:
+            pass
         # dictionary for results of throughput test
         res={}
+        # measure runtime of network
+        start = time.time()
 
     # execute accelerator
     finnDriver.execute()
