@@ -79,6 +79,7 @@ class Im2Col(CustomOp):
             "input_shape": ("s", True, ""),
             "pad_amount": ("i", False, 0),
             "pad_value": ("i", False, 0),
+            "dw": ("i", False, 0),
         }
 
     def make_shape_compatible_op(self, model):
