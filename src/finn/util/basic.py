@@ -43,6 +43,13 @@ pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
 pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
 
+# native AXI HP port width (in bits) for PYNQ boards
+pynq_native_port_width = dict()
+pynq_native_port_width["Pynq-Z1"] = 64
+pynq_native_port_width["Pynq-Z2"] = 64
+pynq_native_port_width["Ultra96"] = 128
+pynq_native_port_width["ZCU104"] = 128
+
 
 def get_rtlsim_trace_depth():
     """Return the trace depth for rtlsim via PyVerilator. Controllable
