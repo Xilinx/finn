@@ -79,6 +79,12 @@ def remote_exec(model, execution_context):
     bash_command = ["/bin/bash", "-c", cmd]
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
+    # remove stale output file from local dir, if any
+    try:
+        os.remove("{}/output.npy".format(deployment_dir))
+    except FileNotFoundError:
+        pass
+    # copy generated output to local
     cmd = "sshpass -p {} scp -P{} {}@{}:{}/{}/output.npy {}".format(
         pynq_password,
         pynq_port,
