@@ -76,7 +76,7 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
-target_clk_ns = 5
+target_clk_ns = 10
 mem_mode = "decoupled"
 
 
