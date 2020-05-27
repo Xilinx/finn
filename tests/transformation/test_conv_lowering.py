@@ -43,6 +43,7 @@ from finn.transformation.double_to_single_float import DoubleToSingleFloat
 import finn.core.onnx_exec as oxe
 from finn.custom_op.im2col import compute_conv_output_dim
 from finn.util.basic import gen_finn_dt_tensor
+from finn.custom_op.registry import getCustomOp
 
 export_onnx_path = "test_output_cnv.onnx"
 
@@ -71,7 +72,6 @@ def test_conv_lowering_cnv_w1a1():
     os.remove(export_onnx_path)
 
 
-# @pytest.mark.parametrize
 def test_depthwise_conv_lowering():
     idt = odt = wdt = DataType.INT4
     k = 3
@@ -125,3 +125,8 @@ def test_depthwise_conv_lowering():
     output_dict = oxe.execute_onnx(model, input_dict)
     produced = output_dict["outp"]
     assert (produced == expected).all()
+
+    # check if created nodes have attributes that indicate depthwise conv
+    assert model.get_tensor_sparsity("W") is not None
+    im2col_node = getCustomOp(model.graph.node[1])
+    assert im2col_node.get_nodeattr("dw") == 1
