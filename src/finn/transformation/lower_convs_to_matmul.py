@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-from scipy import sparse
 from onnx import TensorProto
 from onnx import helper
 
@@ -64,39 +63,23 @@ class LowerConvsToMatMul(Transformation):
                 ifm_dim = model.get_tensor_shape(n.input[0])[-1]  # assume NCHW
                 ofm_dim = model.get_tensor_shape(n.output[0])[-1]  # assume NCHW
 
-                if group == 1:
-                    # reuse conv weights for new matmul weights
-                    # conv weights are [OFM][IFM][k][k]
-                    # first convert to [OFM][k][k][IFM] (to remain compatible with
-                    # finn-hlslib and how it does im2col/sliding window)
-                    W_matmul = W_conv.transpose(0, 2, 3, 1)
-                    # reshape into [OFM][k*k*IFM] matrix
-                    W_matmul = W_matmul.reshape(ofm_ch, ifm_ch * k * k)
-                    # transpose to get ONNX-compatible [k*k*IFM][OFM] matrix
-                    W_matmul = W_matmul.T
-                    model.set_initializer(weight_name, W_matmul)
-                elif group == ifm_ch and ofm_ch == ifm_ch:
-                    W_matmul = W_conv.transpose(0, 2, 3, 1)
-                    # reshape into [OFM][k*k*IFM] matrix
-                    W_matmul = W_matmul.reshape(ofm_ch, 1 * k * k)
-                    # transpose to get ONNX-compatible [1*k*k][OFM] matrix
-                    W_matmul = W_matmul.T
-                    # create sparse matrix with shape [k*k*IFM][OFM]
-                    inds = []
-                    for i in range(k * k):
-                        for ch in range(ifm_ch):
-                            inds.append(ch)
-                    inds = np.array(inds)
-                    index = np.arange(len(W_matmul.flatten()))
-                    W_sparse = sparse.csc_matrix(
-                        (W_matmul.flatten(), (inds, index)),
-                        shape=(ofm_ch, ifm_ch * k * k),
-                    )
-                    W_sparse = W_sparse.toarray().T
-                    model.set_initializer(weight_name, W_sparse)
+                # if depthwise conv create sparse matrix
+                if group == ifm_ch and ofm_ch == ifm_ch:
+                    W_sparse = np.zeros((ofm_ch, ifm_ch, k, k))
+                    for ch in range(ifm_ch):
+                        W_sparse[ch][ch] = W_conv[ch][0]
+                    W_conv = W_sparse.astype(np.float32)
 
-                else:
-                    raise Exception("Settings for convolution layer not yet supported.")
+                # reuse conv weights for new matmul weights
+                # conv weights are [OFM][IFM][k][k]
+                # first convert to [OFM][k][k][IFM] (to remain compatible with
+                # finn-hlslib and how it does im2col/sliding window)
+                W_matmul = W_conv.transpose(0, 2, 3, 1)
+                # reshape into [OFM][k*k*IFM] matrix
+                W_matmul = W_matmul.reshape(ofm_ch, ifm_ch * k * k)
+                # transpose to get ONNX-compatible [k*k*IFM][OFM] matrix
+                W_matmul = W_matmul.T
+                model.set_initializer(weight_name, W_matmul)
 
                 # create new intermediate values
                 inp_trans_out = helper.make_tensor_value_info(
