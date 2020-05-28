@@ -45,7 +45,7 @@ class InferConvInpGen(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Im2Col":
+            if n.op_type == "Im2Col" and not getCustomOp(n).get_nodeattr("dw"):
                 i2c_input = n.input[0]
                 i2c_output = n.output[0]
                 i2c_in_shape = model.get_tensor_shape(i2c_input)
@@ -282,7 +282,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "MatMul":
+            if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is None:
                 mm_input = n.input[0]
                 mm_weight = n.input[1]
                 mm_output = n.output[0]
