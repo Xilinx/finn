@@ -307,7 +307,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         node = self.onnx_node
         ram_style = self.get_nodeattr("ram_style")
         map_to_hls_ram_style = {
-            "auto": "ap_resource_lutram()",
+            "auto": "ap_resource_dflt()",
             "block": "ap_resource_bram()",
             "distributed": "ap_resource_lutram()",
             "ultra": "ap_resource_uram()",
@@ -364,17 +364,3 @@ class ConvolutionInputGenerator(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
-
-    def ipgen_extra_directives(self):
-        # add directive to control input buffer memory resources
-        ram_style = self.get_nodeattr("ram_style")
-        map_to_hls_ram_style = {
-            "auto": "RAM_2P",
-            "block": "RAM_2P_BRAM",
-            "distributed": "RAM_2P_LUTRAM",
-            "ultra": "RAM_2P_URAM",
-        }
-        hls_ram_style = map_to_hls_ram_style[ram_style]
-        directive = "set_directive_resource -core %s " % hls_ram_style
-        directive += "ConvolutionInputGenerator inputBuf"
-        return [directive]
