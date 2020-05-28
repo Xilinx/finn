@@ -120,25 +120,25 @@ class GiveUniqueParameterTensors(Transformation):
 
 
 class SortGraph(Transformation):
-    """ Returns the model with its nodThis transformation re sorted topologically
-
-
-    Performance:
-        test file: tests/transformation/test_sort_graph.py (in main)
-
-        The Algorithm doesn't move initializers so it's should only depend on
-        the number of nodes
-
-        Relative order of magnitudes:
-            - Gather graph structure:       Base
-            - Sort nodes:                   -1 (one order of mag. below)
-            - Remove and insert in order :  -2
-
-    Notes:
-        Remove nodes and insert them in order:
-          Probably this is faster than copying initializers and more robust in general
-
+    """ Returns the model with its node list sorted topologically.
+    Any ONNX graph to be executed must have a topologically sorted node list, as dictated
+    by the ONNX standard.
     """
+    
+    # Notes on SortGraph performance:
+    #         benchmark in  tests/transformation/test_sort_graph.py
+    # 
+    #         The algorithm doesn't move initializers so its performance should only depend on
+    #         the number of nodes
+    # 
+    #         Relative order of magnitudes for time per step:
+    #             - Gather graph structure:       base
+    #             - Sort nodes:                   0.1 of base
+    #             - Remove and insert in order :  0.001 of base
+    # 
+    #     Notes:
+    #         Remove nodes and insert them in order:
+    #           Probably this is faster than copying initializers and more robust in general
 
     def apply(self, model):
         # Gather graph structure
