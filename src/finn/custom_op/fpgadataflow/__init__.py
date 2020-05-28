@@ -219,6 +219,7 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
+
         template = self.ipgentcl_template
 
         for key in self.code_gen_dict:
@@ -234,7 +235,7 @@ class HLSCustomOp(CustomOp):
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
         return []
-
+        
     def ipgen_singlenode_code(self):
         """Builds the bash script for ip generation using the IPGenBuilder from
         finn.util.fpgadataflow."""

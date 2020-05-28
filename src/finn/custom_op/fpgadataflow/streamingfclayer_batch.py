@@ -513,40 +513,44 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         elif mem_mode == "decoupled":
             """Saves weights in corresponding file format for cppsim or rtlsim"""
             # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
-            # and save as unflipped weight tensor to be able to differentiate between
-            # flipped an unflipped weight tensor (has to be flipped for cppsim)
-
             weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
 
-            # flip PE dimension and reverse SIMD flip for saving weights in .npy
-            weight_tensor_flipped = np.flip(weight_tensor_unflipped, axis=-2)
-            weight_tensor_flipped = np.flip(weight_tensor_flipped, axis=-1)
+            # reverse SIMD flip for saving weights in .npy
+            weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
+            # PE flip for saving weights in .dat
+            weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
 
-            # reshape weight tensor (flipped and unflipped) to desired shape
+            # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
-            # unflipped
-            weight_tensor_unflipped = weight_tensor_unflipped.reshape(1, -1, pe * simd)
-            weight_tensor_unflipped = weight_tensor_unflipped.copy()
+            # simd_flipped
+            weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(
+                1, -1, pe * simd
+            )
+            weight_tensor_simd_flipped = weight_tensor_simd_flipped.copy()
             # flipped
-            weight_tensor_flipped = weight_tensor_flipped.reshape(1, -1, pe * simd)
-            weight_tensor_flipped = weight_tensor_flipped.copy()
+            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(
+                1, -1, pe * simd
+            )
+            weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
 
             """Saves weights into .npy file"""
-            np.save(os.path.join(code_gen_dir, "weights.npy"), weight_tensor_flipped)
+            np.save(
+                os.path.join(code_gen_dir, "weights.npy"), weight_tensor_simd_flipped
+            )
 
             """Saves weights into .dat file"""
             # convert weight values into hexstring
             weight_width = self.get_weightstream_width()
             # pad to nearest 4 bits to get hex strings
             weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-            weight_tensor_unflipped = pack_innermost_dim_as_hex_string(
-                weight_tensor_unflipped, export_wdt, weight_width_padded, prefix=""
+            weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+                weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
             )
-            weight_stream_len = np.prod(weight_tensor_unflipped.shape)
+            weight_stream_len = np.prod(weight_tensor_pe_flipped.shape)
             factor = math.ceil(weight_stream_len / 1024)
             # add zeroes to pad out file to 1024 entries
-            weight_stream = weight_tensor_unflipped.flatten()
+            weight_stream = weight_tensor_pe_flipped.flatten()
             pad_amt = (factor * 1024) - weight_stream_len
             weight_stream = np.pad(
                 weight_stream, (0, pad_amt), mode="constant", constant_values="0"
