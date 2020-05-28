@@ -305,10 +305,18 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
     def docompute(self):
         node = self.onnx_node
+        ram_style = self.get_nodeattr("ram_style")
+        map_to_hls_ram_style = {
+            "auto": "ap_resource_lutram()",
+            "block": "ap_resource_bram()",
+            "distributed": "ap_resource_lutram()",
+            "ultra": "ap_resource_uram()",
+        }
+        hls_ram_style = map_to_hls_ram_style[ram_style]
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
-                OFMDim1, SIMD1, Stride1> (in0, out, numReps);""".format(
-                node.op_type
+                OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
+                node.op_type, hls_ram_style
             )
         ]
 
