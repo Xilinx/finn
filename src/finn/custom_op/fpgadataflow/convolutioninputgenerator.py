@@ -60,6 +60,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
+            "depthwise": ("i", False, 0),
             # FPGA resource type for ConvolutionInputGenerator input buffer
             # auto -- let Vivado HLS decide
             # block -- use BRAM
@@ -313,12 +314,20 @@ class ConvolutionInputGenerator(HLSCustomOp):
             "ultra": "ap_resource_uram()",
         }
         hls_ram_style = map_to_hls_ram_style[ram_style]
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
-                OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
-                node.op_type, hls_ram_style
-            )
-        ]
+        if self.get_nodeattr("depthwise") == 1:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}_dws<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
+                    OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
+                    node.op_type, hls_ram_style
+                )
+            ]
+        else:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
+                    OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
+                    node.op_type, hls_ram_style
+                )
+            ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
