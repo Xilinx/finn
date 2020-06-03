@@ -106,7 +106,6 @@ class ConvolutionInputGenerator(HLSCustomOp):
         pad = 0
         ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
         assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        assert k % stride == 0, "stride must divide kernel size k"
         wf = int((k * k * ifm_ch) // simd)
         folded_oshape = (1, ofm_dim, ofm_dim, wf, simd)
         return folded_oshape
@@ -313,10 +312,18 @@ class ConvolutionInputGenerator(HLSCustomOp):
             "ultra": "ap_resource_uram()",
         }
         hls_ram_style = map_to_hls_ram_style[ram_style]
+
+        hls_call = node.op_type
+        # check if non optimized ConvolutionInputGenerator is needed
+        k = self.get_nodeattr("ConvKernelDim")
+        stride = self.get_nodeattr("Stride")
+        if k % stride != 0:
+            hls_call += "_kernel_stride"
+
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
                 OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
-                node.op_type, hls_ram_style
+                hls_call, hls_ram_style
             )
         ]
 
