@@ -126,7 +126,7 @@ def prepare_inputs(input_tensor):
 # input datatype
 @pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
 # kernel size
-@pytest.mark.parametrize("k", [2, 4])
+@pytest.mark.parametrize("k", [2, 3, 4])
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [4, 6, 8])
 # input channels
