@@ -1,0 +1,122 @@
+import pytest
+import os
+import numpy as np
+
+from onnx import TensorProto, helper
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
+from finn.util.basic import gen_finn_dt_tensor
+import finn.core.onnx_exec as oxe
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+
+from finn.util.basic import pynq_part_map
+
+test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+test_fpga_part = pynq_part_map[test_pynq_board]
+target_clk_ns = 10
+
+
+def make_single_fmpadding_modelwrapper(idim, padding, num_ch, idt, pad_style):
+    assert pad_style == 2, "only pad_style == 2 supported in hlslib"
+    assert padding > 0, "Output dim should be greater than input dim"
+    odim = idim + padding
+
+    inp = helper.make_tensor_value_info(
+        "inp", TensorProto.FLOAT, [1, idim, idim, num_ch]
+    )
+    outp = helper.make_tensor_value_info(
+        "outp", TensorProto.FLOAT, [1, odim, odim, num_ch]
+    )
+
+    FMPadding = helper.make_node(
+        "FMPadding_Batch",
+        ["inp"],
+        ["outp"],
+        domain="finn",
+        backend="fpgadataflow",
+        ImgDim=idim,
+        OutputDim=odim,
+        Padding=padding,
+        NumChannels=num_ch,
+        inputDataType=str(idt.name),
+        PaddingStyle=pad_style,
+        numInputVectors=1,
+    )
+
+    graph = helper.make_graph(
+        nodes=[FMPadding], name="fmpadding_graph", inputs=[inp], outputs=[outp]
+    )
+
+    model = helper.make_model(graph, producer_name="fmpadding-model")
+    model = ModelWrapper(model)
+
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", idt)
+
+    return model
+
+
+# input image dimension
+@pytest.mark.parametrize("idim", [8, 16])
+# number of rows and number of cols to add
+@pytest.mark.parametrize("pad", [2, 3])
+# number of channels
+@pytest.mark.parametrize("num_ch", [1, 2])
+# PaddingStyle: selects behavior when (odim-idim)%2 != 0
+@pytest.mark.parametrize("pad_style", [2])
+# FINN input datatype
+@pytest.mark.parametrize("idt", [DataType.INT2, DataType.INT4])
+# execution mode
+@pytest.mark.parametrize("mode", ["cppsim", "rtlsim"])
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_fmpadding(idim, pad, num_ch, pad_style, idt, mode):
+
+    # generate input data
+    x = gen_finn_dt_tensor(idt, [1, idim, idim, num_ch])
+    input_dict = {"inp": x}
+    odim = idim + pad
+
+    model = make_single_fmpadding_modelwrapper(idim, pad, num_ch, idt, pad_style)
+    model = model.transform(InferShapes())
+    model = model.transform(SetExecMode(mode))
+    model = model.transform(GiveUniqueNodeNames())
+    if mode == "cppsim":
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+    elif mode == "rtlsim":
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareRTLSim())
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    expected_oshape = (1, odim, odim, num_ch)
+    assert y_produced.shape == expected_oshape
+
+    # calculate reference
+    # calculate correct pad according to parameters
+    if pad_style == 2:
+        if pad % 2 == 0:
+            pad_up = pad // 2
+            pad_left = pad // 2
+        else:
+            pad_up = pad // 2 + 1
+            pad_left = pad // 2 + 1
+    else:
+        pad_up = pad // 2
+        pad_left = pad // 2
+
+    pad_down = pad - pad_up
+    pad_right = pad - pad_left
+
+    y_expected = np.pad(
+        x, ((0, 0), (pad_up, pad_down), (pad_left, pad_right), (0, 0)), "constant"
+    )
+
+    assert (y_produced == y_expected).all()
