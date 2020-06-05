@@ -17,7 +17,7 @@ class FMPadding_Batch(HLSCustomOp):
         my_attrs = {
             "ImgDim": ("i", True, 0),
             "OutputDim": ("i", True, 0),
-            "Padding": ("i", True, 4),
+            "Padding": ("i", True, 2),
             "NumChannels": ("i", True, 0),
             # FINN input datatype
             "inputDataType": ("s", True, ""),
