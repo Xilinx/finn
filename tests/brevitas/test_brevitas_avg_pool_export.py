@@ -64,9 +64,9 @@ def test_brevitas_avg_pool_export(kernel_size, stride, signed, bit_width):
     )
     b_avgpool.eval()
     expected = b_avgpool.forward(input_quant_tensor).tensor.detach().numpy()
-    
+
     # finn execution
-    idict = {model.graph.input[0].name : inp}
+    idict = {model.graph.input[0].name: inp}
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]
 
