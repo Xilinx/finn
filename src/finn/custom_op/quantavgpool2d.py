@@ -4,7 +4,6 @@ import onnxruntime as rt
 
 from finn.custom_op import CustomOp
 from finn.custom_op.im2col import compute_conv_output_dim
-from finn.core.datatype import DataType
 
 
 class QuantAvgPool2d(CustomOp):
@@ -69,16 +68,16 @@ class QuantAvgPool2d(CustomOp):
             inputs=[node.input[0]],
             outputs=[node.output[0]],
             kernel_shape=[k, k],
-            strides=[s, s]
+            strides=[s, s],
         )
         graph_avgpool = helper.make_graph(
-                nodes=[node_avgpool],
-                name="single-avgpool-exec",
-                inputs=[inp],
-                outputs=[outp],
-                )
+            nodes=[node_avgpool],
+            name="single-avgpool-exec",
+            inputs=[inp],
+            outputs=[outp],
+        )
         model_avgpool = helper.make_model(graph_avgpool)
-        idict = {node.input[0] : context[node.input[0]]}
+        idict = {node.input[0]: context[node.input[0]]}
         sess = rt.InferenceSession(model_avgpool.SerializeToString())
         result_temp = sess.run(None, idict)
         # remove scaling introduced by average
