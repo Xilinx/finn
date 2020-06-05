@@ -22,6 +22,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 @pytest.mark.parametrize("padding", [True, False])
 @pytest.mark.parametrize("kernel_size", [3, 5])
 @pytest.mark.slow
+@pytest.mark.vivado
 def test_convert_to_hls_conv_layer(padding, kernel_size):
 
     assert (
@@ -71,9 +72,9 @@ def test_convert_to_hls_conv_layer(padding, kernel_size):
             outputs=[top_out],
             value_info=value_info,
             nodes=[
-                helper.make_node("Conv", ["top_in", "p1"], ["top_out"], **conv_config),
+                helper.make_node("Conv", ["top_in", "p1"], ["top_out"], **conv_config)
             ],
-        ),
+        )
     )
 
     model = ModelWrapper(modelproto)
