@@ -50,7 +50,7 @@ def test_brevitas_avg_pool_export(kernel_size, stride, signed, bit_width):
         prefix = "INT"
     else:
         prefix = "UINT"
-    dt_name = prefix + str(bit_width)
+    dt_name = prefix + str(input_bit_width)
     dtype = DataType[dt_name]
     model.set_tensor_datatype(model.graph.input[0].name, dtype)
     model = model.transform(InferShapes())
@@ -69,5 +69,6 @@ def test_brevitas_avg_pool_export(kernel_size, stride, signed, bit_width):
     idict = {model.graph.input[0].name: inp}
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]
+    assert (expected == produced).all()
 
     os.remove(export_onnx_path)
