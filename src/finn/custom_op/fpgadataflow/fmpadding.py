@@ -7,25 +7,38 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 class FMPadding_Batch(HLSCustomOp):
-    """Class that corresponds to finn-hlslib FMPadding_Batch function.
-    Implements 'same' padding on a given input image."""
+    """Corresponds to finn-hlslib FMPadding_Batch function.
+    Pads input image by given amount."""
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 
     def get_nodeattr_types(self):
         my_attrs = {
+            # spatial size of input images
             "ImgDim": ("i", True, 0),
-            "OutputDim": ("i", True, 0),
+            # total padding (per dimension) to apply
             "Padding": ("i", True, 2),
+            # number of channels in input image
             "NumChannels": ("i", True, 0),
             # FINN input datatype
             "inputDataType": ("s", True, ""),
+            # controls distribution of padded pixels
+            # in case of uneven padding -- see FMPadding fxn
+            # in hlslib
             "PaddingStyle": ("i", False, 2),
+            # shape describing input vecs per execution
             "numInputVectors": ("i", False, 1),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_padded_odim(self):
+        "Return the padded spatial size of the output."
+
+        idim = self.get_nodeattr("ImgDim")
+        pad = self.get_nodeattr("Padding")
+        return idim + pad
 
     def get_normal_input_shape(self):
         idim = self.get_nodeattr("ImgDim")
@@ -35,7 +48,7 @@ class FMPadding_Batch(HLSCustomOp):
         return ishape
 
     def get_normal_output_shape(self):
-        odim = self.get_nodeattr("OutputDim")
+        odim = self.get_padded_odim()
         num_ch = self.get_nodeattr("NumChannels")
 
         oshape = (1, odim, odim, num_ch)
@@ -124,7 +137,7 @@ class FMPadding_Batch(HLSCustomOp):
             #define Padding1 {}\n#define NumChannels1 {}\n
             #define PaddingStyle1 {}\n#define numReps {}\n""".format(
                 self.get_nodeattr("ImgDim"),
-                self.get_nodeattr("OutputDim"),
+                self.get_padded_odim(),
                 self.get_nodeattr("Padding"),
                 self.get_nodeattr("NumChannels"),
                 self.get_nodeattr("PaddingStyle"),

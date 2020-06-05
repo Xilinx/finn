@@ -42,7 +42,6 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, idt, pad_style):
         domain="finn",
         backend="fpgadataflow",
         ImgDim=idim,
-        OutputDim=odim,
         Padding=padding,
         NumChannels=num_ch,
         inputDataType=str(idt.name),

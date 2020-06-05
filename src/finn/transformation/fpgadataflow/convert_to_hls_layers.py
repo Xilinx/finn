@@ -91,7 +91,6 @@ class InferConvInpGen(Transformation):
                         domain="finn",
                         backend="fpgadataflow",
                         ImgDim=ifm_dim,
-                        OutputDim=odim_padding,
                         Padding=2 * pad,
                         NumChannels=ifm_ch,
                         inputDataType=dt.name,
