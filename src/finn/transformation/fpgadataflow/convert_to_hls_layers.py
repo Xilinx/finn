@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from onnx import helper, TensorProto
+import numpy as np
 
 from finn.core.datatype import DataType
 from finn.transformation import Transformation
@@ -34,6 +35,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
 import finn.core.data_layout as DataLayout
+from finn.util.onnx import nchw_to_nhwc
 
 
 class InferConvInpGen(Transformation):
@@ -481,6 +483,115 @@ class InferThresholdingLayer(Transformation):
                     numInputVectors=list(thl_in_shape[:-1]),
                 )
                 graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferChannelwiseLinearLayer(Transformation):
+    """Convert any channel-wise Add/Mul into a HLS layer."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Add" or node.op_type == "Mul":
+                ll_input = node.input[0]
+                ll_output = node.output[0]
+                ll_in_shape = model.get_tensor_shape(ll_input)
+                # check that:
+                # input 1 is an initializer
+                # with shape (ch, 1)
+                # and initializer is integers
+                ll_const = node.input[1]
+                if ll_const is not None:
+                    ll_cinit = model.get_initializer(ll_const)
+                else:
+                    continue
+
+                ll_cinit_shape = list(ll_cinit.shape)
+                # get number of channels from input
+                ll_in_layout = model.get_tensor_layout(ll_input)
+                if ll_in_layout == DataLayout.NHWC or ll_in_layout == DataLayout.NC:
+                    ch = ll_in_shape[-1]
+                elif ll_in_layout == DataLayout.NCHW:
+                    ch = ll_in_shape[1]
+                else:
+                    continue
+
+                # check if the shape of initializer is compatible with
+                # number of channels, e.g. (ch,1) or (ch)
+                # TODO: verify plausible shapes
+                if np.prod(ll_cinit_shape) != ch:
+                    continue
+
+                # check initializer contains integers as floats
+                if not (ll_cinit.astype(np.int32) == ll_cinit).all():
+                    continue
+
+                # all initializer conditions are met
+                # check inputs
+                idt = model.get_tensor_datatype(ll_input)
+
+                # skip conversion for layers with float input
+                if not idt.is_integer():
+                    continue
+
+                # check layout of inputs/outputs, and convert if needed
+                # check layout and convert if necessary
+                if ll_in_layout == DataLayout.NCHW:
+                    ll_input = nchw_to_nhwc(ll_input, model, node_ind)
+                    node_ind += 1
+                    ll_in_shape = model.get_tensor_shape(ll_input)
+
+                # keep track of where we need to insert the HLS Op
+                # it has to be ahead of the output transform
+                insert_point = node_ind
+                ll_output_layout = model.get_tensor_layout(ll_output)
+                if ll_output_layout == DataLayout.NCHW:
+                    ll_output = nchw_to_nhwc(ll_output, model, node_ind, reverse=True)
+                    node_ind += 1
+
+                # create node with no parallelization first
+                pe = 1
+                assert ch % pe == 0, "Requirement IFC divisable by PE is violated."
+
+                # set function and determine output data type
+                if node.op_type == "Add":
+                    func = "add"
+                    if idt.signed():
+                        odt = DataType.get_smallest_possible(2 * idt.min())
+                    else:
+                        odt = DataType.get_smallest_possible(2 * idt.max())
+                elif node.op_type == "Mul":
+                    func = "mul"
+                    if idt.signed():
+                        odt = DataType.get_smallest_possible(abs(idt.min()) * idt.min())
+                    else:
+                        odt = DataType.get_smallest_possible(idt.max() * idt.max())
+                model.set_initializer(ll_const, ll_cinit.reshape(ch))
+                # create and insert node
+                new_node = helper.make_node(
+                    "ChannelwiseOp_Batch",
+                    [ll_input, ll_const],
+                    [ll_output],
+                    domain="finn",
+                    backend="fpgadataflow",
+                    Func=func,
+                    NumChannels=ch,
+                    PE=pe,
+                    inputDataType=idt.name,
+                    outputDataType=odt.name,
+                    numInputVectors=list(ll_in_shape[:-1]),
+                )
+                graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True
