@@ -68,6 +68,9 @@ def im2col_indices_nchw(
 # * ifm is the number of input channels
 # * k is the convolutional kernel size
 
+# note: for the innermost (dot product) dimension of k*k*ifm, we
+# assume an internal ordering (k, k, ifm)
+
 
 class Im2Col(CustomOp):
     def get_nodeattr_types(self):

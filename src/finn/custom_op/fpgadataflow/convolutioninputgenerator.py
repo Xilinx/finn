@@ -41,10 +41,19 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 # output 0 is the output tensor, shape NHWC:
 #     = (1, OFMDim, OFMDim, (ConvKernelDim^2)*IFMChannels)
 
+# note: the actual data layout produced by the hlslib kernels is different
+# for depthwise and non-depthwise ops.
+# * non-depthwise SWG: (1, OFMDim, OFMDim, K, K, IFMChannels/SIMD, SIMD)
+# * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/SIMD, K, K, SIMD)
+# see test_fpgadataflow_slidingwindow.py for an example of how to transform
+# between the two layouts
+
 
 class ConvolutionInputGenerator(HLSCustomOp):
-    """Class that corresponds to finn-hlslib ConvolutionInputGenerator
-    (sliding window) function."""
+    """Class that corresponds to one of the finn-hlslib ConvolutionInputGenerator
+    (sliding window) function variants. Depending on the combination of
+    attributes (e.g. depthwise or not, whether k % stride is 0) a different
+    variant will be picked for the actual HLS implementation."""
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
