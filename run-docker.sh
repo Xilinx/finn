@@ -96,7 +96,7 @@ gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
 
-DOCKER_INTERACTIVE = ""
+DOCKER_INTERACTIVE=""
 
 if [ "$1" = "test" ]; then
         gecho "Running test suite (all tests)"
