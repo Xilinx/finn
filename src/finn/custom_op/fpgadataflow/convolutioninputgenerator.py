@@ -41,10 +41,19 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 # output 0 is the output tensor, shape NHWC:
 #     = (1, OFMDim, OFMDim, (ConvKernelDim^2)*IFMChannels)
 
+# note: the actual data layout produced by the hlslib kernels is different
+# for depthwise and non-depthwise ops.
+# * non-depthwise SWG: (1, OFMDim, OFMDim, K, K, IFMChannels/SIMD, SIMD)
+# * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/SIMD, K, K, SIMD)
+# see test_fpgadataflow_slidingwindow.py for an example of how to transform
+# between the two layouts
+
 
 class ConvolutionInputGenerator(HLSCustomOp):
-    """Class that corresponds to finn-hlslib ConvolutionInputGenerator
-    (sliding window) function."""
+    """Class that corresponds to one of the finn-hlslib ConvolutionInputGenerator
+    (sliding window) function variants. Depending on the combination of
+    attributes (e.g. depthwise or not, whether k % stride is 0) a different
+    variant will be picked for the actual HLS implementation."""
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
@@ -60,6 +69,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
+            "depthwise": ("i", False, 0),
             # FPGA resource type for ConvolutionInputGenerator input buffer
             # auto -- let Vivado HLS decide
             # block -- use BRAM
@@ -106,7 +116,6 @@ class ConvolutionInputGenerator(HLSCustomOp):
         pad = 0
         ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
         assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        assert k % stride == 0, "stride must divide kernel size k"
         wf = int((k * k * ifm_ch) // simd)
         folded_oshape = (1, ofm_dim, ofm_dim, wf, simd)
         return folded_oshape
@@ -313,12 +322,27 @@ class ConvolutionInputGenerator(HLSCustomOp):
             "ultra": "ap_resource_uram()",
         }
         hls_ram_style = map_to_hls_ram_style[ram_style]
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
-                OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
-                node.op_type, hls_ram_style
-            )
-        ]
+        hls_call = node.op_type
+        # check if non optimized ConvolutionInputGenerator is needed
+        k = self.get_nodeattr("ConvKernelDim")
+        stride = self.get_nodeattr("Stride")
+        if k % stride != 0:
+            hls_call += "_kernel_stride"
+
+        if self.get_nodeattr("depthwise") == 1:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}_dws<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
+                    OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
+                    hls_call, hls_ram_style
+                )
+            ]
+        else:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
+                    OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
+                    hls_call, hls_ram_style
+                )
+            ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
