@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+import numpy as np
 
 from onnx import TensorProto, helper
 
@@ -70,7 +71,8 @@ def make_labelselect_modelwrapper(labels, pe, k, idt):
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype("outp", DataType.UINT32)
+    odt = DataType.get_smallest_possible(labels - 1)
+    model.set_tensor_datatype("outp", odt)
 
     return model
 
@@ -79,19 +81,18 @@ def prepare_inputs(input_tensor, idt):
     return {"inp": input_tensor}
 
 
-# TODO: folded inputs fail, likely problem in hlslib
-# input datatype -- checked by assertion in HLSCustomOp
-@pytest.mark.parametrize("idt", [DataType.UINT8, DataType.UINT16])
+@pytest.mark.parametrize("idt", [DataType.UINT8, DataType.UINT16, DataType.INT16])
 # labels
 @pytest.mark.parametrize("labels", [10, 1000])
 # folding
-@pytest.mark.parametrize("fold", [-1])
+@pytest.mark.parametrize("fold", [-1, 2, 10])
 # number of top labels to select
 @pytest.mark.parametrize("k", [1, 5])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.vivado
 def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode):
+    np.random.seed(0)
     if fold == -1:
         pe = 1
     else:
