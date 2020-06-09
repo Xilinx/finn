@@ -290,3 +290,84 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
         if graph_modified:
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
+
+
+class AbsorbConsecutiveTransposes(Transformation):
+    """Remove (Transpose -> Transpose) patterns when the input and output
+    of the pattern have the same layout."""
+
+    def Are_opposite_permutations(self, perms1, perms2):
+        if len(perms1) != len(perms2):
+            return False
+        assert 0 <= max(perms2) < len(perms2), "invalid permutation"
+        assert 0 <= max(perms1) < len(perms1), "invalid permutation"
+
+        for i, p in enumerate(perms2):
+            if perms1[p] != i:
+                return False
+
+        return True
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for n in graph.node:
+            if n.op_type == "Transpose":
+                if model.is_fork_node(n):
+                    next_nodes = model.find_direct_successors(n)
+                    perms1 = list(get_by_name(n.attribute, "perm").ints)
+
+                    # check if all nodes after fork are opposite transposes
+                    all_opposite_transposes = True
+                    for next_node in next_nodes:
+                        if next_node is not None and next_node.op_type == "Transpose":
+                            perms2 = list(get_by_name(next_node.attribute, "perm").ints)
+                            if not self.Are_opposite_permutations(perms1, perms2):
+                                all_opposite_transposes = False
+                                break
+                        else:
+                            all_opposite_transposes = False
+                            break
+
+                    if not all_opposite_transposes:
+                        continue
+
+                    prod = model.find_producer(n.input[0])
+                    for next_node in next_nodes:
+                        # connect next_node's consumer input to n's producer output
+                        # TODO implement this to allow for forks as producers and
+                        # joins as consumers
+                        cons = model.find_consumer(next_node.output[0])
+                        cons.input[0] = prod.output[0]
+
+                        # remove consumer transpose
+                        graph.node.remove(next_node)
+
+                    # remove producer transpose
+                    graph.node.remove(n)
+                    graph_modified = True
+
+                else:
+                    next_node = model.find_consumer(n.output[0])
+                    if next_node is not None and next_node.op_type == "Transpose":
+                        perms1 = list(get_by_name(n.attribute, "perm").ints)
+                        perms2 = list(get_by_name(next_node.attribute, "perm").ints)
+                        if self.Are_opposite_permutations(perms1, perms2):
+
+                            # connect next_node's consumer input to n's producer output
+                            # TODO implement this to allow for forks as producers
+                            consumers = model.find_direct_successors(next_node)
+                            prod = model.find_producer(n.input[0])
+                            for cons in consumers:
+                                for cons_in in cons.input:
+                                    if cons_in == next_node.output[0]:
+                                        prod.output[0] = cons_in
+                                        break
+                            # remove both transposes
+                            graph.node.remove(n)
+                            graph.node.remove(next_node)
+
+                            graph_modified = True
+        if graph_modified:
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
