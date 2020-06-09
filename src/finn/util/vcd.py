@@ -27,6 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from vcdvcd import VCDVCD
+from finn.util.basic import get_num_default_workers
+import multiprocessing as mp
 
 vname = "TVALID"
 rname = "TREADY"
@@ -66,16 +68,15 @@ def get_stream_if_stats(vcd_file, if_base_name):
     """
     if_valid = if_base_name + vname
     if_ready = if_base_name + rname
-    vcd = VCDVCD(vcd_file, print_dumps=False, only_sigs=True)
-    assert if_valid in vcd.get_signals(), "Streaming interface not found"
-    assert if_ready in vcd.get_signals(), "Streaming interface not found"
     v = VCDVCD(vcd_file, signals=[if_valid], store_tvs=True)
     endtime = v.get_endtime()
     v = v.get_data()
+    assert len(v) != 0, "Streaming interface not found"
     v = list(v.values())[0]["tv"]
     v = list(map(lambda x: ("V", x[0], x[1]), v))
     v.append(("V", endtime, "0"))
     r = VCDVCD(vcd_file, signals=[if_ready], store_tvs=True).get_data()
+    assert len(r) != 0, "Streaming interface not found"
     r = list(r.values())[0]["tv"]
     r = list(map(lambda x: ("R", x[0], x[1]), r))
     r.append(("R", endtime, "0"))
@@ -102,6 +103,10 @@ def get_stream_if_stats(vcd_file, if_base_name):
     return ret
 
 
+def _get_stats(x):
+    return (x[0], get_stream_if_stats(x[1], x[0]))
+
+
 def get_all_stream_if_stats(vcd_file, stream_ifs=None, sort_by="{'V': 1, 'R': 0}"):
     """Return a list of streaming interface stats, sorted by the percentage
     for the given sort_by key. If stream_ifs is None, all streamin interface
@@ -110,7 +115,10 @@ def get_all_stream_if_stats(vcd_file, stream_ifs=None, sort_by="{'V': 1, 'R': 0}
 
     if stream_ifs is None:
         stream_ifs = list_stream_if(vcd_file)
-    all_stats = map(lambda x: (x, get_stream_if_stats(vcd_file, x)), stream_ifs)
+
+    with mp.Pool(get_num_default_workers()) as p:
+        stream_ifs = map(lambda x: (x, vcd_file), stream_ifs)
+        all_stats = p.map(_get_stats, stream_ifs)
 
     def sort_key(x):
         stat = x[1]
