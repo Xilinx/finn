@@ -28,6 +28,7 @@
 
 import finn.util.basic as util
 from finn.transformation import Transformation
+from toposort import toposort_flatten
 
 
 class GiveUniqueNodeNames(Transformation):
@@ -79,6 +80,93 @@ class GiveReadableTensorNames(Transformation):
         model.rename_tensor(model.graph.output[0].name, "global_out")
         # return model_was_changed = False as single iteration is always enough
         return (model, False)
+
+
+class GiveUniqueParameterTensors(Transformation):
+    """Make every parameter tensor unique. The aim is to avoid affecting
+    other nodes apart from the one the system is currently operating on."""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        seen_parameters = []
+        for n in graph.node:
+            # copy inputs since they may be modified
+            node_inputs_list = [x for x in n.input]
+            for input_idx, node_input in enumerate(node_inputs_list):
+                # check if it's a parameter
+                input_init = model.get_initializer(node_input)
+                if input_init is None:
+                    # dynamic input
+                    continue
+
+                # check if repeated
+                if node_input not in seen_parameters:
+                    # first occurance
+                    seen_parameters += [node_input]
+                    continue
+
+                new_param_name = model.make_new_valueinfo_name()
+
+                model.set_initializer(new_param_name, input_init)
+                model.set_tensor_datatype(
+                    new_param_name, model.get_tensor_datatype(node_input)
+                )
+
+                # point node input to new tensor
+                n.input[input_idx] = new_param_name
+
+        return (model, graph_modified)
+
+
+class SortGraph(Transformation):
+    """ Returns the model with its node list sorted topologically.
+    Any ONNX graph to be executed must have a topologically sorted node list, as dictated
+    by the ONNX standard.
+    """
+    
+    # Notes on SortGraph performance:
+    #         benchmark in  tests/transformation/test_sort_graph.py
+    # 
+    #         The algorithm doesn't move initializers so its performance should only depend on
+    #         the number of nodes
+    # 
+    #         Relative order of magnitudes for time per step:
+    #             - Gather graph structure:       base
+    #             - Sort nodes:                   0.1 of base
+    #             - Remove and insert in order :  0.001 of base
+    # 
+    #     Notes:
+    #         Remove nodes and insert them in order:
+    #           Probably this is faster than copying initializers and more robust in general
+
+    def apply(self, model):
+        # Gather graph structure
+        graph_dependencies = {}
+        node_list = [
+            n for n in model.graph.node
+        ]  # I also need the list to remove the nodes
+        for node_idx, n in enumerate(node_list):
+            node_pred = model.find_direct_predecessors(n)
+            if node_pred is None:
+                # Will also eliminate nodes that are floating around for some reason
+                continue
+
+            node_dependencies = [node_list.index(pred) for pred in node_pred]
+            graph_dependencies[node_idx] = set(node_dependencies)
+
+        # Sort nodes
+        sorted_node_indexes = toposort_flatten(graph_dependencies)
+
+        # Remove nodes and insert them in order
+        # Can't remove nodes before if I want to use model.find_direct_predecessors()
+        for n in node_list:
+            model.graph.node.remove(n)
+
+        for new_idx, sorted_idx in enumerate(sorted_node_indexes):
+            model.graph.node.insert(new_idx, node_list[sorted_idx])
+
+        return model, False
 
 
 class ConvertSubToAdd(Transformation):

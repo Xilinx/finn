@@ -21,8 +21,6 @@ def get_im2col_indices_nchw(
     """Returns im2col indices."""
     # First figure out what the size of the output should be
     N, C, H, W = x_shape
-    assert (H + 2 * padding - field_height) % stride_y == 0
-    assert (W + 2 * padding - field_width) % stride_x == 0
     out_height = compute_conv_output_dim(H, field_height, stride_y, padding)
     out_width = compute_conv_output_dim(W, field_width, stride_x, padding)
 
@@ -69,6 +67,9 @@ def im2col_indices_nchw(
 # * oh, ow are the height and width of the output (lowered) image
 # * ifm is the number of input channels
 # * k is the convolutional kernel size
+
+# note: for the innermost (dot product) dimension of k*k*ifm, we
+# assume an internal ordering (k, k, ifm)
 
 
 class Im2Col(CustomOp):

@@ -96,6 +96,8 @@ gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
 
+DOCKER_INTERACTIVE=""
+
 if [ "$1" = "test" ]; then
         gecho "Running test suite (all tests)"
         DOCKER_CMD="python setup.py test"
@@ -108,6 +110,7 @@ elif [ "$1" = "notebook" ]; then
 else
         gecho "Running container only"
         DOCKER_CMD="bash"
+        DOCKER_INTERACTIVE="-it"
 fi
 
 # Build the FINN Docker image
@@ -123,7 +126,7 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-docker run -t --rm --name $DOCKER_INST_NAME -it --init \
+docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --init \
 --hostname $DOCKER_INST_NAME \
 -e "XILINX_VIVADO=$VIVADO_PATH" \
 -e "SHELL=/bin/bash" \

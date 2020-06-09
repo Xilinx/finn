@@ -41,7 +41,6 @@ import onnx.numpy_helper as nph
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
 from finn.core.onnx_exec import execute_onnx
-from finn.core.throughput_test import throughput_test
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
@@ -332,9 +331,6 @@ def test_end2end_tfc_w1a1_run_on_pynq():
         ret = execute_onnx(parent_model, {iname: x}, True)
         y = ret[oname]
         assert np.isclose(y, y_golden).all()
-        child_model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
-        res = throughput_test(child_model)
-        assert res is not None
 
     except KeyError:
         pytest.skip("PYNQ board IP address not specified")
