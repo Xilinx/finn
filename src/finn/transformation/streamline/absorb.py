@@ -46,7 +46,11 @@ class AbsorbAddIntoMultiThreshold(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Add":
+            if (
+                n.op_type == "Add"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MultiThreshold":
                     add_weight_name = n.input[1]
@@ -83,7 +87,11 @@ class AbsorbMulIntoMultiThreshold(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Mul":
+            if (
+                n.op_type == "Mul"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
                 assert A is not None, "Initializer for mul weights is not set."

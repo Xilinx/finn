@@ -40,6 +40,7 @@ from finn.util.basic import (
 from finn.util.fpgadataflow import (
     IPGenBuilder,
     pyverilate_get_liveness_threshold_cycles,
+    rtlsim_multi_io,
 )
 from . import templates
 
@@ -218,6 +219,7 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
+
         template = self.ipgentcl_template
 
         for key in self.code_gen_dict:
@@ -233,7 +235,7 @@ class HLSCustomOp(CustomOp):
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
         return []
-
+        
     def ipgen_singlenode_code(self):
         """Builds the bash script for ip generation using the IPGenBuilder from
         finn.util.fpgadataflow."""
@@ -318,13 +320,23 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
             )
 
     def npy_to_dynamic_output(self, context):
-        """Reads the output from a .npy file and saves it at the right place in
-        the context dictionary."""
-        # TODO support multi-output nodes as needed
+        """Reads the output from an output.npy file generated from cppsim and
+        places its content into the context dictionary."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         output = np.load("{}/output.npy".format(code_gen_dir))
         context[node.output[0]] = output
+
+    def npy_to_dynamic_outputs(self, context, npy_list):
+        """Reads the output from .npy files generated from cppsim and places
+        their content into the context dictionary.
+        npy_list is a list specifying which files to read, and its order must
+        match the order of node outputs."""
+        node = self.onnx_node
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        for i in range(len(npy_list)):
+            output = np.load("{}/{}".format(code_gen_dir, npy_list[i]))
+            context[node.output[i]] = output
 
     def exec_precompiled_singlenode_model(self):
         """Executes precompiled executable."""
@@ -420,6 +432,16 @@ compilation transformations?
             sim.flush_vcd_trace()
             sim.stop_vcd_trace()
         return outputs
+
+    def rtlsim_multi_io(self, sim, io_dict):
+        "Run rtlsim for this node, supports multiple i/o streams."
+
+        trace_file = self.get_nodeattr("rtlsim_trace")
+        if trace_file == "default":
+            trace_file = self.onnx_node.name + ".vcd"
+        num_out_values = self.get_number_output_values()
+        total_cycle_count = rtlsim_multi_io(sim, io_dict, num_out_values, trace_file)
+        self.set_nodeattr("sim_cycles", total_cycle_count)
 
     def execute_node(self, context, graph):
         """Executes single node using cppsim or rtlsim."""

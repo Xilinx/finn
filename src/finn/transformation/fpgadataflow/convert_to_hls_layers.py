@@ -26,13 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from onnx import helper
+from onnx import helper, TensorProto
 
 from finn.core.datatype import DataType
 from finn.transformation import Transformation
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
+import finn.core.data_layout as DataLayout
 
 
 class InferConvInpGen(Transformation):
@@ -58,27 +59,61 @@ class InferConvInpGen(Transformation):
                 ifm_ch = i2c_in_shape[-1]
                 ifm_dim = i2c_in_shape[1]
                 ofm_dim = i2c_out_shape[1]
-                # if padding enabled, ensure pad_val supported by DataType
+
+                # default params for ConvolutionInputGenerator
+                ConvInpGen_node_idx = node_ind
+                ConvInpGen_input = i2c_input
+                ConvInpGen_idim = ifm_dim
+
                 if pad > 0:
+                    # if padding enabled, ensure pad_val supported by DataType
                     assert dt.allowed(pad_val), "Im2Col DataType must support pad_val"
+
+                    odim_padding = ifm_dim + 2 * pad
+
+                    padding_out = helper.make_tensor_value_info(
+                        model.make_new_valueinfo_name(),
+                        TensorProto.FLOAT,
+                        (1, odim_padding, odim_padding, ifm_ch),
+                    )
+                    graph.value_info.append(padding_out)
+                    padding_out = padding_out.name
+                    model.set_tensor_datatype(padding_out, dt)
+
+                    ConvInpGen_node_idx += 1
+                    ConvInpGen_input = padding_out
+                    ConvInpGen_idim = odim_padding
+
+                    padding_node = helper.make_node(
+                        "FMPadding_Batch",
+                        [i2c_input],
+                        [padding_out],
+                        domain="finn",
+                        backend="fpgadataflow",
+                        ImgDim=ifm_dim,
+                        Padding=2 * pad,
+                        NumChannels=ifm_ch,
+                        inputDataType=dt.name,
+                    )
+                    graph.node.insert(node_ind, padding_node)
+
                 # create equivalent ConvolutionInputGenerator node
-                # TODO support padding
-                new_node = helper.make_node(
+                ConvInpGen_node = helper.make_node(
                     "ConvolutionInputGenerator",
-                    [i2c_input],
+                    [ConvInpGen_input],
                     [i2c_output],
                     domain="finn",
                     backend="fpgadataflow",
                     ConvKernelDim=k,
                     IFMChannels=ifm_ch,
-                    IFMDim=ifm_dim,
+                    IFMDim=ConvInpGen_idim,
                     OFMDim=ofm_dim,
                     SIMD=ifm_ch,
                     Stride=stride,
                     inputDataType=dt.name,
                     outputDataType=dt.name,
                 )
-                graph.node.insert(node_ind, new_node)
+                graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
                 graph.node.remove(n)
                 graph_modified = True
@@ -394,6 +429,62 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         # remove old node
                         graph.node.remove(n)
                         graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferThresholdingLayer(Transformation):
+    """Convert any MultiThreshold into a standalone thresholding HLS layer."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "MultiThreshold":
+                thl_input = node.input[0]
+                thl_threshold = node.input[1]
+                thl_output = node.output[0]
+                thl_in_shape = model.get_tensor_shape(thl_input)
+                idt = model.get_tensor_datatype(thl_input)
+
+                # skip conversion for layers with float input
+                if not idt.is_integer():
+                    continue
+
+                # skip conversion if input is not NHWC or NC
+                thl_in_layout = model.get_tensor_layout(thl_input)
+                if thl_in_layout != DataLayout.NHWC and thl_in_layout != DataLayout.NC:
+                    continue
+
+                # now safe to assume number of channels is in last dimension
+                ifc = int(thl_in_shape[-1])
+                # create node with no parallelization first
+                pe = 1
+                assert ifc % pe == 0, "Requirement IFC divisable by PE is violated."
+
+                odt = model.get_tensor_datatype(thl_output)
+                # create and insert new StreamingFCLayer node
+                new_node = helper.make_node(
+                    "Thresholding_Batch",
+                    [thl_input, thl_threshold],
+                    [thl_output],
+                    domain="finn",
+                    backend="fpgadataflow",
+                    NumChannels=ifc,
+                    PE=pe,
+                    inputDataType=idt.name,
+                    outputDataType=odt.name,
+                    numInputVectors=list(thl_in_shape[:-1]),
+                )
+                graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
