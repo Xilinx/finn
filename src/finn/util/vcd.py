@@ -100,3 +100,22 @@ def get_stream_if_stats(vcd_file, if_base_name):
         ret[state] = (v, v / endtime)
 
     return ret
+
+
+def get_all_stream_if_stats(vcd_file, stream_ifs=None, sort_by="{'V': 1, 'R': 0}"):
+    """Return a list of streaming interface stats, sorted by the percentage
+    for the given sort_by key. If stream_ifs is None, all streamin interface
+    stats will be returned, otherwise treated as a list of interface names to
+    return the stats for."""
+
+    if stream_ifs is None:
+        stream_ifs = list_stream_if(vcd_file)
+    all_stats = map(lambda x: (x, get_stream_if_stats(vcd_file, x)), stream_ifs)
+
+    def sort_key(x):
+        stat = x[1]
+        (samples, percent) = stat[sort_by]
+        return percent
+
+    ret = sorted(all_stats, key=sort_key)
+    return ret
