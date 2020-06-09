@@ -56,6 +56,11 @@ def get_rtlsim_trace_depth():
     via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
     undefined, the default value of 1 is returned. A trace depth of 1
     will only show top-level signals and yield smaller .vcd files.
+
+    The following depth values are of interest for whole-network stitched IP
+    rtlsim:
+    - level 1 shows top-level input/output streams
+    - level 2 shows per-layer input/output streams
     """
 
     try:
