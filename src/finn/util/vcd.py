@@ -28,15 +28,18 @@
 
 from vcdvcd import VCDVCD
 
+vname = "TVALID"
+rname = "TREADY"
+
 
 def list_stream_if(vcd_file):
     "Return a list of stream  interface names from given vcd trace."
 
     sig_names = VCDVCD(vcd_file, print_dumps=False, only_sigs=True).get_signals()
     stream_if_names = []
-    for cand_name in filter(lambda x: "tvalid" in x, sig_names):
-        base_name = cand_name.strip("tvalid")
-        if base_name + "tready" in sig_names:
+    for cand_name in filter(lambda x: x.endswith(vname), sig_names):
+        base_name = cand_name.replace(vname, "")
+        if base_name + rname in sig_names:
             stream_if_names.append(base_name)
     return stream_if_names
 
@@ -61,8 +64,8 @@ def get_stream_if_stats(vcd_file, if_base_name):
     Here we can see the stream was transmitting values 7.7% of the time,
     and 9.2% of the time there was no incoming data (valid 0, ready 1)
     """
-    if_valid = if_base_name + "tvalid"
-    if_ready = if_base_name + "tready"
+    if_valid = if_base_name + vname
+    if_ready = if_base_name + rname
     vcd = VCDVCD(vcd_file, print_dumps=False, only_sigs=True)
     assert if_valid in vcd.get_signals(), "Streaming interface not found"
     assert if_ready in vcd.get_signals(), "Streaming interface not found"
