@@ -93,6 +93,6 @@ def test_brevitas_avg_pool_export(
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]
 
-    assert np.isclose(expected, produced, rtol=1e-3).all()
+    assert np.isclose(expected, produced).all()
 
     os.remove(export_onnx_path)
