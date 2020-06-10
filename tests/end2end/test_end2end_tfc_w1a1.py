@@ -234,11 +234,11 @@ def test_end2end_tfc_w1a1_throughput_test_rtlsim():
     # run through IP-stitched rtlsim with increasing batch sizes and
     # check the number of cycles it takes to execute
     ret = throughput_test_rtlsim(model, 1)
-    assert ret["cycles"] == 206
+    assert ret["cycles"] == 205
     ret = throughput_test_rtlsim(model, 10)
-    assert ret["cycles"] == 845
+    assert ret["cycles"] == 844
     ret = throughput_test_rtlsim(model, 100)
-    assert ret["cycles"] == 71135
+    assert ret["cycles"] == 7234
 
 
 @pytest.mark.vivado
