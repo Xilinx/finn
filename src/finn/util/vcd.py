@@ -53,8 +53,8 @@ def get_stream_if_stats(vcd_file, if_base_name):
     <stream_state>: (<num_samples>, <fraction_of_time>),
 
     where <stream_state> is the combination of (V)alid/(R)eady values,
-    <num_samples> is the number of half clock cycles where this combination
-    occurred, and <fraction_of_time> is the fraction of <num_samples> to total
+    <num_samples> is the approximate number of rising clock edges spent in <state>
+    , and <fraction_of_time> is the fraction of <num_samples> to total
     amount of time recorded by the trace.
 
     Example:
@@ -89,16 +89,23 @@ def get_stream_if_stats(vcd_file, if_base_name):
     }
     status = {"V": 0, "R": 0}
     last_time = 0
+    total_rising_clock_edges = 0
     for (sig, time, val) in events:
-        ret[str(status)] += time - last_time
+        # pyverilator generates 5 time units per sample
+        time = time / 5
+        # pyverilator generates 4 samples per clock period
+        n_rising_clock_edges = int((time - last_time) / 4)
+        # note that the calculation of n_rising_clock_edges is approximate
+        # doing this exactly would require a cycle-by-cycle walkthrough of the
+        # trace, which can take very long
+        ret[str(status)] += n_rising_clock_edges
+        total_rising_clock_edges += n_rising_clock_edges
         status[sig] = int(val)
         last_time = time
 
-    assert last_time == endtime, "Did not reach end of trace, probably a bug"
-
     for state in ret:
         v = ret[state]
-        ret[state] = (v, v / endtime)
+        ret[state] = (v, v / total_rising_clock_edges)
 
     return ret
 
