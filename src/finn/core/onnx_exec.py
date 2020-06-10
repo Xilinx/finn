@@ -103,7 +103,7 @@ def execute_node(node, context, graph):
                         """Output shapes disagree after node execution:
                         found %s vs expected %s"""
                         % (
-                            str(output_list[list_ind].shape.shape),
+                            str(output_list[list_ind].shape),
                             str(context[outp].shape),
                         )
                     )
