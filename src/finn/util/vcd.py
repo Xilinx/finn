@@ -30,8 +30,13 @@ from vcdvcd import VCDVCD
 from finn.util.basic import get_num_default_workers
 import multiprocessing as mp
 
+# string patterns to search for to find particular interfaces
+# streaming interfaces
 vname = "TVALID"
 rname = "TREADY"
+# FIFO count signals
+fifo_mod_name = "StreamingFIFO"
+fifo_cname = "count"
 
 
 def list_stream_if(vcd_file):
@@ -44,6 +49,49 @@ def list_stream_if(vcd_file):
         if base_name + rname in sig_names:
             stream_if_names.append(base_name)
     return stream_if_names
+
+
+def list_fifo_count_signals(vcd_file):
+    "Return a list of FIFO count signal names from given vcd trace."
+
+    sig_names = VCDVCD(vcd_file, print_dumps=False, only_sigs=True).get_signals()
+    fifo_cnt_names = []
+    for cand_name in filter(lambda x: fifo_cname in x, sig_names):
+        if fifo_mod_name in cand_name:
+            fifo_cnt_names.append(cand_name)
+    return fifo_cnt_names
+
+
+def get_fifo_count_max(vcd_file, fifo_count_signal):
+    "Return the maximum value of the given FIFO count signal in vcd trace."
+
+    d = VCDVCD(vcd_file, signals=[fifo_count_signal], store_tvs=True).get_data()
+    assert len(d) != 0, "FIFO count signal not found"
+    events = list(d.values())[0]["tv"]
+    max = 0
+    for (time, val) in events:
+        current = int(val, base=2)
+        if current > max:
+            max = current
+    return max
+
+
+def _get_fifo_max(x):
+    return (x[0], get_fifo_count_max(x[1], x[0]))
+
+
+def get_all_fifo_count_max(vcd_file, fifo_count_signals=None):
+    """Return a list of max FIFO counts. If fifo_count_signals is None,
+    all FIFO count signals will be returned, otherwise treated as a list of
+    signal names to return the stats for."""
+    if fifo_count_signals is None:
+        fifo_count_signals = list_fifo_count_signals(vcd_file)
+
+    with mp.Pool(get_num_default_workers()) as p:
+        fifo_count_signals = map(lambda x: (x, vcd_file), fifo_count_signals)
+        all_stats = p.map(_get_fifo_max, fifo_count_signals)
+
+    return all_stats
 
 
 def get_stream_if_stats(vcd_file, if_base_name):
