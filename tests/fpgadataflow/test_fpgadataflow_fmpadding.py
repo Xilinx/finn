@@ -23,9 +23,11 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
 
-def make_single_sameresize_modelwrapper(
-    idim, odim, kdim, stride, num_ch, idt, pad_style
-):
+def make_single_fmpadding_modelwrapper(idim, padding, num_ch, idt, pad_style):
+    assert pad_style == 2, "only pad_style == 2 supported in hlslib"
+    assert padding > 0, "Output dim should be greater than input dim"
+    odim = idim + padding
+
     inp = helper.make_tensor_value_info(
         "inp", TensorProto.FLOAT, [1, idim, idim, num_ch]
     )
@@ -33,25 +35,25 @@ def make_single_sameresize_modelwrapper(
         "outp", TensorProto.FLOAT, [1, odim, odim, num_ch]
     )
 
-    SameResize_node = helper.make_node(
-        "SameResize_Batch",
+    FMPadding = helper.make_node(
+        "FMPadding_Batch",
         ["inp"],
         ["outp"],
         domain="finn",
         backend="fpgadataflow",
         ImgDim=idim,
-        KernelDim=kdim,
-        Stride=stride,
+        Padding=padding,
         NumChannels=num_ch,
         inputDataType=str(idt.name),
         PaddingStyle=pad_style,
+        numInputVectors=1,
     )
 
     graph = helper.make_graph(
-        nodes=[SameResize_node], name="sameresize_graph", inputs=[inp], outputs=[outp]
+        nodes=[FMPadding], name="fmpadding_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="sameresize-model")
+    model = helper.make_model(graph, producer_name="fmpadding-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -60,34 +62,28 @@ def make_single_sameresize_modelwrapper(
     return model
 
 
-# image dimension
+# input image dimension
 @pytest.mark.parametrize("idim", [8, 16])
-# kernel dimension
-@pytest.mark.parametrize("kdim", [2, 3])
-# stride
-@pytest.mark.parametrize("stride", [1, 2])
+# number of rows and number of cols to add
+@pytest.mark.parametrize("pad", [2, 3])
 # number of channels
 @pytest.mark.parametrize("num_ch", [1, 2])
+# PaddingStyle: selects behavior when (odim-idim)%2 != 0
+@pytest.mark.parametrize("pad_style", [2])
 # FINN input datatype
 @pytest.mark.parametrize("idt", [DataType.INT2, DataType.INT4])
 # execution mode
 @pytest.mark.parametrize("mode", ["cppsim", "rtlsim"])
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_sameresize(idim, kdim, stride, num_ch, idt, mode):
-    pad_style = 2
-    assert idim % stride == 0, "Stride must divide input dimension."
-    # number of "same" windows over the input data
-    same_windows = idim // stride
-    odim = kdim + stride * (same_windows - 1)
+def test_fpgadataflow_fmpadding(idim, pad, num_ch, pad_style, idt, mode):
 
     # generate input data
     x = gen_finn_dt_tensor(idt, [1, idim, idim, num_ch])
     input_dict = {"inp": x}
+    odim = idim + pad
 
-    model = make_single_sameresize_modelwrapper(
-        idim, odim, kdim, stride, num_ch, idt, pad_style
-    )
+    model = make_single_fmpadding_modelwrapper(idim, pad, num_ch, idt, pad_style)
     model = model.transform(InferShapes())
     model = model.transform(SetExecMode(mode))
     model = model.transform(GiveUniqueNodeNames())
@@ -103,8 +99,7 @@ def test_fpgadataflow_sameresize(idim, kdim, stride, num_ch, idt, mode):
     assert y_produced.shape == expected_oshape
 
     # calculate reference
-    # calculate correct padding according to parameters
-    pad = odim - idim
+    # calculate correct pad according to parameters
     if pad_style == 2:
         if pad % 2 == 0:
             pad_up = pad // 2
@@ -115,6 +110,7 @@ def test_fpgadataflow_sameresize(idim, kdim, stride, num_ch, idt, mode):
     else:
         pad_up = pad // 2
         pad_left = pad // 2
+
     pad_down = pad - pad_up
     pad_right = pad - pad_left
 

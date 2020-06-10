@@ -104,6 +104,7 @@ def pyverilate_stitched_ip(model):
         build_dir=build_dir,
         trace_depth=get_rtlsim_trace_depth(),
         top_module_name=top_module_name,
+        auto_eval=False,
     )
     return sim
 

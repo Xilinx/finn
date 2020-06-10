@@ -99,9 +99,7 @@ def rtlsim_exec(model, execution_context):
         sim = pyverilate_stitched_ip(model)
         model.set_metadata_prop("rtlsim_so", sim.lib._name)
     else:
-        sim = PyVerilator(rtlsim_so)
-    _reset_rtlsim(sim)
-    _toggle_clk(sim)
+        sim = PyVerilator(rtlsim_so, auto_eval=False)
     ret = _run_rtlsim(sim, packed_input, num_out_values, trace_file)
     packed_output = ret[0]
     model.set_metadata_prop("sim_cycles", str(ret[1]))
@@ -117,18 +115,22 @@ def _reset_rtlsim(sim):
     """Sets reset input in pyverilator to zero, toggles the clock and set it
     back to one"""
     sim.io.ap_rst_n_0 = 0
-    sim.io.ap_clk_0 = 1
-    sim.io.ap_clk_0 = 0
+    _toggle_clk(sim)
+    _toggle_clk(sim)
     sim.io.ap_rst_n_0 = 1
+    _toggle_clk(sim)
+    _toggle_clk(sim)
 
 
 def _toggle_clk(sim):
     """Toggles the clock input in pyverilator once."""
-    sim.io.ap_clk_0 = 1
     sim.io.ap_clk_0 = 0
+    sim.eval()
+    sim.io.ap_clk_0 = 1
+    sim.eval()
 
 
-def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
+def _run_rtlsim(sim, inp, num_out_values, trace_file=None, reset=True):
     """Runs the pyverilator simulation by passing the input values to the simulation,
     toggle the clock and observing the execution time. Argument num_out_values contains
     the number of expected output values, so the simulation is closed after all
@@ -153,6 +155,8 @@ def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
 
     if trace_file is not None:
         sim.start_vcd_trace(trace_file)
+    if reset:
+        _reset_rtlsim(sim)
 
     while not (output_observed):
         sim.io.in0_V_V_0_tvalid = 1 if len(inputs) > 0 else 0
@@ -161,8 +165,7 @@ def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
             inputs = inputs[1:]
         if sim.io.out_r_0_tvalid == 1 and sim.io.out_r_0_tready == 1:
             outputs = outputs + [sim.io.out_r_0_tdata]
-        sim.io.ap_clk_0 = 1
-        sim.io.ap_clk_0 = 0
+        _toggle_clk(sim)
 
         observation_count = observation_count + 1
         no_change_count = no_change_count + 1

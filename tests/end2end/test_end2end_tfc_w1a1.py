@@ -73,6 +73,7 @@ from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.core.throughput_test import throughput_test_rtlsim
+import finn.util.vcd as vcd
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -198,11 +199,31 @@ def test_end2end_tfc_w1a1_verify_dataflow_part():
     res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
     # whole-network (ip-stitched) rtlsim
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", build_dir + "/tfc_w1a1.vcd")
+    os.environ["RTLSIM_TRACE_DEPTH"] = "3"
     model.save(build_dir + "/end2end_tfc_w1a1_ipstitch_whole_rtlsim.onnx")
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_cppsim, res_rtlsim_nodebynode).all()
     assert np.isclose(res_cppsim, res_rtlsim_whole).all()
+
+
+def test_end2end_tfc_w1a1_verify_fifo_fullness():
+    vcdf = build_dir + "/tfc_w1a1.vcd"
+    if not os.path.isfile(vcdf):
+        pytest.skip("Cannot find %s, skipping" % vcdf)
+    stream_ifs = vcd.list_stream_if(vcdf)
+    fifos = vcd.list_fifo_count_signals(vcdf)
+    assert len(stream_ifs) == 37
+    assert len(fifos) == 6
+    fifo_max = vcd.get_all_fifo_count_max(vcdf)
+    assert fifo_max[0][0] == "TOP.v.finn_design_i.StreamingFIFO_0.count[3:0]"
+    assert fifo_max[0][1] == 3
+    stream_stat = vcd.get_all_stream_if_stats(vcdf)
+    assert (
+        stream_stat[0][0]
+        == "TOP.v.finn_design_i.StreamingDataWidthConverter_Batch_0_out_V_V_"
+    )
 
 
 @pytest.mark.vivado
