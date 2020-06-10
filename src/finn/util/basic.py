@@ -61,6 +61,7 @@ def get_rtlsim_trace_depth():
     rtlsim:
     - level 1 shows top-level input/output streams
     - level 2 shows per-layer input/output streams
+    - level 3 shows per full-layer I/O including FIFO count signals
     """
 
     try:
