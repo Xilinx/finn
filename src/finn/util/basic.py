@@ -254,6 +254,24 @@ def calculate_signed_dot_prod_range(dt_a, dt_b, len):
     return (min_prod, max_prod)
 
 
+def update_execution_context(model, node, execution_context):
+    for inp in node.input:
+        dtype = model.get_tensor_datatype(inp)
+        current_values = execution_context[inp]
+        has_to_be_rounded = False
+        for value in np.nditer(current_values):
+            if not dtype.allowed(value):
+                has_to_be_rounded = True
+                break
+        if has_to_be_rounded:
+            updated_values = np.round(current_values)
+        # check if rounded values are not too far from original values
+        max_error = max(np.abs(current_values - updated_values).flatten())
+        if max_error <= 1e-4:
+            execution_context[inp] = updated_values
+    return execution_context
+
+
 class CppBuilder:
     """Builds the g++ compiler command to produces the executable of the c++ code
     in code_gen_dir which is passed to the function build() of this class."""
