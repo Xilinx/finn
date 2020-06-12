@@ -39,6 +39,7 @@ from finn.core.remote_exec import remote_exec
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.custom_op.registry import getCustomOp
 import finn.analysis.topology as ta
+from finn.util.basic import update_execution_context
 
 
 def execute_node(node, context, graph):
@@ -102,10 +103,7 @@ def execute_node(node, context, graph):
                     raise Exception(
                         """Output shapes disagree after node execution:
                         found %s vs expected %s"""
-                        % (
-                            str(output_list[list_ind].shape),
-                            str(context[outp].shape),
-                        )
+                        % (str(output_list[list_ind].shape), str(context[outp].shape),)
                     )
                 context[outp] = output_list[list_ind]
 
@@ -162,6 +160,8 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
         # we can simply walk down the list since the ONNX spec guarantees that it is
         # topologically sorted
         for node in graph.node:
+            # call util function match input values to quantization annotation
+            execution_context = update_execution_context(model, node, execution_context)
             execute_node(node, execution_context, graph)
     elif model_exec_mode == "remote_pynq":
         # use remote exec metadata built into model to execute on a remote PYNQ
