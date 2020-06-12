@@ -31,6 +31,7 @@ import random
 import string
 import subprocess
 import tempfile
+import warnings
 
 import numpy as np
 
@@ -258,6 +259,7 @@ def update_execution_context(model, node, execution_context):
     for inp in node.input:
         dtype = model.get_tensor_datatype(inp)
         current_values = execution_context[inp]
+        updated_values = current_values
         has_to_be_rounded = False
         for value in np.nditer(current_values):
             if not dtype.allowed(value):
@@ -265,10 +267,31 @@ def update_execution_context(model, node, execution_context):
                 break
         if has_to_be_rounded:
             updated_values = np.round(current_values)
+            warnings.warn(
+                "The values of tensor {} can't be represented "
+                "with the set finn datatype ({}), they will be rounded to match the "
+                "finn datatype.".format(inp, dtype)
+            )
         # check if rounded values are not too far from original values
         max_error = max(np.abs(current_values - updated_values).flatten())
         if max_error <= 1e-4:
+            # check again if values can now be represented with set finn datatype
+            for value in np.nditer(updated_values):
+                if not dtype.allowed(value):
+                    raise Exception(
+                        """Values can't be represented with set
+                            finn datatype ({}) for input {}""".format(
+                            dtype, inp
+                        )
+                    )
             execution_context[inp] = updated_values
+        else:
+            raise Exception(
+                """Values can't be rounded to match set finn
+            datatype ({}) for input {}""".format(
+                    dtype, inp
+                )
+            )
     return execution_context
 
 
