@@ -9,8 +9,8 @@ from brevitas.quant_tensor import pack_quant_tensor
 from brevitas.core.quant import QuantType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.datatype import DataType
-from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.infer_datatypes import InferDataTypes
 from finn.util.basic import gen_finn_dt_tensor
 import finn.core.onnx_exec as oxe
 
@@ -49,15 +49,16 @@ def test_brevitas_avg_pool_export(
     )
     bo.export_finn_onnx(b_avgpool, ishape, export_onnx_path, input_t=input_quant_tensor)
     model = ModelWrapper(export_onnx_path)
-    # set FINN datatype
+
+    # determine input FINN datatype
     if signed is True:
         prefix = "INT"
     else:
         prefix = "UINT"
     dt_name = prefix + str(input_bit_width)
     dtype = DataType[dt_name]
-    model.set_tensor_datatype(model.graph.input[0].name, dtype)
     model = model.transform(InferShapes())
+    model.set_tensor_datatype(model.graph.input[0].name, dtype)
     model = model.transform(InferDataTypes())
 
     # execution with input tensor using integers and scale = 1
@@ -86,10 +87,14 @@ def test_brevitas_avg_pool_export(
     input_quant_tensor = pack_quant_tensor(
         tensor=input_tensor, scale=input_scale, bit_width=ibw_tensor
     )
+    # export again to set the scale values correctly
+    bo.export_finn_onnx(b_avgpool, ishape, export_onnx_path, input_t=input_quant_tensor)
+    model = ModelWrapper(export_onnx_path)
+    model = model.transform(InferShapes())
+    b_avgpool.eval()
     expected = b_avgpool.forward(input_quant_tensor).tensor.detach().numpy()
     # finn execution
     idict = {model.graph.input[0].name: inp_tensor}
-    model.set_initializer(model.graph.input[1].name, scale)
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]
 
