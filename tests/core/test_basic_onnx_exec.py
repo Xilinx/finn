@@ -35,6 +35,8 @@ import onnx.numpy_helper as np_helper
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
+from finn.core.datatype import DataType
+from finn.util.basic import gen_finn_dt_tensor
 
 
 def test_mnist_onnx_download_extract_run():
@@ -53,3 +55,30 @@ def test_mnist_onnx_download_extract_run():
     assert np.isclose(
         np_helper.to_array(output_tensor), output_dict["Plus214_Output_0"], atol=1e-3
     ).all()
+
+
+def test_onnx_exec_internal_rounding():
+    inp0 = onnx.helper.make_tensor_value_info("inp0", onnx.TensorProto.FLOAT, [2, 2])
+    inp1 = onnx.helper.make_tensor_value_info("inp1", onnx.TensorProto.FLOAT, [1])
+    outp = onnx.helper.make_tensor_value_info("outp", onnx.TensorProto.FLOAT, [2, 2])
+    mul_node = onnx.helper.make_node("Mul", inputs=["inp0", "inp1"], outputs=["outp"],)
+    graph = onnx.helper.make_graph(
+        nodes=[mul_node], name="mul_graph", inputs=[inp0, inp1], outputs=[outp]
+    )
+
+    model = onnx.helper.make_model(graph, producer_name="mul-model")
+    model = ModelWrapper(model)
+    idt = DataType.INT2
+    model.set_tensor_datatype("inp0", idt)
+    model.set_tensor_datatype("inp1", idt)
+    model.transform(InferShapes())
+
+    mul_value = np.asarray([2], dtype=np.float32)
+    inp_int = gen_finn_dt_tensor(idt, [2, 2])
+    scale = np.random.uniform(low=0, high=1, size=(2, 2)).astype(np.float32)
+    inp_rounded = (inp_int * scale) / (scale + 1e-7)
+    input_dict = {"inp0": inp_rounded, "inp1": mul_value}
+    output_dict = oxe.execute_onnx(model, input_dict)
+    produced = output_dict["outp"]
+    expected = np.multiply(inp_int, mul_value)
+    assert (produced == expected).all()
