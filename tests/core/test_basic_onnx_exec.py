@@ -73,7 +73,7 @@ def test_onnx_exec_internal_rounding():
     model.set_tensor_datatype("inp1", idt)
     model.transform(InferShapes())
 
-    mul_value = np.asarray([2], dtype=np.float32)
+    mul_value = np.asarray([-1], dtype=np.float32)
     inp_int = gen_finn_dt_tensor(idt, [2, 2])
     scale = np.random.uniform(low=0, high=1, size=(2, 2)).astype(np.float32)
     inp_rounded = (inp_int * scale) / (scale + 1e-7)
