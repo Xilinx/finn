@@ -56,12 +56,28 @@ def get_rtlsim_trace_depth():
     via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
     undefined, the default value of 1 is returned. A trace depth of 1
     will only show top-level signals and yield smaller .vcd files.
+
+    The following depth values are of interest for whole-network stitched IP
+    rtlsim:
+    - level 1 shows top-level input/output streams
+    - level 2 shows per-layer input/output streams
+    - level 3 shows per full-layer I/O including FIFO count signals
     """
 
     try:
         return int(os.environ["RTLSIM_TRACE_DEPTH"])
     except KeyError:
         return 1
+
+
+def get_remote_vivado():
+    """Return the address of the remote Vivado synthesis server as set by the,
+    REMOTE_VIVADO environment variable, otherwise return None"""
+
+    try:
+        return os.environ["REMOTE_VIVADO"]
+    except KeyError:
+        return None
 
 
 def get_num_default_workers():
