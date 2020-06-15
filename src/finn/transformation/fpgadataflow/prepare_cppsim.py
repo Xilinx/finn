@@ -29,7 +29,6 @@
 import os
 
 import finn.custom_op.registry as registry
-from finn.transformation import Transformation
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation import Transformation
@@ -37,12 +36,13 @@ from finn.util.basic import get_num_default_workers
 import multiprocessing as mp
 import copy
 
+
 def _codegen_single_node(node, model):
     """Calls C++ code generation for one node. Resulting code can be used
     to simulate node using cppsim."""
 
     op_type = node.op_type
-    try: 
+    try:
         # lookup op_type in registry of CustomOps
         inst = registry.custom_op[op_type](node)
         # get the path of the code generation directory
@@ -84,7 +84,6 @@ class PrepareCppSim(Transformation):
         if is_fpgadataflow_node(node) is True:
             _codegen_single_node(node, self.model)
         return (node, False)
-
 
     def apply(self, model):
         # Remove old nodes from the current model
