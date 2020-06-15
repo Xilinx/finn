@@ -28,6 +28,7 @@
 
 import os
 import subprocess
+from finn.util.basic import get_remote_vivado
 
 
 def which(program):
@@ -57,6 +58,7 @@ def out_of_context_synth(
     fpga_part="xczu3eg-sbva484-1-e",
     clk_name="ap_clk_0",
     clk_period_ns=5.0,
+    remote_server=get_remote_vivado(),
 ):
     "Run out-of-context Vivado synthesis, return resources and slack."
 
@@ -67,7 +69,10 @@ def out_of_context_synth(
     if which("vivado") is None:
         raise Exception("vivado is not in PATH, ensure settings64.sh is sourced.")
     omx_path = os.environ["OHMYXILINX"]
-    script = "vivadocompile.sh"
+    if remote_server is None:
+        script = "vivadocompile.sh"
+    else:
+        script = "vivadoprojgen.sh"
     # vivadocompile.sh <top-level-entity> <clock-name (optional)> <fpga-part (optional)>
     call_omx = "zsh %s/%s %s %s %s %f" % (
         omx_path,
@@ -85,6 +90,37 @@ def out_of_context_synth(
 
     vivado_proj_folder = "%s/results_%s" % (verilog_dir, top_name)
     res_counts_path = vivado_proj_folder + "/res.txt"
+    if remote_server is not None:
+        run_synth = """
+#!/bin/bash
+which vivado;
+cd %s;
+vivado -mode tcl -source %s.tcl -tclargs %s;
+cat %s
+        """ % (
+            vivado_proj_folder,
+            top_name,
+            top_name,
+            res_counts_path,
+        )
+        with open(vivado_proj_folder + "/run.sh", "w") as f:
+            f.write(run_synth)
+        # note that this assumes the same temp folder can be created on the
+        # remote server
+        remote_server_uri = remote_server + ":" + verilog_dir
+        copy_files = "rsync -avz %s %s" % (verilog_dir + "/", remote_server_uri + "/")
+        copy_files = copy_files.split()
+        proc = subprocess.Popen(copy_files, cwd=verilog_dir, env=os.environ)
+        proc.communicate()
+        vivado_cmd = "bash %s/run.sh" % vivado_proj_folder
+        run_vivado = ["ssh", "-t", remote_server, vivado_cmd]
+        proc = subprocess.Popen(run_vivado, cwd=verilog_dir, env=os.environ)
+        proc.communicate()
+        remote_server_result = remote_server + ":" + res_counts_path
+        copy_results = "rsync -avz %s %s" % (remote_server_result, res_counts_path)
+        copy_results = copy_results.split()
+        proc = subprocess.Popen(copy_results, cwd=verilog_dir, env=os.environ)
+        proc.communicate()
 
     with open(res_counts_path, "r") as myfile:
         res_data = myfile.read().split("\n")
