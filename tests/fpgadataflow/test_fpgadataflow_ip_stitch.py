@@ -53,6 +53,7 @@ from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor, pynq_part_map
 from finn.util.fpgadataflow import pyverilate_stitched_ip
 from finn.util.test import load_test_checkpoint_or_skip
+from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
@@ -279,6 +280,27 @@ def test_fpgadataflow_ipstitch_rtlsim():
     # x = np.asarray([[-2, -1, 0, 1]], dtype=np.float32)
     rtlsim_res = execute_onnx(model, {"inp": x})["outp"]
     assert (rtlsim_res == x).all()
+
+
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_ipstitch_synth_ooc():
+    model = load_test_checkpoint_or_skip(
+        ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx"
+    )
+    model = model.transform(SynthOutOfContext(test_fpga_part, 5))
+    ret = model.get_metadata_prop("res_total_ooc_synth")
+    assert ret is not None
+    # example expected output: (details may differ based on Vivado version etc)
+    # "{'vivado_proj_folder': ...,
+    # 'LUT': 708.0, 'FF': 1516.0, 'DSP': 0.0, 'BRAM': 0.0, 'WNS': 0.152, '': 0,
+    # 'fmax_mhz': 206.27062706270627}"
+    ret = eval(ret)
+    assert ret["LUT"] > 0
+    assert ret["FF"] > 0
+    assert ret["DSP"] == 0
+    assert ret["BRAM"] == 0
+    assert ret["fmax_mz"] > 100
 
 
 @pytest.mark.vivado
