@@ -8,4 +8,6 @@ pre-commit
 pyverilator
 scipy
 sphinx
+toposort
+vcdvcd
 wget

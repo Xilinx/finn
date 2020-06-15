@@ -259,11 +259,10 @@ class ModelWrapper:
 
     def find_producer(self, tensor_name):
         """Finds and returns the node that produces the tensor with given name."""
-        ret = None
         for x in self._model_proto.graph.node:
             if tensor_name in x.output:
-                ret = x
-        return ret
+                return x
+        return None
 
     def find_upstream(self, tensor_name, finder_fxn):
         """Follow the producer chain upstream, calling finder_fxn on each upstream
@@ -507,6 +506,44 @@ class ModelWrapper:
             dt = onnx.StringStringEntryProto()
             dt.key = "tensor_layout"
             dt.value = str(data_layout)
+            qa.tensor_name = tensor_name
+            qa.quant_parameter_tensor_names.append(dt)
+            qnt_annotations.append(qa)
+
+    def get_tensor_sparsity(self, tensor_name):
+        """Returns the sparsity of a given tensor as dictionary."""
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret = util.get_by_name(
+                ret.quant_parameter_tensor_names, "tensor_sparsity", "key"
+            )
+            if ret is not None:
+                return eval(ret.value)
+        return None
+
+    def set_tensor_sparsity(self, tensor_name, sparsity_dict):
+        """Sets the sparsity annotation of a tensor with given name."""
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret_ts = util.get_by_name(
+                ret.quant_parameter_tensor_names, "tensor_sparsity", "key"
+            )
+            if ret_ts is not None:
+                ret_ts.value = str(sparsity_dict)
+            else:
+                ts = onnx.StringStringEntryProto()
+                ts.key = "tensor_sparsity"
+                ts.value = str(sparsity_dict)
+                ret.quant_parameter_tensor_names.append(ts)
+        else:
+            qa = onnx.TensorAnnotation()
+            dt = onnx.StringStringEntryProto()
+            dt.key = "tensor_sparsity"
+            dt.value = str(sparsity_dict)
             qa.tensor_name = tensor_name
             qa.quant_parameter_tensor_names.append(dt)
             qnt_annotations.append(qa)

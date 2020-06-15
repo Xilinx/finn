@@ -73,6 +73,11 @@ def test_modelwrapper():
     inp_layout = DataLayout.NCHW
     model.set_tensor_layout(inp_name, inp_layout)
     assert model.get_tensor_layout(inp_name) == inp_layout
+    inp_sparsity = model.get_tensor_sparsity(inp_name)
+    assert inp_sparsity is None
+    inp_sparsity = {"dw": {"kernel_shape": 3}}
+    model.set_tensor_sparsity(inp_name, inp_sparsity)
+    assert model.get_tensor_sparsity(inp_name) == inp_sparsity
     os.remove(export_onnx_path)
 
 
