@@ -40,10 +40,15 @@ class TLastMarker(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
             "NumIters": ("i", True, 0),
+            "DynIters": ("s", False, "true"),
+            # direction
+            "Direction": ("s", False, "out"),
             # width of input-output data streams, in bits
             "StreamWidth": ("i", True, 0),
             # width of individual element in stream, in bits
             "ElemWidth": ("i", True, 0),
+            # Protocol
+            "Protocol": ("s", False, "external"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -76,12 +81,27 @@ class TLastMarker(HLSCustomOp):
 
     def defines(self, var):
         stream_width = self.get_nodeattr("StreamWidth")
+        direction = self.get_nodeattr("Direction")
+        protocol = self.get_nodeattr("Protocol")
         # output stream must have TLAST, so we use this stream data type:
         # qdma_axis<stream_data_width,0,0,0 >
-        out_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
+        if direction == "out":
+            if protocol == "external":
+                out_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
+            else:
+                out_stream_dtype = "ap_axiu<%d,0,0,0>" % stream_width
+            in_stream_dtype = "ap_uint<%d>" % stream_width
+        else:
+            out_stream_dtype = "ap_uint<%d>" % stream_width
+            if protocol == "external":
+                in_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
+            else:
+                in_stream_dtype = "ap_axiu<%d,0,0,0>" % stream_width
+
         self.code_gen_dict["$DEFINES$"] = [
             "#define StreamWidth %d" % stream_width,
             "#define OutDType %s" % out_stream_dtype,
+            "#define InDType %s" % in_stream_dtype,
             "#define NumItersPerImg %d" % self.get_nodeattr("NumIters"),
         ]
 
@@ -89,27 +109,60 @@ class TLastMarker(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"] = []
 
     def docompute(self):
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            "unsigned int n = 1;",
-            "OutDType t;",
-            "t.set_keep(-1);",
-            "io_section: { // start of cycle accurate region",
-            "#pragma HLS protocol fixed",
-            "// do a first read from stream before we decide on numIters",
-            "// giving software a chance to set up the numIters prior to startup",
-            "t.set_data(in0.read());",
-            "n = (numIters == 0 ? NumItersPerImg : numIters);",
-            "t.set_last(n==1);",
-            "out.write(t);",
-            "} // end of cycle accurate region",
-            "// do one less iteration than spec since we already did one",
-            "for(unsigned int i=1; i<n; i++) {",
-            "#pragma HLS PIPELINE II=1",
-            "t.set_data(in0.read());",
-            "t.set_last(i==(n-1));",
-            "out.write(t);",
-            "}",
-        ]
+        dyn_iters = self.get_nodeattr("DynIters")
+        direction = self.get_nodeattr("Direction")
+        use_qdma_axis = self.get_nodeattr("Protocol") == "external"
+        if direction == "in":
+            # read from input and just pass data along; ignore tlast
+            # no dyn iters on input, it doesnt make sense
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                "for(unsigned int i=0; i<NumItersPerImg; i++) {",
+                "#pragma HLS PIPELINE II=1",
+                "out.write(in0.read().get_data());"
+                if use_qdma_axis
+                else "out.write(in0.read().data);",
+                "}",
+            ]
+
+        elif dyn_iters == "true":
+            # output, with dynamic iteration counts
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                "unsigned int n = 1;",
+                "OutDType t;",
+                "t.set_keep(-1);" if use_qdma_axis else "t.keep = -1;",
+                "io_section: { // start of cycle accurate region",
+                "#pragma HLS protocol fixed",
+                "// do a first read from stream before we decide on numIters",
+                "// giving software a chance to set up the numIters prior to startup",
+                "t.set_data(in0.read());" if use_qdma_axis else "t.data = in0.read();",
+                "n = (numIters == 0 ? NumItersPerImg : numIters);",
+                "t.set_last(n==1);" if use_qdma_axis else "t.last = (n==1);",
+                "out.write(t);",
+                "} // end of cycle accurate region",
+                "// do one less iteration than spec since we already did one",
+                "for(unsigned int i=1; i<n; i++) {",
+                "#pragma HLS PIPELINE II=1",
+                "t.set_data(in0.read());" if use_qdma_axis else "t.data = in0.read();",
+                "t.set_last(i==(n-1));" if use_qdma_axis else "t.last = (i==(n-1));",
+                "out.write(t);",
+                "}",
+            ]
+
+        else:
+            # output, with static iteration counts
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                "unsigned int n = 1;",
+                "OutDType t;",
+                "t.set_keep(-1);" if use_qdma_axis else "t.keep = -1;",
+                "for(unsigned int i=0; i<NumItersPerImg; i++) {",
+                "#pragma HLS PIPELINE II=1",
+                "t.set_data(in0.read());" if use_qdma_axis else "t.data = in0.read();",
+                "t.set_last(i==(NumItersPerImg-1));"
+                if use_qdma_axis
+                else "t.last = (i==(NumItersPerImg-1));",
+                "out.write(t);",
+                "}",
+            ]
 
     def dataoutstrm(self):
         self.code_gen_dict["$DATAOUTSTREAM$"] = []
@@ -118,18 +171,30 @@ class TLastMarker(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void %s(hls::stream<ap_uint<StreamWidth> > &in0,
-                hls::stream<OutDType> &out, unsigned int numIters)"""
-            % self.onnx_node.name
-        ]
+        dyn_iters = self.get_nodeattr("DynIters")
+
+        if dyn_iters == "true":
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void %s(hls::stream<InDType> &in0,
+                    hls::stream<OutDType> &out, unsigned int numIters)"""
+                % self.onnx_node.name
+            ]
+        else:
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void %s(hls::stream<InDType> &in0, hls::stream<OutDType> &out)"""
+                % self.onnx_node.name
+            ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE s_axilite port=numIters bundle=control"
-        )
+
+        dyn_iters = self.get_nodeattr("DynIters")
+        if dyn_iters == "true":
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS INTERFACE s_axilite port=numIters bundle=control"
+            )
+
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
@@ -158,7 +223,7 @@ class TLastMarker(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<InDType> in0 ("in0");'
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<OutDType> out ("out");'
