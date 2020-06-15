@@ -28,6 +28,10 @@
 
 import os
 import subprocess
+import numpy as np
+
+from finn.util.basic import gen_finn_dt_tensor
+from finn.core.rtlsim_exec import rtlsim_exec
 
 
 def throughput_test(model, batchsize=1000):
@@ -88,3 +92,50 @@ def throughput_test(model, batchsize=1000):
         return res
     except FileNotFoundError:
         return None
+
+
+def throughput_test_rtlsim(model, batchsize=100):
+    """Runs a throughput test for the given IP-stitched model. When combined
+    with tracing, useful to determine bottlenecks and required FIFO sizes."""
+
+    assert (
+        model.get_metadata_prop("exec_mode") == "rtlsim"
+    ), """Top-level exec_mode
+    metadata_prop must be set to rtlsim"""
+
+    # create random input
+    iname = model.graph.input[0].name
+    ishape = model.get_tensor_shape(iname)
+    ishape_batch = ishape
+    ishape_batch[0] = batchsize
+    idt = model.get_tensor_datatype(iname)
+    dummy_input = gen_finn_dt_tensor(idt, ishape_batch)
+    # compute input/output sizes
+    oname = model.graph.output[0].name
+    oshape = model.get_tensor_shape(oname)
+    oshape_batch = oshape
+    oshape_batch[0] = batchsize
+    odt = model.get_tensor_datatype(oname)
+    i_bytes = (np.prod(ishape_batch) * idt.bitwidth()) / 8
+    o_bytes = (np.prod(oshape_batch) * odt.bitwidth()) / 8
+    # make empty exec context and insert input
+    ctx = model.make_empty_exec_context()
+    ctx[iname] = dummy_input
+    # remove liveness threshold, launch rtlsim
+    os.environ["LIVENESS_THRESHOLD"] = "-1"
+    rtlsim_exec(model, ctx)
+    # extract metrics
+    cycles = int(model.get_metadata_prop("sim_cycles"))
+    clk_ns = float(model.get_metadata_prop("clk_ns"))
+    fclk_mhz = 1 / (clk_ns * 0.001)
+    runtime_s = (cycles * clk_ns) * (10 ** -9)
+    res = dict()
+    res["cycles"] = cycles
+    res["runtime[ms]"] = runtime_s * 1000
+    res["throughput[images/s]"] = batchsize / runtime_s
+    res["DRAM_in_bandwidth[Mb/s]"] = i_bytes * 0.000001 / runtime_s
+    res["DRAM_out_bandwidth[Mb/s]"] = o_bytes * 0.000001 / runtime_s
+    res["fclk[mhz]"] = fclk_mhz
+    res["N"] = batchsize
+
+    return res
