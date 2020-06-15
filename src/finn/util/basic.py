@@ -71,6 +71,16 @@ def get_rtlsim_trace_depth():
         return 1
 
 
+def get_remote_vivado():
+    """Return the address of the remote Vivado synthesis server as set by the,
+    REMOTE_VIVADO environment variable, otherwise return None"""
+
+    try:
+        return os.environ["REMOTE_VIVADO"]
+    except KeyError:
+        return None
+
+
 def get_num_default_workers():
     """Return the number of workers for parallel transformations. Controllable
     via the NUM_DEFAULT_WORKERS environment variable. If the env.var. is
