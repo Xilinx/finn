@@ -408,6 +408,7 @@ strm_fifo_wrapper = """
 module $TOPNAME$(
 ap_clk,
 ap_rst_n,
+count,
 in0_V_V_TDATA,
 in0_V_V_TVALID,
 in0_V_V_TREADY,
@@ -418,6 +419,7 @@ out_V_V_TREADY
 
 input   ap_clk;
 input   ap_rst_n;
+output $COUNT_RANGE$ count;
 input  $IN_RANGE$ in0_V_V_TDATA;
 input   in0_V_V_TVALID;
 output   in0_V_V_TREADY;
@@ -433,6 +435,7 @@ $LAYER_NAME$
 (
  .clock(ap_clk),
  .reset(!ap_rst_n),
+ .count(count),
  .i_d(in0_V_V_TDATA),
  .i_v(in0_V_V_TVALID),
  .i_r(in0_V_V_TREADY),

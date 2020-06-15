@@ -16,8 +16,9 @@ gecho () {
 BREVITAS_COMMIT=989cdfdba4700fdd900ba0b25a820591d561c21a
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=afcfe75f3404249bddeeb3f15df65bd1fcb1072e
-PYVERILATOR_COMMIT=1d89cb0d4e0c97469cc6352c611f876ec13edfa6
+PYVERILATOR_COMMIT=c97a5ba41bbc7c419d6f25c74cdf3bdc3393174f
 PYNQSHELL_COMMIT=0c82a61b0ec1a07fa275a14146233824ded7a13d
+OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
 
 
 gecho "Setting up known-good commit versions for FINN dependencies"
@@ -42,6 +43,10 @@ git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT --quiet
 gecho "PYNQ shell @ $PYNQSHELL_COMMIT"
 git -C /workspace/PYNQ-HelloWorld pull --quiet
 git -C /workspace/PYNQ-HelloWorld checkout $PYNQSHELL_COMMIT --quiet
+# oh-my-xilinx
+gecho "oh-my-xilinx @ $OMX_COMMIT"
+git -C /workspace/oh-my-xilinx pull --quiet
+git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
 
 # source Vivado env.vars
 source $VIVADO_PATH/settings64.sh
