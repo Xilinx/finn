@@ -32,14 +32,17 @@ import finn.custom_op.registry as registry
 from finn.transformation import Transformation
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
-
+from finn.transformation import Transformation
+from finn.util.basic import get_num_default_workers
+import multiprocessing as mp
+import copy
 
 def _codegen_single_node(node, model):
     """Calls C++ code generation for one node. Resulting code can be used
     to simulate node using cppsim."""
 
     op_type = node.op_type
-    try:
+    try: 
         # lookup op_type in registry of CustomOps
         inst = registry.custom_op[op_type](node)
         # get the path of the code generation directory
@@ -66,8 +69,41 @@ class PrepareCppSim(Transformation):
     that contains generated C++ code that can be used to simulate node using cppsim.
     The subsequent transformation is CompileCppSim"""
 
+    def __init__(self, num_workers=None):
+        super().__init__()
+        if num_workers is None:
+            self._num_workers = get_num_default_workers()
+        else:
+            self._num_workers = num_workers
+        assert self._num_workers >= 0, "Number of workers must be nonnegative."
+        if self._num_workers == 0:
+            self._num_workers = mp.cpu_count()
+
+    def prepareCppSim_node(self, node):
+        print(node.name)
+        if is_fpgadataflow_node(node) is True:
+            _codegen_single_node(node, self.model)
+        return (node, False)
+
+
     def apply(self, model):
-        for node in model.graph.node:
-            if is_fpgadataflow_node(node) is True:
-                _codegen_single_node(node, model)
-        return (model, False)
+        # Remove old nodes from the current model
+        self.model = copy.deepcopy(model)
+        old_nodes = []
+        for i in range(len(model.graph.node)):
+            old_nodes.append(model.graph.node.pop())
+
+        # Execute transformation in parallel
+        with mp.Pool(self._num_workers) as p:
+            new_nodes_and_bool = p.map(self.prepareCppSim_node, old_nodes, chunksize=1)
+
+        # extract nodes and check if the transformation needs to run again
+        # Note: .pop() had initially reversed the node order
+        run_again = False
+        for node, run in reversed(new_nodes_and_bool):
+            # Reattach new nodes to old model
+            model.graph.node.append(node)
+            if run is True:
+                run_again = True
+
+        return (model, run_again)
