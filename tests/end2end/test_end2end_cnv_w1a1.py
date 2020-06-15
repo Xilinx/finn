@@ -143,15 +143,15 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     # each tuple is (PE, SIMD, in_fifo_depth) for a layer
     folding = [
-        (16, 3, 128),
-        (32, 32, 128),
-        (16, 32, 128),
-        (16, 32, 128),
-        (4, 32, 81),
+        (16, 3, 256),
+        (32, 32, 256),
+        (16, 32, 256),
+        (16, 32, 256),
+        (4, 32, 214),
         (1, 32, 2),
-        (1, 4, 2),
-        (1, 8, 128),
-        (5, 1, 3),
+        (1, 4, 126),
+        (1, 8, 62),
+        (5, 1, 6),
     ]
     for fcl, (pe, simd, ififodepth) in zip(fc_layers, folding):
         fcl_inst = getCustomOp(fcl)
@@ -160,10 +160,12 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
         fcl_inst.set_nodeattr("inFIFODepth", ififodepth)
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator")
+    swg_idepth = [2, 51, 9, 106, 2, 2]
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
         swg_inst.set_nodeattr("SIMD", simd)
+        swg_inst.set_nodeattr("inFIFODepth", swg_idepth[i])
 
     model = model.transform(InsertDWC())
     model = model.transform(InsertFIFO())
@@ -233,7 +235,7 @@ def test_end2end_cnv_w1a1_throughput_test_rtlsim():
     # check the number of cycles it takes to execute
     ret = throughput_test_rtlsim(model, 10)
     # TODO check for expected performance
-    assert ret > 0
+    assert ret["cycles"] > 0
 
 
 @pytest.mark.vivado
