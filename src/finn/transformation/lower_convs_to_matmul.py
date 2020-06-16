@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
 from onnx import TensorProto
 from onnx import helper
 
@@ -54,12 +55,34 @@ class LowerConvsToMatMul(Transformation):
                 k = get_by_name(n.attribute, "kernel_shape").ints[-1]
                 pad = get_by_name(n.attribute, "pads").ints[-1]
                 stride = get_by_name(n.attribute, "strides").ints[-1]
+                group = get_by_name(n.attribute, "group").i
                 weight_name = n.input[1]
                 W_conv = model.get_initializer(weight_name)
-                ifm_ch = W_conv.shape[1]
-                ofm_ch = W_conv.shape[0]
+                ifm_ch = model.get_tensor_shape(n.input[0])[1]  # assume NCHW
+                ofm_ch = model.get_tensor_shape(n.output[0])[1]  # assume NCHW
                 ifm_dim = model.get_tensor_shape(n.input[0])[-1]  # assume NCHW
                 ofm_dim = model.get_tensor_shape(n.output[0])[-1]  # assume NCHW
+
+                # if depthwise conv create sparse matrix and variable "dw"
+                # to store as attribute in Im2Col that indicates that the created
+                # Im2Col node belongs to a depthwise convolution
+                dw = False
+                if group == ifm_ch and ofm_ch == ifm_ch:
+                    W_sparse = np.zeros((ofm_ch, ifm_ch, k, k))
+                    for ch in range(ifm_ch):
+                        W_sparse[ch][ch] = W_conv[ch][0]
+                    W_conv = W_sparse.astype(np.float32)
+                    # we need to store information of the
+                    # sparsity of the weight matrix. For this
+                    # we use the sparsity annotation of the
+                    # weight tensor
+                    sparsity = {"dw": {"kernel_shape": k}}
+                    model.set_tensor_sparsity(weight_name, sparsity)
+                    # additionally create variable "dw" to store
+                    # as attribute in Im2Col that indicates that the created
+                    # Im2Col node belongs to a depthwise convolution
+                    dw = True
+
                 # reuse conv weights for new matmul weights
                 # conv weights are [OFM][IFM][k][k]
                 # first convert to [OFM][k][k][IFM] (to remain compatible with
@@ -70,6 +93,7 @@ class LowerConvsToMatMul(Transformation):
                 # transpose to get ONNX-compatible [k*k*IFM][OFM] matrix
                 W_matmul = W_matmul.T
                 model.set_initializer(weight_name, W_matmul)
+
                 # create new intermediate values
                 inp_trans_out = helper.make_tensor_value_info(
                     model.make_new_valueinfo_name(),
@@ -113,6 +137,7 @@ class LowerConvsToMatMul(Transformation):
                     kernel_size=k,
                     pad_amount=pad,
                     input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
+                    dw=dw,
                 )
                 # do matmul
                 matmul_node = helper.make_node(
