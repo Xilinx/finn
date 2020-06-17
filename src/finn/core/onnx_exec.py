@@ -39,7 +39,7 @@ from finn.core.remote_exec import remote_exec
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.custom_op.registry import getCustomOp
 import finn.analysis.topology as ta
-from finn.util.basic import validate_quant_values
+from finn.util.basic import sanitize_quant_values
 
 
 def execute_node(node, context, graph):
@@ -103,7 +103,7 @@ def execute_node(node, context, graph):
                     raise Exception(
                         """Output shapes disagree after node execution:
                         found %s vs expected %s"""
-                        % (str(output_list[list_ind].shape), str(context[outp].shape),)
+                        % (str(output_list[list_ind].shape), str(context[outp].shape))
                     )
                 context[outp] = output_list[list_ind]
 
@@ -161,11 +161,11 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
         # topologically sorted
         for node in graph.node:
             # call util function match input values to quantization annotation
-            execution_context = validate_quant_values(
+            execution_context = sanitize_quant_values(
                 model, node.input, execution_context
             )
             execute_node(node, execution_context, graph)
-            execution_context = validate_quant_values(
+            execution_context = sanitize_quant_values(
                 model, node.output, execution_context
             )
     elif model_exec_mode == "remote_pynq":
