@@ -66,7 +66,6 @@ def test_move_maxpool_past_multithreshold():
             ["top_out"],
             domain="finn",
             out_dtype="UINT4",
-            out_scale=-1.0,
         )
     ]
 
