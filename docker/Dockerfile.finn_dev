@@ -42,7 +42,7 @@ WORKDIR /workspace
 RUN apt-get update
 RUN apt-get -y upgrade
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
-RUN apt-get install -y verilator nano zsh
+RUN apt-get install -y verilator nano zsh rsync
 RUN apt-get -y install sshpass
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
