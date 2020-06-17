@@ -5,6 +5,7 @@ import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.streamline.reorder import MoveMaxPoolPastMultiThreshold
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.infer_datatypes import InferDataTypes
 
 
 def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
@@ -79,6 +80,7 @@ def test_move_maxpool_past_multithreshold():
     )
     model = ModelWrapper(modelproto)
     model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
 
     model.set_initializer("thres1", np.array([[0]]))
     model.set_initializer(

@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import warnings
 from onnx import helper as oh
 
 from finn.transformation import Transformation
@@ -546,16 +547,10 @@ class MoveMaxPoolPastMultiThreshold(Transformation):
             if n.op_type == "MaxPool" and not model.is_fork_node(n):
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MultiThreshold":
-                    is_signed = True
-                    for attr in consumer.attribute:
-                        if (
-                            attr.name == "out_dtype"
-                            and len(attr.s) >= 5
-                            and attr.s[:4] == b"UINT"
-                        ):
-                            is_signed = False
-
-                    if is_signed:
+                    mt_out = consumer.output[0]
+                    mt_odt = model.get_tensor_datatype(mt_out)
+                    if mt_odt.signed():
+                        warnings.warn("Skipping signed-output MultiThreshold")
                         continue
 
                     # remove old nodes
