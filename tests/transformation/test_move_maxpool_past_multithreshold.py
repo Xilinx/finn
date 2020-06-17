@@ -55,7 +55,7 @@ def test_move_maxpool_past_multithreshold():
             domain="finn",
             out_dtype="BIPOLAR",
             out_bias=-1.0,
-            out_scale_f=1.0,
+            out_scale=1.0,
         )
     ]
     nodes += [helper.make_node("MaxPool", ["t2"], ["t3"], **maxpool_config)]
@@ -66,6 +66,7 @@ def test_move_maxpool_past_multithreshold():
             ["top_out"],
             domain="finn",
             out_dtype="UINT4",
+            out_scale=-1.0,
         )
     ]
 
