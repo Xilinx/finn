@@ -546,11 +546,18 @@ class MoveMaxPoolPastMultiThreshold(Transformation):
             node_ind += 1
             if n.op_type == "MaxPool" and not model.is_fork_node(n):
                 consumer = model.find_consumer(n.output[0])
+                pads = get_by_name(n.attribute, "pads")
+                has_padding = False
+                if pads is not None:
+                    pads = list(pads.ints)
+                    has_padding = np.prod(pads) != 0
                 if consumer is not None and consumer.op_type == "MultiThreshold":
                     mt_out = consumer.output[0]
                     mt_odt = model.get_tensor_datatype(mt_out)
-                    if mt_odt.signed():
-                        warnings.warn("Skipping signed-output MultiThreshold")
+                    if mt_odt.signed() and has_padding:
+                        warnings.warn(
+                            "Skipping padded MaxPool + signed-output MultiThreshold"
+                        )
                         continue
 
                     # remove old nodes
