@@ -66,6 +66,11 @@ def rtlsim_exec(model, execution_context):
     i_stream_w = first_node.get_instream_width()
     # convert input into time multiplexed shape
     i_folded_shape = first_node.get_folded_input_shape()
+    batchsize = i_tensor.shape[0]
+    # override batch size for input
+    i_folded_shape = list(i_folded_shape)
+    i_folded_shape[0] = batchsize
+    i_folded_shape = tuple(i_folded_shape)
     # TODO any other layout transformations need to happen here!
     i_tensor = i_tensor.reshape(i_folded_shape)
     # extract output shape
@@ -74,12 +79,20 @@ def rtlsim_exec(model, execution_context):
     o_dt = model.get_tensor_datatype(o_name)
     last_node = getCustomOp(model.find_producer(o_name))
     o_folded_shape = last_node.get_folded_output_shape()
+    # override batch size from actual input
+    o_shape = list(o_shape)
+    o_shape[0] = batchsize
+    o_shape = tuple(o_shape)
+    o_folded_shape = list(o_folded_shape)
+    o_folded_shape[0] = batchsize
+    o_folded_shape = tuple(o_folded_shape)
     o_stream_w = last_node.get_outstream_width()
     packedBits = o_stream_w
     targetBits = o_dt.bitwidth()
     # pack input
     packed_input = npy_to_rtlsim_input(i_tensor, i_dt, i_stream_w)
     num_out_values = last_node.get_number_output_values()
+    num_out_values *= batchsize
     # prepare pyverilator model
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
     if (rtlsim_so is None) or (not os.path.isfile(rtlsim_so)):

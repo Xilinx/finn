@@ -26,58 +26,39 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Temporary and binary files
-*~
-*.py[cod]
-*.so
-*.cfg
-!.isort.cfg
-!setup.cfg
-*.orig
-*.log
-*.pot
-__pycache__/*
-.cache/*
-.*.swp
-*/.ipynb_checkpoints/*
+import os
+from shutil import copy2
 
-# Project files
-.ropeproject
-.project
-.pydevproject
-.settings
-.idea
-tags
+from finn.transformation import Transformation
+from finn.util.vivado import out_of_context_synth
+from finn.util.basic import make_build_dir
 
-# Package files
-*.egg
-*.eggs/
-.installed.cfg
-*.egg-info
 
-# Unittest and coverage
-htmlcov/*
-.coverage
-.tox
-junit.xml
-coverage.xml
-.pytest_cache/
+class SynthOutOfContext(Transformation):
+    """Run out-of-context Vivado synthesis on a stitched IP design."""
 
-# Build and docs folder/files
-build/*
-dist/*
-sdist/*
-docs/api/*
-docs/_rst/*
-docs/_build/*
-cover/*
-MANIFEST
+    def __init__(self, part, clk_period_ns, clk_name="ap_clk_0"):
+        super().__init__()
+        self.part = part
+        self.clk_period_ns = clk_period_ns
+        self.clk_name = clk_name
 
-# Per-project virtualenvs
-.venv*/
+    def apply(self, model):
+        def file_to_basename(x):
+            return os.path.basename(os.path.realpath(x))
 
-# Jenkins cfg dir
-/docker/jenkins_home
-
-# SSH key dir mounted into Docker
-/ssh_keys/
+        vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
+        assert vivado_stitch_proj_dir is not None, "Need stitched IP to run."
+        top_module_name = model.get_metadata_prop("wrapper_filename")
+        top_module_name = file_to_basename(top_module_name).strip(".v")
+        build_dir = make_build_dir("synth_out_of_context_")
+        with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
+            all_verilog_srcs = f.read().split()
+        for file in all_verilog_srcs:
+            if file.endswith(".v"):
+                copy2(file, build_dir)
+        ret = out_of_context_synth(
+            build_dir, top_module_name, self.part, self.clk_name, self.clk_period_ns
+        )
+        model.set_metadata_prop("res_total_ooc_synth", str(ret))
+        return (model, False)

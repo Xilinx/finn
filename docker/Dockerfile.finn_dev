@@ -37,16 +37,12 @@ ARG PASSWD
 ARG JUPYTER_PORT
 ARG NETRON_PORT
 
-EXPOSE $JUPYTER_PORT
-EXPOSE $NETRON_PORT
-
 WORKDIR /workspace
 
 RUN apt-get update
 RUN apt-get -y upgrade
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
-RUN apt-get install verilator
-RUN apt-get install nano
+RUN apt-get install -y verilator nano zsh rsync
 RUN apt-get -y install sshpass
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
@@ -81,12 +77,16 @@ RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
 RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
 # PYNQ-HelloWorld
 RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
+# oh-my-xilinx
+RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
 
 # for this developer-oriented Docker container we assume the FINN repo is cloned and mounted from the host
 # at /workspace/finn -- see run-docker.sh for an example of how to do this.
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
+ENV PATH "${PATH}:/workspace/oh-my-xilinx"
+ENV OHMYXILINX "/workspace/oh-my-xilinx"
 
 WORKDIR /home/$UNAME/finn
 RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /home/$UNAME/.bashrc
@@ -99,6 +99,9 @@ COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
 USER $UNAME
+
+EXPOSE $JUPYTER_PORT
+EXPOSE $NETRON_PORT
 
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]
