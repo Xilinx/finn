@@ -66,7 +66,7 @@ class QuantAvgPool2d(CustomOp):
             outputs=[outp],
         )
         model_avgpool = helper.make_model(graph_avgpool)
-        idict = {node.input[0]: np.round(context[node.input[0]])}
+        idict = {node.input[0]: context[node.input[0]]}
         sess = rt.InferenceSession(model_avgpool.SerializeToString())
         result_temp = sess.run(None, idict)
         # remove scaling introduced by average
