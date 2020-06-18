@@ -41,9 +41,10 @@ def valueinfo_to_tensor(vi):
 
 
 def nchw_to_nhwc(t, model, idx, reverse=False):
-    """Converts a NCHW <-> NHWC by inserting a transpose. Input t is assumed NCHW.
-    By default we insert a transpose NCHW -> NHWC, but if reverse is true,
-    we convert NHWC -> NCHW"""
+    """Converts between NCHW <-> NHWC layouts for tensor t by inserting a transpose. 
+    If reverse=False, t is assumed NCHW and we insert transpose to convert NCHW -> NHWC
+    If reverse=True, t is assumed NHWC and we insert transpose to convert NHWC -> NCHW.
+    """
     graph = model.graph
     # create new NHWC tensor
     t_shape = model.get_tensor_shape(t)
