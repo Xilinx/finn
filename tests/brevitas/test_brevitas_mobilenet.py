@@ -10,6 +10,10 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.double_to_single_float import DoubleToSingleFloat
+from finn.transformation.streamline import Streamline
+from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+import finn.transformation.streamline.absorb as absorb
 from finn.transformation.insert_topk import InsertTopK
 import finn.core.onnx_exec as oxe
 
@@ -60,3 +64,16 @@ def test_brevitas_mobilenet():
     produced_prob = odict["TopK_0_out0"]
     assert (produced.flatten() == expected_top5).all()
     assert np.isclose(produced_prob.flatten(), expected_top5_prob).all()
+
+    model = model.transform(Streamline())
+    model = model.transform(DoubleToSingleFloat())
+    model = model.transform(LowerConvsToMatMul())
+    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+    model = model.transform(Streamline())
+    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+    model.save("quant_mobilenet_v1_4b_streamlined.onnx")
+    odict_streamline = oxe.execute_onnx(model, idict, True)
+    produced_streamline = odict_streamline[model.graph.output[0].name]
+    produced_streamline_prob = odict["TopK_0_out0"]
+    assert (produced_streamline.flatten() == expected_top5).all()
+    assert np.isclose(produced_streamline_prob.flatten(), expected_top5_prob).all()
