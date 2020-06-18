@@ -106,6 +106,14 @@ def get_finn_root():
         )
 
 
+def get_execution_error_thresh():
+    "Return the max error that is allowed for rounding in FINN execution."
+    try:
+        return int(os.environ["ERROR_THRESH"])
+    except KeyError:
+        return 1e-2
+
+
 def make_build_dir(prefix=""):
     """Creates a temporary folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
@@ -305,7 +313,7 @@ def sanitize_quant_values(model, node_tensors, execution_context, check_values=F
             )
         # check if rounded values are not too far from original values
         max_error = max(np.abs(current_values - updated_values).flatten())
-        if max_error <= 1e-4:
+        if max_error <= get_execution_error_thresh():
             if check_values is True:
                 # check again if values can now be represented with set finn datatype
                 # TODO: vectorize with numpy
