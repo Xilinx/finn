@@ -109,7 +109,7 @@ def get_finn_root():
 def get_execution_error_thresh():
     "Return the max error that is allowed for rounding in FINN execution."
     try:
-        return int(os.environ["ERROR_THRESH"])
+        return float(os.environ["ERROR_THRESH"])
     except KeyError:
         return 1e-2
 
