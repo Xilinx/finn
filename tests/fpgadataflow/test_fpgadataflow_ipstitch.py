@@ -300,7 +300,7 @@ def test_fpgadataflow_ipstitch_synth_ooc():
     assert ret["FF"] > 0
     assert ret["DSP"] == 0
     assert ret["BRAM"] == 0
-    assert ret["fmax_mz"] > 100
+    assert ret["fmax_mhz"] > 100
 
 
 @pytest.mark.vivado
