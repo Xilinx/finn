@@ -17,12 +17,14 @@ class RemoveIdentityOps(Transformation):
                 and not model.is_join_node(n)
             ):
                 A = model.get_initializer(n.input[1])
-                if A == 0:
-                    producer = model.find_producer(n.input[0])
-                    # remove node and wire output tensor to
-                    # output of producer node
-                    producer.output[0] = n.output[0]
-                    graph.node.remove(n)
+                # limit trafo to scalar and zeros
+                if all(x == 1 for x in A.shape):
+                    if A == 0:
+                        producer = model.find_producer(n.input[0])
+                        # remove node and wire output tensor to
+                        # output of producer node
+                        producer.output[0] = n.output[0]
+                        graph.node.remove(n)
 
             elif (
                 n.op_type in ["Mul", "Div"]
@@ -30,11 +32,13 @@ class RemoveIdentityOps(Transformation):
                 and not model.is_join_node(n)
             ):
                 A = model.get_initializer(n.input[1])
-                if A == 1:
-                    producer = model.find_producer(n.input[0])
-                    # remove node and wire output tensor to
-                    # output of producer node
-                    producer.output[0] = n.output[0]
-                    graph.node.remove(n)
+                # limit trafo to scalar and ones
+                if all(x == 1 for x in A.shape):
+                    if A == 1:
+                        producer = model.find_producer(n.input[0])
+                        # remove node and wire output tensor to
+                        # output of producer node
+                        producer.output[0] = n.output[0]
+                        graph.node.remove(n)
         model = model.transform(InferShapes())
         return (model, graph_modified)
