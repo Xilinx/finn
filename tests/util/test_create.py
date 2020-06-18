@@ -26,58 +26,39 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Temporary and binary files
-*~
-*.py[cod]
-*.so
-*.cfg
-!.isort.cfg
-!setup.cfg
-*.orig
-*.log
-*.pot
-__pycache__/*
-.cache/*
-.*.swp
-*/.ipynb_checkpoints/*
+import pytest
+import finn.util.create as create
+from finn.core.datatype import DataType
 
-# Project files
-.ropeproject
-.project
-.pydevproject
-.settings
-.idea
-tags
 
-# Package files
-*.egg
-*.eggs/
-.installed.cfg
-*.egg-info
+@pytest.mark.parametrize("bitwidth", [DataType.BIPOLAR, DataType.INT2, DataType.INT4])
+def test_hls_random_mlp_maker(bitwidth):
+    w = bitwidth
+    a = bitwidth
+    layer_spec = [
+        {
+            "mw": 185,
+            "mh": 100,
+            "simd": 185,
+            "pe": 100,
+            "idt": DataType.BIPOLAR,
+            "wdt": w,
+            "act": a,
+        },
+        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
+        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
+        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
+        {
+            "mw": 100,
+            "mh": 1,
+            "simd": 100,
+            "pe": 1,
+            "idt": a,
+            "wdt": w,
+            "act": DataType.BIPOLAR,
+        },
+    ]
 
-# Unittest and coverage
-htmlcov/*
-.coverage
-.tox
-junit.xml
-coverage.xml
-.pytest_cache/
-
-# Build and docs folder/files
-build/*
-dist/*
-sdist/*
-docs/api/*
-docs/_rst/*
-docs/_build/*
-cover/*
-MANIFEST
-
-# Per-project virtualenvs
-.venv*/
-
-# Jenkins cfg dir
-/docker/jenkins_home
-
-# SSH key dir mounted into Docker
-/ssh_keys/
+    ret = create.hls_random_mlp_maker(layer_spec)
+    assert len(ret.graph.node) == 5
+    ret.save("mlp-%s.onnx" % str(bitwidth))

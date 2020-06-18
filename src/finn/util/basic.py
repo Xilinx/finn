@@ -71,6 +71,16 @@ def get_rtlsim_trace_depth():
         return 1
 
 
+def get_remote_vivado():
+    """Return the address of the remote Vivado synthesis server as set by the,
+    REMOTE_VIVADO environment variable, otherwise return None"""
+
+    try:
+        return os.environ["REMOTE_VIVADO"]
+    except KeyError:
+        return None
+
+
 def get_num_default_workers():
     """Return the number of workers for parallel transformations. Controllable
     via the NUM_DEFAULT_WORKERS environment variable. If the env.var. is
@@ -255,12 +265,33 @@ def calculate_signed_dot_prod_range(dt_a, dt_b, len):
     return (min_prod, max_prod)
 
 
-def update_execution_context(model, node, execution_context):
-    for inp in node.input:
-        dtype = model.get_tensor_datatype(inp)
-        current_values = execution_context[inp]
+def sanitize_quant_values(model, node_tensors, execution_context, check_values=False):
+    """ Sanitize given list of tensors in execution_context by rounding values
+    that are supposed to be integers (as indicated by their quantization
+    annotation). Will raise an assertion if the amount of rounding is too large.
+    Returns the sanitized execution context.
+
+    If check_values is specified, an extra DataType.allowed() check will be
+    performed on any rounded tensors.
+
+    Background:
+    FINN uses floating point tensors as a carrier data type to represent
+    integers. Floating point arithmetic can introduce rounding errors, e.g.
+    (int_num * float_scale) / float_scale is not always equal to int_num.
+    We use this function to ensure that the values that are supposed to be
+    integers are indeed integers.
+    """
+
+    for tensor in node_tensors:
+        dtype = model.get_tensor_datatype(tensor)
+        # floats don't need sanitization, skip to next
+        # introduces less quicker runtime
+        if dtype == DataType.FLOAT32:
+            continue
+        current_values = execution_context[tensor]
         updated_values = current_values
         has_to_be_rounded = False
+        # TODO: vectorize with numpy
         for value in np.nditer(current_values):
             if not dtype.allowed(value):
                 has_to_be_rounded = True
@@ -269,27 +300,29 @@ def update_execution_context(model, node, execution_context):
             updated_values = np.round(current_values)
             warnings.warn(
                 "The values of tensor {} can't be represented "
-                "with the set finn datatype ({}), they will be rounded to match the "
-                "finn datatype.".format(inp, dtype)
+                "with the set FINN datatype ({}), they will be rounded to match the "
+                "FINN datatype.".format(tensor, dtype)
             )
         # check if rounded values are not too far from original values
         max_error = max(np.abs(current_values - updated_values).flatten())
         if max_error <= 1e-4:
-            # check again if values can now be represented with set finn datatype
-            for value in np.nditer(updated_values):
-                if not dtype.allowed(value):
-                    raise Exception(
-                        """Values can't be represented with set
-                            finn datatype ({}) for input {}""".format(
-                            dtype, inp
+            if check_values is True:
+                # check again if values can now be represented with set finn datatype
+                # TODO: vectorize with numpy
+                for value in np.nditer(updated_values):
+                    if not dtype.allowed(value):
+                        raise Exception(
+                            """Values can't be represented with set
+                                finn datatype ({}) for input {}""".format(
+                                dtype, tensor
+                            )
                         )
-                    )
-            execution_context[inp] = updated_values
+            execution_context[tensor] = updated_values
         else:
             raise Exception(
-                """Values can't be rounded to match set finn
+                """Rounding error is too high to match set FINN
             datatype ({}) for input {}""".format(
-                    dtype, inp
+                    dtype, tensor
                 )
             )
     return execution_context
