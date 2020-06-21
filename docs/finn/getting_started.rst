@@ -49,19 +49,30 @@ The run-docker.sh script forwards ports 8888 for Jupyter and 8081 for Netron, an
 
 Running the test suite directly
 *******************************
+FINN comes with a set of tests to check for regressions. The full test suite
+(which will take several hours to run and require a PYNQ board) can be executed
+by:
+
 ::
 
   sh run-docker.sh test
 
-FINN comes with a set of tests which can be launched using the command above. Note that some of the tests involve extra compilation and the entire test suite may take some time to complete.
+There is a quicker variant of the test suite that skips the tests marked as
+requiring Vivado or as slow-running tests:
 
-Running the test suite using Jenkins
-************************************
 ::
 
-  sh run-docker.sh jenkins
+  sh run-docker.sh quicktest
 
-This will launch `Jenkins <https://jenkins.io/>`_ inside a Docker container and print an initial password for the user to use together with the username "admin" to open Jenkins in the webbrowser. The script forwards port 8080 for Jenkins and also configures a smee client to access port 8080. `Smee <https://smee.io/>`_ is a webhook payload delivery service and the FINN GitHub repository has a webhook set up to trigger the smee client (that is set in the run_docker script) when a push event is happening. Through Jenkins the user can set up a test for FINN, which is started at every push event.
+If you want to run individual tests, you can do this *inside the Docker container
+from the FINN root directory* as follows:
+
+::
+
+  python setup.py test --addopts "-k test_end2end_tfc_w1a2"
+
+Please see the pytest documentation for more about picking tests by marks or
+by name.
 
 Environment variables
 **********************
@@ -72,6 +83,8 @@ These are summarized below:
 * `VIVADO_PATH` points to your Vivado installation on the host
 * `JUPYTER_PORT` (default 8888) changes the port for Jupyter inside Docker
 * `NETRON_PORT` (default 8081) changes the port for Netron inside Docker
+* `NUM_DEFAULT_WORKERS` (default 1) specifies the degree of parallelization for the transformations that can be run in parallel
 * `PYNQ_BOARD` specifies the type of PYNQ board used (Pynq-Z1, Pynq-Z2, Ultra96, ZCU104) for the test suite
+* `PYNQ_IP` and `PYNQ_PORT` specify ip address and port number to access the PYNQ board
 * `PYNQ_USERNAME` and `PYNQ_PASSWORD` specify the PYNQ board access credentials for the test suite
 * `PYNQ_TARGET_DIR` specifies the target dir on the PYNQ board for the test suite

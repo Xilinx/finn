@@ -31,7 +31,7 @@ import pkg_resources as pk
 
 import brevitas.onnx as bo
 import numpy as np
-
+import pytest
 import finn.core.onnx_exec as oxe
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
@@ -39,21 +39,25 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.custom_op.registry import getCustomOp
 
 export_onnx_path_cnv = "test_output_cnv.onnx"
 
 
-def test_convert_to_hls_layers_cnv_w1a1():
+@pytest.mark.vivado
+# Standalone or fused thresholding-based activation
+@pytest.mark.parametrize("fused_activation", [True, False])
+def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     cnv = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path_cnv)
     model = ModelWrapper(export_onnx_path_cnv)
@@ -68,6 +72,7 @@ def test_convert_to_hls_layers_cnv_w1a1():
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
+    model = model.transform(InferDataLayouts())
     # model.save("golden.onnx")
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
@@ -79,6 +84,10 @@ def test_convert_to_hls_layers_cnv_w1a1():
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
 
+    # if we infer thresholding first, all MultiThresholds get converted to HLS
+    # subsequently, the FC inference will generate passthrough MVAUs
+    if not fused_activation:
+        model = model.transform(to_hls.InferThresholdingLayer())
     model = model.transform(to_hls.InferBinaryStreamingFCLayer())
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
     for node in model.graph.node:
@@ -101,7 +110,12 @@ def test_convert_to_hls_layers_cnv_w1a1():
     model = model.transform(to_hls.InferStreamingMaxPool())
     # check topology status
     finn_nodes = model.get_finn_nodes()
-    assert len(finn_nodes) == 18
+    if fused_activation:
+        assert len(finn_nodes) == 18
+    else:
+        assert len(finn_nodes) == 26
+        thr_nodes = model.get_nodes_by_op_type("Thresholding_Batch")
+        assert len(thr_nodes) == 8
     non_finn_nodes = model.get_non_finn_nodes()
     assert len(non_finn_nodes) == 4
     exp_non_finn_nodes = ["Transpose", "Reshape", "Mul", "Add"]
@@ -113,9 +127,9 @@ def test_convert_to_hls_layers_cnv_w1a1():
     mp_nodes = model.get_nodes_by_op_type("StreamingMaxPool_Batch")
     assert len(mp_nodes) == 2
     # model.save("cnv-pre-compile.onnx")
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
-    model = model.transform(SetExecMode("npysim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
     # model.save("cnv-post-compile.onnx")
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]

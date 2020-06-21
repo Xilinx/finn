@@ -29,55 +29,80 @@
 import os
 
 import finn.custom_op.registry as registry
-from finn.transformation import Transformation
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.transformation import Transformation
+from finn.util.basic import get_num_default_workers
+import multiprocessing as mp
+import copy
 
 
-def _codegen_single_node(node, model, fpgapart, clk):
+def _codegen_single_node(node, model):
     """Calls C++ code generation for one node. Resulting code can be used
-    to generate a Vivado IP block for the node."""
+    to simulate node using cppsim."""
 
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
         inst = registry.custom_op[op_type](node)
         # get the path of the code generation directory
-        code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
+        code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
         # ensure that there is a directory
         if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
             code_gen_dir = make_build_dir(
-                prefix="code_gen_ipgen_" + str(node.name) + "_"
+                prefix="code_gen_cppsim_" + str(node.name) + "_"
             )
-            inst.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
+            inst.set_nodeattr("code_gen_dir_cppsim", code_gen_dir)
         # ensure that there is generated code inside the dir
-        inst.code_generation_ipgen(model, fpgapart, clk)
+        inst.code_generation_cppsim(model)
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)
 
 
-class CodeGen_ipgen(Transformation):
+class PrepareCppSim(Transformation):
     """Call custom implementation to generate code for single custom node
     and create folder that contains all the generated files.
-    All nodes in the graph must have the fpgadataflow backend attribute and
-    transformation gets additional arguments:
+    All nodes in the graph must have the fpgadataflow backend attribute.
 
-    * fpgapart (string)
+    Outcome if succesful: Node attribute "code_gen_dir_cppsim" contains path to folder
+    that contains generated C++ code that can be used to simulate node using cppsim.
+    The subsequent transformation is CompileCppSim"""
 
-    * clk in ns (int)
-
-    Outcome if succesful: Node attribute "code_gen_dir_ipgen" contains path to folder
-    that contains generated C++ code that can be used to generate a Vivado IP block.
-    The subsequent transformation is HLSSynth_IPGen"""
-
-    def __init__(self, fpgapart, clk):
+    def __init__(self, num_workers=None):
         super().__init__()
-        self.fpgapart = fpgapart
-        self.clk = clk
+        if num_workers is None:
+            self._num_workers = get_num_default_workers()
+        else:
+            self._num_workers = num_workers
+        assert self._num_workers >= 0, "Number of workers must be nonnegative."
+        if self._num_workers == 0:
+            self._num_workers = mp.cpu_count()
+
+    def prepareCppSim_node(self, node):
+        print(node.name)
+        if is_fpgadataflow_node(node) is True:
+            _codegen_single_node(node, self.model)
+        return (node, False)
 
     def apply(self, model):
-        for node in model.graph.node:
-            if is_fpgadataflow_node(node) is True:
-                _codegen_single_node(node, model, self.fpgapart, self.clk)
-        return (model, False)
+        # Remove old nodes from the current model
+        self.model = copy.deepcopy(model)
+        old_nodes = []
+        for i in range(len(model.graph.node)):
+            old_nodes.append(model.graph.node.pop())
+
+        # Execute transformation in parallel
+        with mp.Pool(self._num_workers) as p:
+            new_nodes_and_bool = p.map(self.prepareCppSim_node, old_nodes, chunksize=1)
+
+        # extract nodes and check if the transformation needs to run again
+        # Note: .pop() had initially reversed the node order
+        run_again = False
+        for node, run in reversed(new_nodes_and_bool):
+            # Reattach new nodes to old model
+            model.graph.node.append(node)
+            if run is True:
+                run_again = True
+
+        return (model, run_again)

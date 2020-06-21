@@ -5,10 +5,10 @@ from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
@@ -76,6 +76,8 @@ def prepare_inputs(input_tensor, dt):
 @pytest.mark.parametrize("depth", [16])
 # finn_dtype
 @pytest.mark.parametrize("finn_dtype", [DataType.BIPOLAR])  # , DataType.INT2])
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
 
     # generate input data
@@ -87,8 +89,8 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynth_IPGen())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
     y = oxe.execute_onnx(model, input_dict)["outp"]
     assert (
@@ -98,7 +100,7 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
     assert y.shape == tuple(Shape), """The output shape is incorrect."""
 
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model = model.transform(MakePYNQProject(test_pynq_board))
     model = model.transform(SynthPYNQProject())
     model = model.transform(MakePYNQDriver())

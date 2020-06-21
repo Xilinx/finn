@@ -39,10 +39,6 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_lfc.onnx"
-# TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_checkpoint = (
-    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
-)
 
 
 def test_infer_datatypes():
@@ -58,8 +54,8 @@ def test_infer_datatypes():
     assert model.get_tensor_datatype("MatMul_1_out0") == DataType.INT32
     assert model.get_tensor_datatype("MatMul_2_out0") == DataType.INT32
     assert model.get_tensor_datatype("MatMul_3_out0") == DataType.INT32
-    assert model.get_tensor_datatype("Sign_0_out0") == DataType.BIPOLAR
-    assert model.get_tensor_datatype("Sign_1_out0") == DataType.BIPOLAR
-    assert model.get_tensor_datatype("Sign_2_out0") == DataType.BIPOLAR
-    assert model.get_tensor_datatype("Sign_3_out0") == DataType.BIPOLAR
+    assert model.get_tensor_datatype("MultiThreshold_0_out0") == DataType.BIPOLAR
+    assert model.get_tensor_datatype("MultiThreshold_1_out0") == DataType.BIPOLAR
+    assert model.get_tensor_datatype("MultiThreshold_2_out0") == DataType.BIPOLAR
+    assert model.get_tensor_datatype("MultiThreshold_3_out0") == DataType.BIPOLAR
     os.remove(export_onnx_path)

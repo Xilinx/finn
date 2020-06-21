@@ -110,6 +110,8 @@ class StreamingFIFO(HLSCustomOp):
         ]
         # make instream width a multiple of 8 for axi interface
         in_width = self.get_instream_width_padded()
+        count_width = int(self.get_nodeattr("depth") - 1).bit_length()
+        self.code_gen_dict["$COUNT_RANGE$"] = ["[{}:0]".format(count_width - 1)]
         self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
         self.code_gen_dict["$OUT_RANGE$"] = ["[{}:0]".format(in_width - 1)]
         self.code_gen_dict["$WIDTH$"] = [str(in_width)]
@@ -121,7 +123,7 @@ class StreamingFIFO(HLSCustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        f = open(os.path.join(verilog_dir, "{}.v".format(self.onnx_node.name,)), "w",)
+        f = open(os.path.join(verilog_dir, "{}.v".format(self.onnx_node.name)), "w")
         f.write(template)
         f.close()
         self.code_gen_dict.clear()
@@ -222,7 +224,7 @@ class StreamingFIFO(HLSCustomOp):
         inp = context[node.input[0]]
         exp_shape = self.get_normal_input_shape()
 
-        if mode == "npysim":
+        if mode == "cppsim":
             output = inp
             output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
             context[node.output[0]] = output
@@ -243,9 +245,7 @@ class StreamingFIFO(HLSCustomOp):
                 export_idt = DataType[self.get_nodeattr("dataType")]
             # make copy before saving the array
             reshaped_input = reshaped_input.copy()
-            np.save(
-                os.path.join(code_gen_dir, "input_0.npy"), reshaped_input,
-            )
+            np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input(
@@ -271,7 +271,7 @@ class StreamingFIFO(HLSCustomOp):
         else:
             raise Exception(
                 """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("npysim", "rtlsim")""".format(
+            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
                     mode
                 )
             )
@@ -279,10 +279,6 @@ class StreamingFIFO(HLSCustomOp):
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
-
-    def get_number_input_values(self):
-        folded_ishape = self.get_folded_input_shape()
-        return np.prod(folded_ishape[:-1])
 
     def global_includes(self):
         pass

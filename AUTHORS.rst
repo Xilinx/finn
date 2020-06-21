@@ -6,3 +6,5 @@ Contributors
 * Jakoba Petri-Koenig (@auphelia)
 * Andrea Rigoni (@AndreaRigoni)
 * Hendrik Borras (@HenniOVP)
+* Lucian Petrica (@quetric)
+* Tobias Alonso (@Tobi-Alonso)

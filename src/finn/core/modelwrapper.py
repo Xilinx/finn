@@ -137,11 +137,16 @@ class ModelWrapper:
         qnt_annotations = graph.quantization_annotation
         ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
         if ret is not None:
-            ret = util.get_by_name(
+            ret_dt = util.get_by_name(
                 ret.quant_parameter_tensor_names, "finn_datatype", "key"
             )
-            if ret is not None:
-                ret.value = datatype.name
+            if ret_dt is not None:
+                ret_dt.value = datatype.name
+            else:
+                dt = onnx.StringStringEntryProto()
+                dt.key = "finn_datatype"
+                dt.value = datatype.name
+                ret.quant_parameter_tensor_names.append(dt)
         else:
             qa = onnx.TensorAnnotation()
             dt = onnx.StringStringEntryProto()
@@ -254,11 +259,10 @@ class ModelWrapper:
 
     def find_producer(self, tensor_name):
         """Finds and returns the node that produces the tensor with given name."""
-        ret = None
         for x in self._model_proto.graph.node:
             if tensor_name in x.output:
-                ret = x
-        return ret
+                return x
+        return None
 
     def find_upstream(self, tensor_name, finder_fxn):
         """Follow the producer chain upstream, calling finder_fxn on each upstream
@@ -287,6 +291,62 @@ class ModelWrapper:
             return self._model_proto.graph.node[consumer_ind]
         except ValueError:
             return None
+
+    def find_consumers(self, tensor_name):
+        """Finds and returns a list of the nodes that consume tensor with
+        given name."""
+        consumers = []
+        for n in self._model_proto.graph.node:
+            for inp_tensor in n.input:
+                if inp_tensor == tensor_name:
+                    consumers.append(n)
+        if consumers != []:
+            return consumers
+        else:
+            return None
+
+    def find_direct_successors(self, node):
+        """Finds and returns a list of the nodes that are successors of
+        given node."""
+        successors = []
+        for outp_tensor in node.output:
+            tensor_consumer_list = self.find_consumers(outp_tensor)
+            if tensor_consumer_list is not None:
+                for consumer in tensor_consumer_list:
+                    successors.append(consumer)
+        if successors != []:
+            return successors
+        else:
+            return None
+
+    def find_direct_predecessors(self, node):
+        """Finds and returns a list of the nodes that are predecessors of
+        given node."""
+        predecessors = []
+        for inp_tensor in node.input:
+            producer = self.find_producer(inp_tensor)
+            if producer is not None:
+                predecessors.append(producer)
+        if predecessors != []:
+            return predecessors
+        else:
+            return None
+
+    def is_fork_node(self, node):
+        """Checks if the given node is a fork, that is, the node has multiple
+        direct successors"""
+        direct_successors = self.find_direct_successors(node)
+        is_fork = False if direct_successors is None else (len(direct_successors) > 1)
+        return is_fork
+
+    def is_join_node(self, node):
+        """Checks if the given node is a join, that is, the node has multiple
+        direct predecessors"""
+        direct_predecessors = self.find_direct_predecessors(node)
+        is_join = (
+            False if direct_predecessors is None else (len(direct_predecessors) > 1)
+        )
+        return is_join
 
     def get_all_tensor_names(self):
         """Returns a list of all (input, output and value_info) tensor names
@@ -383,3 +443,107 @@ class ModelWrapper:
     def get_non_finn_nodes(self):
         """Returns a list of nodes where domain != 'finn'."""
         return list(filter(lambda x: x.domain != "finn", self.graph.node))
+
+    def get_node_index(self, node):
+        """Returns current index of given node."""
+        n_ind = 0
+        try:
+            for n in self.graph.node:
+                if n == node:
+                    return n_ind
+                n_ind += 1
+        except ValueError:
+            return None
+
+    def get_tensor_layout(self, tensor_name):
+        """Returns the data layout annotation of tensor with given name.
+        The data layout is expressed as a list of strings with as many
+        elements as the number of dimensions in the tensor shape. Each
+        string annotates what is contained in that dimension. If there is no
+        data layout annotation, None will be returned.
+        Examples of data layout annotations:
+        ["N", "C"] is tensor[batch][channel]
+        ["N", "C", "H", "W"] is tensor[batch][channel][height][width]
+        ["N", "H", "W", "C"] is tensor[batch][height][width][channel]
+        """
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret = util.get_by_name(
+                ret.quant_parameter_tensor_names, "tensor_layout", "key"
+            )
+            if ret is not None:
+                return eval(ret.value)
+        return None
+
+    def set_tensor_layout(self, tensor_name, data_layout):
+        """Sets the data layout annotation of tensor with given name. See
+        get_tensor_layout for examples."""
+        tensor_shape = self.get_tensor_shape(tensor_name)
+        assert type(data_layout) == list, "data_layout must be a list"
+        if tensor_shape is not None:
+            assert len(tensor_shape) == len(
+                data_layout
+            ), """Mismatch between number
+            of dimensions of tensor shape and data layout annotation."""
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret_tl = util.get_by_name(
+                ret.quant_parameter_tensor_names, "tensor_layout", "key"
+            )
+            if ret_tl is not None:
+                ret_tl.value = str(data_layout)
+            else:
+                tl = onnx.StringStringEntryProto()
+                tl.key = "tensor_layout"
+                tl.value = str(data_layout)
+                ret.quant_parameter_tensor_names.append(tl)
+        else:
+            qa = onnx.TensorAnnotation()
+            dt = onnx.StringStringEntryProto()
+            dt.key = "tensor_layout"
+            dt.value = str(data_layout)
+            qa.tensor_name = tensor_name
+            qa.quant_parameter_tensor_names.append(dt)
+            qnt_annotations.append(qa)
+
+    def get_tensor_sparsity(self, tensor_name):
+        """Returns the sparsity of a given tensor as dictionary."""
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret = util.get_by_name(
+                ret.quant_parameter_tensor_names, "tensor_sparsity", "key"
+            )
+            if ret is not None:
+                return eval(ret.value)
+        return None
+
+    def set_tensor_sparsity(self, tensor_name, sparsity_dict):
+        """Sets the sparsity annotation of a tensor with given name."""
+        graph = self._model_proto.graph
+        qnt_annotations = graph.quantization_annotation
+        ret = util.get_by_name(qnt_annotations, tensor_name, "tensor_name")
+        if ret is not None:
+            ret_ts = util.get_by_name(
+                ret.quant_parameter_tensor_names, "tensor_sparsity", "key"
+            )
+            if ret_ts is not None:
+                ret_ts.value = str(sparsity_dict)
+            else:
+                ts = onnx.StringStringEntryProto()
+                ts.key = "tensor_sparsity"
+                ts.value = str(sparsity_dict)
+                ret.quant_parameter_tensor_names.append(ts)
+        else:
+            qa = onnx.TensorAnnotation()
+            dt = onnx.StringStringEntryProto()
+            dt.key = "tensor_sparsity"
+            dt.value = str(sparsity_dict)
+            qa.tensor_name = tensor_name
+            qa.quant_parameter_tensor_names.append(dt)
+            qnt_annotations.append(qa)

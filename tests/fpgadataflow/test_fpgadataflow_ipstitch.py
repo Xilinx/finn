@@ -37,12 +37,12 @@ from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.custom_op.registry import getCustomOp
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
@@ -52,6 +52,8 @@ import finn.transformation.fpgadataflow.replace_verilog_relpaths as rvp
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor, pynq_part_map
 from finn.util.fpgadataflow import pyverilate_stitched_ip
+from finn.util.test import load_test_checkpoint_or_skip
+from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
@@ -198,29 +200,31 @@ def create_two_fc_model():
 
 # exec_mode of StreamingDataflowPartition
 # @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
     model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
-        model = ModelWrapper(sdp_node.get_nodeattr("model"))
+        model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
         model.set_metadata_prop("exec_mode", "remote_pynq")
     model = model.transform(InsertTLastMarker())
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen(test_fpga_part, 5))
-    model = model.transform(HLSSynth_IPGen())
+    model = model.transform(PrepareIP(test_fpga_part, 5))
+    model = model.transform(HLSSynthIP())
     assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
     assert model.graph.node[-1].op_type == "TLastMarker"
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx")
 
 
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_do_stitch():
-    model = ModelWrapper(
+    model = load_test_checkpoint_or_skip(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
     )
     model = model.transform(rvp.ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part, 5))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
     assert os.path.isdir(vivado_stitch_proj_dir)
@@ -231,8 +235,11 @@ def test_fpgadataflow_ipstitch_do_stitch():
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
 
 
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_rtlsim():
-    model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
+    model = load_test_checkpoint_or_skip(
+        ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx"
+    )
     model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
     sim = pyverilate_stitched_ip(model)
     exp_io = [
@@ -275,8 +282,32 @@ def test_fpgadataflow_ipstitch_rtlsim():
     assert (rtlsim_res == x).all()
 
 
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_ipstitch_synth_ooc():
+    model = load_test_checkpoint_or_skip(
+        ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx"
+    )
+    model = model.transform(SynthOutOfContext(test_fpga_part, 5))
+    ret = model.get_metadata_prop("res_total_ooc_synth")
+    assert ret is not None
+    # example expected output: (details may differ based on Vivado version etc)
+    # "{'vivado_proj_folder': ...,
+    # 'LUT': 708.0, 'FF': 1516.0, 'DSP': 0.0, 'BRAM': 0.0, 'WNS': 0.152, '': 0,
+    # 'fmax_mhz': 206.27062706270627}"
+    ret = eval(ret)
+    assert ret["LUT"] > 0
+    assert ret["FF"] > 0
+    assert ret["DSP"] == 0
+    assert ret["BRAM"] == 0
+    assert ret["fmax_mhz"] > 100
+
+
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_pynq_projgen():
-    model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
+    model = load_test_checkpoint_or_skip(
+        ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx"
+    )
     model = model.transform(MakePYNQProject(test_pynq_board))
     vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
     assert vivado_pynq_proj_dir is not None
@@ -284,8 +315,12 @@ def test_fpgadataflow_ipstitch_pynq_projgen():
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_ipstitch_pynq_synth():
-    model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
+    model = load_test_checkpoint_or_skip(
+        ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx"
+    )
     model = model.transform(SynthPYNQProject())
     bitfile = model.get_metadata_prop("vivado_pynq_bitfile")
     assert bitfile is not None
@@ -294,7 +329,9 @@ def test_fpgadataflow_ipstitch_pynq_synth():
 
 
 def test_fpgadataflow_ipstitch_pynq_driver():
-    model = ModelWrapper(ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx")
+    model = load_test_checkpoint_or_skip(
+        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_synth.onnx"
+    )
     model = model.transform(MakePYNQDriver())
     driver_dir = model.get_metadata_prop("pynq_driver_dir")
     assert driver_dir is not None
@@ -303,13 +340,13 @@ def test_fpgadataflow_ipstitch_pynq_driver():
 
 
 def test_fpgadataflow_ipstitch_pynq_deployment_folder():
+    model = load_test_checkpoint_or_skip(
+        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_driver.onnx"
+    )
     try:
         ip = os.environ["PYNQ_IP"]  # no default for this one; skip if not defined
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
-        model = ModelWrapper(
-            ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_driver.onnx"
-        )
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
         port = os.getenv("PYNQ_PORT", 22)
@@ -341,7 +378,7 @@ def test_fpgadataflow_ipstitch_remote_execution():
         ip = os.environ["PYNQ_IP"]  # NOQA
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
-        model = ModelWrapper(
+        model = load_test_checkpoint_or_skip(
             ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_deployment.onnx"
         )
         iname = "inp"

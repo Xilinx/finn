@@ -27,47 +27,38 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+from shutil import copy2
 
-import finn.custom_op.registry as registry
 from finn.transformation import Transformation
+from finn.util.vivado import out_of_context_synth
 from finn.util.basic import make_build_dir
-from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-def _codegen_single_node(node, model):
-    """Calls C++ code generation for one node. Resulting code can be used
-    to simulate node using npysim."""
+class SynthOutOfContext(Transformation):
+    """Run out-of-context Vivado synthesis on a stitched IP design."""
 
-    op_type = node.op_type
-    try:
-        # lookup op_type in registry of CustomOps
-        inst = registry.custom_op[op_type](node)
-        # get the path of the code generation directory
-        code_gen_dir = inst.get_nodeattr("code_gen_dir_npysim")
-        # ensure that there is a directory
-        if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
-            code_gen_dir = make_build_dir(
-                prefix="code_gen_npysim_" + str(node.name) + "_"
-            )
-            inst.set_nodeattr("code_gen_dir_npysim", code_gen_dir)
-        # ensure that there is generated code inside the dir
-        inst.code_generation_npysim(model)
-    except KeyError:
-        # exception if op_type is not supported
-        raise Exception("Custom op_type %s is currently not supported." % op_type)
-
-
-class CodeGen_npysim(Transformation):
-    """Call custom implementation to generate code for single custom node
-    and create folder that contains all the generated files.
-    All nodes in the graph must have the fpgadataflow backend attribute.
-
-    Outcome if succesful: Node attribute "code_gen_dir_npysim" contains path to folder
-    that contains generated C++ code that can be used to simulate node using npysim.
-    The subsequent transformation is Compile"""
+    def __init__(self, part, clk_period_ns, clk_name="ap_clk_0"):
+        super().__init__()
+        self.part = part
+        self.clk_period_ns = clk_period_ns
+        self.clk_name = clk_name
 
     def apply(self, model):
-        for node in model.graph.node:
-            if is_fpgadataflow_node(node) is True:
-                _codegen_single_node(node, model)
+        def file_to_basename(x):
+            return os.path.basename(os.path.realpath(x))
+
+        vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
+        assert vivado_stitch_proj_dir is not None, "Need stitched IP to run."
+        top_module_name = model.get_metadata_prop("wrapper_filename")
+        top_module_name = file_to_basename(top_module_name).strip(".v")
+        build_dir = make_build_dir("synth_out_of_context_")
+        with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
+            all_verilog_srcs = f.read().split()
+        for file in all_verilog_srcs:
+            if file.endswith(".v"):
+                copy2(file, build_dir)
+        ret = out_of_context_synth(
+            build_dir, top_module_name, self.part, self.clk_name, self.clk_period_ns
+        )
+        model.set_metadata_prop("res_total_ooc_synth", str(ret))
         return (model, False)

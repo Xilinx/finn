@@ -91,7 +91,7 @@ cd %s
 
 pynq_driver_template = """
 import argparse
-
+import os
 from pynq import Overlay
 import numpy as np
 from pynq import allocate
@@ -101,6 +101,7 @@ from finn.util.data_packing import (
     packed_bytearray_to_finnpy
 )
 from finn.core.datatype import DataType
+from pynq.ps import Clocks
 
 class FINNAccelDriver():
     def __init__(self, N, bitfile):
@@ -118,8 +119,12 @@ class FINNAccelDriver():
         self.oshape_folded = $OUTPUT_SHAPE_FOLDED$
         self.ishape_packed = $INPUT_SHAPE_PACKED$   # datatype np.uint8
         self.oshape_packed = $OUTPUT_SHAPE_PACKED$  # datatype np.uint8
+        # clock frequency
+        self.fclk_mhz = $CLOCK_FREQ_MHZ$
         # load bitfile and set up accelerator
         self.ol = Overlay(bitfile)
+        # set the clock frequency as specified by user during transformations
+        Clocks.$CLK_NAME$ = self.fclk_mhz
         self.dma = self.ol.axi_dma_0
         self.ctrl_regs = self.ol.resize_accel_0
         # neuron folding factor of output = iterations per sample
@@ -202,6 +207,12 @@ if __name__ == "__main__":
     # for the remote execution the data from the input npy file has to be loaded,
     # packed and copied to the PYNQ buffer
     if exec_mode == "execute":
+        # remove old output file to prevent reusing old output
+        # in case execution fails
+        try:
+            os.remove(outputfile)
+        except FileNotFoundError:
+            pass
         # load desired input .npy file
         ibuf_normal = np.load(inputfile)
         ibuf_folded = finnDriver.fold_input(ibuf_normal)
@@ -212,10 +223,15 @@ if __name__ == "__main__":
 
     # for the throughput test the runtime of the network has to be measured
     if exec_mode == "throughput_test":
-        # measure runtime of network
-        start = time.time()
+        # remove old metrics file
+        try:
+            os.remove("nw_metrics.txt")
+        except FileNotFoundError:
+            pass
         # dictionary for results of throughput test
         res={}
+        # measure runtime of network
+        start = time.time()
 
     # execute accelerator
     finnDriver.execute()
@@ -228,6 +244,8 @@ if __name__ == "__main__":
         res["throughput[images/s]"] = N / runtime
         res["DRAM_in_bandwidth[Mb/s]"] = np.prod(finnDriver.ishape_packed)*0.000001 / runtime
         res["DRAM_out_bandwidth[Mb/s]"] = np.prod(finnDriver.oshape_packed)*0.000001 / runtime
+        res["fclk[mhz]"] = Clocks.fclk0_mhz
+        res["N"] = N
         file = open("nw_metrics.txt", "w")
         file.write(str(res))
         file.close()

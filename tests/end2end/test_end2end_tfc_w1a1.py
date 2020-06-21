@@ -40,20 +40,18 @@ import onnx.numpy_helper as nph
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
-from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
-from finn.core.throughput_test import throughput_test
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_ipstitch import CodeGen_ipstitch
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -71,9 +69,11 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import pynq_part_map
-from finn.util.test import get_test_model_trained
+from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.core.throughput_test import throughput_test_rtlsim
+import finn.util.vcd as vcd
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -92,7 +92,7 @@ def test_end2end_tfc_w1a1_export():
 
 
 def test_end2end_tfc_w1a1_import_and_tidy():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_export.onnx")
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_export.onnx")
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
@@ -102,13 +102,15 @@ def test_end2end_tfc_w1a1_import_and_tidy():
 
 
 def test_end2end_tfc_w1a1_streamline():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_tidy.onnx")
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_tidy.onnx")
     model = model.transform(Streamline())
     model.save(build_dir + "/end2end_tfc_w1a1_streamlined.onnx")
 
 
 def test_end2end_tfc_w1a1_convert_to_hls_layers():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_streamlined.onnx")
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_streamlined.onnx"
+    )
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
@@ -118,18 +120,22 @@ def test_end2end_tfc_w1a1_convert_to_hls_layers():
 
 
 def test_end2end_tfc_w1a1_create_dataflow_partition():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_hls_layers.onnx")
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_hls_layers.onnx"
+    )
     parent_model = model.transform(CreateDataflowPartition())
     parent_model.save(build_dir + "/end2end_tfc_w1a1_dataflow_parent.onnx")
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
     sdp_node = getCustomOp(sdp_node)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
-    dataflow_model = ModelWrapper(dataflow_model_filename)
+    dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
     dataflow_model.save(build_dir + "/end2end_tfc_w1a1_dataflow_model.onnx")
 
 
 def test_end2end_tfc_w1a1_fold_and_tlastmarker():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_dataflow_model.onnx")
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_dataflow_model.onnx"
+    )
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     # (PE, SIMD, in_fifo_depth, out_fifo_depth, ramstyle) for each layer
     config = [
@@ -153,34 +159,38 @@ def test_end2end_tfc_w1a1_fold_and_tlastmarker():
     model.save(build_dir + "/end2end_tfc_w1a1_folded.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_end2end_tfc_w1a1_gen_hls_ip():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_folded.onnx")
-    model = model.transform(CodeGen_ipgen(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynth_IPGen())
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_folded.onnx")
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
     model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_tfc_w1a1_ipgen.onnx")
 
 
+@pytest.mark.vivado
 def test_end2end_tfc_w1a1_ip_stitch():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_ipgen.onnx")
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_ipgen.onnx")
     model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CodeGen_ipstitch(test_fpga_part))
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model.save(build_dir + "/end2end_tfc_w1a1_ipstitch.onnx")
 
 
+@pytest.mark.vivado
 def test_end2end_tfc_w1a1_verify_dataflow_part():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_ipstitch.onnx")
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_ipstitch.onnx")
     x = np.zeros((1, 784), dtype=np.float32)
     inp_name = model.graph.input[0].name
     out_name = model.graph.output[0].name
     inp_dict = {inp_name: x}
-    # npysim
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
-    model = model.transform(SetExecMode("npysim"))
-    model.save(build_dir + "/end2end_tfc_w1a1_ipstitch_npysim.onnx")
-    ret_npysim = execute_onnx(model, inp_dict, True)
-    res_npysim = ret_npysim[out_name]
+    # cppsim
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
+    model.save(build_dir + "/end2end_tfc_w1a1_ipstitch_cppsim.onnx")
+    ret_cppsim = execute_onnx(model, inp_dict, True)
+    res_cppsim = ret_cppsim[out_name]
     # node-by-node rtlsim
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(PrepareRTLSim())
@@ -189,16 +199,54 @@ def test_end2end_tfc_w1a1_verify_dataflow_part():
     res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
     # whole-network (ip-stitched) rtlsim
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", build_dir + "/tfc_w1a1.vcd")
+    os.environ["RTLSIM_TRACE_DEPTH"] = "3"
     model.save(build_dir + "/end2end_tfc_w1a1_ipstitch_whole_rtlsim.onnx")
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
-    assert np.isclose(res_npysim, res_rtlsim_nodebynode).all()
-    assert np.isclose(res_npysim, res_rtlsim_whole).all()
+    assert np.isclose(res_cppsim, res_rtlsim_nodebynode).all()
+    assert np.isclose(res_cppsim, res_rtlsim_whole).all()
 
 
+def test_end2end_tfc_w1a1_verify_fifo_fullness():
+    vcdf = build_dir + "/tfc_w1a1.vcd"
+    if not os.path.isfile(vcdf):
+        pytest.skip("Cannot find %s, skipping" % vcdf)
+    stream_ifs = vcd.list_stream_if(vcdf)
+    fifos = vcd.list_fifo_count_signals(vcdf)
+    assert len(stream_ifs) == 37
+    assert len(fifos) == 6
+    fifo_max = vcd.get_all_fifo_count_max(vcdf)
+    assert fifo_max[0][0] == "TOP.v.finn_design_i.StreamingFIFO_0.count[3:0]"
+    assert fifo_max[0][1] == 3
+    stream_stat = vcd.get_all_stream_if_stats(vcdf)
+    assert (
+        stream_stat[0][0]
+        == "TOP.v.finn_design_i.StreamingDataWidthConverter_Batch_0_out_V_V_"
+    )
+
+
+@pytest.mark.vivado
+def test_end2end_tfc_w1a1_throughput_test_rtlsim():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_ipstitch_whole_rtlsim.onnx"
+    )
+    # run through IP-stitched rtlsim with increasing batch sizes and
+    # check the number of cycles it takes to execute
+    ret = throughput_test_rtlsim(model, 1)
+    assert ret["cycles"] == 205
+    ret = throughput_test_rtlsim(model, 10)
+    assert ret["cycles"] == 844
+    ret = throughput_test_rtlsim(model, 100)
+    assert ret["cycles"] == 7234
+
+
+@pytest.mark.vivado
 def test_end2end_tfc_w1a1_verify_all():
     # use the streamlined model as the "golden" model for right answers
-    golden = ModelWrapper(build_dir + "/end2end_tfc_w1a1_streamlined.onnx")
+    golden = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_streamlined.onnx"
+    )
     iname = golden.graph.input[0].name
     oname = golden.graph.output[0].name
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
@@ -209,53 +257,69 @@ def test_end2end_tfc_w1a1_verify_all():
     y_golden = ret_golden[oname]
     # set up parent+child graph to test
     # we'll use models from the previous step as the child model
-    parent_model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_dataflow_parent.onnx")
+    parent_model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_dataflow_parent.onnx"
+    )
     iname = parent_model.graph.input[0].name
     oname = parent_model.graph.output[0].name
-    # produce results with npysim
+    # produce results with cppsim
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
     sdp_node = getCustomOp(sdp_node)
-    sdp_node.set_nodeattr("model", build_dir + "/end2end_tfc_w1a1_ipstitch_npysim.onnx")
-    ret_npysim = execute_onnx(parent_model, {iname: x}, True)
-    y_npysim = ret_npysim[oname]
+    load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_ipstitch_cppsim.onnx")
+    sdp_node.set_nodeattr("model", build_dir + "/end2end_tfc_w1a1_ipstitch_cppsim.onnx")
+    ret_cppsim = execute_onnx(parent_model, {iname: x}, True)
+    y_cppsim = ret_cppsim[oname]
     # produce results with node-by-node rtlsim
+    load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_ipstitch_nodebynode_rtlsim.onnx"
+    )
     sdp_node.set_nodeattr(
         "model", build_dir + "/end2end_tfc_w1a1_ipstitch_nodebynode_rtlsim.onnx"
     )
     ret_nodebynode_rtlsim = execute_onnx(parent_model, {iname: x}, True)
     y_nodebynode_rtlsim = ret_nodebynode_rtlsim[oname]
     # produce results with whole-network (stitched ip) rtlsim
+    load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_ipstitch_whole_rtlsim.onnx"
+    )
     sdp_node.set_nodeattr(
         "model", build_dir + "/end2end_tfc_w1a1_ipstitch_whole_rtlsim.onnx"
     )
     ret_whole_rtlsim = execute_onnx(parent_model, {iname: x}, True)
     y_whole_rtlsim = ret_whole_rtlsim[oname]
-    assert np.isclose(y_golden, y_npysim).all()
+    assert np.isclose(y_golden, y_cppsim).all()
     assert np.isclose(y_golden, y_nodebynode_rtlsim).all()
     assert np.isclose(y_golden, y_whole_rtlsim).all()
 
 
+@pytest.mark.vivado
 def test_end2end_tfc_w1a1_make_pynq_proj():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_ipstitch.onnx")
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_ipstitch.onnx")
     model = model.transform(MakePYNQProject(test_pynq_board))
     model.save(build_dir + "/end2end_tfc_w1a1_pynq_project.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_end2end_tfc_w1a1_synth_pynq_project():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_pynq_project.onnx")
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_pynq_project.onnx"
+    )
     model = model.transform(SynthPYNQProject())
     model = model.transform(AnnotateResources("synth"))
     model.save(build_dir + "/end2end_tfc_w1a1_synth.onnx")
 
 
 def test_end2end_tfc_w1a1_make_driver():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_synth.onnx")
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_synth.onnx")
     model = model.transform(MakePYNQDriver())
     model.save(build_dir + "/end2end_tfc_w1a1_pynq_driver.onnx")
 
 
 def test_end2end_tfc_w1a1_deploy_on_pynq():
-    model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_pynq_driver.onnx")
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_pynq_driver.onnx"
+    )
     try:
         ip = os.environ["PYNQ_IP"]  # no fault for this one; skip if not defined
         if ip == "":
@@ -273,7 +337,9 @@ def test_end2end_tfc_w1a1_deploy_on_pynq():
 
 def test_end2end_tfc_w1a1_run_on_pynq():
     # use the streamlined model as the "golden" model for right answers
-    golden = ModelWrapper(build_dir + "/end2end_tfc_w1a1_streamlined.onnx")
+    golden = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_streamlined.onnx"
+    )
     iname = golden.graph.input[0].name
     oname = golden.graph.output[0].name
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
@@ -285,23 +351,23 @@ def test_end2end_tfc_w1a1_run_on_pynq():
     y_golden = ret_golden[oname]
     # set up parent+child graph to test
     # we'll use models from the previous step as the child model
-    parent_model = ModelWrapper(build_dir + "/end2end_tfc_w1a1_dataflow_parent.onnx")
+    parent_model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_dataflow_parent.onnx"
+    )
     iname = parent_model.graph.input[0].name
     oname = parent_model.graph.output[0].name
     try:
         ip = os.environ["PYNQ_IP"]  # NOQA
         if ip == "":
             pytest.skip("PYNQ board IP address not specified")
-        # produce results with npysim
+        # produce results with cppsim
         sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
         sdp_node = getCustomOp(sdp_node)
+        load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_pynq_deploy.onnx")
         sdp_node.set_nodeattr("model", build_dir + "/end2end_tfc_w1a1_pynq_deploy.onnx")
         ret = execute_onnx(parent_model, {iname: x}, True)
         y = ret[oname]
         assert np.isclose(y, y_golden).all()
-        child_model = ModelWrapper(sdp_node.get_nodeattr("model"))
-        res = throughput_test(child_model)
-        assert res is not None
 
     except KeyError:
         pytest.skip("PYNQ board IP address not specified")

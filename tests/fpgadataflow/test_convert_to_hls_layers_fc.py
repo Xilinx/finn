@@ -34,7 +34,7 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-
+import pytest
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -42,8 +42,8 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
@@ -56,6 +56,7 @@ export_onnx_path = "test_output_tfc.onnx"
 export_onnx_path_cnv = "test_output_cnv.onnx"
 
 
+@pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a1():
     tfc = get_test_model_trained("TFC", 1, 1)
     bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
@@ -107,9 +108,9 @@ def test_convert_to_hls_layers_tfc_w1a1():
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
 
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
-    model = model.transform(SetExecMode("npysim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
 
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
@@ -125,6 +126,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
     assert np.isclose(produced, expected, atol=1e-3).all()
 
 
+@pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a2():
     tfc = get_test_model_trained("TFC", 1, 2)
     bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
@@ -171,9 +173,9 @@ def test_convert_to_hls_layers_tfc_w1a2():
     fc3w = getCustomOp(fc3)
     fc3w.set_nodeattr("SIMD", 16)
     fc3w.set_nodeattr("PE", 10)
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
-    model = model.transform(SetExecMode("npysim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution

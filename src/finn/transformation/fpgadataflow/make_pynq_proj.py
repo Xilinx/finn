@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import warnings
 import subprocess
 
 from finn.custom_op.registry import getCustomOp
@@ -40,7 +41,7 @@ class MakePYNQProject(Transformation):
     """Create a Vivado PYNQ overlay project (including the shell infrastructure)
     from the already-stitched IP block for this graph.
     All nodes in the graph must have the fpgadataflow backend attribute,
-    and the CodeGen_ipstitch transformation must have been previously run on
+    and the CreateStitchedIP transformation must have been previously run on
     the graph.
 
     Outcome if successful: sets the vivado_pynq_proj attribute in the ONNX
@@ -59,12 +60,12 @@ class MakePYNQProject(Transformation):
         ipstitch_path = model.get_metadata_prop("vivado_stitch_proj")
         if ipstitch_path is None or (not os.path.isdir(ipstitch_path)):
             raise Exception(
-                "No stitched IPI design found, apply CodeGen_ipstitch first."
+                "No stitched IPI design found, apply CreateStitchedIP first."
             )
         vivado_stitch_vlnv = model.get_metadata_prop("vivado_stitch_vlnv")
         if vivado_stitch_vlnv is None:
             raise Exception(
-                "No vlnv for stitched IP found, apply CodeGen_ipstitch first."
+                "No vlnv for stitched IP found, apply CreateStitchedIP first."
             )
 
         # collect list of all IP dirs
@@ -110,8 +111,6 @@ class MakePYNQProject(Transformation):
         nrst_name = "ap_rst_n_0"
         axi_lite_if_name = "s_axi_control_0"
         vivado_ip_cache = os.getenv("VIVADO_IP_CACHE", default="")
-        # TODO get from Transformation arg or metadata_prop
-        fclk_mhz = 100.0
 
         # create a temporary folder for the project
         vivado_pynq_proj_dir = make_build_dir(prefix="vivado_pynq_proj_")
@@ -119,6 +118,15 @@ class MakePYNQProject(Transformation):
         # filename for the synth utilization report
         synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
+
+        # get metadata property clk_ns to calculate clock frequency
+        clk_ns = float(model.get_metadata_prop("clk_ns"))
+        if clk_ns not in [5.0, 10.0, 20.0]:
+            warnings.warn(
+                """The chosen frequency may lead to failure due to clock divider
+                constraints."""
+            )
+        fclk_mhz = 1 / (clk_ns * 0.001)
 
         ip_config_tcl = templates.ip_config_tcl_template % (
             vivado_pynq_proj_dir,

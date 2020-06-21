@@ -28,12 +28,17 @@
 
 import os
 import subprocess
+import numpy as np
+
+from finn.util.basic import gen_finn_dt_tensor
+from finn.core.rtlsim_exec import rtlsim_exec
 
 
-def throughput_test(model):
+def throughput_test(model, batchsize=1000):
     """Runs the throughput test for the given model remotely on the pynq board.
     The metadata properties related to the pynq board have to be set.
-    Returns a dictionary with results of the throughput test"""
+    Returns a dictionary with results of the throughput test. Returns None
+    if the test fails."""
 
     pynq_ip = model.get_metadata_prop("pynq_ip")
     pynq_port = int(model.get_metadata_prop("pynq_port"))
@@ -47,7 +52,8 @@ def throughput_test(model):
     cmd = (
         "sshpass -p {} ssh {}@{} -p {} "
         '"cd {}/{}; echo "{}" | '
-        'sudo -S python3.6 driver.py --exec_mode="throughput_test" --batchsize=1000"'
+        'sudo -S python3.6 driver.py --exec_mode="throughput_test" --batchsize=%d"'
+        % batchsize
     ).format(
         pynq_password,
         pynq_username,
@@ -60,6 +66,12 @@ def throughput_test(model):
     bash_command = ["/bin/bash", "-c", cmd]
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
+
+    # remove any pre-existing metrics file
+    try:
+        os.remove("{}/nw_metrics.txt".format(deployment_dir))
+    except FileNotFoundError:
+        pass
 
     cmd = "sshpass -p {} scp -P{} {}@{}:{}/{}/nw_metrics.txt {}".format(
         pynq_password,
@@ -74,7 +86,56 @@ def throughput_test(model):
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
 
-    with open("{}/nw_metrics.txt".format(deployment_dir), "r") as file:
-        res = eval(file.read())
+    try:
+        with open("{}/nw_metrics.txt".format(deployment_dir), "r") as file:
+            res = eval(file.read())
+        return res
+    except FileNotFoundError:
+        return None
+
+
+def throughput_test_rtlsim(model, batchsize=100):
+    """Runs a throughput test for the given IP-stitched model. When combined
+    with tracing, useful to determine bottlenecks and required FIFO sizes."""
+
+    assert (
+        model.get_metadata_prop("exec_mode") == "rtlsim"
+    ), """Top-level exec_mode
+    metadata_prop must be set to rtlsim"""
+
+    # create random input
+    iname = model.graph.input[0].name
+    ishape = model.get_tensor_shape(iname)
+    ishape_batch = ishape
+    ishape_batch[0] = batchsize
+    idt = model.get_tensor_datatype(iname)
+    dummy_input = gen_finn_dt_tensor(idt, ishape_batch)
+    # compute input/output sizes
+    oname = model.graph.output[0].name
+    oshape = model.get_tensor_shape(oname)
+    oshape_batch = oshape
+    oshape_batch[0] = batchsize
+    odt = model.get_tensor_datatype(oname)
+    i_bytes = (np.prod(ishape_batch) * idt.bitwidth()) / 8
+    o_bytes = (np.prod(oshape_batch) * odt.bitwidth()) / 8
+    # make empty exec context and insert input
+    ctx = model.make_empty_exec_context()
+    ctx[iname] = dummy_input
+    # remove liveness threshold, launch rtlsim
+    os.environ["LIVENESS_THRESHOLD"] = "-1"
+    rtlsim_exec(model, ctx)
+    # extract metrics
+    cycles = int(model.get_metadata_prop("sim_cycles"))
+    clk_ns = float(model.get_metadata_prop("clk_ns"))
+    fclk_mhz = 1 / (clk_ns * 0.001)
+    runtime_s = (cycles * clk_ns) * (10 ** -9)
+    res = dict()
+    res["cycles"] = cycles
+    res["runtime[ms]"] = runtime_s * 1000
+    res["throughput[images/s]"] = batchsize / runtime_s
+    res["DRAM_in_bandwidth[Mb/s]"] = i_bytes * 0.000001 / runtime_s
+    res["DRAM_out_bandwidth[Mb/s]"] = o_bytes * 0.000001 / runtime_s
+    res["fclk[mhz]"] = fclk_mhz
+    res["N"] = batchsize
 
     return res

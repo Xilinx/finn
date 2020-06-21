@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import warnings
 import subprocess
 
 from finn.transformation import Transformation
@@ -34,10 +35,10 @@ from finn.util.basic import get_by_name, make_build_dir
 from finn.custom_op.registry import getCustomOp
 
 
-class CodeGen_ipstitch(Transformation):
+class CreateStitchedIP(Transformation):
     """Create a Vivado IP Block Design project from all the generated IPs of a
     graph. All nodes in the graph must have the fpgadataflow backend attribute,
-    and the CodeGen_ipgen transformation must have been previously run on
+    and the PrepareIP transformation must have been previously run on
     the graph. The resulting block design is also packaged as IP. The
     transformation gets the fpgapart as a string.
 
@@ -48,9 +49,15 @@ class CodeGen_ipstitch(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart):
+    def __init__(self, fpgapart, clk_ns = 10.0):
         super().__init__()
         self.fpgapart = fpgapart
+        self.clk_ns = clk_ns
+        if float(clk_ns) not in [5.0, 10.0, 20.0]:
+            warnings.warn(
+                """The chosen frequency may lead to failure due to clock divider
+                constraints."""
+            )
 
     def apply(self, model):
         ip_dirs = ["list"]
@@ -147,8 +154,9 @@ class CodeGen_ipstitch(Transformation):
         tcl.append('create_bd_design "%s"' % block_name)
         tcl.extend(create_cmds)
         tcl.extend(connect_cmds)
-        # TODO get from Transformation arg or metadata_prop
-        fclk_hz = 100 * 1000000
+        fclk_mhz = 1 / (self.clk_ns * 0.001)
+        fclk_hz = fclk_mhz * 1000000
+        model.set_metadata_prop("clk_ns", str(self.clk_ns))
         tcl.append("set_property CONFIG.FREQ_HZ %f [get_bd_ports /ap_clk_0]" % fclk_hz)
         tcl.append("regenerate_bd_layout")
         tcl.append("validate_bd_design")

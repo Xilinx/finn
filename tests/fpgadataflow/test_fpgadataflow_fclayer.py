@@ -38,10 +38,10 @@ from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_es
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.multithreshold import multithreshold
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -149,7 +149,9 @@ def prepare_inputs(input_tensor, idt, wdt):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
-def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -190,9 +192,9 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
-    model = model.transform(SetExecMode("npysim"))
-    model = model.transform(CodeGen_npysim())
-    model = model.transform(Compile())
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
     if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
@@ -215,7 +217,7 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 
     y_produced = y_produced.reshape(y_expected.shape)
 
-    assert (y_produced == y_expected).all(), "npysim failed"
+    assert (y_produced == y_expected).all(), "cppsim failed"
 
 
 # mem_mode: const or decoupled
@@ -234,6 +236,8 @@ def test_fpgadataflow_fclayer_npysim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
@@ -297,8 +301,8 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     # works for parametrized tests...
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
-    model = model.transform(HLSSynth_IPGen())
+    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(HLSSynthIP())
     model = model.transform(ReplaceVerilogRelPaths())
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
@@ -324,6 +328,7 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
+@pytest.mark.vivado
 def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
     mem_mode, idt, wdt, act, nf, sf, mw, mh
 ):
@@ -389,8 +394,8 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
     # works for parametrized tests...
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
-    model = model.transform(HLSSynth_IPGen())
+    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(HLSSynthIP())
     model = model.transform(ReplaceVerilogRelPaths())
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]

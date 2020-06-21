@@ -11,17 +11,16 @@ from finn.core.datatype import DataType
 
 
 def compute_conv_output_dim(ifm_dim, k, stride, pad=0):
-    "Return spatial output dimension size for convolution with given params."
+    """Returns spatial output dimension size for convolution with given params."""
     return int(((ifm_dim + 2 * pad - k) / stride) + 1)
 
 
 def get_im2col_indices_nchw(
     x_shape, field_height, field_width, padding=0, stride_y=1, stride_x=1
 ):
+    """Returns im2col indices."""
     # First figure out what the size of the output should be
     N, C, H, W = x_shape
-    assert (H + 2 * padding - field_height) % stride_y == 0
-    assert (W + 2 * padding - field_width) % stride_x == 0
     out_height = compute_conv_output_dim(H, field_height, stride_y, padding)
     out_width = compute_conv_output_dim(W, field_width, stride_x, padding)
 
@@ -41,7 +40,9 @@ def get_im2col_indices_nchw(
 def im2col_indices_nchw(
     x, field_height, field_width, padding=0, stride_y=1, stride_x=1, pad_val=0
 ):
-    """ An implementation of im2col based on some fancy indexing """
+    """Performs im2col on x with given field height and width, as well as values
+    for padding and stride size.
+    Returns result of im2col."""
     # Zero-pad the input
     p = padding
     x_padded = np.pad(
@@ -66,6 +67,9 @@ def im2col_indices_nchw(
 # * oh, ow are the height and width of the output (lowered) image
 # * ifm is the number of input channels
 # * k is the convolutional kernel size
+
+# note: for the innermost (dot product) dimension of k*k*ifm, we
+# assume an internal ordering (k, k, ifm)
 
 
 class Im2Col(CustomOp):

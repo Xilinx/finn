@@ -33,10 +33,10 @@ from onnx import TensorProto, helper
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.codegen_ipgen import CodeGen_ipgen
-from finn.transformation.fpgadataflow.codegen_npysim import CodeGen_npysim
-from finn.transformation.fpgadataflow.compile import Compile
-from finn.transformation.fpgadataflow.hlssynth_ipgen import HLSSynth_IPGen
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.general import GiveUniqueNodeNames
@@ -78,7 +78,7 @@ def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, simd, stride, i
 
 
 def make_single_slidingwindow_modelwrapper(
-    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
+    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt, dw=0
 ):
     odt = idt
     inp = helper.make_tensor_value_info(
@@ -102,6 +102,7 @@ def make_single_slidingwindow_modelwrapper(
         Stride=stride,
         inputDataType=idt.name,
         outputDataType=odt.name,
+        depthwise=dw,
     )
     graph = helper.make_graph(
         nodes=[SlidingWindow_node],
@@ -126,34 +127,40 @@ def prepare_inputs(input_tensor):
 # input datatype
 @pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
 # kernel size
-@pytest.mark.parametrize("k", [2, 4])
+@pytest.mark.parametrize("k", [2, 3])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [4, 6, 8])
+@pytest.mark.parametrize("ifm_dim", [6, 8])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [2, 4])  # , 2, 3, 4])
+@pytest.mark.parametrize("ifm_ch", [2, 4])
 # Stride
 @pytest.mark.parametrize("stride", [1, 2])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["npysim", "rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # input channel parallelism ("SIMD")
 @pytest.mark.parametrize("simd", [1, 2])
-def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode, simd):
+# depthwise
+@pytest.mark.parametrize("dw", [0, 1])
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_slidingwindow(
+    idt, k, ifm_dim, ifm_ch, stride, exec_mode, simd, dw
+):
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
 
     x = gen_finn_dt_tensor(idt, (1, ifm_dim, ifm_dim, ifm_ch))
     model = make_single_slidingwindow_modelwrapper(
-        k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
+        k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt, dw
     )
 
-    if exec_mode == "npysim":
-        model = model.transform(SetExecMode("npysim"))
-        model = model.transform(CodeGen_npysim())
-        model = model.transform(Compile())
+    if exec_mode == "cppsim":
+        model = model.transform(SetExecMode("cppsim"))
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(CodeGen_ipgen("xc7z020clg400-1", 5))
-        model = model.transform(HLSSynth_IPGen())
+        model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+        model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow")
@@ -166,6 +173,12 @@ def test_fpgadataflow_slidingwindow(idt, k, ifm_dim, ifm_ch, stride, exec_mode, 
         k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
     )
     y_expected = oxe.execute_onnx(golden, input_dict)["outp"]
-    # if idt == DataType.BIPOLAR:
-    #     y_expected = 2 * y_expected - 1
-    assert (y_produced == y_expected).all()
+    if dw == 0:
+        assert (y_produced == y_expected).all()
+    else:
+        y_expected = y_expected.reshape(
+            1, ofm_dim, ofm_dim, k * k, ifm_ch // simd, simd
+        )
+        y_expected = y_expected.transpose(0, 1, 2, 4, 3, 5)
+        y_expected = y_expected.reshape(1, ofm_dim, ofm_dim, ifm_ch * k * k)
+        assert (y_produced == y_expected).all()

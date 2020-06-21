@@ -1,11 +1,13 @@
 bitstring
 docrep
 future
-numpy
-onnx
-onnxruntime
+numpy==1.18.0
+onnx==1.6.0
+onnxruntime==1.2.0
 pre-commit
+pyverilator
 scipy
 sphinx
+toposort
+vcdvcd
 wget
-pyverilator
