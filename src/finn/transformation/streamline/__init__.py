@@ -59,6 +59,7 @@ from finn.transformation.streamline.reorder import (
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
 from finn.transformation.batchnorm_to_affine import BatchNormToAffine
+from finn.transformation.streamline.remove import RemoveIdentityOps
 
 
 class Streamline(Transformation):
@@ -87,6 +88,7 @@ class Streamline(Transformation):
         ]
         for trn in streamline_transformations:
             model = model.transform(trn)
+            model = model.transform(RemoveIdentityOps())
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
             model = model.transform(InferDataTypes())
