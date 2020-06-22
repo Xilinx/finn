@@ -31,6 +31,7 @@
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
 )
+from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.streamingfclayer_batch import StreamingFCLayer_Batch
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
@@ -56,6 +57,7 @@ from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_
 custom_op = {}
 
 custom_op["MultiThreshold"] = MultiThreshold
+custom_op["DownSampler"] = DownSampler
 custom_op["XnorPopcountMatMul"] = XnorPopcountMatMul
 custom_op["Im2Col"] = Im2Col
 custom_op["StreamingMaxPool_Batch"] = StreamingMaxPool_Batch

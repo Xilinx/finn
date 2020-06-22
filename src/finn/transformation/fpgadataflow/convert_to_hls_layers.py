@@ -103,24 +103,40 @@ class InferConvInpGen(Transformation):
                     )
                     graph.node.insert(node_ind, padding_node)
 
-                # create equivalent ConvolutionInputGenerator node
-                ConvInpGen_node = helper.make_node(
-                    "ConvolutionInputGenerator",
-                    [ConvInpGen_input],
-                    [i2c_output],
-                    domain="finn",
-                    backend="fpgadataflow",
-                    ConvKernelDim=k,
-                    IFMChannels=ifm_ch,
-                    IFMDim=ConvInpGen_idim,
-                    OFMDim=ofm_dim,
-                    SIMD=ifm_ch,
-                    Stride=stride,
-                    inputDataType=dt.name,
-                    outputDataType=dt.name,
-                    depthwise=depthwise,
-                )
-                graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
+                if stride > 1 and k == 1:
+                    # create DownSampler node
+                    ConvInpGen_node = helper.make_node(
+                        "DownSampler",
+                        [ConvInpGen_input],
+                        [i2c_output],
+                        domain="finn",
+                        backend="fpgadataflow",
+                        ImgDim=ConvInpGen_idim,
+                        NumChannels=ifm_ch,
+                        SIMD=ifm_ch,
+                        Stride=stride,
+                        inputDataType=dt.name,
+                    )
+                    graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
+                else:
+                    # create equivalent ConvolutionInputGenerator node
+                    ConvInpGen_node = helper.make_node(
+                        "ConvolutionInputGenerator",
+                        [ConvInpGen_input],
+                        [i2c_output],
+                        domain="finn",
+                        backend="fpgadataflow",
+                        ConvKernelDim=k,
+                        IFMChannels=ifm_ch,
+                        IFMDim=ConvInpGen_idim,
+                        OFMDim=ofm_dim,
+                        SIMD=ifm_ch,
+                        Stride=stride,
+                        inputDataType=dt.name,
+                        outputDataType=dt.name,
+                        depthwise=depthwise,
+                    )
+                    graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
                 graph.node.remove(n)
                 graph_modified = True
