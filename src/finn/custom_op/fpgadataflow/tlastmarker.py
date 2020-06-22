@@ -51,8 +51,8 @@ class TLastMarker(HLSCustomOp):
             "StreamWidth": ("i", True, 0),
             # width of individual element in stream, in bits
             "ElemWidth": ("i", True, 0),
-            # Protocol: external or kernel2kernel
-            # Vitis docs recommend using qdma_axis for external, ap_axiu for kernel2kernel
+            # Protocol: external or internal
+            # Vitis docs recommend using qdma_axis for external, ap_axiu for internal
             "Protocol": ("s", False, "external"),
         }
         my_attrs.update(super().get_nodeattr_types())
@@ -93,7 +93,7 @@ class TLastMarker(HLSCustomOp):
         if direction == "out":
             if protocol == "external":
                 out_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
-            elif protocol == "kernel2kernel:
+            elif protocol == "internal:
                 out_stream_dtype = "ap_axiu<%d,0,0,0>" % stream_width
             else:
                 raise Exception("Unrecognized Protocol in TLastMarker")
@@ -102,7 +102,7 @@ class TLastMarker(HLSCustomOp):
             out_stream_dtype = "ap_uint<%d>" % stream_width
             if protocol == "external":
                 in_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
-            elif protocol == "kernel2kernel:
+            elif protocol == "internal:
                 in_stream_dtype = "ap_axiu<%d,0,0,0>" % stream_width
             else:
                 raise Exception("Unrecognized Protocol in TLastMarker")
