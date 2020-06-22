@@ -13,7 +13,7 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-BREVITAS_COMMIT=989cdfdba4700fdd900ba0b25a820591d561c21a
+BREVITAS_COMMIT=026a509186b7e7b0b65d46a2f905043d41069306
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=afcfe75f3404249bddeeb3f15df65bd1fcb1072e
 PYVERILATOR_COMMIT=c97a5ba41bbc7c419d6f25c74cdf3bdc3393174f
