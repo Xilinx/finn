@@ -12,6 +12,8 @@ from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.streamline import Streamline
+from finn.transformation.streamline.remove import RemoveIdentityOps
+from finn.transformation.streamline.reorder import MoveMulPastDWConv
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.insert_topk import InsertTopK
@@ -67,9 +69,10 @@ def test_brevitas_mobilenet():
 
     model = model.transform(Streamline())
     model = model.transform(DoubleToSingleFloat())
+    model = model.transform(RemoveIdentityOps())
+    model = model.transform(MoveMulPastDWConv())
+    model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
     model = model.transform(LowerConvsToMatMul())
-    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
-    model = model.transform(Streamline())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model.save("quant_mobilenet_v1_4b_streamlined.onnx")
     odict_streamline = oxe.execute_onnx(model, idict, True)
