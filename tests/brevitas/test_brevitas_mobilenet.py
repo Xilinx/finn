@@ -12,6 +12,7 @@ from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
+    GiveUniqueParameterTensors,
 )
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.streamline import Streamline
@@ -61,6 +62,7 @@ def test_brevitas_mobilenet():
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model.save("quant_mobilenet_v1_4b.onnx")
     idict = {model.graph.input[0].name: img.astype(np.float32)}
