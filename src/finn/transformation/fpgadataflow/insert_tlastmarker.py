@@ -37,8 +37,10 @@ import numpy as np
 
 
 class InsertTLastMarker(Transformation):
-    """Ensure that the graph is terminated with a TLastMarker node, inserting
-    one if necessary."""
+    """Ensure that the graph is started/terminated with a TLastMarker node, inserting
+    one if necessary. Use constructor args to determine type of TLastMarker to be inserted.
+    More information available on the TLastMarker documentation.
+    """
 
     def __init__(self, both=False, external=True, dynamic=True):
         super().__init__()
@@ -78,7 +80,7 @@ class InsertTLastMarker(Transformation):
                 NumIters=num_iters,
                 StreamWidth=stream_width,
                 ElemWidth=elem_width,
-                DynIters=("true" if self.dyniters else "false"),
+                DynIters=(1 if self.dyniters else 0),
                 Direction="out",
                 Protocol=("external" if self.external else "internal"),
                 domain="finn",
@@ -117,7 +119,7 @@ class InsertTLastMarker(Transformation):
                     NumIters=num_iters,
                     StreamWidth=stream_width,
                     ElemWidth=elem_width,
-                    DynIters=("true" if self.dyniters else "false"),
+                    DynIters=(1 if self.dyniters else 0),
                     Direction="in",
                     Protocol=("external" if self.external else "internal"),
                     domain="finn",
