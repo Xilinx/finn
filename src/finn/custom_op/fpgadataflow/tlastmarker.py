@@ -93,7 +93,7 @@ class TLastMarker(HLSCustomOp):
         if direction == "out":
             if protocol == "external":
                 out_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
-            elif protocol == "internal:
+            elif protocol == "internal":
                 out_stream_dtype = "ap_axiu<%d,0,0,0>" % stream_width
             else:
                 raise Exception("Unrecognized Protocol in TLastMarker")
@@ -102,7 +102,7 @@ class TLastMarker(HLSCustomOp):
             out_stream_dtype = "ap_uint<%d>" % stream_width
             if protocol == "external":
                 in_stream_dtype = "qdma_axis<%d,0,0,0>" % stream_width
-            elif protocol == "internal:
+            elif protocol == "internal":
                 in_stream_dtype = "ap_axiu<%d,0,0,0>" % stream_width
             else:
                 raise Exception("Unrecognized Protocol in TLastMarker")
