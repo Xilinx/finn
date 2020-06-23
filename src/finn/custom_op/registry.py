@@ -44,7 +44,7 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
 from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
-from finn.custom_op.fpgadataflow.fmpadding import FMPadding_Batch
+from finn.custom_op.fpgadataflow.fmpadding_batch import FMPadding_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
