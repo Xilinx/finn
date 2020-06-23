@@ -44,10 +44,11 @@ from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
 from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
-from finn.custom_op.fpgadataflow.fmpadding import FMPadding_Batch
+from finn.custom_op.fpgadataflow.fmpadding_batch import FMPadding_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
+from finn.custom_op.quantavgpool2d import QuantAvgPool2d
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
 from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
 
@@ -70,6 +71,7 @@ custom_op["FMPadding_Batch"] = FMPadding_Batch
 custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["AddStreams_Batch"] = AddStreams_Batch
 custom_op["LabelSelect_Batch"] = LabelSelect_Batch
+custom_op["QuantAvgPool2d"] = QuantAvgPool2d
 custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
 custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
 

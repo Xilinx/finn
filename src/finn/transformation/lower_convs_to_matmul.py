@@ -80,14 +80,19 @@ class LowerConvsToMatMul(Transformation):
                 inp_trans_out = inp_trans_out.name
                 model.set_tensor_datatype(inp_trans_out, idt)
 
-                im2col_out = helper.make_tensor_value_info(
-                    model.make_new_valueinfo_name(),
-                    TensorProto.FLOAT,
-                    (1, ofm_dim, ofm_dim, ifm_ch * k * k),
-                )
-                graph.value_info.append(im2col_out)
-                im2col_out = im2col_out.name
-                model.set_tensor_datatype(im2col_out, idt)
+                need_im2col = True
+                if k == 1 and pad == 0 and stride == 1:
+                    need_im2col = False
+
+                if need_im2col:
+                    im2col_out = helper.make_tensor_value_info(
+                        model.make_new_valueinfo_name(),
+                        TensorProto.FLOAT,
+                        (1, ofm_dim, ofm_dim, ifm_ch * k * k),
+                    )
+                    graph.value_info.append(im2col_out)
+                    im2col_out = im2col_out.name
+                    model.set_tensor_datatype(im2col_out, idt)
 
                 matmul_out = helper.make_tensor_value_info(
                     model.make_new_valueinfo_name(),
@@ -104,19 +109,23 @@ class LowerConvsToMatMul(Transformation):
                     "Transpose", [cnv_input], [inp_trans_out], perm=[0, 2, 3, 1]
                 )
                 # lower input tensor
-                im2col_node = helper.make_node(
-                    "Im2Col",
-                    [inp_trans_out],
-                    [im2col_out],
-                    domain="finn",
-                    stride=stride,
-                    kernel_size=k,
-                    pad_amount=pad,
-                    input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
-                )
+                matmul_input = inp_trans_out
+                if need_im2col:
+                    matmul_input = im2col_out
+                    im2col_node = helper.make_node(
+                        "Im2Col",
+                        [inp_trans_out],
+                        [im2col_out],
+                        domain="finn",
+                        stride=stride,
+                        kernel_size=k,
+                        pad_amount=pad,
+                        input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
+                    )
+
                 # do matmul
                 matmul_node = helper.make_node(
-                    "MatMul", [im2col_out, weight_name], [matmul_out]
+                    "MatMul", [matmul_input, weight_name], [matmul_out]
                 )
                 # NHWC -> NCHW
                 out_trans_node = helper.make_node(
@@ -124,9 +133,13 @@ class LowerConvsToMatMul(Transformation):
                 )
                 # insert nodes where the conv is to preserve topological ordering
                 graph.node.insert(node_ind, inp_trans_node)
-                graph.node.insert(node_ind + 1, im2col_node)
-                graph.node.insert(node_ind + 2, matmul_node)
-                graph.node.insert(node_ind + 3, out_trans_node)
+                if need_im2col:
+                    graph.node.insert(node_ind + 1, im2col_node)
+                    graph.node.insert(node_ind + 2, matmul_node)
+                    graph.node.insert(node_ind + 3, out_trans_node)
+                else:
+                    graph.node.insert(node_ind + 1, matmul_node)
+                    graph.node.insert(node_ind + 2, out_trans_node)
                 # remove old nodes
                 graph.node.remove(n)
         model = model.transform(InferShapes())

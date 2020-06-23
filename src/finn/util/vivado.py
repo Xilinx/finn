@@ -28,6 +28,7 @@
 
 import os
 import subprocess
+import stat
 from finn.util.basic import get_remote_vivado
 
 
@@ -91,6 +92,7 @@ def out_of_context_synth(
     vivado_proj_folder = "%s/results_%s" % (verilog_dir, top_name)
     res_counts_path = vivado_proj_folder + "/res.txt"
     if remote_server is not None:
+        print("Using remote Vivado OOC synth, remote server %s" % remote_server)
         run_synth = """
 #!/bin/bash
 which vivado;
@@ -105,14 +107,17 @@ cat %s
         )
         with open(vivado_proj_folder + "/run.sh", "w") as f:
             f.write(run_synth)
+        st = os.stat(vivado_proj_folder + "/run.sh")
+        os.chmod(vivado_proj_folder + "/run.sh", st.st_mode | stat.S_IEXEC)
         # note that this assumes the same temp folder can be created on the
         # remote server
-        remote_server_uri = remote_server + ":" + verilog_dir
-        copy_files = "rsync -avz %s %s" % (verilog_dir + "/", remote_server_uri + "/")
+        # note we set target path as / due to use of -R (relative)
+        remote_server_uri = remote_server + ":/"
+        copy_files = "rsync -avzR %s %s" % (verilog_dir + "/", remote_server_uri)
         copy_files = copy_files.split()
         proc = subprocess.Popen(copy_files, cwd=verilog_dir, env=os.environ)
         proc.communicate()
-        vivado_cmd = "bash %s/run.sh" % vivado_proj_folder
+        vivado_cmd = "bash -ic %s/run.sh" % vivado_proj_folder
         run_vivado = ["ssh", "-t", remote_server, vivado_cmd]
         proc = subprocess.Popen(run_vivado, cwd=verilog_dir, env=os.environ)
         proc.communicate()

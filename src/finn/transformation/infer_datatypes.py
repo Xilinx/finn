@@ -71,7 +71,13 @@ def _infer_node_datatype(model, node):
         else:
             # unknown, assume node produces float32 outputs
             for o in node.output:
-                model.set_tensor_datatype(o, DataType.FLOAT32)
+                # check if output datatype is already set to a value != FLOAT32
+                odtype = model.get_tensor_datatype(o)
+                if odtype is not None and odtype != DataType.FLOAT32:
+                    # don't change data type
+                    model.set_tensor_datatype(o, odtype)
+                else:
+                    model.set_tensor_datatype(o, DataType.FLOAT32)
     # compare old and new output dtypes to see if anything changed
     new_odtypes = list(map(lambda x: model.get_tensor_datatype(x), node.output))
     graph_modified = new_odtypes != odtypes
