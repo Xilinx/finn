@@ -597,3 +597,72 @@ class MoveMaxPoolPastMultiThreshold(Transformation):
 
         model = model.transform(InferShapes())
         return (model, graph_modified)
+
+
+class MoveFlatten(Transformation):
+    """Moves a node that implements a (1, -1) reshape past a MatMul, Mul or Add node."""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        node_ind = 0
+        for n in graph.node:
+            node_ind += 1
+            # transform reshape node with [1, -1] to flatten node
+            if n.op_type == "Reshape":
+                shape = model.get_initializer(n.input[1])
+                if (shape == [1, -1]).all():
+                    node = oh.make_node("Flatten", [n.input[0]], [n.output[0]])
+                    graph.node.remove(n)
+                    graph.node.insert(node_ind, node)
+                    graph_modified = True
+            elif (
+                n.op_type == "Flatten"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
+                consumer = model.find_consumer(n.output[0])
+                if (
+                    consumer is not None
+                    and (
+                        consumer.op_type == "MatMul"
+                        or consumer.op_type == "Mul"
+                        or consumer.op_type == "Add"
+                    )
+                    and not model.is_join_node(consumer)
+                ):
+                    # move flatten past operation and rewire tensors
+                    start_name = n.input[0]
+                    middle_name = n.output[0]
+                    end_name = consumer.output[0]
+                    op_param_name = consumer.input[1]
+                    A = model.get_initializer(op_param_name)
+                    assert A is not None, "Initializer for op param is not set."
+                    start_shape = model.get_tensor_shape(start_name)
+                    dummy_in = np.random.uniform(low=0, high=1, size=(start_shape))
+
+                    if consumer.op_type == "MatMul":
+                        dummy_out = np.matmul(dummy_in, A)
+                    elif consumer.op_type == "Mul":
+                        dummy_out = dummy_in * A
+                    elif consumer.op_type == "Add":
+                        dummy_out = dummy_in + A
+
+                    new_op = oh.make_node(
+                        consumer.op_type,
+                        [start_name, op_param_name],
+                        [middle_name],
+                        name=consumer.name,
+                    )
+                    new_flatten = oh.make_node("Flatten", [middle_name], [end_name])
+                    graph.node.insert(node_ind, new_op)
+                    graph.node.insert(node_ind + 1, new_flatten)
+                    model.set_tensor_shape(middle_name, dummy_out.shape)
+                    # remove old nodes
+                    graph.node.remove(n)
+                    graph.node.remove(consumer)
+                    graph_modified = True
+
+        model = model.transform(InferShapes())
+
+        return (model, graph_modified)
