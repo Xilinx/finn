@@ -92,7 +92,7 @@ class DownSampler(HLSCustomOp):
         # data type stays the same
         dtype = model.get_tensor_datatype(node.input[0])
         exp_idtype = self.get_input_datatype()
-        assert dtype == exp_idtype, "Unexpected datatype for FMPadding_Batch"
+        assert dtype == exp_idtype, "Unexpected datatype for DownSampler"
         model.set_tensor_datatype(node.output[0], dtype)
 
     def verify_node(self):
