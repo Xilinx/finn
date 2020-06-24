@@ -106,6 +106,25 @@ def get_finn_root():
         )
 
 
+def get_execution_error_thresh():
+    "Return the max error that is allowed for rounding in FINN execution."
+    try:
+        return float(os.environ["ERROR_THRESH"])
+    except KeyError:
+        return 1e-2
+
+
+def get_sanitize_quant_tensors():
+    """Return whether tensors with quantization annotations should be sanitized.
+    Enabled by default, disabling will yield faster ONNX execution but may give
+    incorrect results. Use with caution."""
+    try:
+        return int(os.environ["SANITIZE_QUANT_TENSORS"])
+    except KeyError:
+        # enabled by default
+        return 1
+
+
 def make_build_dir(prefix=""):
     """Creates a temporary folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
@@ -305,7 +324,7 @@ def sanitize_quant_values(model, node_tensors, execution_context, check_values=F
             )
         # check if rounded values are not too far from original values
         max_error = max(np.abs(current_values - updated_values).flatten())
-        if max_error <= 1e-4:
+        if max_error <= get_execution_error_thresh():
             if check_values is True:
                 # check again if values can now be represented with set finn datatype
                 # TODO: vectorize with numpy
