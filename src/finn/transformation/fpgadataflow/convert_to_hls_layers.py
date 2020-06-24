@@ -36,6 +36,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
 import finn.core.data_layout as DataLayout
 from finn.util.onnx import nchw_to_nhwc
+import warnings
 
 
 class InferConvInpGen(Transformation):
@@ -505,12 +506,25 @@ class InferChannelwiseLinearLayer(Transformation):
 
         for k in DataType.__members__:
             dt = DataType[k]
-            if dt in [DataType.BIPOLAR, DataType.TERNARY]:
+            if dt in [DataType.BIPOLAR, DataType.TERNARY, DataType.FLOAT32]:
                 # not currently supported
                 continue
 
             if (dt.min() <= vals).all() and (vals <= dt.max()).all():
                 return dt
+
+        warnings.warn(
+            """InferChannelwiseLinearLayer: Output values may not be
+        representable with supported data types.
+        Setting maximum width data type available.
+        This will lead to errors if there are no constrains on the input
+        """
+        )
+
+        if (0 <= vals).all():
+            return DataType.UINT32
+        else:
+            return DataType.INT32
 
     def apply(self, model):
         graph = model.graph
