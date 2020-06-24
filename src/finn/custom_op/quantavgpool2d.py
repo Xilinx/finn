@@ -17,7 +17,9 @@ class QuantAvgPool2d(CustomOp):
             "kernel": ("i", True, 1),
             "ibits": ("i", True, 1),
             "obits": ("i", True, 1),
+            # determines if values are signed (set to "1") or unsigned ("0")
             "signed": ("i", True, 0),
+            # data layout attribute can be set to "NCHW" or "NHWC"
             "data_layout": ("s", False, "NCHW"),
         }
 
@@ -57,7 +59,7 @@ class QuantAvgPool2d(CustomOp):
 
         else:
             raise Exception(
-                """Datalayout for QuantAvgPool2d is set to an unvalid value.
+                """Datalayout for QuantAvgPool2d is set to an invalid value.
                     Has to be set to "NCHW" or "NHWC"."""
             )
 
