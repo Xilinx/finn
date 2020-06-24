@@ -23,40 +23,43 @@ class QuantAvgPool2d(CustomOp):
 
     def make_shape_compatible_op(self, model):
         node = self.onnx_node
-        iname = node.input[0]
-        ishape = model.get_tensor_shape(iname)
         k = self.get_nodeattr("kernel")
         s = self.get_nodeattr("stride")
         data_layout = self.get_nodeattr("data_layout")
         if data_layout == "NCHW":
-            (n, c, hi, wi) = ishape
-            ho = compute_pool_output_dim(hi, k, s)
-            wo = compute_pool_output_dim(wi, k, s)
-            oshape = (n, c, ho, wo)
+            return helper.make_node(
+                "AveragePool",
+                inputs=[node.input[0]],
+                outputs=[node.output[0]],
+                kernel_shape=[k, k],
+                strides=[s, s],
+            )
         elif data_layout == "NHWC":
+            iname = node.input[0]
+            ishape = model.get_tensor_shape(iname)
             (n, hi, wi, c) = ishape
             ho = compute_pool_output_dim(hi, k, s)
             wo = compute_pool_output_dim(wi, k, s)
             oshape = (n, ho, wo, c)
+            # implement tensor with correct shape
+            values = np.random.randn(*oshape).astype(np.float32)
+            return helper.make_node(
+                "Constant",
+                inputs=[],
+                outputs=[node.output[0]],
+                value=helper.make_tensor(
+                    name="const_tensor",
+                    data_type=TensorProto.FLOAT,
+                    dims=values.shape,
+                    vals=values.flatten().astype(float),
+                ),
+            )
+
         else:
             raise Exception(
                 """Datalayout for QuantAvgPool2d is set to an unvalid value.
                     Has to be set to "NCHW" or "NHWC"."""
             )
-
-        # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
-        return helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
-        )
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
