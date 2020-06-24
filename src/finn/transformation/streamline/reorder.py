@@ -363,6 +363,10 @@ class MoveMulPastDWConv(Transformation):
                     mul_weight_name = n.input[1]
                     A = model.get_initializer(mul_weight_name)
                     if A is None:
+                        warnings.warn(
+                            """Mul weight tensor is not set. If it is a constant,
+                                please use set_initializer to set the tensor."""
+                        )
                         continue
                     conv_node = consumer
                     mul_node = n
