@@ -93,7 +93,7 @@ def test_move_flatten_past_affine(data_layout, batch_size):
 
     # compare execution before and after transformation
     inp_values = gen_finn_dt_tensor(DataType.INT2, ishape)
-    idict = {"inp": inp_values}
+    idict = {model.graph.input[0].name: inp_values}
     model_transformed = model.transform(MoveFlattenPastAffine())
     assert oxe.compare_execution(model, model_transformed, idict)
 
