@@ -60,8 +60,7 @@ def make_single_maxpool_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
 # vector parameter or scalar parameter (broadcast)
 @pytest.mark.parametrize("scalar_param", [True, False])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["cppsim"])
-# @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_convert_to_hls_channelwise_layer(
