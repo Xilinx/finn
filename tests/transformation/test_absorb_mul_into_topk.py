@@ -77,9 +77,7 @@ def test_absorb_mul_into_topk(mul_positive, scalar):
     model = model.transform(InferDataTypes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
-    model.save("test.onnx")
     model_transformed = model.transform(AbsorbScalarMulIntoTopK())
-    model_transformed.save("test2.onnx")
 
     # compare execution results
     inp_values = np.random.uniform(low=-10, high=10, size=(1, 1, 1, 1000)).astype(
