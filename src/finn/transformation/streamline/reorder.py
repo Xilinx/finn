@@ -31,8 +31,10 @@ import warnings
 from onnx import helper as oh
 
 from finn.transformation import Transformation
+import finn.core.data_layout as DataLayout
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.core.onnx_exec import execute_node
 from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
@@ -626,6 +628,22 @@ class MoveFlattenPastAffine(Transformation):
                 ):
                     # move flatten past operation and rewire tensors
                     start_name = n.input[0]
+                    # check if datalyout is set to NHWC and H=W=1
+                    datalayout = model.get_tensor_layout(start_name)
+                    if datalayout == DataLayout.NHWC:
+                        (b, h, w, c) = model.get_tensor_shape(start_name)
+                        if h != 1 or w != 1:
+                            warnings.warn(
+                                """The Transformation can only be performed if
+                            H=W=1."""
+                            )
+                            continue
+                    else:
+                        warnings.warn(
+                            """The Transformation can only be performed on
+                            operations that operate on data layout NHWC."""
+                        )
+                        continue
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
                     op_param_name = consumer.input[1]
@@ -660,6 +678,9 @@ class MoveFlattenPastAffine(Transformation):
                     model.set_tensor_datatype(start_name, op_in_dt)
                     model.set_tensor_datatype(middle_name, op_out_dt)
                     model.set_tensor_datatype(end_name, op_out_dt)
+                    # set datalayout
+                    model.set_tensor_layout(start_name, DataLayout.NHWC)
+                    model.set_tensor_layout(middle_name, DataLayout.NHWC)
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)
@@ -667,5 +688,6 @@ class MoveFlattenPastAffine(Transformation):
 
         model = model.transform(InferShapes())
         model = model.transform(InferDataTypes())
+        model = model.transform(InferDataLayouts())
 
         return (model, graph_modified)
