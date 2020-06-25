@@ -58,7 +58,7 @@ def make_single_maxpool_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
 # function
 @pytest.mark.parametrize("onnx_op_name", ["Add", "Mul"])
 # vector parameter or scalar parameter (broadcast)
-@pytest.mark.parametrize("scalar_param", [False])
+@pytest.mark.parametrize("scalar_param", [True, False])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim"])
 # @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
