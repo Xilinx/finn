@@ -58,16 +58,16 @@ def test_brevitas_mobilenet():
     expected_topk = expected.flatten()
     expected_top5 = np.argsort(expected_topk)[-5:]
     expected_top5 = np.flip(expected_top5)
-    # winner_ind = winner_inds_top5[-1]
     expected_top5_prob = []
     for index in expected_top5:
         expected_top5_prob.append(expected_topk[index])
-    # assert winner_prob != 0
     bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx, input_t=input_tensor)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(InsertTopK())
+    # get initializer from Mul that will be absorbed into topk
+    a0 = model.get_initializer(model.graph.node[-2].input[1])
     model = model.transform(absorb.AbsorbScalarMulIntoTopK())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
@@ -79,7 +79,7 @@ def test_brevitas_mobilenet():
     idict = {model.graph.input[0].name: img.astype(np.float32)}
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]
-    produced_prob = odict["TopK_0_out0"]
+    produced_prob = odict["TopK_0_out0"] * a0
     assert (produced.flatten() == expected_top5).all()
     assert np.isclose(produced_prob.flatten(), expected_top5_prob).all()
 
@@ -107,6 +107,6 @@ def test_brevitas_mobilenet():
     model.save("quant_mobilenet_v1_4b_streamlined.onnx")
     odict_streamline = oxe.execute_onnx(model, idict, True)
     produced_streamline = odict_streamline[model.graph.output[0].name]
-    # produced_streamline_prob = odict_streamline["TopK_0_out0"]
+    produced_streamline_prob = odict_streamline["TopK_0_out0"] * a0
     assert (produced_streamline.flatten() == expected_top5).all()
-    # assert np.isclose(produced_streamline_prob.flatten(), expected_top5_prob).all()
+    assert np.isclose(produced_streamline_prob.flatten(), expected_top5_prob).all()
