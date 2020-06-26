@@ -20,7 +20,8 @@ from finn.transformation.streamline.remove import RemoveIdentityOps
 from finn.transformation.streamline.reorder import (
     MoveMulPastDWConv,
     MoveTransposePastScalarMul,
-    MoveFlatten,
+    MoveFlattenPastAffine,
+    MoveFlattenPastTopK,
     MoveScalarMulPastMatMul,
 )
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
@@ -66,6 +67,7 @@ def test_brevitas_mobilenet():
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(InsertTopK())
+    model = model.transform(absorb.AbsorbScalarMulIntoTopK())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     model = model.transform(GiveUniqueNodeNames())
@@ -85,7 +87,9 @@ def test_brevitas_mobilenet():
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
     model = model.transform(ChangeDataLayoutQuantAvgPool2d())
     model = model.transform(MoveTransposePastScalarMul())
-    model = model.transform(MoveFlatten())
+    model = model.transform(absorb.AbsorbTransposeIntoFlatten())
+    model = model.transform(MoveFlattenPastAffine())
+    model = model.transform(MoveFlattenPastTopK())
     model.save("after_move_flatten.onnx")
     model = model.transform(MoveScalarMulPastMatMul())
     model.save("after_movescalarmul.onnx")
