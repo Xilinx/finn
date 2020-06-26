@@ -41,18 +41,18 @@ from finn.util.data_packing import (
 )
 from . import templates
 
-# ONNX i/o tensor shape assumptions for Thresholding:
+# ONNX i/o tensor shape assumptions for channelwise ops:
 # input 0 is the input tensor, shape (..., NumChannels)
-# input 1 is the threshold tensor, shape (NumChannels, n_thres)
+# input 1 is the channelwise parameter tensor, shape (NumChannels, params_per_channel)
 # output 0 is the output tensor, shape (..., NumChannels) - same as input
 # the ... here can be any shape (representing groups of vectors)
 
-# by setting Func appropriately, this function can implement
-# any channel-wise operation, including Add, Mul, Thresholding
-
 
 class ChannelwiseOp_Batch(HLSCustomOp):
-    """Class that corresponds to finn-hls Thresholding_Batch function."""
+    """Class that corresponds to finn-hls Thresholding_Batch function.
+    It can implement a variety of channel-wise parametrized operations,
+    including Add, Mul and multi-thresholding.
+    """
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
@@ -60,13 +60,16 @@ class ChannelwiseOp_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
+            # channelwise "map" function to apply:
+            # one of cmp_le, cmp_ge, add, mul
             "Func": ("s", False, "cmp_le"),
             "PE": ("i", True, 0),
             "NumChannels": ("i", True, 0),
-            # string defining memory type
+            # string defining memory resource type for parameters
             "ram_style": ("s", False, "distributed"),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
+            "paramDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 0),
@@ -81,7 +84,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         return my_attrs
 
     def calc_tmem(self):
-        """Calculates and returns TMEM."""
+        """Calculates and returns TMEM, the depth of the memory used
+        to store the channelwise op parameters."""
         chn = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         return chn // pe
@@ -107,7 +111,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         # check input datatype against property
         idt_name = self.get_input_datatype().name
         exp_idt_name = self.get_nodeattr("inputDataType")
-        assert exp_idt_name == idt_name, "Bad input DataType for Thresholding layer"
+        assert exp_idt_name == idt_name, "Bad input DataType for ChannelwiseOp layer"
+        # TODO: dynamically infer/update odt based on idt as done in ConvertToHLSLayers?
         # set output datatype from property
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
@@ -136,6 +141,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             self.get_nodeattr("NumChannels")
             self.get_nodeattr("PE")
             self.get_nodeattr("inputDataType")
+            self.get_nodeattr("paramDataType")
             self.get_nodeattr("outputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
@@ -278,18 +284,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         code_gen_dir = path
         # save thresholds in params.h
         parameters = model.get_initializer(self.onnx_node.input[1])
-
         parameter_tensor = self.get_hls_compatible_parameter_tensor(parameters)
-
-        # determine parameters data type from range of threshold and input tensors
-        p_min = parameters.min()
-        p_max = parameters.max()
-        p_absmax = max(abs(p_min), abs(p_max))
-        if p_min < 0:
-            p_min = min(p_min, -p_absmax - 1)
-            pdt = DataType.get_smallest_possible(p_min)
-        else:
-            pdt = DataType.get_smallest_possible(p_max)
+        pdt = DataType[self.get_nodeattr("paramDataType")]
 
         parameters_hls_code = numpy_to_hls_code(
             parameter_tensor, pdt, "parameters", False, True
@@ -534,8 +530,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
 
-        # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-        # partition for parallel access along PE and N_THRES
+        # the channelwise parameter tensor is acc_type [PE][TMEM][N_PARAMS_PER_CHANNEL]
+        # partition for parallel access along PE and N_PARAMS_PER_CHANNEL
         # dimensions (dims 1 and 3)
         self.code_gen_dict["$PRAGMAS$"].append(
             (

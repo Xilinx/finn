@@ -36,6 +36,8 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
 import finn.core.data_layout as DataLayout
 from finn.util.onnx import nchw_to_nhwc
+import warnings
+from finn.util.basic import get_by_name
 
 
 class InferConvInpGen(Transformation):
@@ -58,6 +60,7 @@ class InferConvInpGen(Transformation):
                 k = i2c_inst.get_nodeattr("kernel_size")
                 pad = i2c_inst.get_nodeattr("pad_amount")
                 pad_val = i2c_inst.get_nodeattr("pad_value")
+                depthwise = i2c_inst.get_nodeattr("depthwise")
                 ifm_ch = i2c_in_shape[-1]
                 ifm_dim = i2c_in_shape[1]
                 ofm_dim = i2c_out_shape[1]
@@ -69,7 +72,11 @@ class InferConvInpGen(Transformation):
 
                 if pad > 0:
                     # if padding enabled, ensure pad_val supported by DataType
-                    assert dt.allowed(pad_val), "Im2Col DataType must support pad_val"
+                    # assert dt.allowed(pad_val),"""FMPadding_Batch DataType
+                    # must support pad_val"""
+                    assert (
+                        pad_val == 0
+                    ), "FMPadding_Batch doesn't currently support pad_val!= 0"
 
                     odim_padding = ifm_dim + 2 * pad
 
@@ -114,6 +121,7 @@ class InferConvInpGen(Transformation):
                     Stride=stride,
                     inputDataType=dt.name,
                     outputDataType=dt.name,
+                    depthwise=depthwise,
                 )
                 graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
@@ -165,6 +173,137 @@ class InferStreamingMaxPool(Transformation):
                     # remove old nodes
                     graph.node.remove(n)
                     graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferPool_Batch(Transformation):
+    """If kernel_shape > strides, replace Pool layer with  with of Im2col
+    + pool(with kernel_shape == strides), plus Transpose layers to keep the original
+    data layout."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type in ["MaxPool"]:
+                # extract pool parameters
+                k = get_by_name(n.attribute, "kernel_shape").ints[-1]
+                stride = get_by_name(n.attribute, "strides").ints[-1]
+
+                if k <= stride:
+                    continue
+
+                try:
+                    pad = get_by_name(n.attribute, "pads").ints[-1]
+                except AttributeError:
+                    pad = 0
+
+                node_input = n.input[0]
+                node_output = n.output[0]
+                idt = model.get_tensor_datatype(node_input)
+                if not idt.is_integer():
+                    continue
+
+                # odt = model.get_tensor_datatype(node_output)
+
+                ifm_ch = model.get_tensor_shape(n.input[0])[1]  # assume NCHW
+                ofm_ch = ifm_ch
+                ifm_dim = model.get_tensor_shape(n.input[0])[-1]  # assume NCHW
+                ofm_dim = model.get_tensor_shape(n.output[0])[-1]  # assume NCHW
+                # create new intermediate values
+                inp_trans_out = helper.make_tensor_value_info(
+                    model.make_new_valueinfo_name(),
+                    TensorProto.FLOAT,
+                    (1, ifm_dim, ifm_dim, ifm_ch),  # NHWC
+                )
+                graph.value_info.append(inp_trans_out)
+                inp_trans_out = inp_trans_out.name
+                model.set_tensor_datatype(inp_trans_out, idt)
+
+                im2col_out = helper.make_tensor_value_info(
+                    model.make_new_valueinfo_name(),
+                    TensorProto.FLOAT,
+                    (1, ofm_dim, ofm_dim, ifm_ch * k * k),
+                )
+                graph.value_info.append(im2col_out)
+                im2col_out = im2col_out.name
+                model.set_tensor_datatype(im2col_out, idt)
+
+                pool_output = helper.make_tensor_value_info(
+                    model.make_new_valueinfo_name(),
+                    TensorProto.FLOAT,
+                    (1, ofm_dim, ofm_dim, ofm_ch),
+                )
+                graph.value_info.append(pool_output)
+                pool_output = pool_output.name
+                # model.set_tensor_datatype(pool_output, odt)
+
+                # create new nodes
+                # NCHW -> NHWC
+                inp_trans_node = helper.make_node(
+                    "Transpose", [node_input], [inp_trans_out], perm=[0, 2, 3, 1]
+                )
+
+                if n.op_type == "MaxPool":
+                    pool_fxn = "MaxPool"
+                    pad_value = idt.min()
+                else:
+                    raise Exception(
+                        "pad_value and pool_fxn not configured for {}".format(n.op_type)
+                    )
+
+                # format input tensor
+                im2col_node = helper.make_node(
+                    "Im2Col",
+                    [inp_trans_out],
+                    [im2col_out],
+                    domain="finn",
+                    stride=stride,
+                    kernel_size=k,
+                    pad_amount=pad,
+                    pad_value=pad_value,
+                    depthwise=1,
+                    input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
+                )
+
+                # Warning PE has to be equal to ifm_ch until Im2Col is replaced by
+                # ConvolutionInputGenerator with depthwise=1.
+                # For other settings the output will be incorrect due to incorrect input
+                # data layout
+                pool_node = helper.make_node(
+                    "Pool_Batch",
+                    [im2col_out],
+                    [pool_output],
+                    domain="finn",
+                    backend="fpgadataflow",
+                    dataType=idt.name,
+                    Channels=ifm_ch,
+                    PE=ifm_ch,
+                    KernelSize=k,
+                    Function=pool_fxn,
+                    OutImgDim=ofm_dim,
+                    BatchSize=1,
+                )
+
+                # NHWC -> NCHW
+                out_trans_node = helper.make_node(
+                    "Transpose", [pool_output], [node_output], perm=[0, 3, 1, 2]
+                )
+
+                # insert nodes where the conv is to preserve topological ordering
+                graph.node.insert(node_ind, inp_trans_node)
+                graph.node.insert(node_ind + 1, im2col_node)
+                graph.node.insert(node_ind + 2, pool_node)
+                graph.node.insert(node_ind + 3, out_trans_node)
+                # remove old node
+                graph.node.remove(n)
+                graph_modified = True
+
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
@@ -496,6 +635,36 @@ class InferThresholdingLayer(Transformation):
 class InferChannelwiseLinearLayer(Transformation):
     """Convert any channel-wise Add/Mul into a HLS layer."""
 
+    def get_smallest_possible(self, vals):
+        """Returns smallest (fewest bits) possible DataType that can represent
+        value. Prefers unsigned integers where possible."""
+        vals = np.array(vals)
+        for v in vals:
+            assert int(v) == v, "Error float value"
+
+        for k in DataType.__members__:
+            dt = DataType[k]
+
+            if dt in [DataType.BIPOLAR, DataType.TERNARY, DataType.FLOAT32]:
+                # not currently supported
+                continue
+
+            if (dt.min() <= vals).all() and (vals <= dt.max()).all():
+                return dt
+
+        warnings.warn(
+            """InferChannelwiseLinearLayer: Output values may not be
+        representable with supported data types.
+        Setting maximum width data type available.
+        This will lead to errors if there are no constrains on the input
+        """
+        )
+
+        if (0 <= vals).all():
+            return DataType.UINT32
+        else:
+            return DataType.INT32
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -503,45 +672,52 @@ class InferChannelwiseLinearLayer(Transformation):
         for node in graph.node:
             node_ind += 1
             if node.op_type == "Add" or node.op_type == "Mul":
+                # assuming input[0] is dynamic
                 ll_input = node.input[0]
                 ll_output = node.output[0]
                 ll_in_shape = model.get_tensor_shape(ll_input)
-                # check that:
-                # input 1 is an initializer
-                # with shape (ch, 1)
-                # and initializer is integers
+
+                # check if input 1 has an initializer
                 ll_const = node.input[1]
                 if ll_const is not None:
                     ll_cinit = model.get_initializer(ll_const)
+                    if ll_cinit is None:
+                        # input 1 is also dynamic
+                        continue
                 else:
                     continue
 
-                ll_cinit_shape = list(ll_cinit.shape)
-                # get number of channels from input
+                # get number of channels and channel index from input
                 ll_in_layout = model.get_tensor_layout(ll_input)
                 if ll_in_layout == DataLayout.NHWC or ll_in_layout == DataLayout.NC:
+                    ch_index = -1
                     ch = ll_in_shape[-1]
                 elif ll_in_layout == DataLayout.NCHW:
+                    ch_index = 1
                     ch = ll_in_shape[1]
                 else:
                     continue
 
-                # check if the shape of initializer is compatible with
-                # number of channels, e.g. (ch,1) or (ch)
-                # TODO: verify plausible shapes
-                if np.prod(ll_cinit_shape) != ch:
+                # check if the shape of initializer is compatible
+                ll_cinit_shape = list(ll_cinit.shape)
+                if np.prod(ll_cinit_shape) == 1:
+                    warnings.warn(
+                        "Broadcasting " + str(node.op_type) + "(" + node.name + ")"
+                    )
+                    ll_cinit = np.full((ch), ll_cinit.flatten()[0])
+                elif np.prod(ll_cinit_shape) != ch or ll_cinit_shape[ch_index] != ch:
+                    # parameter shape not compatible with Channelwise_batch
                     continue
 
                 # check initializer contains integers as floats
                 if not (ll_cinit.astype(np.int32) == ll_cinit).all():
                     continue
-
                 # all initializer conditions are met
+
                 # check inputs
                 idt = model.get_tensor_datatype(ll_input)
-
-                # skip conversion for layers with float input
                 if not idt.is_integer():
+                    # skip conversion for layers with float input
                     continue
 
                 # check layout of inputs/outputs, and convert if needed
@@ -559,24 +735,32 @@ class InferChannelwiseLinearLayer(Transformation):
                     ll_output = nchw_to_nhwc(ll_output, model, node_ind, reverse=True)
                     node_ind += 1
 
-                # create node with no parallelization first
-                pe = 1
-                assert ch % pe == 0, "Requirement IFC divisable by PE is violated."
+                # get parameter data type
+                param_min = min(ll_cinit.flatten())
+                param_max = max(ll_cinit.flatten())
+                pdt = self.get_smallest_possible([param_min, param_max])
 
                 # set function and determine output data type
                 if node.op_type == "Add":
                     func = "add"
-                    if idt.signed():
-                        odt = DataType.get_smallest_possible(2 * idt.min())
-                    else:
-                        odt = DataType.get_smallest_possible(2 * idt.max())
+                    out_min = idt.min() + param_min
+                    out_max = idt.max() + param_max
+                    odt = self.get_smallest_possible([out_min, out_max])
                 elif node.op_type == "Mul":
                     func = "mul"
-                    if idt.signed():
-                        odt = DataType.get_smallest_possible(abs(idt.min()) * idt.min())
-                    else:
-                        odt = DataType.get_smallest_possible(idt.max() * idt.max())
+                    possible_limits = []
+                    possible_limits += [idt.min() * param_min]
+                    possible_limits += [idt.min() * param_max]
+                    possible_limits += [idt.max() * param_min]
+                    possible_limits += [idt.max() * param_max]
+                    odt = self.get_smallest_possible(possible_limits)
+
                 model.set_initializer(ll_const, ll_cinit.reshape(ch))
+                model.set_tensor_datatype(ll_output, odt)
+
+                # create node with no parallelization first
+                pe = 1
+                assert ch % pe == 0, "Requirement IFC divisable by PE is violated."
                 # create and insert node
                 new_node = helper.make_node(
                     "ChannelwiseOp_Batch",
@@ -588,6 +772,7 @@ class InferChannelwiseLinearLayer(Transformation):
                     NumChannels=ch,
                     PE=pe,
                     inputDataType=idt.name,
+                    paramDataType=pdt.name,
                     outputDataType=odt.name,
                     numInputVectors=list(ll_in_shape[:-1]),
                 )
