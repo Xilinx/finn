@@ -7,6 +7,7 @@ from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import (
@@ -70,31 +71,33 @@ def test_brevitas_mobilenet():
     model = model.transform(absorb.AbsorbScalarMulIntoTopK())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
+    model = model.transform(InferDataLayouts())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model.save("quant_mobilenet_v1_4b.onnx")
     idict = {model.graph.input[0].name: img.astype(np.float32)}
-    # odict = oxe.execute_onnx(model, idict, True)
-    # produced = odict[model.graph.output[0].name]
-    # produced_prob = odict["TopK_0_out0"]
-    # assert (produced.flatten() == expected_top5).all()
-    # assert np.isclose(produced_prob.flatten(), expected_top5_prob).all()
+    odict = oxe.execute_onnx(model, idict, True)
+    produced = odict[model.graph.output[0].name]
+    produced_prob = odict["TopK_0_out0"]
+    assert (produced.flatten() == expected_top5).all()
+    assert np.isclose(produced_prob.flatten(), expected_top5_prob).all()
 
     model = model.transform(Streamline())
     model = model.transform(DoubleToSingleFloat())
     model = model.transform(MoveMulPastDWConv())
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
     model = model.transform(ChangeDataLayoutQuantAvgPool2d())
+    model = model.transform(InferDataLayouts())
     model = model.transform(MoveTransposePastScalarMul())
     model = model.transform(absorb.AbsorbTransposeIntoFlatten())
     model = model.transform(MoveFlattenPastAffine())
     model = model.transform(MoveFlattenPastTopK())
-    model.save("after_move_flatten.onnx")
+    # model.save("after_move_flatten.onnx")
     model = model.transform(MoveScalarMulPastMatMul())
-    model.save("after_movescalarmul.onnx")
+    # model.save("after_movescalarmul.onnx")
     model = model.transform(CollapseRepeatedMul())
-    model.save("after_collapse.onnx")
+    # model.save("after_collapse.onnx")
     model = model.transform(RemoveIdentityOps())
     model = model.transform(LowerConvsToMatMul())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
@@ -104,6 +107,6 @@ def test_brevitas_mobilenet():
     model.save("quant_mobilenet_v1_4b_streamlined.onnx")
     odict_streamline = oxe.execute_onnx(model, idict, True)
     produced_streamline = odict_streamline[model.graph.output[0].name]
-    produced_streamline_prob = odict_streamline["TopK_0_out0"]
+    # produced_streamline_prob = odict_streamline["TopK_0_out0"]
     assert (produced_streamline.flatten() == expected_top5).all()
-    assert np.isclose(produced_streamline_prob.flatten(), expected_top5_prob).all()
+    # assert np.isclose(produced_streamline_prob.flatten(), expected_top5_prob).all()
