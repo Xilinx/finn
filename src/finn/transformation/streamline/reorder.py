@@ -68,8 +68,11 @@ class MoveAddPastMul(Transformation):
                     add_weight_name = n.input[1]
                     A = model.get_initializer(mul_weight_name)
                     B = model.get_initializer(add_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
-                    assert B is not None, "Initializer for add weights is not set."
+                    if (A is None) or (B is None):
+                        warnings.warn(
+                            "Mul or add does not have constant params, skipping"
+                        )
+                        continue
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
@@ -124,8 +127,9 @@ class MoveScalarMulPastMatMul(Transformation):
                     matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
                     W = model.get_initializer(matmul_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
-                    assert W is not None, "Initializer for matmul weights is not set."
+                    if (A is None) or (W is None):
+                        warnings.warn("MatMul or Mul params are not constant, skipping")
+                        continue
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
@@ -181,8 +185,9 @@ class MoveScalarAddPastMatMul(Transformation):
                     matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(add_weight_name)
                     W = model.get_initializer(matmul_weight_name)
-                    assert A is not None, "Initializer for add weights is not set."
-                    assert W is not None, "Initializer for matmul weights is not set."
+                    if (A is None) or (W is None):
+                        warnings.warn("MatMul or Add params are not constant, skipping")
+                        continue
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
@@ -243,7 +248,9 @@ class MoveScalarAddPastConv(Transformation):
                     conv_in_name = consumer.input[0]
                     conv_in_shape = model.get_tensor_shape(conv_in_name)
                     A = model.get_initializer(add_weight_name)
-                    assert A is not None, "Initializer for add weights is not set."
+                    if A is None:
+                        warnings.warn("Add param is not constant, skipping")
+                        continue
                     start_name = n.input[0]
                     end_name = consumer.output[0]
                     conv_out_shape = model.get_tensor_shape(end_name)
@@ -311,7 +318,9 @@ class MoveScalarMulPastConv(Transformation):
                 ):
                     mul_weight_name = n.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
+                    if A is None:
+                        warnings.warn("Mul param is not constant, skipping")
+                        continue
                     conv_node = consumer
                     mul_node = n
                     start_name = mul_node.input[0]
@@ -687,7 +696,9 @@ class MoveTransposePastScalarMul(Transformation):
                 ):
                     mul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
+                    if A is None:
+                        warnings.warn("Mul param is not constant, skipping")
+                        continue
                     transp_node = n
                     mul_node = consumer
                     start_name = transp_node.input[0]
@@ -709,81 +720,4 @@ class MoveTransposePastScalarMul(Transformation):
                         graph.node.insert(node_ind, transp_node)
                         graph_modified = True
         model = model.transform(InferShapes())
-        return (model, graph_modified)
-
-
-class MoveFlatten(Transformation):
-    """Moves a node that implements a (1, -1) reshape past a MatMul, Mul or Add node."""
-
-    def apply(self, model):
-        graph = model.graph
-        graph_modified = False
-        node_ind = 0
-        for n in graph.node:
-            node_ind += 1
-            # transform reshape node with [1, -1] to flatten node
-            if n.op_type == "Reshape":
-                shape = model.get_initializer(n.input[1])
-                prod = model.find_producer(n.input[0])
-                if (
-                    prod is not None
-                    and prod.op_type == "Transpose"
-                    # check H=W=1
-                    and get_by_name(prod.attribute, "perm").ints == [0, 3, 1, 2]
-                    and (shape == [1, -1]).all()
-                ):
-                    node = oh.make_node("Flatten", [prod.input[0]], [n.output[0]])
-                    graph.node.remove(n)
-                    graph.node.remove(prod)
-                    graph.node.insert(node_ind, node)
-                    graph_modified = True
-            elif (
-                n.op_type == "Flatten"
-                and not model.is_fork_node(n)
-                and not model.is_join_node(n)
-            ):
-                consumer = model.find_consumer(n.output[0])
-                if (
-                    consumer is not None
-                    and (
-                        consumer.op_type == "MatMul"
-                        or consumer.op_type == "Mul"
-                        or consumer.op_type == "Add"
-                    )
-                    and not model.is_join_node(consumer)
-                ):
-                    # move flatten past operation and rewire tensors
-                    start_name = n.input[0]
-                    middle_name = n.output[0]
-                    end_name = consumer.output[0]
-                    op_param_name = consumer.input[1]
-                    A = model.get_initializer(op_param_name)
-                    assert A is not None, "Initializer for op param is not set."
-                    start_shape = model.get_tensor_shape(start_name)
-                    dummy_in = np.random.uniform(low=0, high=1, size=(start_shape))
-
-                    if consumer.op_type == "MatMul":
-                        dummy_out = np.matmul(dummy_in, A)
-                    elif consumer.op_type == "Mul":
-                        dummy_out = dummy_in * A
-                    elif consumer.op_type == "Add":
-                        dummy_out = dummy_in + A
-
-                    new_op = oh.make_node(
-                        consumer.op_type,
-                        [start_name, op_param_name],
-                        [middle_name],
-                        name=consumer.name,
-                    )
-                    new_flatten = oh.make_node("Flatten", [middle_name], [end_name])
-                    graph.node.insert(node_ind, new_op)
-                    graph.node.insert(node_ind + 1, new_flatten)
-                    model.set_tensor_shape(middle_name, dummy_out.shape)
-                    # remove old nodes
-                    graph.node.remove(n)
-                    graph.node.remove(consumer)
-                    graph_modified = True
-
-        model = model.transform(InferShapes())
-
         return (model, graph_modified)
