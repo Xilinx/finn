@@ -80,7 +80,6 @@ class PrepareCppSim(Transformation):
             self._num_workers = mp.cpu_count()
 
     def prepareCppSim_node(self, node):
-        print(node.name)
         if is_fpgadataflow_node(node) is True:
             _codegen_single_node(node, self.model)
         return (node, False)
