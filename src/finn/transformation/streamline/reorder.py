@@ -803,6 +803,12 @@ class MoveTransposePastScalarMul(Transformation):
                     transp_out_shape = model.get_tensor_shape(middle_name)
                     transp_in_layout = model.get_tensor_layout(start_name)
                     transp_out_layout = model.get_tensor_layout(middle_name)
+                    if transp_in_layout is None or transp_out_layout is None:
+                        warnings.warn(
+                            """Datalayout is not set for tensors.
+                            Transformation can't be applied."""
+                        )
+                        continue
                     if all(x == 1 for x in A.shape):
                         # if the mul is scalar, we can simply swap the order of ops
                         # rewire transpose input to be mul input
@@ -820,9 +826,9 @@ class MoveTransposePastScalarMul(Transformation):
                         graph.node.insert(node_ind, transp_node)
                         graph_modified = True
 
-        model = model.transform(InferDataLayouts())
-        model = model.transform(InferShapes())
-        return (model, graph_modified)
+        if graph_modified is True:
+            model = model.transform(InferDataLayouts())
+            model = model.transform(InferShapes())
 
 
 class MoveFlattenPastTopK(Transformation):
