@@ -801,20 +801,26 @@ class MoveTransposePastScalarMul(Transformation):
                     end_name = mul_node.output[0]
                     transp_in_shape = model.get_tensor_shape(start_name)
                     transp_out_shape = model.get_tensor_shape(middle_name)
+                    transp_in_layout = model.get_tensor_layout(start_name)
+                    transp_out_layout = model.get_tensor_layout(middle_name)
                     if all(x == 1 for x in A.shape):
                         # if the mul is scalar, we can simply swap the order of ops
                         # rewire transpose input to be mul input
                         mul_node.input[0] = start_name
                         model.set_tensor_shape(start_name, transp_in_shape)
+                        model.set_tensor_layout(start_name, transp_in_layout)
                         mul_node.output[0] = middle_name
                         model.set_tensor_shape(middle_name, transp_in_shape)
+                        model.set_tensor_layout(middle_name, transp_in_layout)
                         transp_node.input[0] = middle_name
                         transp_node.output[0] = end_name
                         model.set_tensor_shape(end_name, transp_out_shape)
+                        model.set_tensor_layout(end_name, transp_out_layout)
                         graph.node.remove(transp_node)
                         graph.node.insert(node_ind, transp_node)
                         graph_modified = True
 
+        model = model.transform(InferDataLayouts())
         model = model.transform(InferShapes())
         return (model, graph_modified)
 
@@ -876,5 +882,6 @@ class MoveFlattenPastTopK(Transformation):
 
                     graph_modified = True
 
+        model = model.transform(InferDataLayouts())
         model = model.transform(InferShapes())
         return (model, graph_modified)
