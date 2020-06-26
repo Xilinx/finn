@@ -830,6 +830,8 @@ class MoveTransposePastScalarMul(Transformation):
             model = model.transform(InferDataLayouts())
             model = model.transform(InferShapes())
 
+        return (model, graph_modified)
+
 
 class MoveFlattenPastTopK(Transformation):
     """Move flatten node past a succeeding topk node, if the "axis" attribute in topk
