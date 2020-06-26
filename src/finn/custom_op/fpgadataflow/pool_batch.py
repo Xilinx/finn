@@ -45,7 +45,7 @@ class Pool_Batch(HLSCustomOp):
 
     # note: the actual data layout produced by the hlslib kernels is different
     # for depthwise ops.
-    # * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/SIMD, K, K, SIMD)
+    # * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/PE, K, K, PE)
 
     Channels can be folded using PE (SIMD from the input perspective)
     TODO: doc
@@ -159,7 +159,7 @@ class Pool_Batch(HLSCustomOp):
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
+        dtype = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], dtype)
 
     def verify_node(self):
