@@ -34,6 +34,7 @@ from onnx import TensorProto
 from finn.transformation import Transformation
 import finn.core.data_layout as DataLayout
 from finn.transformation.infer_shapes import InferShapes
+from finn.core.datatype import DataType
 from finn.core.onnx_exec import execute_node
 from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
@@ -333,6 +334,71 @@ class MoveScalarMulPastConv(Transformation):
                         # use old conv output as new mul node output
                         mul_node.output[0] = conv_out_name
                         # move add node past conv node
+                        graph.node.remove(mul_node)
+                        graph.node.insert(node_ind, mul_node)
+                        graph_modified = True
+        model = model.transform(InferShapes())
+        return (model, graph_modified)
+
+
+class MoveMulPastDWConv(Transformation):
+    """Move channelwise mul operations past depthwise conv operations. We want to have muls
+    next to each other such that they can be collapsed into a single mul."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if (
+                n.op_type == "Mul"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
+                consumer = model.find_consumer(n.output[0])
+                if (
+                    consumer is not None
+                    and consumer.op_type == "Conv"
+                    and not model.is_join_node(consumer)
+                ):
+                    mul_weight_name = n.input[1]
+                    A = model.get_initializer(mul_weight_name)
+                    if A is None:
+                        warnings.warn(
+                            """Mul weight tensor is not set. If it is a constant,
+                                please use set_initializer to set the tensor."""
+                        )
+                        continue
+                    conv_node = consumer
+                    mul_node = n
+                    start_name = mul_node.input[0]
+                    conv_in_name = conv_node.input[0]
+                    conv_in_shape = model.get_tensor_shape(conv_in_name)
+                    ifm_ch = conv_in_shape[1]
+                    group_attribute = get_by_name(consumer.attribute, "group")
+                    if group_attribute is None:
+                        continue
+                    group_attribute = group_attribute.i
+                    conv_out_name = conv_node.output[0]
+                    conv_out_shape = model.get_tensor_shape(conv_out_name)
+                    if A.shape == (1, ifm_ch, 1, 1) and ifm_ch == group_attribute:
+                        # if the mul is channelwise and conv is depthwise,
+                        # we can simply swap the order of ops
+                        # rewire mul input to be conv input
+                        conv_node.input[0] = start_name
+                        model.set_tensor_shape(start_name, conv_in_shape)
+                        model.set_tensor_datatype(start_name, DataType.FLOAT32)
+                        # use old conv input tensor as conv output
+                        conv_node.output[0] = conv_in_name
+                        model.set_tensor_shape(conv_in_name, conv_out_shape)
+                        model.set_tensor_datatype(conv_in_name, DataType.FLOAT32)
+                        # use new conv output as new mul node input
+                        mul_node.input[0] = conv_in_name
+                        # use old conv output as new mul node output
+                        mul_node.output[0] = conv_out_name
+                        model.set_tensor_datatype(conv_out_name, DataType.FLOAT32)
+                        # move mul node past conv node
                         graph.node.remove(mul_node)
                         graph.node.insert(node_ind, mul_node)
                         graph_modified = True
