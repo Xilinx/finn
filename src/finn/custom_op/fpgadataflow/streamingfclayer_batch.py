@@ -290,12 +290,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return out_width
 
     def get_weightstream_width(self):
-        """Returns weight stream width. Used in decoupled mode."""
-        pe = self.get_nodeattr("PE")
-        simd = self.get_nodeattr("SIMD")
-        wp = self.get_weight_datatype().bitwidth()
-        w_width = pe * simd * wp
-        return w_width
+        """Returns weight stream width. Used only in decoupled mode."""
+        if self.get_nodeattr("mem_mode") == "decoupled":
+            pe = self.get_nodeattr("PE")
+            simd = self.get_nodeattr("SIMD")
+            wp = self.get_weight_datatype().bitwidth()
+            w_width = pe * simd * wp
+            return w_width
+        else:
+            return 0
 
     def get_weightstream_width_padded(self):
         """Returns weight stream width padded to a multiple of 8. This is required
