@@ -41,6 +41,7 @@ from finn.transformation.streamline.absorb import (
     FactorOutMulSignMagnitude,
     Absorb1BitMulIntoMatMul,
     Absorb1BitMulIntoConv,
+    AbsorbSignBiasIntoMultiThreshold,
 )
 
 from finn.transformation.streamline.collapse_repeated import (
@@ -71,6 +72,7 @@ class Streamline(Transformation):
             ConvertDivToMul(),
             BatchNormToAffine(),
             ConvertSignToThres(),
+            AbsorbSignBiasIntoMultiThreshold(),
             MoveAddPastMul(),
             MoveScalarAddPastMatMul(),
             MoveScalarAddPastConv(),
