@@ -1,7 +1,73 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import numpy as np
+import math
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
+
+
+# the IODMA inerfaces a memory-mapped AXI interface and an AXI stream
+# direction "in": pulls data from AXI-MM to AXI stream
+# direction "out": pushes data from AXI stream to AXI-MM
+
+# DMA Addressing
+# - burst mode can be "wrap" or "increment"
+# - "increment" bursts will increment the address when moving to the next image
+# - "wrap" bursts will reinitialize the address to the start address,
+#   and are useful for e.g. streaming weights, where the same buffer is
+#   repeatedly read into the FPGA
+# - no additional alignment restrictions beyond anything specified in the AXI spec
+
+# Interfaces
+# - AXI-MM interface width (in bits) is specified by intfWidth
+# - AXI-Stream interface width (in bits) is specified by streamWidth
+# - If inftWidth and streamWidth are not equal, the DMA core performs
+#   width conversion by going up to the least common multiple of bitwidths
+#   e.g. intfWidth=32b -> 96b -> sreamWidth=24b
+# - transfers occur in multiples of the AXI-MM interface width, therefore
+#   the total number of bits in the tensor must be a multiple of intfWidth
+# - transfers occur in multiples of the AXI-Stream interface width, therefore
+#   the total number of bits in the tensor must be a multiple of streamWidth
+# - both interface widths must be a multiple of 8b (AXI protocol requirement)
+# - in most systems, intfWidth is also restricted to a power of 2 (e.g. Vitis)
+#   but this is not universal so we don't check here explicitly
+
+# Input/output tensor sizes shapes
+# - The data being moved is a tensor of shape numInputVectors+[NumChannels]
+# - The data type of the tensor elements is specified by dataType
+# - on the stream side
+#       -the normal shape is the same as the ONNX tensor attached to it
+#       -the folded shape is computed from the stream width and normal shape
+# - on the AXI-MM side
+#       -the normal shape is the same as the one on the stream side
+#       -the folded shape is not defined
 
 
 class IODMA(HLSCustomOp):
@@ -15,6 +81,8 @@ class IODMA(HLSCustomOp):
             "NumChannels": ("i", True, 0),
             # FINN input datatype
             "dataType": ("s", True, ""),
+            # Stream parameters
+            "streamWidth": ("i", False, 32),
             # DMA-specific parameters
             "intfWidth": ("i", False, 32),
             "burstMode": ("s", False, "increment"),
@@ -35,17 +103,38 @@ class IODMA(HLSCustomOp):
         return self.get_normal_input_shape()
 
     def get_folded_input_shape(self):
-        shape = list(self.get_normal_input_shape())
-        itype_bits = self.get_input_datatype().bitwidth()
-        intfw = self.get_nodeattr("intfWidth")
-        elems_per_word = intfw / itype_bits
-        fold_depth = round(shape[-1] / elems_per_word)
-        shape[-1] = fold_depth
-        shape.append(elems_per_word)
-        return tuple(shape)
+        if self.get_nodeattr("direction") == "in":
+            raise ValueError("Folded input shape not defined for input IODMA")
+        else:
+            shape = list(self.get_normal_input_shape())
+            itype_bits = self.get_input_datatype().bitwidth()
+            intfw = self.get_nodeattr("streamWidth")
+            assert (
+                intfw % itype_bits == 0
+            ), "Input stream width must be a multiple of datatype bits"
+            elems_per_word = intfw // itype_bits
+            assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
+            fold_depth = shape[-1] // elems_per_word
+            shape[-1] = fold_depth
+            shape.append(elems_per_word)
+            return tuple(shape)
 
     def get_folded_output_shape(self):
-        return self.get_folded_input_shape()
+        if self.get_nodeattr("direction") == "out":
+            raise ValueError("Folded output shape not defined for output IODMA")
+        else:
+            shape = list(self.get_normal_output_shape())
+            itype_bits = self.get_output_datatype().bitwidth()
+            intfw = self.get_nodeattr("streamWidth")
+            assert (
+                intfw % itype_bits == 0
+            ), "Input stream width must be a multiple of datatype bits"
+            elems_per_word = intfw // itype_bits
+            assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
+            fold_depth = shape[-1] // elems_per_word
+            shape[-1] = fold_depth
+            shape.append(elems_per_word)
+            return tuple(shape)
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
@@ -86,10 +175,16 @@ class IODMA(HLSCustomOp):
         return self.get_input_datatype()
 
     def get_instream_width(self):
-        return self.get_nodeattr("intfWidth")
+        if self.get_nodeattr("direction") == "in":
+            return self.get_nodeattr("intfWidth")
+        else:
+            return self.get_nodeattr("streamWidth")
 
     def get_outstream_width(self):
-        return self.get_instream_width()
+        if self.get_nodeattr("direction") == "out":
+            return self.get_nodeattr("intfWidth")
+        else:
+            return self.get_nodeattr("streamWidth")
 
     def get_number_output_values(self):
         oshape = self.get_normal_output_shape()
@@ -103,6 +198,7 @@ class IODMA(HLSCustomOp):
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "dma.h"']
+        self.code_gen_dict["$GLOBALS$"].append('#include "streamtools.h"')
 
     def defines(self, var):
         itype_bits = self.get_input_datatype().bitwidth()
@@ -115,6 +211,13 @@ class IODMA(HLSCustomOp):
             )
         ]
 
+    def get_ap_int_max_w(self):
+        "Return the maximum width of any ap_int used in this module."
+        instream = self.get_instream_width()
+        outstream = self.get_outstream_width()
+        width_lcm = (instream * outstream) // math.gcd(instream, outstream)
+        return width_lcm
+
     def docompute(self):
         direction = self.get_nodeattr("direction")
         mode = self.get_nodeattr("burstMode")
@@ -123,25 +226,53 @@ class IODMA(HLSCustomOp):
                 func = "Mem2Stream_Batch_external_wmem"
             else:
                 func = "Mem2Stream_Batch"
+            dwc_func = "WidthAdjustedOutputStream"
         else:
             func = "Stream2Mem_Batch"
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<DataWidth1, NumBytes1>(in0, out, numReps);""".format(func,)
-        ]
+            dwc_func = "WidthAdjustedInputStream"
+        # define templates for instantiation
+        dma_inst_template = func + "<DataWidth1, NumBytes1>(%s, %s, numReps);"
+        dwc_inst_template = dwc_func + "<%d, %d, %d> %s(%s, numReps);"
+        # do stream infrastructure and instantiations
+        intfw = self.get_nodeattr("intfWidth")
+        strmw = self.get_nodeattr("streamWidth")
+        width_lcm = (strmw * intfw) // math.gcd(strmw, intfw)
+        # we always need two streams: one of width_lcm, and one of intfw width
+        # because we use WidthAdjustedInputStream,
+        dtype_bits = self.get_input_datatype().bitwidth()
+        total_bits = dtype_bits * np.prod(self.get_normal_input_shape())
+        if direction == "in":
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                dwc_inst_template
+                % (width_lcm, strmw, total_bits // width_lcm, "dwc_lcm", "out"),
+                dwc_inst_template
+                % (intfw, width_lcm, total_bits // intfw, "dwc_intfw", "dwc_lcm"),
+                dma_inst_template % ("in0", "dwc_intfw"),
+            ]
+        else:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                dwc_inst_template
+                % (strmw, width_lcm, total_bits // strmw, "dwc_lcm", "in0"),
+                dwc_inst_template
+                % (width_lcm, intfw, total_bits // width_lcm, "dwc_intfw", "dwc_lcm"),
+                dma_inst_template % ("dwc_intfw", "out"),
+            ]
 
     def blackboxfunction(self):
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
+        packed_ibits = self.get_instream_width()
+        packed_hls_type_in = "ap_uint<%d>" % packed_ibits
+        packed_obits = self.get_outstream_width()
+        packed_hls_type_out = "ap_uint<%d>" % packed_obits
         direction = self.get_nodeattr("direction")
         if direction == "in":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 "void %s(%s *in0, hls::stream<%s > &out, unsigned int numReps)"
-                % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+                % (self.onnx_node.name, packed_hls_type_in, packed_hls_type_out)
             ]
         else:
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 "void %s(hls::stream<%s > &in0, %s *out, unsigned int numReps)"
-                % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+                % (self.onnx_node.name, packed_hls_type_in, packed_hls_type_out)
             ]
 
     def pragmas(self):
@@ -172,6 +303,7 @@ class IODMA(HLSCustomOp):
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE s_axilite port=out bundle=control"
             )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW")
 
     def execute_node(self, context, graph):
         pass
