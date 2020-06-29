@@ -69,6 +69,9 @@ class AnnotateResources(Transformation):
                     total_dict[r_type] += r_amount
                 else:
                     total_dict[r_type] = r_amount
+        for k in total_dict.keys():
+            if "efficiency" in k:
+                total_dict[k] = total_dict[k] / len(graph.node)
         model.set_metadata_prop("res_total_" + self.mode, str(total_dict))
         for node in graph.node:
             if _is_fpgadataflow_node(node) and node.name in res_dict.keys():

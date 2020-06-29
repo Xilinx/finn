@@ -173,8 +173,14 @@ class HLSCustomOp(CustomOp):
         of the node as a dictionary."""
         ret = dict()
         ret["BRAM_18K"] = self.bram_estimation()
+        ret["BRAM_efficiency"] = self.bram_efficiency_estimation()
         ret["LUT"] = self.lut_estimation()
         return ret
+
+    def bram_efficiency_estimation(self):
+        """Function for BRAM efficiency estimation: actual parameter storage
+        needed divided by the allocated BRAM storage (from estimation)"""
+        return 1
 
     def bram_estimation(self):
         """Function for BRAM resource estimation, is member function of
