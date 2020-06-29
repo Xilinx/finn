@@ -59,6 +59,7 @@ class InsertIODMA(Transformation):
         fc_extw_nodes = list(
             filter(
                 lambda x: x.op_type == "StreamingFCLayer_Batch"
+                and get_by_name(x.attribute, "mem_mode") is not None
                 and get_by_name(x.attribute, "mem_mode").s.decode("UTF-8") == "external"
                 and model.find_producer(x.input[1]) is None,
                 all_nodes,
