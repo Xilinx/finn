@@ -46,6 +46,8 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 # - no additional alignment restrictions beyond anything specified in the AXI spec
 
 # Interfaces
+# - AXI-MM name specified by intfName unless this is set to "" (empty, the default)
+#   in which case output AXI-MM are named "out" and input AXI-MM are named "in0"
 # - AXI-MM interface width (in bits) is specified by intfWidth
 # - AXI-Stream interface width (in bits) is specified by streamWidth
 # - If inftWidth and streamWidth are not equal, the DMA core performs
@@ -89,6 +91,8 @@ class IODMA(HLSCustomOp):
             "direction": ("s", False, "in"),
             # shape describing input vecs per execution
             "numInputVectors": ("ints", False, [1]),
+            # name of axi-mm interface
+            "intfName": ("s", False, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -291,10 +295,16 @@ class IODMA(HLSCustomOp):
             "#pragma HLS INTERFACE s_axilite port=return bundle=control"
         )
         direction = self.get_nodeattr("direction")
+        intfname = self.get_nodeattr("intfName")
         if direction == "in":
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE m_axi offset=slave port=in0"
-            )
+            if intfname == "":
+                self.code_gen_dict["$PRAGMAS$"].append(
+                    "#pragma HLS INTERFACE m_axi offset=slave port=in0"
+                )
+            else:
+                self.code_gen_dict["$PRAGMAS$"].append(
+                    "#pragma HLS INTERFACE m_axi offset=slave port=%s" % (intfname)
+                )
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE s_axilite port=in0 bundle=control"
             )
@@ -305,9 +315,14 @@ class IODMA(HLSCustomOp):
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE axis port=in0"
             )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE m_axi offset=slave port=out"
-            )
+            if intfname == "":
+                self.code_gen_dict["$PRAGMAS$"].append(
+                    "#pragma HLS INTERFACE m_axi offset=slave port=out"
+                )
+            else:
+                self.code_gen_dict["$PRAGMAS$"].append(
+                    "#pragma HLS INTERFACE m_axi offset=slave port=%s" % (intfname)
+                )
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE s_axilite port=out bundle=control"
             )
