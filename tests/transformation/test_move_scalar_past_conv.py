@@ -83,8 +83,8 @@ def test_move_scalar_past_conv(test_args, padding):
             assert new_model.graph.node[2].op_type == "Conv"
         else:
             assert new_model.graph.node[0].op_type == "Conv"
-            assert new_model.graph.node[1].op_type == scalar_op
-            assert new_model.graph.node[2].op_type == "Conv"
+            assert new_model.graph.node[1].op_type == "Conv"
+            assert new_model.graph.node[2].op_type == scalar_op
     else:
         assert new_model.graph.node[0].op_type == "Conv"
         assert new_model.graph.node[1].op_type == "Conv"
