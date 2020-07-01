@@ -28,4 +28,15 @@ This simulation can be used for a model containing several HLS custom operations
 Emulation using PyVerilator
 ===========================
 
-The emulation using PyVerilator can be used when IP blocks were generated, either node by node or of a whole design. For that purpose PyVerilator gets the generated verilog files.
+The emulation using PyVerilator can be used when IP blocks were generated, either node by node or of a whole (IP-stitched) design. For that purpose PyVerilator gets the generated verilog files.
+
+For debugging purposes, it's possible to generate .vcd trace files that show the value of external & internal signals as the emuation is running. To enable this:
+ - for node-by-node rtlsim, set the `rtlsim_trace` attribute of each node of interest to either a file name for the vcd or `default` to use the node name as the filename.
+ - for IP-stitched rtlsim, set the `rtlsim_trace` metadata_prop  for the graph as per above.
+
+To control the tracing depth in the module hierarchy, use the `RTLSIM_TRACE_DEPTH` environment variable (default is 1):
+ - level 1 shows top-level input/output streams
+ - level 2 shows per-layer input/output streams
+ - level 3 shows per full-layer I/O including FIFO count signals
+
+Note that deeper tracing will take longer to execute and may produce very large .vcd files.

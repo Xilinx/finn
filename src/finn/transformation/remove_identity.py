@@ -26,58 +26,37 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Temporary and binary files
-*~
-*.py[cod]
-*.so
-*.cfg
-!.isort.cfg
-!setup.cfg
-*.orig
-*.log
-*.pot
-__pycache__/*
-.cache/*
-.*.swp
-*/.ipynb_checkpoints/*
+from finn.transformation import Transformation
 
-# Project files
-.ropeproject
-.project
-.pydevproject
-.settings
-.idea
-tags
 
-# Package files
-*.egg
-*.eggs/
-.installed.cfg
-*.egg-info
+def _is_identity(node, model):
+    if node.op_type == "Mul":
+        scale = model.get_initializer(node.input[1])
+        if scale is not None:
+            return (scale == 1).all()
+    elif node.op_type == "Add":
+        bias = model.get_initializer(node.input[1])
+        if bias is not None:
+            return (bias == 0).all()
+    return False
 
-# Unittest and coverage
-htmlcov/*
-.coverage
-.tox
-junit.xml
-coverage.xml
-.pytest_cache/
 
-# Build and docs folder/files
-build/*
-dist/*
-sdist/*
-docs/api/*
-docs/_rst/*
-docs/_build/*
-cover/*
-MANIFEST
+class RemoveIdentity(Transformation):
+    """Remove nodes that apply identity ops from the graph, including:
+    * Multiply by 1
+    * Add 0
+    ."""
 
-# Per-project virtualenvs
-.venv*/
-
-# Jenkins cfg dir
-/docker/jenkins_home
-
-# SSH key dir mounted into Docker
-/ssh_keys/
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if _is_identity(node, model):
+                node_src = node.input[0]
+                node_dst = node.output[0]
+                graph.node.remove(node)
+                model.rename_tensor(node_dst, node_src)
+                graph_modified = True
+        return (model, graph_modified)
