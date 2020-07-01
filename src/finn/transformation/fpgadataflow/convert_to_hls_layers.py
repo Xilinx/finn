@@ -199,16 +199,6 @@ class InferPool_Batch(Transformation):
                     k = inst.get_nodeattr("kernel")
                     stride = inst.get_nodeattr("stride")
 
-                if k < stride:
-                    continue
-                elif k == stride:
-                    warnings.warn(
-                        """Inferring Pool_Batch node for k == stride.
-                        This case can be optimized.
-                        For example, for MaxPool run InferStreamingMaxPool before
-                        InferPool_Batch """
-                    )
-
                 try:
                     pad = get_by_name(n.attribute, "pads").ints[-1]
                 except AttributeError:
@@ -221,10 +211,15 @@ class InferPool_Batch(Transformation):
                 if not idt.is_integer():
                     continue
 
-                # if idt.signed() and n.op_type == "MaxPool":
-                #     # No support for signed input (see accu initialization
-                #     # in Pool_batch HLSLIB function)
-                #     continue
+                if k < stride:
+                    continue
+                elif k == stride:
+                    warnings.warn(
+                        """Inferring Pool_Batch node for k == stride.
+                        This case can be optimized.
+                        For example, for MaxPool run InferStreamingMaxPool before
+                        InferPool_Batch """
+                    )
 
                 odt = model.get_tensor_datatype(node_output)
 
