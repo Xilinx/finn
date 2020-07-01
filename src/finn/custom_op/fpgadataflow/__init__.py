@@ -88,6 +88,8 @@ class HLSCustomOp(CustomOp):
             "res_hls": ("s", False, ""),
             "res_synth": ("s", False, ""),
             "rtlsim_so": ("s", False, ""),
+            # partitioning info
+            "partition_id": ("i", False, 0),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
@@ -171,8 +173,14 @@ class HLSCustomOp(CustomOp):
         of the node as a dictionary."""
         ret = dict()
         ret["BRAM_18K"] = self.bram_estimation()
+        ret["BRAM_efficiency"] = self.bram_efficiency_estimation()
         ret["LUT"] = self.lut_estimation()
         return ret
+
+    def bram_efficiency_estimation(self):
+        """Function for BRAM efficiency estimation: actual parameter storage
+        needed divided by the allocated BRAM storage (from estimation)"""
+        return 1
 
     def bram_estimation(self):
         """Function for BRAM resource estimation, is member function of
@@ -219,7 +227,6 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
-
         template = self.ipgentcl_template
 
         for key in self.code_gen_dict:
@@ -235,7 +242,7 @@ class HLSCustomOp(CustomOp):
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
         return []
-        
+
     def ipgen_singlenode_code(self):
         """Builds the bash script for ip generation using the IPGenBuilder from
         finn.util.fpgadataflow."""
