@@ -216,7 +216,7 @@ class MoveScalarAddPastMatMul(Transformation):
         return (model, graph_modified)
 
 
-class MoveScalarAddPastConv(Transformation):
+class MoveAddPastConv(Transformation):
     """Move scalar add operations past conv operations. We want to have adds
     next to each other such that they can be collapsed into a single add."""
 

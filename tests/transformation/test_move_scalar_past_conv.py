@@ -7,14 +7,14 @@ import finn.core.onnx_exec as ox
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import (
-    MoveScalarAddPastConv,
+    MoveAddPastConv,
     MoveScalarMulPastConv,
 )
 
 
 @pytest.mark.parametrize("padding", [False, True])
 @pytest.mark.parametrize(
-    "test_args", [("Add", MoveScalarAddPastConv()), ("Mul", MoveScalarMulPastConv())],
+    "test_args", [("Add", MoveAddPastConv()), ("Mul", MoveScalarMulPastConv())],
 )
 def test_move_scalar_past_conv(test_args, padding):
     scalar_op = test_args[0]
@@ -92,7 +92,7 @@ def test_move_scalar_past_conv(test_args, padding):
 
 
 @pytest.mark.parametrize(
-    "test_args", [("Add", MoveScalarAddPastConv()), ("Mul", MoveScalarMulPastConv())],
+    "test_args", [("Add", MoveAddPastConv()), ("Mul", MoveScalarMulPastConv())],
 )
 def test_move_scalar_past_conv_only_if_linear(test_args):
     scalar_op = test_args[0]
