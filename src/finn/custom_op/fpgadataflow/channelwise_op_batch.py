@@ -47,10 +47,11 @@ from . import templates
 # output 0 is the output tensor, shape (..., NumChannels) - same as input
 # the ... here can be any shape (representing groups of vectors)
 
+
 class ChannelwiseOp_Batch(HLSCustomOp):
     """Class that corresponds to finn-hls Thresholding_Batch function.
-    It can implement a variety of channel-wise parametrized operations, including Add, Mul and 
-    multi-thresholding.
+    It can implement a variety of channel-wise parametrized operations,
+    including Add, Mul and multi-thresholding.
     """
 
     def __init__(self, onnx_node):
@@ -68,6 +69,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             "ram_style": ("s", False, "distributed"),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
+            "paramDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 0),
@@ -139,6 +141,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             self.get_nodeattr("NumChannels")
             self.get_nodeattr("PE")
             self.get_nodeattr("inputDataType")
+            self.get_nodeattr("paramDataType")
             self.get_nodeattr("outputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
@@ -281,18 +284,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         code_gen_dir = path
         # save thresholds in params.h
         parameters = model.get_initializer(self.onnx_node.input[1])
-
         parameter_tensor = self.get_hls_compatible_parameter_tensor(parameters)
-
-        # determine parameters data type from range of threshold and input tensors
-        p_min = parameters.min()
-        p_max = parameters.max()
-        p_absmax = max(abs(p_min), abs(p_max))
-        if p_min < 0:
-            p_min = min(p_min, -p_absmax - 1)
-            pdt = DataType.get_smallest_possible(p_min)
-        else:
-            pdt = DataType.get_smallest_possible(p_max)
+        pdt = DataType[self.get_nodeattr("paramDataType")]
 
         parameters_hls_code = numpy_to_hls_code(
             parameter_tensor, pdt, "parameters", False, True
