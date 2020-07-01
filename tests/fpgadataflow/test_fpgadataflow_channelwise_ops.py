@@ -71,7 +71,7 @@ def make_modelwrapper(C, pe, idt, odt, func, vecs):
         outputDataType=odt.name,
         numInputVectors=vecs,
     )
-    graph = helper.make_graph(nodes=[node], name="graph", inputs=[inp], outputs=[outp],)
+    graph = helper.make_graph(nodes=[node], name="graph", inputs=[inp], outputs=[outp])
 
     model = helper.make_model(graph, producer_name="model")
     model = ModelWrapper(model)
@@ -100,7 +100,7 @@ def make_modelwrapper(C, pe, idt, odt, func, vecs):
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_addmul(idt, act, nf, ich, func, vecs, exec_mode):
+def test_fpgadataflow_channelwise_ops(idt, act, nf, ich, func, vecs, exec_mode):
     if nf == -1:
         nf = ich
     pe = ich // nf
