@@ -44,7 +44,7 @@ import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.transformation.infer_data_layouts import InferDataLayouts
 import finn.core.data_layout as DataLayout
 
-export_onnx_path_cnv = "test_output_cnv.onnx"
+export_onnx_path_cnv = "test_infer_data_layouts.onnx"
 
 
 def test_infer_data_layouts():

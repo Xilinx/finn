@@ -42,7 +42,7 @@ from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.util.test import get_test_model_trained
 
-export_onnx_path = "test_output_cnv.onnx"
+export_onnx_path = "test_brevitas_cnv.onnx"
 
 
 @pytest.mark.parametrize("abits", [1, 2])

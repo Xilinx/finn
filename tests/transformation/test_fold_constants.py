@@ -40,7 +40,7 @@ from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_untrained
 
-export_onnx_path = "test_output_lfc.onnx"
+export_onnx_path = "test_fold_constants.onnx"
 
 
 def test_const_folding():
