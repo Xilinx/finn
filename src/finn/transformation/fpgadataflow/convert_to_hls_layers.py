@@ -38,6 +38,7 @@ import finn.core.data_layout as DataLayout
 from finn.util.onnx import nchw_to_nhwc
 import warnings
 from finn.util.basic import get_by_name
+import warnings
 
 
 class InferConvInpGen(Transformation):
@@ -55,6 +56,9 @@ class InferConvInpGen(Transformation):
                 i2c_in_shape = model.get_tensor_shape(i2c_input)
                 i2c_out_shape = model.get_tensor_shape(i2c_output)
                 dt = model.get_tensor_datatype(i2c_input)
+                if not dt.is_integer():
+                    warnings.warn("Input is not int. Can't infer ConvInpGen")
+                    continue
                 i2c_inst = getCustomOp(n)
                 stride = i2c_inst.get_nodeattr("stride")
                 k = i2c_inst.get_nodeattr("kernel_size")
