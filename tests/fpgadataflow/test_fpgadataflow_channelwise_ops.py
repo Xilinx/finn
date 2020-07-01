@@ -48,7 +48,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 
 
-def make_modelwrapper(C, pe, idt, odt, func, vecs):
+def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
     NumChannels = C.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, vecs + [NumChannels])
@@ -69,9 +69,10 @@ def make_modelwrapper(C, pe, idt, odt, func, vecs):
         PE=pe,
         inputDataType=idt.name,
         outputDataType=odt.name,
+        paramDataType=pdt.name,
         numInputVectors=vecs,
     )
-    graph = helper.make_graph(nodes=[node], name="graph", inputs=[inp], outputs=[outp],)
+    graph = helper.make_graph(nodes=[node], name="graph", inputs=[inp], outputs=[outp])
 
     model = helper.make_model(graph, producer_name="model")
     model = ModelWrapper(model)
@@ -88,6 +89,8 @@ def make_modelwrapper(C, pe, idt, odt, func, vecs):
 @pytest.mark.parametrize("act", [DataType.INT8])
 # input datatype
 @pytest.mark.parametrize("idt", [DataType.INT4])
+# param datatype
+@pytest.mark.parametrize("pdt", [DataType.INT4])
 # folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2])
 # number of input features
@@ -100,19 +103,20 @@ def make_modelwrapper(C, pe, idt, odt, func, vecs):
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_addmul(idt, act, nf, ich, func, vecs, exec_mode):
+def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_mode):
     if nf == -1:
         nf = ich
     pe = ich // nf
     assert ich % pe == 0
 
-    # generate input data
+    # generate input and param data
     x = gen_finn_dt_tensor(idt, tuple(vecs + [ich]))
+    # C = np.random.randint(idt.min(), idt.max() + 1, ich).astype(np.float32)
+    C = gen_finn_dt_tensor(pdt, (ich))
 
     odt = act
-    C = np.random.randint(idt.min(), idt.max() + 1, ich).astype(np.float32)
 
-    model = make_modelwrapper(C, pe, idt, odt, func, vecs)
+    model = make_modelwrapper(C, pe, idt, odt, pdt, func, vecs)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
