@@ -51,6 +51,7 @@ from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
 from finn.custom_op.quantavgpool2d import QuantAvgPool2d
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
+from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
 
 # create a mapping of all known CustomOp names and classes
 custom_op = {}
@@ -74,6 +75,7 @@ custom_op["AddStreams_Batch"] = AddStreams_Batch
 custom_op["LabelSelect_Batch"] = LabelSelect_Batch
 custom_op["QuantAvgPool2d"] = QuantAvgPool2d
 custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
+custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
 
 
 def getCustomOp(node):

@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from onnx import helper, TensorProto
+import numpy as np
 
 from finn.core.datatype import DataType
 from finn.transformation import Transformation
@@ -34,6 +35,8 @@ from finn.custom_op.registry import getCustomOp
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
 import finn.core.data_layout as DataLayout
+from finn.util.onnx import nchw_to_nhwc
+import warnings
 from finn.util.basic import get_by_name
 
 
@@ -619,6 +622,161 @@ class InferThresholdingLayer(Transformation):
                     numInputVectors=list(thl_in_shape[:-1]),
                 )
                 graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferChannelwiseLinearLayer(Transformation):
+    """Convert any channel-wise Add/Mul into a HLS layer."""
+
+    def get_smallest_possible(self, vals):
+        """Returns smallest (fewest bits) possible DataType that can represent
+        value. Prefers unsigned integers where possible."""
+        vals = np.array(vals)
+        for v in vals:
+            assert int(v) == v, "Error float value"
+
+        for k in DataType.__members__:
+            dt = DataType[k]
+
+            if dt in [DataType.BIPOLAR, DataType.TERNARY, DataType.FLOAT32]:
+                # not currently supported
+                continue
+
+            if (dt.min() <= vals).all() and (vals <= dt.max()).all():
+                return dt
+
+        warnings.warn(
+            """InferChannelwiseLinearLayer: Output values may not be
+        representable with supported data types.
+        Setting maximum width data type available.
+        This will lead to errors if there are no constrains on the input
+        """
+        )
+
+        if (0 <= vals).all():
+            return DataType.UINT32
+        else:
+            return DataType.INT32
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Add" or node.op_type == "Mul":
+                # assuming input[0] is dynamic
+                ll_input = node.input[0]
+                ll_output = node.output[0]
+                ll_in_shape = model.get_tensor_shape(ll_input)
+
+                # check if input 1 has an initializer
+                ll_const = node.input[1]
+                if ll_const is not None:
+                    ll_cinit = model.get_initializer(ll_const)
+                    if ll_cinit is None:
+                        # input 1 is also dynamic
+                        continue
+                else:
+                    continue
+
+                # get number of channels and channel index from input
+                ll_in_layout = model.get_tensor_layout(ll_input)
+                if ll_in_layout == DataLayout.NHWC or ll_in_layout == DataLayout.NC:
+                    ch_index = -1
+                    ch = ll_in_shape[-1]
+                elif ll_in_layout == DataLayout.NCHW:
+                    ch_index = 1
+                    ch = ll_in_shape[1]
+                else:
+                    continue
+
+                # check if the shape of initializer is compatible
+                ll_cinit_shape = list(ll_cinit.shape)
+                if np.prod(ll_cinit_shape) == 1:
+                    warnings.warn(
+                        "Broadcasting " + str(node.op_type) + "(" + node.name + ")"
+                    )
+                    ll_cinit = np.full((ch), ll_cinit.flatten()[0])
+                elif np.prod(ll_cinit_shape) != ch or ll_cinit_shape[ch_index] != ch:
+                    # parameter shape not compatible with Channelwise_batch
+                    continue
+
+                # check initializer contains integers as floats
+                if not (ll_cinit.astype(np.int32) == ll_cinit).all():
+                    continue
+                # all initializer conditions are met
+
+                # check inputs
+                idt = model.get_tensor_datatype(ll_input)
+                if not idt.is_integer():
+                    # skip conversion for layers with float input
+                    continue
+
+                # check layout of inputs/outputs, and convert if needed
+                # check layout and convert if necessary
+                if ll_in_layout == DataLayout.NCHW:
+                    ll_input = nchw_to_nhwc(ll_input, model, node_ind)
+                    node_ind += 1
+                    ll_in_shape = model.get_tensor_shape(ll_input)
+
+                # keep track of where we need to insert the HLS Op
+                # it has to be ahead of the output transform
+                insert_point = node_ind
+                ll_output_layout = model.get_tensor_layout(ll_output)
+                if ll_output_layout == DataLayout.NCHW:
+                    ll_output = nchw_to_nhwc(ll_output, model, node_ind, reverse=True)
+                    node_ind += 1
+
+                # get parameter data type
+                param_min = min(ll_cinit.flatten())
+                param_max = max(ll_cinit.flatten())
+                pdt = self.get_smallest_possible([param_min, param_max])
+
+                # set function and determine output data type
+                if node.op_type == "Add":
+                    func = "add"
+                    out_min = idt.min() + param_min
+                    out_max = idt.max() + param_max
+                    odt = self.get_smallest_possible([out_min, out_max])
+                elif node.op_type == "Mul":
+                    func = "mul"
+                    possible_limits = []
+                    possible_limits += [idt.min() * param_min]
+                    possible_limits += [idt.min() * param_max]
+                    possible_limits += [idt.max() * param_min]
+                    possible_limits += [idt.max() * param_max]
+                    odt = self.get_smallest_possible(possible_limits)
+
+                model.set_initializer(ll_const, ll_cinit.reshape(ch))
+                model.set_tensor_datatype(ll_output, odt)
+
+                # create node with no parallelization first
+                pe = 1
+                assert ch % pe == 0, "Requirement IFC divisable by PE is violated."
+                # create and insert node
+                new_node = helper.make_node(
+                    "ChannelwiseOp_Batch",
+                    [ll_input, ll_const],
+                    [ll_output],
+                    domain="finn",
+                    backend="fpgadataflow",
+                    Func=func,
+                    NumChannels=ch,
+                    PE=pe,
+                    inputDataType=idt.name,
+                    paramDataType=pdt.name,
+                    outputDataType=odt.name,
+                    numInputVectors=list(ll_in_shape[:-1]),
+                )
+                graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True

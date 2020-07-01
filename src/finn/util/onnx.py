@@ -28,6 +28,7 @@
 
 import numpy as np
 import onnx
+import finn.core.data_layout as DataLayout
 
 
 def valueinfo_to_tensor(vi):
@@ -37,3 +38,38 @@ def valueinfo_to_tensor(vi):
     return np.zeros(
         dims, dtype=onnx.mapping.TENSOR_TYPE_TO_NP_TYPE[vi.type.tensor_type.elem_type]
     )
+
+
+def nchw_to_nhwc(t, model, idx, reverse=False):
+    """Converts between NCHW <-> NHWC layouts for tensor t by inserting a transpose. 
+    If reverse=False, t is assumed NCHW and we insert transpose to convert NCHW -> NHWC
+    If reverse=True, t is assumed NHWC and we insert transpose to convert NHWC -> NCHW.
+    """
+    graph = model.graph
+    # create new NHWC tensor
+    t_shape = model.get_tensor_shape(t)
+    bs = t_shape[0]
+    ch = t_shape[1]
+    height = t_shape[2]
+    width = t_shape[3]
+    t_trans = onnx.helper.make_tensor_value_info(
+        model.make_new_valueinfo_name(),
+        onnx.TensorProto.FLOAT,
+        (bs, height, width, ch),  # NHWC
+    )
+    graph.value_info.append(t_trans)
+    dt = model.get_tensor_datatype(t)
+    t_trans = t_trans.name
+    model.set_tensor_datatype(t_trans, dt)
+    model.set_tensor_layout(t_trans, DataLayout.NHWC)
+    # NCHW <-> NHWC transpose
+    if reverse:
+        t_trans_node = onnx.helper.make_node(
+            "Transpose", [t_trans], [t], perm=[0, 3, 1, 2]
+        )
+    else:
+        t_trans_node = onnx.helper.make_node(
+            "Transpose", [t], [t_trans], perm=[0, 2, 3, 1]
+        )
+    graph.node.insert(idx, t_trans_node)
+    return t_trans
