@@ -16,7 +16,7 @@ from finn.transformation.general import (
     GiveUniqueNodeNames,
     GiveUniqueParameterTensors,
 )
-from finn.transformation.insert_preproc import InsertPreProcessing
+from finn.transformation.merge_onnx_models import MergeONNXModels
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.remove import RemoveIdentityOps
@@ -133,7 +133,7 @@ def test_brevitas_mobilenet():
     model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model.save("quant_mobilenet_v1_4b_wo_preproc.onnx")
-    model = model.transform(InsertPreProcessing(preproc_model))
+    model = model.transform(MergeONNXModels(preproc_model))
     model.save("quant_mobilenet_v1_4b.onnx")
     idict = {model.graph.input[0].name: img_np}
     odict = oxe.execute_onnx(model, idict, True)
@@ -151,11 +151,8 @@ def test_brevitas_mobilenet():
     model = model.transform(absorb.AbsorbTransposeIntoFlatten())
     model = model.transform(MoveFlattenPastAffine())
     model = model.transform(MoveFlattenPastTopK())
-    # model.save("after_move_flatten.onnx")
     model = model.transform(MoveScalarMulPastMatMul())
-    # model.save("after_movescalarmul.onnx")
     model = model.transform(CollapseRepeatedMul())
-    # model.save("after_collapse.onnx")
     model = model.transform(RemoveIdentityOps())
     model = model.transform(LowerConvsToMatMul())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
