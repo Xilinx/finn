@@ -6,68 +6,73 @@ from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-class SameResize_Batch(HLSCustomOp):
-    """Class that corresponds to finn-hlslib SameResize function.
-    Implements 'same' padding on a given input image."""
+class DownSampler(HLSCustomOp):
+    """Corresponds to finn-hlslib ConvolutionInputGenerator_kernel1 function.
+    Basically performs a down sampling of the image removing rows and columns."""
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 
     def get_nodeattr_types(self):
         my_attrs = {
+            # spatial size of input images
             "ImgDim": ("i", True, 0),
-            "KernelDim": ("i", True, 0),
-            "Stride": ("i", True, 0),
+            # number of channels in input image
             "NumChannels": ("i", True, 0),
+            # Number of input columns computed in parallel
+            "SIMD": ("i", False, 1),
+            "Stride": ("i", True, 2),
             # FINN input datatype
             "inputDataType": ("s", True, ""),
-            # distribution of added values to achieve "same" padding
-            "PaddingStyle": ("i", True, 2),
+            # Batch size
+            "numInputVectors": ("i", False, 1),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def get_downsampled_odim(self):
+        "Return the down sampled spatial size of the output."
+        idim = self.get_nodeattr("ImgDim")
+        stride = self.get_nodeattr("Stride")
+        return int(np.floor((idim - 1) / stride) + 1)
+
     def get_normal_input_shape(self):
         idim = self.get_nodeattr("ImgDim")
         num_ch = self.get_nodeattr("NumChannels")
-
-        ishape = (1, idim, idim, num_ch)
+        batch = self.get_nodeattr("numInputVectors")
+        ishape = (batch, idim, idim, num_ch)
         return ishape
 
     def get_normal_output_shape(self):
-        idim = self.get_nodeattr("ImgDim")
+        odim = self.get_downsampled_odim()
         num_ch = self.get_nodeattr("NumChannels")
-        kdim = self.get_nodeattr("KernelDim")
-        stride = self.get_nodeattr("Stride")
-        assert idim % stride == 0, "Stride must divide input dimension."
-        # number of "same" windows over the input data
-        same_windows = idim // stride
-        odim = kdim + stride * (same_windows - 1)
-
-        oshape = (1, odim, odim, num_ch)
+        batch = self.get_nodeattr("numInputVectors")
+        oshape = (batch, odim, odim, num_ch)
         return oshape
 
     def get_folded_input_shape(self):
-        # even though there is no folding in the current hlslib op,
-        # insert a time multiplexing axis to remain compatible with the
-        # shapes produced by the rest of the dataflow pipeline
-        ret = list(self.get_normal_input_shape())
-        ret.insert(-1, 1)
-        return tuple(ret)
+        normal_ishape = list(self.get_normal_input_shape())
+        ifm_ch = self.get_nodeattr("NumChannels")
+        simd = self.get_nodeattr("SIMD")
+        assert ifm_ch % simd == 0, "SIMD must divide input channels"
+        fold = int(normal_ishape[-1] / simd)
+        folded_ishape = normal_ishape[:-1] + [fold, simd]
+        return tuple(folded_ishape)
 
     def get_folded_output_shape(self):
-        # even though there is no folding in the current hlslib op,
-        # insert a time multiplexing axis to remain compatible with the
-        # shapes produced by the rest of the dataflow pipeline
-        ret = list(self.get_normal_output_shape())
-        ret.insert(-1, 1)
-        return tuple(ret)
+        normal_oshape = list(self.get_normal_output_shape())
+        ifm_ch = self.get_nodeattr("NumChannels")
+        simd = self.get_nodeattr("SIMD")
+        assert ifm_ch % simd == 0, "SIMD must divide input channels"
+        fold = int(normal_oshape[-1] / simd)
+        folded_oshape = normal_oshape[:-1] + [fold, simd]
+        return tuple(folded_oshape)
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for SameResize."
+        assert ishape == exp_ishape, "Unexpect input shape for DownSampler."
         # implement tensor with correct shape
         values = np.random.randn(*oshape).astype(np.float32)
         return helper.make_node(
@@ -87,7 +92,7 @@ class SameResize_Batch(HLSCustomOp):
         # data type stays the same
         dtype = model.get_tensor_datatype(node.input[0])
         exp_idtype = self.get_input_datatype()
-        assert dtype == exp_idtype, "Unexpected datatype for SameResize_Batch"
+        assert dtype == exp_idtype, "Unexpected datatype for DownSampler"
         model.set_tensor_datatype(node.output[0], dtype)
 
     def verify_node(self):
@@ -96,9 +101,6 @@ class SameResize_Batch(HLSCustomOp):
     def get_input_datatype(self):
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]
-        # the hlslib op always pads with zeroes, so ensure that the DataType
-        # is able to represent zeroes
-        assert ret.allowed(0), "SameResize_Batch DataType must support zero"
         return ret
 
     def get_output_datatype(self):
@@ -107,38 +109,41 @@ class SameResize_Batch(HLSCustomOp):
 
     def get_instream_width(self):
         ibits = self.get_input_datatype().bitwidth()
-        num_ch = self.get_nodeattr("NumChannels")
-
-        return ibits * num_ch
+        simd = self.get_nodeattr("SIMD")
+        return ibits * simd
 
     def get_outstream_width(self):
         obits = self.get_output_datatype().bitwidth()
-        num_ch = self.get_nodeattr("NumChannels")
-
-        return obits * num_ch
+        simd = self.get_nodeattr("SIMD")
+        return obits * simd
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
 
     def defines(self, var):
-        numReps = 1
-        assert self.get_nodeattr("PaddingStyle") == 2, "Only PaddingStyle=2 supported"
-        self.code_gen_dict["$DEFINES$"] = [
-            """#define ImgDim1 {}\n #define KernelDim1 {}\n
-            #define Stride1 {}\n #define NumChannels1 {}\n
-            #define PaddingStyle1 {}\n #define numReps {}""".format(
-                self.get_nodeattr("ImgDim"),
-                self.get_nodeattr("KernelDim"),
-                self.get_nodeattr("Stride"),
-                self.get_nodeattr("NumChannels"),
-                self.get_nodeattr("PaddingStyle"),
-                numReps,
-            )
-        ]
+        self.code_gen_dict["$DEFINES$"] = []
+
+        ifm_ch = self.get_nodeattr("NumChannels")
+        self.code_gen_dict["$DEFINES$"] += ["#define IFMChannels {}".format(ifm_ch)]
+
+        ibits = self.get_input_datatype().bitwidth()
+        self.code_gen_dict["$DEFINES$"] += ["#define Input_precision {}".format(ibits)]
+
+        idim = self.get_nodeattr("ImgDim")
+        self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(idim)]
+
+        simd = self.get_nodeattr("SIMD")
+        self.code_gen_dict["$DEFINES$"] += ["#define SIMD {}".format(simd)]
+
+        stride = self.get_nodeattr("Stride")
+        self.code_gen_dict["$DEFINES$"] += ["#define Stride {}".format(stride)]
+
+        batch_size = self.get_nodeattr("numInputVectors")
+        self.code_gen_dict["$DEFINES$"] += ["#define numReps {}".format(batch_size)]
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -168,13 +173,9 @@ class SameResize_Batch(HLSCustomOp):
         )
 
     def docompute(self):
-        in_t = self.get_input_datatype().get_hls_datatype_str()
-        node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<ImgDim1, KernelDim1, Stride1, NumChannels1,
-                {}, PaddingStyle1> (in0, out, numReps);""".format(
-                node.op_type, in_t
-            )
+            """ConvolutionInputGenerator_kernel1<IFMChannels, Input_precision,
+            IFMDim, SIMD,Stride> (in0, out, numReps);"""
         ]
 
     def dataoutstrm(self):
@@ -227,6 +228,7 @@ class SameResize_Batch(HLSCustomOp):
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
+        folded_ishape = self.get_folded_input_shape()
         folded_oshape = self.get_folded_output_shape()
 
         if mode == "cppsim":
@@ -246,13 +248,11 @@ class SameResize_Batch(HLSCustomOp):
         assert (
             inp.shape == exp_ishape
         ), """Input shape doesn't
-        match expected shape (1, ImgDim, ImgDim, NumChannels)."""
+        match expected shape (numInputVectors, ImgDim, ImgDim, NumChannels)."""
         export_idt = self.get_input_datatype()
 
-        # no reshaping for input since assuming no folding on input
-        # make copy before saving array
-        inp = inp.copy()
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), inp)
+        reshaped_input = inp.reshape(folded_ishape)
+        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
         if mode == "cppsim":
             # execute the precompiled model
@@ -261,8 +261,7 @@ class SameResize_Batch(HLSCustomOp):
             super().npy_to_dynamic_output(context)
             assert (
                 context[node.output[0]].shape == folded_oshape
-            ), "cppsim \
-            did not produce expected ofolded utput shape"
+            ), "cppsim did not produce expected folded output shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
             sim = self.get_rtlsim()

@@ -27,12 +27,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import warnings
 from onnx import helper as oh
 
 from finn.transformation import Transformation
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.core.datatype import DataType
 from finn.core.onnx_exec import execute_node
 from finn.util.basic import get_by_name
+from finn.custom_op.registry import getCustomOp
 
 
 class MoveAddPastMul(Transformation):
@@ -65,8 +69,11 @@ class MoveAddPastMul(Transformation):
                     add_weight_name = n.input[1]
                     A = model.get_initializer(mul_weight_name)
                     B = model.get_initializer(add_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
-                    assert B is not None, "Initializer for add weights is not set."
+                    if (A is None) or (B is None):
+                        warnings.warn(
+                            "Mul or add does not have constant params, skipping"
+                        )
+                        continue
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
@@ -121,8 +128,9 @@ class MoveScalarMulPastMatMul(Transformation):
                     matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(mul_weight_name)
                     W = model.get_initializer(matmul_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
-                    assert W is not None, "Initializer for matmul weights is not set."
+                    if (A is None) or (W is None):
+                        warnings.warn("MatMul or Mul params are not constant, skipping")
+                        continue
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
@@ -178,8 +186,9 @@ class MoveScalarAddPastMatMul(Transformation):
                     matmul_weight_name = consumer.input[1]
                     A = model.get_initializer(add_weight_name)
                     W = model.get_initializer(matmul_weight_name)
-                    assert A is not None, "Initializer for add weights is not set."
-                    assert W is not None, "Initializer for matmul weights is not set."
+                    if (A is None) or (W is None):
+                        warnings.warn("MatMul or Add params are not constant, skipping")
+                        continue
                     start_name = n.input[0]
                     middle_name = n.output[0]
                     end_name = consumer.output[0]
@@ -240,7 +249,9 @@ class MoveScalarAddPastConv(Transformation):
                     conv_in_name = consumer.input[0]
                     conv_in_shape = model.get_tensor_shape(conv_in_name)
                     A = model.get_initializer(add_weight_name)
-                    assert A is not None, "Initializer for add weights is not set."
+                    if A is None:
+                        warnings.warn("Add param is not constant, skipping")
+                        continue
                     start_name = n.input[0]
                     end_name = consumer.output[0]
                     conv_out_shape = model.get_tensor_shape(end_name)
@@ -308,7 +319,9 @@ class MoveScalarMulPastConv(Transformation):
                 ):
                     mul_weight_name = n.input[1]
                     A = model.get_initializer(mul_weight_name)
-                    assert A is not None, "Initializer for mul weights is not set."
+                    if A is None:
+                        warnings.warn("Mul param is not constant, skipping")
+                        continue
                     conv_node = consumer
                     mul_node = n
                     start_name = mul_node.input[0]
@@ -329,6 +342,71 @@ class MoveScalarMulPastConv(Transformation):
                         # use old conv output as new mul node output
                         mul_node.output[0] = conv_out_name
                         # move add node past conv node
+                        graph.node.remove(mul_node)
+                        graph.node.insert(node_ind, mul_node)
+                        graph_modified = True
+        model = model.transform(InferShapes())
+        return (model, graph_modified)
+
+
+class MoveMulPastDWConv(Transformation):
+    """Move channelwise mul operations past depthwise conv operations. We want to have muls
+    next to each other such that they can be collapsed into a single mul."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if (
+                n.op_type == "Mul"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
+                consumer = model.find_consumer(n.output[0])
+                if (
+                    consumer is not None
+                    and consumer.op_type == "Conv"
+                    and not model.is_join_node(consumer)
+                ):
+                    mul_weight_name = n.input[1]
+                    A = model.get_initializer(mul_weight_name)
+                    if A is None:
+                        warnings.warn(
+                            """Mul weight tensor is not set. If it is a constant,
+                                please use set_initializer to set the tensor."""
+                        )
+                        continue
+                    conv_node = consumer
+                    mul_node = n
+                    start_name = mul_node.input[0]
+                    conv_in_name = conv_node.input[0]
+                    conv_in_shape = model.get_tensor_shape(conv_in_name)
+                    ifm_ch = conv_in_shape[1]
+                    group_attribute = get_by_name(consumer.attribute, "group")
+                    if group_attribute is None:
+                        continue
+                    group_attribute = group_attribute.i
+                    conv_out_name = conv_node.output[0]
+                    conv_out_shape = model.get_tensor_shape(conv_out_name)
+                    if A.shape == (1, ifm_ch, 1, 1) and ifm_ch == group_attribute:
+                        # if the mul is channelwise and conv is depthwise,
+                        # we can simply swap the order of ops
+                        # rewire mul input to be conv input
+                        conv_node.input[0] = start_name
+                        model.set_tensor_shape(start_name, conv_in_shape)
+                        model.set_tensor_datatype(start_name, DataType.FLOAT32)
+                        # use old conv input tensor as conv output
+                        conv_node.output[0] = conv_in_name
+                        model.set_tensor_shape(conv_in_name, conv_out_shape)
+                        model.set_tensor_datatype(conv_in_name, DataType.FLOAT32)
+                        # use new conv output as new mul node input
+                        mul_node.input[0] = conv_in_name
+                        # use old conv output as new mul node output
+                        mul_node.output[0] = conv_out_name
+                        model.set_tensor_datatype(conv_out_name, DataType.FLOAT32)
+                        # move mul node past conv node
                         graph.node.remove(mul_node)
                         graph.node.insert(node_ind, mul_node)
                         graph_modified = True
@@ -531,3 +609,130 @@ class MoveMulPastFork(MoveOpPastFork):
 class MoveLinearPastFork(MoveOpPastFork):
     def __init__(self):
         super().__init__(["Add", "Mul"])
+
+
+class MoveMaxPoolPastMultiThreshold(Transformation):
+    """Move MaxPool nodes past MultiThreshold nodes on linear segments of the graph."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        nodes = [n for n in graph.node]
+        for n in nodes:
+            node_ind += 1
+            if n.op_type == "MaxPool" and not model.is_fork_node(n):
+                consumer = model.find_consumer(n.output[0])
+                pads = get_by_name(n.attribute, "pads")
+                has_padding = False
+                if pads is not None:
+                    pads = list(pads.ints)
+                    has_padding = np.prod(pads) != 0
+                if consumer is not None and consumer.op_type == "MultiThreshold":
+                    mt_out = consumer.output[0]
+                    mt_odt = model.get_tensor_datatype(mt_out)
+                    if mt_odt.signed() and has_padding:
+                        warnings.warn(
+                            "Skipping padded MaxPool + signed-output MultiThreshold"
+                        )
+                        continue
+                    # check for non-decreasing thresholds and nonnegative
+                    # scale factor in MultiThreshold
+                    # otherwise we cannot do the reordering
+                    T = model.get_initializer(consumer.input[1])
+                    T_sorted = np.sort(T, axis=1)
+                    assert (
+                        T == T_sorted
+                    ).all(), "MultiThreshold must have non-decreasing thresholds"
+                    mt_inst = getCustomOp(consumer)
+                    if mt_inst.get_nodeattr("out_scale") < 0:
+                        warnings.warn("Skipping MultiThreshold with negative out_scale")
+                        continue
+
+                    # remove old nodes
+                    graph.node.remove(n)
+                    graph.node.remove(consumer)
+
+                    # swap conections
+                    group_in = n.input[0]
+                    # new tensor because dims change
+                    group_middle = model.make_new_valueinfo_name()
+                    group_out = consumer.output[0]
+
+                    consumer.input[0] = group_in
+                    consumer.output[0] = group_middle
+
+                    n.input[0] = group_middle
+                    n.output[0] = group_out
+
+                    # insert them back in
+                    graph.node.insert(node_ind - 1, consumer)
+                    graph.node.insert(node_ind, n)
+
+                    graph_modified = True
+
+        model = model.transform(InferShapes())
+        return (model, graph_modified)
+
+
+class MoveTransposePastScalarMul(Transformation):
+    """Moves a Transpose node past a scalar Mul node"""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if (
+                n.op_type == "Transpose"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
+                consumer = model.find_consumer(n.output[0])
+                if (
+                    consumer is not None
+                    and consumer.op_type == "Mul"
+                    and not model.is_join_node(consumer)
+                ):
+                    mul_weight_name = consumer.input[1]
+                    A = model.get_initializer(mul_weight_name)
+                    if A is None:
+                        warnings.warn("Mul param is not constant, skipping")
+                        continue
+                    transp_node = n
+                    mul_node = consumer
+                    start_name = transp_node.input[0]
+                    middle_name = transp_node.output[0]
+                    end_name = mul_node.output[0]
+                    transp_in_shape = model.get_tensor_shape(start_name)
+                    transp_out_shape = model.get_tensor_shape(middle_name)
+                    transp_in_layout = model.get_tensor_layout(start_name)
+                    transp_out_layout = model.get_tensor_layout(middle_name)
+                    if transp_in_layout is None or transp_out_layout is None:
+                        warnings.warn(
+                            """Datalayout is not set for tensors.
+                            Transformation can't be applied."""
+                        )
+                        continue
+                    if all(x == 1 for x in A.shape):
+                        # if the mul is scalar, we can simply swap the order of ops
+                        # rewire transpose input to be mul input
+                        mul_node.input[0] = start_name
+                        model.set_tensor_shape(start_name, transp_in_shape)
+                        model.set_tensor_layout(start_name, transp_in_layout)
+                        mul_node.output[0] = middle_name
+                        model.set_tensor_shape(middle_name, transp_in_shape)
+                        model.set_tensor_layout(middle_name, transp_in_layout)
+                        transp_node.input[0] = middle_name
+                        transp_node.output[0] = end_name
+                        model.set_tensor_shape(end_name, transp_out_shape)
+                        model.set_tensor_layout(end_name, transp_out_layout)
+                        graph.node.remove(transp_node)
+                        graph.node.insert(node_ind, transp_node)
+                        graph_modified = True
+
+        if graph_modified is True:
+            model = model.transform(InferDataLayouts())
+            model = model.transform(InferShapes())
+        return (model, graph_modified)

@@ -110,6 +110,8 @@ class StreamingFIFO(HLSCustomOp):
         ]
         # make instream width a multiple of 8 for axi interface
         in_width = self.get_instream_width_padded()
+        count_width = int(self.get_nodeattr("depth") - 1).bit_length()
+        self.code_gen_dict["$COUNT_RANGE$"] = ["[{}:0]".format(count_width - 1)]
         self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
         self.code_gen_dict["$OUT_RANGE$"] = ["[{}:0]".format(in_width - 1)]
         self.code_gen_dict["$WIDTH$"] = [str(in_width)]

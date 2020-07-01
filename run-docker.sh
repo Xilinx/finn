@@ -65,6 +65,11 @@ DOCKER_INST_NAME="finn_dev_${DOCKER_UNAME}"
 # ensure Docker tag and inst. name are all lowercase
 DOCKER_TAG=$(echo "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')
 DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
+# Absolute path to this script, e.g. /home/user/bin/foo.sh
+SCRIPT=$(readlink -f "$0")
+# Absolute path this script is in, thus /home/user/bin
+SCRIPTPATH=$(dirname "$SCRIPT")
+
 # the settings below will be taken from environment variables if available,
 # otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
@@ -74,11 +79,7 @@ DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
 : ${PYNQ_BOARD="Pynq-Z1"}
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 : ${NUM_DEFAULT_WORKERS=1}
-
-# Absolute path to this script, e.g. /home/user/bin/foo.sh
-SCRIPT=$(readlink -f "$0")
-# Absolute path this script is in, thus /home/user/bin
-SCRIPTPATH=$(dirname "$SCRIPT")
+: ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
 
 BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
@@ -87,6 +88,7 @@ VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
 # ensure build dir exists locally
 mkdir -p $BUILD_LOCAL
 mkdir -p $VIVADO_IP_CACHE
+mkdir -p $FINN_SSH_KEY_DIR
 
 gecho "Instance is named as $DOCKER_INST_NAME"
 gecho "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
@@ -96,7 +98,7 @@ gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
 
-DOCKER_INTERACTIVE = ""
+DOCKER_INTERACTIVE=""
 
 if [ "$1" = "test" ]; then
         gecho "Running test suite (all tests)"
@@ -133,6 +135,7 @@ docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --init \
 -v $SCRIPTPATH:/workspace/finn \
 -v $BUILD_LOCAL:$BUILD_LOCAL \
 -v $VIVADO_PATH:$VIVADO_PATH \
+-v $FINN_SSH_KEY_DIR:/home/$DOCKER_UNAME/.ssh \
 -e VIVADO_PATH=$VIVADO_PATH \
 -e FINN_INST_NAME=$DOCKER_INST_NAME \
 -e FINN_ROOT="/workspace/finn" \
