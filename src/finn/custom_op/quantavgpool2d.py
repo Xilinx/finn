@@ -75,6 +75,19 @@ class QuantAvgPool2d(CustomOp):
             raise Exception("Unsupported output datatype for QuantAvgPool2d")
         model.set_tensor_datatype(node.output[0], dtype)
 
+    def get_accum_size(self):
+        ibits = self.get_nodeattr("ibits")
+        k = self.get_nodeattr("kernel")
+        max_value = 2 ** ibits - 1
+        max_value = max_value * k * k
+        max_bit_width = int(max_value).bit_length()
+        return max_bit_width
+
+    def get_shifts(self):
+        shift_bits = self.get_accum_size() - self.get_nodeattr("obits")
+        shift_bits = shift_bits if shift_bits >= 0 else 0
+        return shift_bits
+
     def execute_node(self, context, graph):
         # create a standard average pooling node to help calculate the result
         node = self.onnx_node
@@ -107,12 +120,7 @@ class QuantAvgPool2d(CustomOp):
         result_temp = sess.run(None, idict)
         # remove scaling introduced by average
         result_temp = result_temp[0] * (k * k)
-        ibits = self.get_nodeattr("ibits")
-        max_value = 2 ** ibits - 1
-        max_value = max_value * k * k
-        max_bit_width = int(max_value).bit_length()
-        shift_bits = max_bit_width - self.get_nodeattr("obits")
-        result = np.right_shift(result_temp.astype(int), shift_bits)
+        result = np.right_shift(result_temp.astype(int), self.get_shifts())
         if self.get_nodeattr("data_layout") == "NHWC":
             result = result.transpose(0, 2, 3, 1)
         context[node.output[0]] = result.astype(np.float32)
