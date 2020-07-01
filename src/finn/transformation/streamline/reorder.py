@@ -225,8 +225,8 @@ class MoveScalarAddPastMatMul(Transformation):
         return (model, graph_modified)
 
 
-class MoveScalarAddPastConv(Transformation):
-    """Move scalar add operations past conv operations. We want to have adds
+class MoveAddPastConv(Transformation):
+    """Move scalar and channelwise add operations past conv operations. We want to have adds
     next to each other such that they can be collapsed into a single add."""
 
     def apply(self, model):
@@ -251,6 +251,8 @@ class MoveScalarAddPastConv(Transformation):
                     add_weight_name = n.input[1]
                     conv_in_name = consumer.input[0]
                     conv_in_shape = model.get_tensor_shape(conv_in_name)
+                    # assume datalayout to be NCHW
+                    channels = conv_in_shape[1]
                     A = model.get_initializer(add_weight_name)
                     if A is None:
                         warnings.warn("Add param is not constant, skipping")
@@ -263,11 +265,17 @@ class MoveScalarAddPastConv(Transformation):
                     pads = list(get_by_name(consumer.attribute, "pads").ints)
                     if sum(pads) == 0:
                         using_padding = False
-                    if all(x == 1 for x in A.shape) and not using_padding:
+                    if (
+                        all(x == 1 for x in A.shape) or A.shape == (1, channels, 1, 1)
+                    ) and not using_padding:
                         # create a tensor filled with the add constant, in
                         # the shape expected by the convolution
                         conv_in_const = np.zeros(conv_in_shape, dtype=np.float32)
-                        conv_in_const.fill(A.item())
+                        if A.shape == (1, channels, 1, 1):
+                            for ch in range(channels):
+                                conv_in_const[0][ch].fill(A[0][ch].item())
+                        else:
+                            conv_in_const.fill(A.item())
                         # create an execution context and put in const input
                         exec_ctx = model.make_empty_exec_context()
                         exec_ctx[conv_in_name] = conv_in_const
