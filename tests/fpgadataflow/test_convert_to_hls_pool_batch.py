@@ -115,13 +115,8 @@ def prepare_inputs(input_tensor):
     return {"inp": input_tensor}
 
 
-# Note: QuantAvgPool2d with idt = DataType.UINT4 and odt = DataType.UINT8
-# (And in general seems to be a problem when odt.bitwidth() > idt.bitwidth())
-# passes cppsim but fails rtlsim(Verilator). Cosim with same parameters in
-# Vivado_HLS passes.
-
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.INT4, DataType.INT8])
 # output datatype
 @pytest.mark.parametrize("odt", [DataType.UINT4, DataType.INT4])
 # pool configuration:                   ( k,stride, pad, ifm_dim )
