@@ -52,8 +52,7 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 from finn.util.test import get_test_model_trained
 
 
-export_onnx_path = "test_output_tfc.onnx"
-export_onnx_path_cnv = "test_output_cnv.onnx"
+export_onnx_path = "test_convert_to_hls_layers_fc.onnx"
 
 
 @pytest.mark.vivado

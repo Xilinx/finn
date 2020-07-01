@@ -18,7 +18,7 @@ from pkgutil import get_data
 
 import pytest
 
-export_onnx_path = "test_output_lfc.onnx"
+export_onnx_path = "test_topk_insert.onnx"
 
 
 @pytest.mark.parametrize("k", [1, 5, 10])
