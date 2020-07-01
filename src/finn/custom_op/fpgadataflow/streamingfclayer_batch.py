@@ -240,10 +240,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         Q = self.get_nodeattr("SIMD")
         wdt = self.get_weight_datatype()
         W = wdt.bitwidth()
-        D_in = self.get_instream_width()
-        D_out = self.get_outstream_width()
+        D_in = self.get_nodeattr("MW")
+        D_out = self.get_nodeattr("MH")
         omega = (D_in * D_out) / (Q * P)
         return P * (math.ceil(omega / 512)) * (math.ceil((Q * W) / 36))
+
+    def bram_efficiency_estimation(self):
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_nodeattr("MW")
+        D_out = self.get_nodeattr("MH")
+        bram16_est = self.bram_estimation()
+        wbits = W * D_in * D_out
+        bram16_est_capacity = bram16_est * 36 * 512
+        return wbits / bram16_est_capacity
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs based on:
