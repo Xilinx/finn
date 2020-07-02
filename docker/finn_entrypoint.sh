@@ -1,6 +1,7 @@
 #!/bin/bash
 
 export XILINX_VIVADO=$VIVADO_PATH
+export XILINX_VITIS=$VITIS_PATH
 export SHELL=/bin/bash
 export FINN_ROOT=/workspace/finn
 
@@ -50,5 +51,8 @@ git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
 
 # source Vivado env.vars
 source $VIVADO_PATH/settings64.sh
+
+# source Vitis env.vars
+source $VITIS_PATH/settings64.sh
 
 exec "$@"
