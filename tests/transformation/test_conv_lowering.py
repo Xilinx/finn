@@ -45,7 +45,7 @@ from finn.custom_op.im2col import compute_conv_output_dim
 from finn.util.basic import gen_finn_dt_tensor
 from finn.custom_op.registry import getCustomOp
 
-export_onnx_path = "test_output_cnv.onnx"
+export_onnx_path = "test_conv_lowering.onnx"
 
 
 def test_conv_lowering_cnv_w1a1():

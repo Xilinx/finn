@@ -16,7 +16,7 @@ import finn.core.onnx_exec as oxe
 
 import pytest
 
-export_onnx_path = "test_avg_pool.onnx"
+export_onnx_path = "test_brevitas_avg_pool_export.onnx"
 
 
 @pytest.mark.parametrize("kernel_size", [2, 3])
