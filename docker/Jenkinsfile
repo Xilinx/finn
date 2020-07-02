@@ -9,7 +9,7 @@ pipeline {
         string(name: 'PYNQ_PASSWORD', defaultValue: 'xilinx', description: 'PYNQ board password')
         string(name: 'PYNQ_TARGET_DIR', defaultValue: '/home/xilinx/finn', description: 'PYNQ board target deployment directory')
         string(name: 'NUM_DEFAULT_WORKERS', defaultValue: '1', description: 'Number of cores for parallel transformations')
-        string(name: 'DOCKER_CMD', defaultValue: """python setup.py test""", description: 'Command to run')
+        string(name: 'DOCKER_CMD', defaultValue: """python setup.py test --addopts "--dist=loadfile -n auto"""", description: 'Command to run')
     }
     environment {
         DOCKER_TAG='finn_ci:$BUILD_ID'

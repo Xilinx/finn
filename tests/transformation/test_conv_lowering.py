@@ -26,11 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import onnx.helper as oh
+from onnx import TensorProto
 import os
 import pkg_resources as pk
 import brevitas.onnx as bo
 import numpy as np
-
 
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
@@ -40,7 +41,7 @@ from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 import finn.core.onnx_exec as oxe
 
-export_onnx_path = "test_output_cnv.onnx"
+export_onnx_path = "test_conv_lowering.onnx"
 
 
 def test_conv_lowering_cnv_w1a1():
@@ -65,3 +66,51 @@ def test_conv_lowering_cnv_w1a1():
     assert np.isclose(produced, expected).all()
     assert np.argmax(produced) == 3
     os.remove(export_onnx_path)
+
+
+def test_conv_lowering_conv_1x1():
+    np.random.seed(0)
+
+    in_feature_dim = 7
+    in_chn = 3
+    kernel_size = 1
+    out_feature_dim = in_feature_dim
+
+    input_shape = [1, in_chn, in_feature_dim, in_feature_dim]
+    output_shape = [1, in_chn, out_feature_dim, out_feature_dim]
+
+    conv_param_shape = [in_chn, in_chn, kernel_size, kernel_size]
+
+    conv_config = {}
+    conv_config["dilations"] = [1, 1]
+    conv_config["group"] = 1
+    conv_config["kernel_shape"] = [kernel_size, kernel_size]
+    conv_config["pads"] = [0, 0, 0, 0]
+    conv_config["strides"] = [1, 1]
+
+    top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, input_shape)
+    top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, output_shape)
+
+    value_info = [oh.make_tensor_value_info("p1", TensorProto.FLOAT, conv_param_shape)]
+
+    modelproto = oh.make_model(
+        oh.make_graph(
+            name="test",
+            inputs=[top_in],
+            outputs=[top_out],
+            value_info=value_info,
+            nodes=[oh.make_node("Conv", ["top_in", "p1"], ["top_out"], **conv_config)],
+        )
+    )
+    model = ModelWrapper(modelproto)
+    model = model.transform(InferShapes())
+    model.set_initializer("p1", np.random.rand(*conv_param_shape).astype(np.float32))
+
+    new_model = model.transform(LowerConvsToMatMul())
+    inp_dict = {"top_in": np.random.rand(*input_shape).astype(np.float32)}
+
+    assert oxe.compare_execution(model, new_model, inp_dict)
+    assert new_model.graph.node[0].op_type == "Transpose"
+    assert new_model.graph.node[1].op_type == "MatMul"
+    assert new_model.graph.node[2].op_type == "Transpose"
+    assert len(new_model.graph.node) == 3

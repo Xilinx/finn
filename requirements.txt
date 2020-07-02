@@ -9,4 +9,5 @@ pyverilator
 scipy
 sphinx
 toposort
+vcdvcd
 wget
