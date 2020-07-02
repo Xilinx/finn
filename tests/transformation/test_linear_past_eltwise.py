@@ -41,7 +41,7 @@ from finn.transformation.double_to_single_float import DoubleToSingleFloat
 
 import pytest
 
-export_onnx_path = "test_scalar_past_eltwise.onnx"
+export_onnx_path = "test_linear_past_eltwise.onnx"
 
 # construct a synthetic graph to test:
 # topk insertion, topk conversion to hls, add conversion to hls

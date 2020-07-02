@@ -41,7 +41,7 @@ from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 import finn.core.onnx_exec as oxe
 
-export_onnx_path = "test_output_cnv.onnx"
+export_onnx_path = "test_conv_lowering.onnx"
 
 
 def test_conv_lowering_cnv_w1a1():

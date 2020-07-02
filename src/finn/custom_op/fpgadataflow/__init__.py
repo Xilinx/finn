@@ -88,6 +88,8 @@ class HLSCustomOp(CustomOp):
             "res_hls": ("s", False, ""),
             "res_synth": ("s", False, ""),
             "rtlsim_so": ("s", False, ""),
+            # partitioning info
+            "partition_id": ("i", False, 0),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
