@@ -47,7 +47,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
 from finn.util.test import get_test_model_trained
 
-export_onnx_path = "test_output_lfc.onnx"
+export_onnx_path = "test_xnorpopcountmatmul.onnx"
 
 
 def test_xnorpopcountmatmul():

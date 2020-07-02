@@ -85,3 +85,23 @@ def load_test_checkpoint_or_skip(filename):
     except FileNotFoundError:
         warnings.warn(filename + " not found from previous test step, skipping")
         pytest.skip(filename + " not found from previous test step, skipping")
+
+
+def resize_smaller_side(target_pixels, img):
+    """Resizes smallest side of image to target pixels and resizes larger side with
+    same ratio. Expects a PIL image."""
+    ratio = target_pixels / min(img.size)
+    width = int(img.size[0] * ratio)
+    height = int(img.size[1] * ratio)
+    return img.resize((width, height))
+
+
+def crop_center(size, img):
+    """Crop central size*size window out of a PIL image."""
+    width = img.size[0]
+    height = img.size[1]
+    left = (width - size) / 2
+    top = (height - size) / 2
+    right = (width + size) / 2
+    bottom = (height + size) / 2
+    return img.crop((left, top, right, bottom))
