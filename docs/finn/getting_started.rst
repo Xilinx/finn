@@ -18,6 +18,7 @@ Requirements
 * A working Vivado 2019.1 installation
 * A `VIVADO_PATH` environment variable pointing to the Vivado installation directory (e.g. the directory where settings64.sh is located)
 * (optional) A PYNQ board with a network connection
+   * the ``bitstring`` package must be installed on the PYNQ: ``sudo pip3 install bitstring``
 
 Running FINN in Docker
 ======================
@@ -30,6 +31,7 @@ Getting an interactive shell for development or experimentation
   sh run_docker.sh
 
 Simply running sh run-docker.sh without any additional arguments will clone the dependency repos, create a Docker container and give you a terminal with you can use for development for experimentation.
+If you want a new terminal on an already-running container, you can do this with `docker exec -it finn_dev_<username> bash`.
 
 .. warning:: The Docker container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the /workspace/finn folder (which is mounted from the host computer) or otherwise backed up.
 
