@@ -104,7 +104,7 @@ from finn.core.datatype import DataType
 from pynq.ps import Clocks
 
 class FINNAccelDriver():
-    def __init__(self, N, bitfile):
+    def __init__(self, N, bitfile, platform="zynq"):
         \"\"\"Instantiate the FINN accelerator driver.
         Gets batchsize (N) as integer and path to bitfile as string.\"\"\"
         self.N = N
@@ -119,21 +119,29 @@ class FINNAccelDriver():
         self.oshape_folded = $OUTPUT_SHAPE_FOLDED$
         self.ishape_packed = $INPUT_SHAPE_PACKED$   # datatype np.uint8
         self.oshape_packed = $OUTPUT_SHAPE_PACKED$  # datatype np.uint8
-        # clock frequency
-        self.fclk_mhz = $CLOCK_FREQ_MHZ$
         # load bitfile and set up accelerator
         self.ol = Overlay(bitfile)
-        # set the clock frequency as specified by user during transformations
-        Clocks.$CLK_NAME$ = self.fclk_mhz
-        self.dma = self.ol.axi_dma_0
-        self.ctrl_regs = self.ol.resize_accel_0
         # neuron folding factor of output = iterations per sample
         self.itersPerSample = self.oshape_packed[-2]
-        # AXI lite register offset for number of iterations
-        # used by TLastMarker to signal end of transmission for AXI CDMA
-        self.REG_OFFSET_NUM_ITERS = 0x10
-        # set up TLastMarker with correct num. samples
-        self.ctrl_regs.write(self.REG_OFFSET_NUM_ITERS, self.N*self.itersPerSample)
+        if self.platform == "zynq":
+            # clock frequency
+            self.fclk_mhz = $CLOCK_FREQ_MHZ$
+            # set the clock frequency as specified by user during transformations
+            if fclk_mhz > 0:
+                Clocks.$CLK_NAME$ = self.fclk_mhz
+            self.dma = self.ol.axi_dma_0
+            self.ctrl_regs = self.ol.resize_accel_0
+
+            # AXI lite register offset for number of iterations
+            # used by TLastMarker to signal end of transmission for AXI CDMA
+            self.REG_OFFSET_NUM_ITERS = 0x10
+            # set up TLastMarker with correct num. samples
+            self.ctrl_regs.write(self.REG_OFFSET_NUM_ITERS, self.N*self.itersPerSample)
+        elif self.platform == "alveo":
+            self.idma = self.ol.idma0
+            self.odma = self.ol.odma0
+        else:
+            raise ValueError("Supported platforms are zynq and alveo")
 
         # allocate a PYNQ buffer for the packed input and buffer
         self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8)
@@ -176,19 +184,29 @@ class FINNAccelDriver():
         np.copyto(self.ibuf_packed_device, data)
 
     def execute(self):
-        \"\"\"Executes accelerator by setting up the DMA and
-        waiting until all transfers complete. Uses only member variables and
+        \"\"\"Executes accelerator by setting up the DMA(s) and
+        waiting until all transfers/calls complete. Uses only member variables and
         returns nothing.\"\"\"
-        dma = self.dma
-        dma.sendchannel.transfer(self.ibuf_packed_device)
-        dma.recvchannel.transfer(self.obuf_packed_device)
-        dma.sendchannel.wait()
-        dma.recvchannel.wait()
+        if self.platform == "zynq":
+            dma = self.dma
+            dma.sendchannel.transfer(self.ibuf_packed_device)
+            dma.recvchannel.transfer(self.obuf_packed_device)
+            dma.sendchannel.wait()
+            dma.recvchannel.wait()
+        else:
+            self.ibuf_packed_device.sync_to_device()
+            self.idma.start(self.ibuf_packed_device, self.N)
+            self.odma.start(self.obuf_packed_device, self.N)
+            self.idma.wait()
+            self.odma.wait()
+            self.obuf_packed_device.sync_from_device()
+
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Set exec mode, batchsize N, bitfile name, inputfile name and outputfile name')
     parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
+    parser.add_argument('--platform', help='Target platform, zynq or alveo', default="zynq")
     parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
     parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
     parser.add_argument('--inputfile', help='name of input npy file (i.e. "input.npy")', default="input.npy")
@@ -196,13 +214,14 @@ if __name__ == "__main__":
     # parse arguments
     args = parser.parse_args()
     exec_mode = args.exec_mode
+    platform = args.platform
     N = args.batchsize
     bitfile = args.bitfile
     inputfile = args.inputfile
     outputfile = args.outputfile
 
     # instantiate FINN accelerator driver and pass batchsize and bitfile
-    finnDriver = FINNAccelDriver(N, bitfile)
+    finnDriver = FINNAccelDriver(N, bitfile, platform)
 
     # for the remote execution the data from the input npy file has to be loaded,
     # packed and copied to the PYNQ buffer
