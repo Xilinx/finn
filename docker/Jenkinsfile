@@ -9,12 +9,7 @@ pipeline {
         string(name: 'PYNQ_PASSWORD', defaultValue: 'xilinx', description: 'PYNQ board password')
         string(name: 'PYNQ_TARGET_DIR', defaultValue: '/home/xilinx/finn', description: 'PYNQ board target deployment directory')
         string(name: 'NUM_DEFAULT_WORKERS', defaultValue: '1', description: 'Number of cores for parallel transformations')
-        // main test: everything except rtlsim and end2end tests, parallel run with xdist, no parallel transformations to save on memory
-        string(name: 'DOCKER_CMD_MAIN', defaultValue: """python setup.py test --addopts "-k 'not (rtlsim or end2end)' --dist=loadfile -n auto" """, description: 'Main test command')
-        // rtlsim tests: parallel run with pytest-parallel, no parallel transformations to save on memory
-        string(name: 'DOCKER_CMD_RTLSIM', defaultValue: """python setup.py test --addopts "-k rtlsim --workers auto" """, description: 'rtlsim test command')
-        // end2end tests: no parallel testing, use NUM_DEFAULT_WORKERS for parallel transformations
-        string(name: 'DOCKER_CMD_END2END', defaultValue: """python setup.py test --addopts "-k end2end" """, description: 'end2end test command')
+        string(name: 'DOCKER_TEST_CMD', defaultValue: """quicktest.sh main; quicktest.sh rtlsim; quicktest.sh end2end""", description: 'Test command')
     }
     environment {
         DOCKER_TAG='finn_ci:$BUILD_ID'
@@ -37,7 +32,7 @@ pipeline {
                 """
             }
         }
-        stage('test-main') {
+        stage('Test') {
             steps {
                 sh """
                 docker run --name $DOCKER_INST_NAME --init \
@@ -51,43 +46,7 @@ pipeline {
                 -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
                 -e PYNQ_PASSWORD=${params.PYNQ_PASSWORD} \
                 -e PYNQ_TARGET_DIR=${params.PYNQ_TARGET_DIR} \
-                $DOCKER_TAG ${params.DOCKER_CMD_MAIN}
-                """
-            }
-        }
-        stage('test-rtlsim') {
-            steps {
-                sh """
-                docker run --name $DOCKER_INST_NAME --init \
-                --hostname $DOCKER_INST_NAME \
-                -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
-                -e NUM_DEFAULT_WORKERS=1 \
-                -e FINN_INST_NAME=$DOCKER_INST_NAME \
-                -e VIVADO_PATH=${params.VIVADO_PATH} \
-                -e PYNQ_BOARD=${params.PYNQ_BOARD} \
-                -e PYNQ_IP=${params.PYNQ_IP} \
-                -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
-                -e PYNQ_PASSWORD=${params.PYNQ_PASSWORD} \
-                -e PYNQ_TARGET_DIR=${params.PYNQ_TARGET_DIR} \
-                $DOCKER_TAG ${params.DOCKER_CMD_RTLSIM}
-                """
-            }
-        }
-        stage('test-end2end') {
-            steps {
-                sh """
-                docker run --name $DOCKER_INST_NAME --init \
-                --hostname $DOCKER_INST_NAME \
-                -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
-                -e NUM_DEFAULT_WORKERS=1 \
-                -e FINN_INST_NAME=$DOCKER_INST_NAME \
-                -e VIVADO_PATH=${params.VIVADO_PATH} \
-                -e PYNQ_BOARD=${params.PYNQ_BOARD} \
-                -e PYNQ_IP=${params.PYNQ_IP} \
-                -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
-                -e PYNQ_PASSWORD=${params.PYNQ_PASSWORD} \
-                -e PYNQ_TARGET_DIR=${params.PYNQ_TARGET_DIR} \
-                $DOCKER_TAG ${params.DOCKER_CMD_END2END}
+                $DOCKER_TAG bash -c "${params.DOCKER_CMD_MAIN}"
                 """
             }
         }
