@@ -73,8 +73,12 @@ from the FINN root directory* as follows:
 
   python setup.py test --addopts "-k test_end2end_tfc_w1a2"
 
-Please see the pytest documentation for more about picking tests by marks or
-by name.
+Finally, if you want to run tests in parallel (e.g. to take advantage of a multi-core CPU)
+you can use:
+ * pytest-parallel for any rtlsim tests, e.g. `python setup.py test --addopts "-k rtlsim --workers auto"`
+ * pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `python setup.py test --addopts "-k mytest -n auto --dist=loadfile"`
+
+Please see the pytest documentation for more about picking tests by marks or by name.
 
 Environment variables
 **********************

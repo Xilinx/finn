@@ -62,6 +62,7 @@ RUN pip install -r /workspace/finn/requirements.txt
 RUN apt update; apt install nano
 RUN pip install pytest-dependency
 RUN pip install pytest-xdist
+RUN pip install pytest-parallel
 
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
