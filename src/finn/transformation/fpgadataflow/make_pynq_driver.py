@@ -109,7 +109,7 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
 
         # clock settings for driver
-        clk_ns = float(model.get_metadata_prop("clk_ns"))
+        clk_ns = model.get_metadata_prop("clk_ns")
         # default to 10ns / 100 MHz if property not set
         if clk_ns is None:
             clk_ns = 10.0
