@@ -35,7 +35,7 @@ import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import (
-    RemoveUnusedInitAndValueInfo,
+    RemoveUnusedTensors,
     RemoveStaticGraphInputs,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
@@ -79,7 +79,7 @@ def test_streamline_cnv(size, wbits, abits):
     expected = expected_ctx[model.graph.output[0].name]
     # model.save("orig_cnv.onnx")
     model = model.transform(Streamline())
-    model = model.transform(RemoveUnusedInitAndValueInfo())
+    model = model.transform(RemoveUnusedTensors())
     assert len(model.graph.initializer) == 21
     assert len(model.graph.value_info) == 43
     # model.save("streamlined_cnv.onnx")

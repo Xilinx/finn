@@ -31,8 +31,11 @@ from finn.transformation import Transformation
 from toposort import toposort_flatten
 
 
-class RemoveUnusedInitAndValueInfo(Transformation):
-    "Remove any unused initializers and value_info in the graph."
+class RemoveUnusedTensors(Transformation):
+    """Remove any unused tensors in the graph by removing any initializers,
+    ValueInfo and tensor annotations associated with it. Unused tensors do not
+    appear as any input/output for any graph nodes.
+    """
 
     def apply(self, model):
         graph_modified = False
@@ -44,7 +47,8 @@ class RemoveUnusedInitAndValueInfo(Transformation):
                 used_tensors.add(i)
             for o in node.output:
                 used_tensors.add(o)
-        # remove initializers and value_info not in the used set
+        # remove initializers, value_info and annotations that are not in the
+        # used set of tensors, as determined by the graph node i/o
         for init in onnx_graph.initializer:
             if init.name not in used_tensors:
                 onnx_graph.initializer.remove(init)
@@ -52,6 +56,10 @@ class RemoveUnusedInitAndValueInfo(Transformation):
         for vi in onnx_graph.value_info:
             if vi.name not in used_tensors:
                 onnx_graph.value_info.remove(vi)
+                graph_modified = True
+        for qa in onnx_graph.quantization_annotation:
+            if qa.tensor_name not in used_tensors:
+                onnx_graph.quantization_annotation.remove(qa)
                 graph_modified = True
 
         return (model, graph_modified)

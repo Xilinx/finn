@@ -43,7 +43,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import (
-    RemoveUnusedInitAndValueInfo,
+    RemoveUnusedTensors,
     RemoveStaticGraphInputs,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
@@ -114,7 +114,7 @@ def test_end2end_cnv_w1a1_streamline():
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
-    model = model.transform(RemoveUnusedInitAndValueInfo())
+    model = model.transform(RemoveUnusedTensors())
     model.save(build_dir + "/end2end_cnv_w1a1_streamlined.onnx")
 
 

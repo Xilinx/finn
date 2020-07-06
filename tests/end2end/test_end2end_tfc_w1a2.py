@@ -62,7 +62,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 from finn.transformation.general import (
-    RemoveUnusedInitAndValueInfo,
+    RemoveUnusedTensors,
     RemoveStaticGraphInputs,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
@@ -105,7 +105,7 @@ def test_end2end_tfc_w1a2_import_and_tidy():
 def test_end2end_tfc_w1a2_streamline():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a2_tidy.onnx")
     model = model.transform(Streamline())
-    model = model.transform(RemoveUnusedInitAndValueInfo())
+    model = model.transform(RemoveUnusedTensors())
     model.save(build_dir + "/end2end_tfc_w1a2_streamlined.onnx")
 
 

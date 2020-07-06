@@ -38,7 +38,7 @@ import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import (
-    RemoveUnusedInitAndValueInfo,
+    RemoveUnusedTensors,
     RemoveStaticGraphInputs,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
@@ -79,9 +79,10 @@ def test_streamline_fc(size, wbits, abits):
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
     model = model.transform(Streamline())
-    model = model.transform(RemoveUnusedInitAndValueInfo())
+    model = model.transform(RemoveUnusedTensors())
     assert len(model.graph.initializer) == 11
     assert len(model.graph.value_info) == 21
+    assert len(model.graph.quantization_annotation) == 18
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
     assert np.isclose(expected, produced, atol=1e-3).all()
