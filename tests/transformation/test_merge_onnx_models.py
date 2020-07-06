@@ -109,7 +109,6 @@ def test_merge_onnx_models():
     odict = oxe.execute_onnx(model_transformed, idict)
     outp_transformed = odict[model_transformed.graph.output[0].name]
 
-    model_transformed.save("test.onnx")
     assert (outp == outp_transformed).all()
     assert len(model_transformed.graph.node) == len(model1.graph.node) + len(
         model2.graph.node
