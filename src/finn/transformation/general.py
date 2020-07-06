@@ -57,6 +57,21 @@ class RemoveUnusedInitAndValueInfo(Transformation):
         return (model, graph_modified)
 
 
+class RemoveStaticGraphInputs(Transformation):
+    "Remove any top-level graph inputs that have initializers."
+
+    def apply(self, model):
+        graph_modified = False
+        for i in model.graph.input:
+            if model.get_initializer(i.name) is not None:
+                # move ValueInfo to internal (value_info) container
+                model.graph.value_info.append(i)
+                model.graph.input.remove(i)
+                graph_modified = True
+
+        return (model, graph_modified)
+
+
 class GiveUniqueNodeNames(Transformation):
     """Give unique names to each node in the graph using enumeration."""
 
