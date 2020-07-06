@@ -209,6 +209,8 @@ class CreateStitchedIP(Transformation):
                 #     issue a TCL directive to connect input to output
                 for i in range(len(node.input)):
                     producer = model.find_producer(node.input[i])
+                    if producer is None:
+                        continue
                     j = list(producer.output).index(node.input[i])
                     src_intf_name = getCustomOp(
                         producer
