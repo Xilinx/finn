@@ -37,7 +37,12 @@ import pytest
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.general import (
+    RemoveUnusedInitAndValueInfo,
+    RemoveStaticGraphInputs,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+)
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
@@ -65,6 +70,7 @@ def test_streamline_fc(size, wbits, abits):
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
+    model = model.transform(RemoveStaticGraphInputs())
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
@@ -73,6 +79,9 @@ def test_streamline_fc(size, wbits, abits):
     expected_ctx = oxe.execute_onnx(model, input_dict, True)
     expected = expected_ctx[model.graph.output[0].name]
     model = model.transform(Streamline())
+    model = model.transform(RemoveUnusedInitAndValueInfo())
+    assert len(model.graph.initializer) == 11
+    assert len(model.graph.value_info) == 21
     produced_ctx = oxe.execute_onnx(model, input_dict, True)
     produced = produced_ctx[model.graph.output[0].name]
     assert np.isclose(expected, produced, atol=1e-3).all()

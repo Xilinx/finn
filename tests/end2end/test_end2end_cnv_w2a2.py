@@ -42,7 +42,12 @@ from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.general import (
+    RemoveUnusedInitAndValueInfo,
+    RemoveStaticGraphInputs,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+)
 from finn.transformation.streamline import Streamline
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 import finn.transformation.streamline.absorb as absorb
@@ -96,6 +101,7 @@ def test_end2end_cnv_w2a2_import_and_tidy():
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
+    model = model.transform(RemoveStaticGraphInputs())
     model.save(build_dir + "/end2end_cnv_w2a2_tidy.onnx")
 
 
@@ -106,6 +112,7 @@ def test_end2end_cnv_w2a2_streamline():
     model = model.transform(MakeMaxPoolNHWC())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(Streamline())
+    model = model.transform(RemoveUnusedInitAndValueInfo())
     model.save(build_dir + "/end2end_cnv_w2a2_streamlined.onnx")
 
 

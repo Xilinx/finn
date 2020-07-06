@@ -39,6 +39,7 @@ import torch
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.general import RemoveStaticGraphInputs
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
@@ -63,6 +64,9 @@ def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
+    model = model.transform(RemoveStaticGraphInputs())
+    assert len(model.graph.input) == 1
+    assert len(model.graph.output) == 1
     # load one of the test vectors
     raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
