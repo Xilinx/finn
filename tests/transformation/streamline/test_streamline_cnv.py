@@ -34,7 +34,12 @@ import pkg_resources as pk
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.general import (
+    RemoveUnusedTensors,
+    RemoveStaticGraphInputs,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+)
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
@@ -62,6 +67,7 @@ def test_streamline_cnv(size, wbits, abits):
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
+    model = model.transform(RemoveStaticGraphInputs())
     # load one of the test vectors
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
@@ -73,6 +79,9 @@ def test_streamline_cnv(size, wbits, abits):
     expected = expected_ctx[model.graph.output[0].name]
     # model.save("orig_cnv.onnx")
     model = model.transform(Streamline())
+    model = model.transform(RemoveUnusedTensors())
+    assert len(model.graph.initializer) == 21
+    assert len(model.graph.value_info) == 43
     # model.save("streamlined_cnv.onnx")
     assert len(model.graph.node) == 23
     produced_ctx = oxe.execute_onnx(model, input_dict, True)

@@ -53,7 +53,7 @@ from finn.transformation.streamline.reorder import (
     MoveAddPastMul,
     MoveScalarMulPastMatMul,
     MoveScalarAddPastMatMul,
-    MoveScalarAddPastConv,
+    MoveAddPastConv,
     MoveScalarMulPastConv,
 )
 
@@ -75,7 +75,7 @@ class Streamline(Transformation):
             AbsorbSignBiasIntoMultiThreshold(),
             MoveAddPastMul(),
             MoveScalarAddPastMatMul(),
-            MoveScalarAddPastConv(),
+            MoveAddPastConv(),
             MoveScalarMulPastMatMul(),
             MoveScalarMulPastConv(),
             MoveAddPastMul(),

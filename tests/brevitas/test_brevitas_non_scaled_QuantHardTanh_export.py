@@ -12,7 +12,7 @@ import finn.core.onnx_exec as oxe
 from finn.transformation.infer_shapes import InferShapes
 from brevitas.core.quant import QuantType
 
-export_onnx_path = "test_act.onnx"
+export_onnx_path = "test_brevitas_non_scaled_QuantHardTanh_export.onnx"
 
 
 @pytest.mark.parametrize("abits", [1, 2, 4, 8])

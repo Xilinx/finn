@@ -12,7 +12,7 @@ from finn.core.modelwrapper import ModelWrapper
 import finn.core.onnx_exec as oxe
 from finn.transformation.infer_shapes import InferShapes
 
-export_onnx_path = "test_act.onnx"
+export_onnx_path = "test_brevitas_scaled_QHardTanh_export.onnx"
 
 
 @pytest.mark.parametrize("abits", [2, 4, 8])
