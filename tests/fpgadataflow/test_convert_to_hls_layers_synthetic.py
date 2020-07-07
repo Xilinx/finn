@@ -134,13 +134,14 @@ def make_model(ch, ifmdim):
     return model
 
 
-@pytest.mark.vivado
 # data types
 @pytest.mark.parametrize("idt", [DataType.UINT2])
 # channels
 @pytest.mark.parametrize("ch", [16])
 # ifmdim
 @pytest.mark.parametrize("ifmdim", [5])
+@pytest.mark.vivado
+@pytest.mark.slow
 def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
     model = make_model(ch, ifmdim)
     model.save(export_onnx_path)
