@@ -38,7 +38,7 @@ def _dims_to_layout(model, node, ndims):
         return DataLayout.NC
     else:
         if node.domain == "finn":
-            if node.op_type == "MultiThreshold":
+            if node.op_type == "MultiThreshold" or node.op_type == "QuantAvgPool2d":
                 mt_inst = registry.getCustomOp(node)
                 layout = mt_inst.get_nodeattr("data_layout")
                 if layout == "NHWC" and ndims == 4:

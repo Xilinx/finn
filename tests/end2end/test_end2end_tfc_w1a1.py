@@ -63,7 +63,12 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.general import (
+    RemoveUnusedTensors,
+    RemoveStaticGraphInputs,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+)
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
@@ -72,6 +77,8 @@ from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.core.throughput_test import throughput_test_rtlsim
+import finn.util.vcd as vcd
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -96,12 +103,14 @@ def test_end2end_tfc_w1a1_import_and_tidy():
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
+    model = model.transform(RemoveStaticGraphInputs())
     model.save(build_dir + "/end2end_tfc_w1a1_tidy.onnx")
 
 
 def test_end2end_tfc_w1a1_streamline():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_tidy.onnx")
     model = model.transform(Streamline())
+    model = model.transform(RemoveUnusedTensors())
     model.save(build_dir + "/end2end_tfc_w1a1_streamlined.onnx")
 
 
@@ -197,11 +206,46 @@ def test_end2end_tfc_w1a1_verify_dataflow_part():
     res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
     # whole-network (ip-stitched) rtlsim
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", build_dir + "/tfc_w1a1.vcd")
+    os.environ["RTLSIM_TRACE_DEPTH"] = "3"
     model.save(build_dir + "/end2end_tfc_w1a1_ipstitch_whole_rtlsim.onnx")
     ret_rtlsim_whole = execute_onnx(model, inp_dict, True)
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_cppsim, res_rtlsim_nodebynode).all()
     assert np.isclose(res_cppsim, res_rtlsim_whole).all()
+
+
+def test_end2end_tfc_w1a1_verify_fifo_fullness():
+    vcdf = build_dir + "/tfc_w1a1.vcd"
+    if not os.path.isfile(vcdf):
+        pytest.skip("Cannot find %s, skipping" % vcdf)
+    stream_ifs = vcd.list_stream_if(vcdf)
+    fifos = vcd.list_fifo_count_signals(vcdf)
+    assert len(stream_ifs) == 37
+    assert len(fifos) == 6
+    fifo_max = vcd.get_all_fifo_count_max(vcdf)
+    assert fifo_max[0][0] == "TOP.v.finn_design_i.StreamingFIFO_0.count[3:0]"
+    assert fifo_max[0][1] == 3
+    stream_stat = vcd.get_all_stream_if_stats(vcdf)
+    assert (
+        stream_stat[0][0]
+        == "TOP.v.finn_design_i.StreamingDataWidthConverter_Batch_0_out_V_V_"
+    )
+
+
+@pytest.mark.vivado
+def test_end2end_tfc_w1a1_throughput_test_rtlsim():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_tfc_w1a1_ipstitch_whole_rtlsim.onnx"
+    )
+    # run through IP-stitched rtlsim with increasing batch sizes and
+    # check the number of cycles it takes to execute
+    ret = throughput_test_rtlsim(model, 1)
+    assert ret["cycles"] == 205
+    ret = throughput_test_rtlsim(model, 10)
+    assert ret["cycles"] == 844
+    ret = throughput_test_rtlsim(model, 100)
+    assert ret["cycles"] == 7234
 
 
 @pytest.mark.vivado

@@ -28,6 +28,56 @@
 
 import finn.util.basic as util
 from finn.transformation import Transformation
+from toposort import toposort_flatten
+
+
+class RemoveUnusedTensors(Transformation):
+    """Remove any unused tensors in the graph by removing any initializers,
+    ValueInfo and tensor annotations associated with it. Unused tensors do not
+    appear as any input/output for any graph nodes.
+    """
+
+    def apply(self, model):
+        graph_modified = False
+        onnx_graph = model.model.graph
+        # build a set of tensors that we actually use in the graph nodes
+        used_tensors = set()
+        for node in model.graph.node:
+            for i in node.input:
+                used_tensors.add(i)
+            for o in node.output:
+                used_tensors.add(o)
+        # remove initializers, value_info and annotations that are not in the
+        # used set of tensors, as determined by the graph node i/o
+        for init in onnx_graph.initializer:
+            if init.name not in used_tensors:
+                onnx_graph.initializer.remove(init)
+                graph_modified = True
+        for vi in onnx_graph.value_info:
+            if vi.name not in used_tensors:
+                onnx_graph.value_info.remove(vi)
+                graph_modified = True
+        for qa in onnx_graph.quantization_annotation:
+            if qa.tensor_name not in used_tensors:
+                onnx_graph.quantization_annotation.remove(qa)
+                graph_modified = True
+
+        return (model, graph_modified)
+
+
+class RemoveStaticGraphInputs(Transformation):
+    "Remove any top-level graph inputs that have initializers."
+
+    def apply(self, model):
+        graph_modified = False
+        for i in model.graph.input:
+            if model.get_initializer(i.name) is not None:
+                # move ValueInfo to internal (value_info) container
+                model.graph.value_info.append(i)
+                model.graph.input.remove(i)
+                graph_modified = True
+
+        return (model, graph_modified)
 
 
 class GiveUniqueNodeNames(Transformation):
@@ -104,16 +154,67 @@ class GiveUniqueParameterTensors(Transformation):
                     # first occurance
                     seen_parameters += [node_input]
                     continue
-                    
+
                 new_param_name = model.make_new_valueinfo_name()
 
                 model.set_initializer(new_param_name, input_init)
-                model.set_tensor_datatype(new_param_name, model.get_tensor_datatype(node_input))
+                model.set_tensor_datatype(
+                    new_param_name, model.get_tensor_datatype(node_input)
+                )
 
                 # point node input to new tensor
                 n.input[input_idx] = new_param_name
 
         return (model, graph_modified)
+
+
+class SortGraph(Transformation):
+    """ Returns the model with its node list sorted topologically.
+    Any ONNX graph to be executed must have a topologically sorted node list,
+    as dictated by the ONNX standard.
+    """
+
+    # Notes on SortGraph performance:
+    # benchmark in  tests/transformation/test_sort_graph.py
+    # The algorithm doesn't move initializers so its performance should only depend on
+    # the number of nodes
+    #
+    # Relative order of magnitudes for time per step:
+    # - Gather graph structure:       base
+    # - Sort nodes:                   0.1 of base
+    # - Remove and insert in order :  0.001 of base
+    #
+    # Notes:
+    # Remove nodes and insert them in order:
+    # Probably this is faster than copying initializers and more robust in general
+
+    def apply(self, model):
+        # Gather graph structure
+        graph_dependencies = {}
+        node_list = [
+            n for n in model.graph.node
+        ]  # I also need the list to remove the nodes
+        for node_idx, n in enumerate(node_list):
+            node_pred = model.find_direct_predecessors(n)
+            if node_pred is None:
+                # Will also eliminate nodes that are floating around for some reason
+                continue
+
+            node_dependencies = [node_list.index(pred) for pred in node_pred]
+            graph_dependencies[node_idx] = set(node_dependencies)
+
+        # Sort nodes
+        sorted_node_indexes = toposort_flatten(graph_dependencies)
+
+        # Remove nodes and insert them in order
+        # Can't remove nodes before if I want to use model.find_direct_predecessors()
+        for n in node_list:
+            model.graph.node.remove(n)
+
+        for new_idx, sorted_idx in enumerate(sorted_node_indexes):
+            model.graph.node.insert(new_idx, node_list[sorted_idx])
+
+        return model, False
 
 
 class ConvertSubToAdd(Transformation):

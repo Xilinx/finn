@@ -42,7 +42,12 @@ from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.general import (
+    RemoveUnusedTensors,
+    RemoveStaticGraphInputs,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+)
 from finn.transformation.streamline import Streamline
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
@@ -72,6 +77,7 @@ from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.core.throughput_test import throughput_test_rtlsim
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -96,6 +102,7 @@ def test_end2end_cnv_w1a1_import_and_tidy():
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
+    model = model.transform(RemoveStaticGraphInputs())
     model.save(build_dir + "/end2end_cnv_w1a1_tidy.onnx")
 
 
@@ -107,6 +114,7 @@ def test_end2end_cnv_w1a1_streamline():
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
+    model = model.transform(RemoveUnusedTensors())
     model.save(build_dir + "/end2end_cnv_w1a1_streamlined.onnx")
 
 
@@ -142,15 +150,15 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     # each tuple is (PE, SIMD, in_fifo_depth) for a layer
     folding = [
-        (16, 3, 128),
-        (32, 32, 128),
-        (16, 32, 128),
-        (16, 32, 128),
-        (4, 32, 81),
+        (16, 3, 256),
+        (32, 32, 256),
+        (16, 32, 256),
+        (16, 32, 256),
+        (4, 32, 214),
         (1, 32, 2),
-        (1, 4, 2),
-        (1, 8, 128),
-        (5, 1, 3),
+        (1, 4, 126),
+        (1, 8, 62),
+        (5, 1, 6),
     ]
     for fcl, (pe, simd, ififodepth) in zip(fc_layers, folding):
         fcl_inst = getCustomOp(fcl)
@@ -159,10 +167,12 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
         fcl_inst.set_nodeattr("inFIFODepth", ififodepth)
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator")
+    swg_idepth = [2, 51, 9, 106, 2, 2]
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
         swg_inst.set_nodeattr("SIMD", simd)
+        swg_inst.set_nodeattr("inFIFODepth", swg_idepth[i])
 
     model = model.transform(InsertDWC())
     model = model.transform(InsertFIFO())
@@ -219,6 +229,20 @@ def test_end2end_cnv_w1a1_verify_dataflow_part():
     res_rtlsim_whole = ret_rtlsim_whole[out_name]
     assert np.isclose(res_cppsim, res_rtlsim_nodebynode).all()
     assert np.isclose(res_cppsim, res_rtlsim_whole).all()
+
+
+@pytest.mark.vivado
+def test_end2end_cnv_w1a1_throughput_test_rtlsim():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_cnv_w1a1_ipstitch_whole_rtlsim.onnx"
+    )
+    model.set_metadata_prop("rtlsim_trace", "rtlsim_trace.vcd")
+    # os.environ["RTLSIM_TRACE_DEPTH"] = "4"
+    # run through IP-stitched rtlsim with increasing batch sizes and
+    # check the number of cycles it takes to execute
+    ret = throughput_test_rtlsim(model, 10)
+    # TODO check for expected performance
+    assert ret["cycles"] > 0
 
 
 @pytest.mark.vivado

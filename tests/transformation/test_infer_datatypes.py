@@ -38,7 +38,7 @@ from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
 
-export_onnx_path = "test_output_lfc.onnx"
+export_onnx_path = "test_infer_datatypes.onnx"
 
 
 def test_infer_datatypes():
