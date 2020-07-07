@@ -28,6 +28,8 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
             "PE": ("i", True, 0),
+            # SIMD from previous component
+            "SIMD": ("i", True, 0),
             "Dim": ("i", True, 0),
             "Channels": ("i", True, 0),
             "Kernel": ("i", True, 0),
@@ -54,9 +56,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         ch = self.get_nodeattr("Channels")
         k = self.get_nodeattr("Kernel")
         pe = self.get_nodeattr("PE")
-        nf = ch // pe
-        sf = k * k
-        wmem = nf * sf
+        wmem = k * k * ch // pe
         return wmem
 
     def calc_tmem(self):
@@ -111,7 +111,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
 
     def get_instream_width(self):
         i_bits = self.get_input_datatype().bitwidth()
-        in_width = i_bits * self.get_nodeattr("Channels") 
+        in_width = i_bits * self.get_nodeattr("Channels")
         return in_width
 
     def get_outstream_width(self):
@@ -124,7 +124,9 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         sf = k * k
         dim = self.get_nodeattr("Dim")
         ch = self.get_nodeattr("Channels")
-        folded_input_shape = tuple([1, dim, dim, sf, ch])
+        pe = self.get_nodeattr("PE")
+        nf = ch // pe
+        folded_input_shape = tuple([1, dim, dim, sf * nf, pe])
         return folded_input_shape
 
     def get_folded_output_shape(self):
@@ -158,11 +160,8 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         ret = dict()
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
-        inp_is_binary = self.get_input_datatype() == DataType.BINARY
-        # out_is_binary = self.get_output_datatype() == DataType.BINARY
-        wt_is_binary = self.get_weight_datatype() == DataType.BINARY
-        if (inp_is_binary or wt_is_binary) and (not bin_xnor_mode):
-            raise Exception("True binary (non-bipolar) inputs not yet supported")
+        # inp_is_binary = self.get_input_datatype() == DataType.BINARY
+        # wt_is_binary = self.get_weight_datatype() == DataType.BINARY
         inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
         # fill in TSrcI and TWeightI
@@ -199,21 +198,11 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         have expected shape (channels, 1, kernel_size, kernel_size)"""
         # start by transposing the original weight matrix, since ONNX and
         # finn-hlslib use different assumptions
-        # ONNX uses (in_features, out_features) and matmul(x, W)
-        # finn-hlslib uses (out_features, in_features) and matmul(W, x)
         ret = orig_weight_matrix
-        import pdb; pdb.set_trace()
-        #if self.get_weight_datatype() == DataType.BIPOLAR:
-        #    # convert bipolar to binary
-        #    ret = (ret + 1) / 2
-        # interleave rows between PEs and reshape
-        # distribute rows between PEs
-        ret = ret.reshape(ch, k * k)
+        ret = ret.transpose(1, 2, 3, 0)
+        ret = ret.reshape(1, k * k * ch)
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        # create channels as innermost dimension and add a dummy outer dim
-        ret = ret.reshape(1, pe, wmem, 1)
-        ## reverse the SIMD dimension
-        #ret = np.flip(ret, axis=-1)
+        ret = ret.reshape(1, pe, wmem)
         return ret
 
     def generate_params(self, model, path):
@@ -481,21 +470,3 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             ("#pragma HLS ARRAY_PARTITION variable=weights.m_weights " "complete dim=1")
         )
-
-        ## the threshold tensor is acc_type [PE][TMEM][N_THRES]
-        ## partition for parallel access along PE and N_THRES
-        ## dimensions (dims 1 and 3)
-        # if self.calc_tmem() != 0:
-        #    # TODO find a better way of checking for no pregenerated thresholds
-        #    self.code_gen_dict["$PRAGMAS$"].append(
-        #        (
-        #            "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-        #            "complete dim=1"
-        #        )
-        #    )
-        #    self.code_gen_dict["$PRAGMAS$"].append(
-        #        (
-        #            "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-        #            "complete dim=3"
-        #        )
-        #    )
