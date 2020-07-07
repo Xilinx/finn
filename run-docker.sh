@@ -42,8 +42,17 @@ recho () {
 }
 
 if [ -z "$VIVADO_PATH" ];then
+    vivado_bin=$(which vivado)
+    vivado_in_path=$?
+
+    if [[ $vivado_in_path -eq 0 ]]; then
+        VIVADO_PATH=$(dirname $(dirname $vivado_bin))
+        gecho "Inferred vivado path: $VIVADO_PATH "
+    else
         recho "Please set the VIVADO_PATH that contains the path to your Vivado installation directory."
         recho "FINN functionality depending on Vivado or Vivado HLS will not be available."
+    fi
+
 fi
 
 if [ -z "$PYNQ_IP" ];then
