@@ -258,3 +258,92 @@ if __name__ == "__main__":
 
 
 """
+
+custom_zynq_shell_template = """
+set FREQ_MHZ %s
+set NUM_AXILITE %d
+if {$NUM_AXILITE > 9} {
+    error "Maximum 10 AXI-Lite interfaces supported"
+}
+set NUM_AXIMM %d
+set BOARD %s
+set FPGA_PART %s
+create_project finn_zynq_link ./ -part $FPGA_PART
+if {$BOARD == "ZCU104"} {
+    set_property board_part xilinx.com:zcu104:part0:1.1 [current_project]
+    set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "Ultra96"} {
+    set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "Pynq-Z2"} {
+    set ZYNQ_TYPE "zynq_7000"
+} elseif {$BOARD == "Pynq-Z1"} {
+    set ZYNQ_TYPE "zynq_7000"
+    set_property board_part www.digilentinc.com:pynq-z1:part0:1.0 [current_project]
+} else {
+    puts "Unrecognized board"
+}
+
+create_bd_design "top"
+if {$ZYNQ_TYPE == "zynq_us+"} {
+    create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.3 zynq_ps
+    apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset "1" }  [get_bd_cells zynq_ps]
+    #activate one slave port, deactivate the second master port
+    set_property -dict [list CONFIG.PSU__USE__S_AXI_GP2 {1}] [get_bd_cells zynq_ps]
+    set_property -dict [list CONFIG.PSU__USE__M_AXI_GP1 {0}] [get_bd_cells zynq_ps]
+    #set frequency of PS clock (this can't always be exactly met)
+    set_property -dict [list CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ [expr int($FREQ_MHZ)]] [get_bd_cells zynq_ps]
+} elseif {$ZYNQ_TYPE == "zynq_7000"} {
+    create_bd_cell -type ip -vlnv xilinx.com:ip:processing_system7:5.5 zynq_ps
+    apply_bd_automation -rule xilinx.com:bd_rule:processing_system7 -config {make_external "FIXED_IO, DDR" apply_board_preset "1" Master "Disable" Slave "Disable" }  [get_bd_cells zynq_ps]
+    set_property -dict [list CONFIG.PCW_USE_S_AXI_HP0 {1}] [get_bd_cells zynq_ps]
+    set_property -dict [list CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ [expr int($FREQ_MHZ)]] [get_bd_cells zynq_ps]
+} else {
+    puts "Unrecognized Zynq type"
+}
+
+#instantiate axi interconnect, axi smartconnect
+create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_0
+create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 smartconnect_0
+#set number of axilite interfaces, and number of axi master interfaces
+set_property -dict [list CONFIG.NUM_SI $NUM_AXILITE] [get_bd_cells smartconnect_0]
+set_property -dict [list CONFIG.NUM_MI $NUM_AXIMM] [get_bd_cells axi_interconnect_0]
+
+#create reset controller and connect interconnects to PS
+if {$ZYNQ_TYPE == "zynq_us+"} {
+    connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP0_FPD]
+    connect_bd_intf_net [get_bd_intf_pins zynq_ps/M_AXI_HPM0_FPD] -boundary_type upper [get_bd_intf_pins axi_interconnect_0/S00_AXI]
+    #connect interconnect clocks and resets
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/S00_ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins zynq_ps/saxihp0_fpd_aclk]
+} elseif {$ZYNQ_TYPE == "zynq_7000"} {
+    connect_bd_intf_net -boundary_type upper [get_bd_intf_pins zynq_ps/M_AXI_GP0] [get_bd_intf_pins axi_interconnect_0/S00_AXI]
+    connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP0]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/S00_ACLK]
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins zynq_ps/S_AXI_HP0_ACLK]
+}
+connect_bd_net [get_bd_pins axi_interconnect_0/ARESETN] [get_bd_pins smartconnect_0/aresetn]
+
+#custom IP instantiations/connections start here
+%s
+
+#finalize clock and reset connections for interconnects
+set i 0
+while {$i < $NUM_AXILITE} {
+    apply_bd_automation -quiet -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/M0${i}_ACLK]
+    incr i
+}
+
+save_bd_design
+assign_bd_address
+validate_bd_design
+
+set_property SYNTH_CHECKPOINT_MODE "Hierarchical" [ get_files top.bd ]
+make_wrapper -files [get_files top.bd] -import -fileset sources_1 -top
+
+set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
+launch_runs -to_step write_bitstream impl_1 -jobs %d
+wait_on_run [get_runs impl_1]
+
+"""
