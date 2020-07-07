@@ -35,11 +35,12 @@ import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from finn.transformation.streamline.reorder import (
-    MoveLinearPastEltwiseAdd,
-    MoveScalarLinearPastInvariants,
+from finn.transformation.general import (
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    SortGraph,
 )
+from finn.transformation.streamline.reorder import MoveScalarLinearPastInvariants
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_data_layouts import InferDataLayouts
@@ -70,6 +71,7 @@ export_onnx_path = "test_output_synthetic.onnx"
 def make_model(ch, ifmdim):
     shape = [1, ch, ifmdim, ifmdim]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    inp1_add0_ct = helper.make_tensor_value_info("inp1_add0_ct", TensorProto.FLOAT, [1])
     inp1_add = helper.make_tensor_value_info("inp1_add", TensorProto.FLOAT, shape)
     inp1_add_ct = helper.make_tensor_value_info("inp1_add_ct", TensorProto.FLOAT, [1])
     inp2_add = helper.make_tensor_value_info("inp2_add", TensorProto.FLOAT, shape)
@@ -81,12 +83,11 @@ def make_model(ch, ifmdim):
     eltwise_add = helper.make_tensor_value_info("eltwise_add", TensorProto.FLOAT, shape)
     pool = helper.make_tensor_value_info("pool", TensorProto.FLOAT, [1, ch, 1, 1])
     reshape_ct = helper.make_tensor_value_info("reshape_ct", TensorProto.INT64, [2])
-    outp_mul = helper.make_tensor_value_info("outp_mul", TensorProto.FLOAT, shape)
-    outp_mul_ct = helper.make_tensor_value_info("outp_mul_ct", TensorProto.FLOAT, [ch])
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ch])
 
-    add1_node = helper.make_node("Add", [inp.name, inp1_add_ct.name], [inp1_add.name])
-    add2_node = helper.make_node("Add", [inp.name, inp2_add_ct.name], [inp2_add.name])
+    add0_node = helper.make_node("Add", [inp.name, inp1_add0_ct.name], ["out_add0"])
+    add1_node = helper.make_node("Add", ["out_add0", inp1_add_ct.name], [inp1_add.name])
+    add2_node = helper.make_node("Add", ["out_add0", inp2_add_ct.name], [inp2_add.name])
     mul1_node = helper.make_node(
         "Mul", [inp1_add.name, inp1_mul_ct.name], [inp1_mul.name]
     )
@@ -100,13 +101,12 @@ def make_model(ch, ifmdim):
         "GlobalAveragePool", [eltwise_add.name], [pool.name]
     )
     reshape_node = helper.make_node(
-        "Reshape", [pool.name, reshape_ct.name], [outp_mul.name]
+        "Reshape", [pool.name, reshape_ct.name], [outp.name]
     )
-    postmul_node = helper.make_node(
-        "Mul", [outp_mul.name, outp_mul_ct.name], [outp.name]
-    )
+
     graph = helper.make_graph(
         nodes=[
+            add0_node,
             add1_node,
             add2_node,
             mul1_node,
@@ -114,7 +114,6 @@ def make_model(ch, ifmdim):
             eltwise_add_node,
             globalavgpool_node,
             reshape_node,
-            postmul_node,
         ],
         name="graph",
         inputs=[inp],
@@ -125,13 +124,12 @@ def make_model(ch, ifmdim):
     model = ModelWrapper(model)
 
     # set initializers for scalar add/mul nodes
+    model.set_initializer(add0_node.input[1], np.array([0.0]))
     model.set_initializer(add1_node.input[1], np.array([7.0]))
     model.set_initializer(add2_node.input[1], np.array([8.0]))
-    model.set_initializer(mul1_node.input[1], np.array([float(ifmdim * ifmdim)]))
-    model.set_initializer(mul2_node.input[1], np.array([float(ifmdim * ifmdim)]))
+    model.set_initializer(mul1_node.input[1], np.array([2.0]))
+    model.set_initializer(mul2_node.input[1], np.array([2.0]))
     model.set_initializer(reshape_node.input[1], np.array([1, -1]))
-    postmul_ct = np.random.randint(0, 4, (ch,)).astype(np.float32)
-    model.set_initializer(postmul_node.input[1], postmul_ct)
 
     return model
 
@@ -168,47 +166,44 @@ def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
     output_dict = oxe.execute_onnx(model, input_dict, True)
     produced_sum = output_dict[model.graph.output[0].name]
     chw_mul = model.get_initializer(model.graph.node[-1].input[1])
-    expected_sum = (
-        chw_mul
-        * np.sum(float(ifmdim * ifmdim) * (2 * x + 15.0), axis=(2, 3))
-        / (ifmdim * ifmdim)
-    )
+    chw_mul = 1
+    expected_sum = chw_mul * np.sum(2 * (2 * x + 15.0), axis=(2, 3)) / (ifmdim * ifmdim)
     assert (produced_sum.flatten() == expected_sum.flatten()).all()
 
-    model = model.transform(MoveLinearPastEltwiseAdd())
     model = model.transform(InferDataLayouts())
-    model = model.transform(MoveScalarLinearPastInvariants())
-
-    # verify again, to check we didnt break anything
-    output_dict = oxe.execute_onnx(model, input_dict, True)
-    produced_sum = output_dict[model.graph.output[0].name]
-    assert np.isclose(expected_sum.flatten(), produced_sum.flatten(), atol=1e-3).all()
 
     # convert to hls
     model.set_tensor_datatype(model.graph.input[0].name, idt)
-    model = model.transform(to_hls.InferAddStreamsLayer())
-    model = model.transform(to_hls.InferGlobalAccPoolLayer())
     # extra streamlining
     model = model.transform(MoveScalarLinearPastInvariants())
     model = model.transform(MoveAddPastMul())
     model = model.transform(CollapseRepeatedMul())
     model = model.transform(CollapseRepeatedAdd())
     # insert top-k node, which should absorb linear ops before it
-    model = model.transform(InsertTopK())
+
     model = model.transform(InferShapes())
     model = model.transform(InferDataLayouts())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
 
     model = model.transform(to_hls.InferChannelwiseLinearLayer())
+    model = model.transform(to_hls.InferAddStreamsLayer())
+    model = model.transform(to_hls.InferGlobalAccPoolLayer())
+    model = model.transform(MoveScalarLinearPastInvariants())
+    model = model.transform(InsertTopK())
+    model = model.transform(InferDataTypes())
     model = model.transform(to_hls.InferLabelSelectLayer())
     model = model.transform(AbsorbConsecutiveTransposes())
+    model = model.transform(InferDataTypes())
+    model = model.transform(to_hls.InferLabelSelectLayer())
+    model = model.transform(to_hls.InferDuplicateStreamsLayer())
+
+    model = model.transform(SortGraph())
 
     # model.save("golden_hls.onnx")
     # check topology status
+
     finn_nodes = model.get_finn_nodes()
-    assert len(finn_nodes) == 5
+    assert len(finn_nodes) == 9
     add_nodes = model.get_nodes_by_op_type("AddStreams_Batch")
     assert len(add_nodes) == 1
     pool_nodes = model.get_nodes_by_op_type("GlobalAccPool_Batch")
@@ -216,7 +211,9 @@ def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
     label_nodes = model.get_nodes_by_op_type("LabelSelect_Batch")
     assert len(label_nodes) == 1
     channelwise_nodes = model.get_nodes_by_op_type("ChannelwiseOp_Batch")
-    assert len(channelwise_nodes) == 2
+    assert len(channelwise_nodes) == 5
+    dup_nodes = model.get_nodes_by_op_type("DuplicateStreams_Batch")
+    assert len(dup_nodes) == 1
 
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
