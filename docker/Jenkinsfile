@@ -32,8 +32,7 @@ pipeline {
                 sh """
                 docker build -t $DOCKER_TAG -f docker/Dockerfile.finn_ci \
                 --build-arg BUILD_PATH=$BUILD_PATH \
-                --build-arg FINN_CI_BRANCH=${params.FINN_CI_BRANCH} \
-                docker/
+                .
                 """
             }
         }
@@ -43,6 +42,7 @@ pipeline {
                 sh """
                 docker run --init \
                 --hostname $DOCKER_INST_NAME \
+                -v $(pwd):/workspace/finn \
                 -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
                 -e NUM_DEFAULT_WORKERS=1 \
                 -e FINN_INST_NAME=$DOCKER_INST_NAME \
@@ -62,6 +62,7 @@ pipeline {
                 sh """
                 docker run --init \
                 --hostname $DOCKER_INST_NAME \
+                -v $(pwd):/workspace/finn \
                 -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
                 -e NUM_DEFAULT_WORKERS=1 \
                 -e FINN_INST_NAME=$DOCKER_INST_NAME \
@@ -81,6 +82,7 @@ pipeline {
                 sh """
                 docker run --init \
                 --hostname $DOCKER_INST_NAME \
+                -v $(pwd):/workspace/finn \
                 -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
                 -e NUM_DEFAULT_WORKERS=${params.NUM_DEFAULT_WORKERS} \
                 -e FINN_INST_NAME=$DOCKER_INST_NAME \
