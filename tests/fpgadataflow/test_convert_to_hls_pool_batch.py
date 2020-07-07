@@ -120,13 +120,11 @@ def prepare_inputs(input_tensor):
 # output datatype
 @pytest.mark.parametrize("odt", [DataType.UINT4, DataType.INT4])
 # pool configuration:                   ( k,stride, pad, ifm_dim )
-@pytest.mark.parametrize(
-    "pool_config", [(7, 7, 0, 7), (3, 2, 0, 5), (3, 2, 1, 5), (2, 2, 0, 8)]
-)
+@pytest.mark.parametrize("pool_config", [(7, 7, 0, 7), (3, 2, 1, 5)])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [1, 4, 20])
+@pytest.mark.parametrize("ifm_ch", [1, 4])
 # number of out channel computed in parallel
-@pytest.mark.parametrize("pe", [1, 4])
+@pytest.mark.parametrize("pe", [1, 2, 4])
 # pool type
 @pytest.mark.parametrize("op_type", ["QuantAvgPool2d", "MaxPool"])
 # execution mode
