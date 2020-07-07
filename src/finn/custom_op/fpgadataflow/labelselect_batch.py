@@ -41,6 +41,13 @@ class LabelSelect_Batch(HLSCustomOp):
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
+        odt_name = self.get_nodeattr("outputDataType")
+        if odt_name == "":
+            # If not provided compute min size
+            labels = self.get_nodeattr("Labels")
+            odt = DataType.get_smallest_possible(labels - 1)
+            odt_name = odt.name
+            self.set_nodeattr("outputDataType", odt_name)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -49,6 +56,7 @@ class LabelSelect_Batch(HLSCustomOp):
             "K": ("i", True, 0),
             # FINN DataTypes for input
             "inputDataType": ("s", True, ""),
+            "outputDataType": ("s", False, ""),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -69,7 +77,6 @@ class LabelSelect_Batch(HLSCustomOp):
         pe = self.get_nodeattr("PE")
         vecs = list(self.get_nodeattr("numInputVectors"))
         assert nlabels % pe == 0, "PE must divide Labels"
-        assert pe == 1, "LabelSelect currently fails with folding"
         folds = int(nlabels / pe)
         folded_ishape = tuple(vecs + [folds, pe])
         return folded_ishape
@@ -90,7 +97,7 @@ class LabelSelect_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape."
+        assert ishape == exp_ishape, "Unexpected input shape."
         # implement tensor with correct shape
         values = np.random.randn(*oshape).astype(np.int64)
         return helper.make_node(
@@ -106,9 +113,8 @@ class LabelSelect_Batch(HLSCustomOp):
         )
 
     def infer_node_datatype(self, model):
-        # currently set to uint32 to be compatible with hlslib
-        # enhancement: consider finding smallest power-of-two int for reduced output bandwidth
-        model.set_tensor_datatype(self.onnx_node.output[0], DataType.UINT32)
+        odt = self.get_output_datatype()
+        model.set_tensor_datatype(self.onnx_node.output[0], odt)
 
     def verify_node(self):
         info_messages = []
@@ -134,6 +140,7 @@ class LabelSelect_Batch(HLSCustomOp):
             self.get_nodeattr("PE")
             self.get_nodeattr("K")
             self.get_nodeattr("inputDataType")
+            self.get_nodeattr("outputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append(
@@ -150,12 +157,12 @@ class LabelSelect_Batch(HLSCustomOp):
     def get_input_datatype(self):
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]
-        assert ret.signed() is False, "LabelSelect is currently broken for signed inputs"
         return ret
 
     def get_output_datatype(self):
         """Returns FINN DataType of output."""
-        return DataType.UINT32
+        ret = DataType[self.get_nodeattr("outputDataType")]
+        return ret
 
     def get_instream_width(self):
         """Returns input stream width."""
@@ -260,8 +267,13 @@ class LabelSelect_Batch(HLSCustomOp):
         npy_type = "float"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
+
+        # Calling npy2apintstream with reverse_inner = false to have LE packing
+        # as required by HLS fxn LabelSelect_Batch
+        # Also notice that StreamingDataWidthConverter_Batch performs LE packing
+
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0,false);'
             % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
         )
 
@@ -277,12 +289,13 @@ class LabelSelect_Batch(HLSCustomOp):
     def docompute(self):
         node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, {}, {}, {}, ap_uint<32>> (in0, out, 1);""".format(
+            """{}<{}, {}, {}, {}, {} > (in0, out, 1);""".format(
                 node.op_type,
                 self.get_nodeattr("Labels"),
                 self.get_nodeattr("PE"),
                 self.get_nodeattr("K"),
                 self.get_input_datatype().get_hls_datatype_str(),
+                self.get_output_datatype().get_hls_datatype_str(),
             )
         ]
 
@@ -316,10 +329,11 @@ class LabelSelect_Batch(HLSCustomOp):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """void {}(hls::stream<ap_uint<{}*{}>> &in0,
-                hls::stream<ap_uint<32>> &out)""".format(
+                hls::stream<ap_uint<{}> > &out)""".format(
                 self.onnx_node.name,
                 self.get_nodeattr("PE"),
                 self.get_input_datatype().bitwidth(),
+                self.get_output_datatype().bitwidth(),
             )
         ]
 

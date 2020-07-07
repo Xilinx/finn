@@ -31,6 +31,7 @@
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
 )
+from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.streamingfclayer_batch import StreamingFCLayer_Batch
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
@@ -51,11 +52,14 @@ from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
 from finn.custom_op.quantavgpool2d import QuantAvgPool2d
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
+from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
+from finn.custom_op.fpgadataflow.iodma import IODMA
 
 # create a mapping of all known CustomOp names and classes
 custom_op = {}
 
 custom_op["MultiThreshold"] = MultiThreshold
+custom_op["DownSampler"] = DownSampler
 custom_op["XnorPopcountMatMul"] = XnorPopcountMatMul
 custom_op["Im2Col"] = Im2Col
 custom_op["StreamingMaxPool_Batch"] = StreamingMaxPool_Batch
@@ -74,6 +78,8 @@ custom_op["AddStreams_Batch"] = AddStreams_Batch
 custom_op["LabelSelect_Batch"] = LabelSelect_Batch
 custom_op["QuantAvgPool2d"] = QuantAvgPool2d
 custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
+custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
+custom_op["IODMA"] = IODMA
 
 
 def getCustomOp(node):

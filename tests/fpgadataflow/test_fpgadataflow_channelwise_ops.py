@@ -27,11 +27,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import numpy as np
 
+import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
+from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -42,70 +43,80 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
-from finn.util.test import soft_verify_topk
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
 
 
-def make_labelselect_modelwrapper(labels, pe, k, idt):
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, labels])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, k])
+def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
+    NumChannels = C.shape[0]
 
-    labelselect_node = helper.make_node(
-        "LabelSelect_Batch",
-        ["inp"],
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, vecs + [NumChannels])
+    outp = helper.make_tensor_value_info(
+        "outp", TensorProto.FLOAT, vecs + [NumChannels]
+    )
+
+    node_inp_list = ["inp", "const"]
+
+    node = helper.make_node(
+        "ChannelwiseOp_Batch",
+        node_inp_list,
         ["outp"],
         domain="finn",
         backend="fpgadataflow",
-        Labels=labels,
+        NumChannels=NumChannels,
+        Func=func,
         PE=pe,
-        K=k,
         inputDataType=idt.name,
+        outputDataType=odt.name,
+        paramDataType=pdt.name,
+        numInputVectors=vecs,
     )
-    graph = helper.make_graph(
-        nodes=[labelselect_node], name="graph", inputs=[inp], outputs=[outp],
-    )
+    graph = helper.make_graph(nodes=[node], name="graph", inputs=[inp], outputs=[outp])
 
-    model = helper.make_model(graph, producer_name="thresholding-model")
+    model = helper.make_model(graph, producer_name="model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
-    odt = DataType.get_smallest_possible(labels - 1)
     model.set_tensor_datatype("outp", odt)
 
+    model.set_tensor_datatype("const", idt)
+    model.set_initializer("const", C)
     return model
 
 
-def prepare_inputs(input_tensor, idt):
-    return {"inp": input_tensor}
-
-
-@pytest.mark.parametrize("idt", [DataType.UINT8, DataType.UINT16, DataType.INT16])
-# labels
-@pytest.mark.parametrize("labels", [10, 100])
-# folding
-@pytest.mark.parametrize("fold", [-1, 2, 10])
-# number of top labels to select
-@pytest.mark.parametrize("k", [1, 5])
+# activation: None or DataType
+@pytest.mark.parametrize("act", [DataType.INT8])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType.INT4])
+# param datatype
+@pytest.mark.parametrize("pdt", [DataType.INT4])
+# folding, -1 is maximum possible
+@pytest.mark.parametrize("nf", [-1, 2])
+# number of input features
+@pytest.mark.parametrize("ich", [16])
+# vecs
+@pytest.mark.parametrize("vecs", [[1], [1, 7, 7]])
+# function
+@pytest.mark.parametrize("func", ["add", "mul"])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.vivado
-def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode):
-    np.random.seed(0)
-    if fold == -1:
-        pe = 1
-    else:
-        pe = labels // fold
-    assert labels % pe == 0
+@pytest.mark.slow
+def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_mode):
+    if nf == -1:
+        nf = ich
+    pe = ich // nf
+    assert ich % pe == 0
 
-    if k == -1:
-        k = labels
+    # generate input and param data
+    x = gen_finn_dt_tensor(idt, tuple(vecs + [ich]))
+    # C = np.random.randint(idt.min(), idt.max() + 1, ich).astype(np.float32)
+    C = gen_finn_dt_tensor(pdt, (ich))
 
-    # generate input data
-    x = gen_finn_dt_tensor(idt, (1, labels))
+    odt = act
 
-    model = make_labelselect_modelwrapper(labels, pe, k, idt)
+    model = make_modelwrapper(C, pe, idt, odt, pdt, func, vecs)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -121,8 +132,25 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode):
     else:
         raise Exception("Unknown exec_mode")
 
-    # prepare input data and execute
-    input_dict = prepare_inputs(x, idt)
-    y = oxe.execute_onnx(model, input_dict)["outp"]
+    # package input data as dictionary
+    input_dict = {"inp": x}
 
-    assert soft_verify_topk(x, y, k), exec_mode + " failed"
+    oshape = model.get_tensor_shape("outp")
+
+    C_reshaped = np.broadcast_to(C.flatten(), x.shape)
+    if func == "add":
+        y = x + C_reshaped
+    elif func == "mul":
+        y = x * C_reshaped
+
+    y_expected = y.reshape(oshape)
+    # execute model
+    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+
+    y_produced = y_produced.reshape(y_expected.shape)
+
+    assert (y_produced == y_expected).all(), "cppsim failed"
+
+    if exec_mode == "rtlsim":
+        hls_synt_res_est = model.analysis(hls_synth_res_estimation)
+        assert "ChannelwiseOp_Batch_0" in hls_synt_res_est

@@ -31,6 +31,7 @@ from onnx import helper as oh
 import warnings
 
 from finn.core.datatype import DataType
+import finn.core.data_layout as DataLayout
 from finn.transformation import Transformation
 from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
@@ -316,11 +317,13 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Transpose":
+            if n.op_type == "Transpose" and not model.is_fork_node(n):
                 perms = list(get_by_name(n.attribute, "perm").ints)
                 if perms == [0, 3, 1, 2]:
                     mt_cand = model.find_consumer(n.output[0])
-                    if mt_cand.op_type == "MultiThreshold":
+                    if mt_cand.op_type == "MultiThreshold" and not model.is_fork_node(
+                        mt_cand
+                    ):
                         final_t_cand = model.find_consumer(mt_cand.output[0])
                         if final_t_cand.op_type == "Transpose":
                             perms = list(
@@ -358,6 +361,69 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
         return (model, graph_modified)
 
 
+class AbsorbTransposeIntoFlatten(Transformation):
+    """Absorb transpose node into succeeding flatten node, if H=W=1 and the first
+    dimension stays the same. Can also be applied if flatten is implemented implicitly
+    by a reshape node with shape [1, -1] and the first input dimension is 1"""
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        node_ind = 0
+        for n in graph.node:
+            node_ind += 1
+            if (
+                n.op_type == "Reshape"
+                and (model.get_initializer(n.input[1]) == [1, -1]).all()
+            ) or n.op_type == "Flatten":
+                prod = model.find_producer(n.input[0])
+                if (
+                    prod is not None
+                    and prod.op_type == "Transpose"
+                    # we ensure that the first dimension is not changed from the
+                    # transpose operation
+                    and get_by_name(prod.attribute, "perm").ints[0] == 0
+                ):
+                    data_layout = model.get_tensor_layout(prod.input[0])
+                    # check for the data layout to interpret input shape correctly
+                    if data_layout is None:
+                        warnings.warn(
+                            """Data layout for input tensor of Transpose node is not set.
+                                To use AbsorbTransposeIntoFlatten transformation
+                                please set tensor data layout."""
+                        )
+                        continue
+                    elif data_layout == DataLayout.NCHW:
+                        (b, c, h, w) = model.get_tensor_shape(prod.input[0])
+                        # if h=w=1 the transposition can be absorbed, otherwise
+                        # the absorption would lead to an error in the behavior
+                        if h != 1 or w != 1:
+                            continue
+                        # the flatten node from onnx keeps by default the first
+                        # dim and flattens the rest, that is why this transformation
+                        # can only work with b != 1 if the model contains already a
+                        # flatten node and not a reshape node with shape = [1, -1].
+                        # If the first  dim of the input tensor is not 1, flatten and
+                        # reshape (with shape = [1, -1]) would lead to different results
+                        if n.op_type == "Reshape" and b != 1:
+                            continue
+                    elif data_layout == DataLayout.NHWC:
+                        (b, h, w, c) = model.get_tensor_shape(prod.input[0])
+                        if h != 1 or w != 1:
+                            continue
+                        if n.op_type == "Reshape" and b != 1:
+                            continue
+                    # create single flatten node and remove obsolete nodes
+                    node = oh.make_node("Flatten", [prod.input[0]], [n.output[0]])
+                    graph.node.remove(n)
+                    graph.node.remove(prod)
+                    graph.node.insert(node_ind, node)
+                    graph_modified = True
+        if graph_modified:
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
 class AbsorbScalarMulIntoTopK(Transformation):
     """Absorb a mul node into a suceeding topk node if the mul is scalar."""
 
@@ -389,5 +455,86 @@ class AbsorbScalarMulIntoTopK(Transformation):
                         graph_modified = True
         if graph_modified:
             model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class AbsorbConsecutiveTransposes(Transformation):
+    """Remove (Transpose -> Transpose) patterns when the input and output
+    of the pattern have the same layout."""
+
+    def Are_opposite_permutations(self, perms1, perms2):
+        if len(perms1) != len(perms2):
+            return False
+        assert 0 <= max(perms2) < len(perms2), "invalid permutation"
+        assert 0 <= max(perms1) < len(perms1), "invalid permutation"
+
+        for i, p in enumerate(perms2):
+            if perms1[p] != i:
+                return False
+
+        return True
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for n in graph.node:
+            if n.op_type == "Transpose":
+                if model.is_fork_node(n):
+                    next_nodes = model.find_direct_successors(n)
+                    perms1 = list(get_by_name(n.attribute, "perm").ints)
+
+                    # check if all nodes after fork are opposite transposes
+                    all_opposite_transposes = True
+                    for next_node in next_nodes:
+                        if next_node is not None and next_node.op_type == "Transpose":
+                            perms2 = list(get_by_name(next_node.attribute, "perm").ints)
+                            if not self.Are_opposite_permutations(perms1, perms2):
+                                all_opposite_transposes = False
+                                break
+                        else:
+                            all_opposite_transposes = False
+                            break
+
+                    if not all_opposite_transposes:
+                        continue
+
+                    prod = model.find_producer(n.input[0])
+                    for next_node in next_nodes:
+                        # connect next_node's consumer input to n's producer output
+                        # TODO implement this to allow for forks as producers and
+                        # joins as consumers
+                        cons = model.find_consumer(next_node.output[0])
+                        cons.input[0] = prod.output[0]
+
+                        # remove consumer transpose
+                        graph.node.remove(next_node)
+
+                    # remove producer transpose
+                    graph.node.remove(n)
+                    graph_modified = True
+
+                else:
+                    next_node = model.find_consumer(n.output[0])
+                    if next_node is not None and next_node.op_type == "Transpose":
+                        perms1 = list(get_by_name(n.attribute, "perm").ints)
+                        perms2 = list(get_by_name(next_node.attribute, "perm").ints)
+                        if self.Are_opposite_permutations(perms1, perms2):
+
+                            # connect next_node's consumer input to n's producer output
+                            # TODO implement this to allow for forks as producers
+                            consumers = model.find_direct_successors(next_node)
+                            prod = model.find_producer(n.input[0])
+                            for cons in consumers:
+                                for cons_in in cons.input:
+                                    if cons_in == next_node.output[0]:
+                                        prod.output[0] = cons_in
+                                        break
+                            # remove both transposes
+                            graph.node.remove(n)
+                            graph.node.remove(next_node)
+
+                            graph_modified = True
+        if graph_modified:
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
