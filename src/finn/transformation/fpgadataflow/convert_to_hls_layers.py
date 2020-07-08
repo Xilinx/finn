@@ -49,7 +49,7 @@ class InferConvInpGen(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Im2Col" and not getCustomOp(n).get_nodeattr("dw"):
+            if n.op_type == "Im2Col":
                 i2c_input = n.input[0]
                 i2c_output = n.output[0]
                 i2c_in_shape = model.get_tensor_shape(i2c_input)
