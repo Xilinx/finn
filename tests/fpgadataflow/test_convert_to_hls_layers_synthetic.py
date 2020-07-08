@@ -52,7 +52,10 @@ import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.streamline.absorb import AbsorbConsecutiveTransposes
+from finn.transformation.streamline.absorb import (
+    AbsorbScalarMulIntoTopK,
+    AbsorbConsecutiveTransposes,
+)
 from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedMul,
     CollapseRepeatedAdd,
@@ -191,6 +194,7 @@ def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
     model = model.transform(to_hls.InferGlobalAccPoolLayer())
     model = model.transform(MoveScalarLinearPastInvariants())
     model = model.transform(InsertTopK())
+    model = model.transform(AbsorbScalarMulIntoTopK())
     model = model.transform(InferDataTypes())
     model = model.transform(to_hls.InferLabelSelectLayer())
     model = model.transform(AbsorbConsecutiveTransposes())
