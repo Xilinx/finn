@@ -28,8 +28,6 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
             "PE": ("i", True, 0),
-            # SIMD from previous component
-            "SIMD": ("i", True, 0),
             "Dim": ("i", True, 0),
             "Channels": ("i", True, 0),
             "Kernel": ("i", True, 0),
@@ -199,10 +197,9 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         # start by transposing the original weight matrix, since ONNX and
         # finn-hlslib use different assumptions
         ret = orig_weight_matrix
-        ret = ret.transpose(1, 2, 3, 0)
-        ret = ret.reshape(1, k * k * ch)
+        ret = ret.reshape(ch, k * k)
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        ret = ret.reshape(1, pe, wmem)
+        ret = ret.reshape(1, pe, wmem, 1)
         return ret
 
     def generate_params(self, model, path):
