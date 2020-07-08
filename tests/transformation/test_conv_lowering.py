@@ -86,7 +86,8 @@ def test_conv_lowering_cnv_w1a1():
 # padding
 @pytest.mark.parametrize("padding", [[0, 0, 0, 0], [1, 1, 1, 1]])
 def test_depthwise_conv_lowering(idt, k, ifm_dim, ifm_ch, stride, padding):
-    odt = wdt = idt
+    wdt = idt
+    odt = DataType.INT32
     ofm_ch = ifm_ch
     ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad=padding[0])
 
