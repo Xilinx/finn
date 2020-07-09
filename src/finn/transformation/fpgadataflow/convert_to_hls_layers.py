@@ -689,8 +689,7 @@ class InferVVAU(Transformation):
                     # see if we have any following thresholds
                     consumer = model.find_consumer(mm_output)
                     if consumer is not None and consumer.op_type == "MultiThreshold":
-                        # TODO ensure integer thresholds?
-                        # create MVTU (i.e. including activation)
+                        # create VVAU (i.e. including activation)
                         mt_output = consumer.output[0]
                         mt_out_shape = model.get_tensor_shape(mt_output)
                         mt_thres = consumer.input[1]
@@ -742,7 +741,7 @@ class InferVVAU(Transformation):
                         odt = model.get_tensor_datatype(mm_output)
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mm_output, mm_out_shape)
-                        # create and insert new StreamingFCLayer node
+                        # create and insert new VVAU node
                         new_node = helper.make_node(
                             "Vector_Vector_Activate_Batch",
                             [mm_input, mm_weight],
