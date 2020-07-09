@@ -37,7 +37,7 @@ from finn.util.basic import make_build_dir
 class SynthOutOfContext(Transformation):
     """Run out-of-context Vivado synthesis on a stitched IP design."""
 
-    def __init__(self, part, clk_period_ns, clk_name="ap_clk_0"):
+    def __init__(self, part, clk_period_ns, clk_name="ap_clk"):
         super().__init__()
         self.part = part
         self.clk_period_ns = clk_period_ns
