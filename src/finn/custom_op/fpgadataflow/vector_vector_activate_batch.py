@@ -32,12 +32,6 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             "outputDataType": ("s", True, ""),
             # no-activation mode (produce accumulators)
             "noActivation": ("i", False, 0),
-            # FPGA resource type for memories in decoupled mode
-            # auto -- let Vivado decide
-            # block -- use BRAM
-            # distributed -- use LUTRAM
-            # see also https://www.xilinx.com/support/answers/38070.html
-            "ram_style": ("s", False, "auto"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -154,7 +148,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
         wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
         # fill in TSrcI and TWeightI
-        # TODO handle non-bipolar binary inputs
+        # TODO handle bipolar inputs
         if inp_is_bipolar or wt_is_bipolar:
             raise Exception("VVAU node doesn't support bipolar values yet.")
         else:
@@ -178,10 +172,9 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             k,
         ), """Weights matrix doesn't
         have expected shape (channels, 1, kernel_size, kernel_size)"""
-        # start by transposing the original weight matrix, since ONNX and
-        # finn-hlslib use different assumptions
         ret = orig_weight_matrix
         ret = ret.reshape(ch, k * k)
+        # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         ret = ret.reshape(1, pe, wmem, 1)
         return ret
@@ -218,24 +211,18 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         weights = model.get_initializer(self.onnx_node.input[1])
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hls_compatible_weight_tensor(weights)
-        export_wdt = self.get_weight_datatype()
-        # we have converted bipolar weights to binary for export,
-        # so use it as such for weight generation
-        if self.get_weight_datatype() == DataType.BIPOLAR:
-            export_wdt = DataType.BINARY
+        wdt = self.get_weight_datatype()
         code_gen_dir = path
 
         """Saves weights into params.h"""
-        weight_hls_code = numpy_to_hls_code(
-            weight_tensor, export_wdt, "weights", True, True
-        )
+        weight_hls_code = numpy_to_hls_code(weight_tensor, wdt, "weights", True, True)
         # write weights into params.h
         f_weights = open("{}/params.h".format(code_gen_dir), "w")
 
-        if export_wdt.bitwidth() != 1:
+        if wdt.bitwidth() != 1:
             f_weights.write(
                 "const FixedPointWeights<1,{},{},{}> weights = ".format(
-                    export_wdt.get_hls_datatype_str(),
+                    wdt.get_hls_datatype_str(),
                     self.get_nodeattr("PE"),
                     self.calc_wmem(),
                 )
@@ -261,7 +248,6 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                 # write thresholds into thresh.h
                 f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
                 tdt_hls = tdt.get_hls_datatype_str()
-                # use binary to export bipolar activations
                 odt = self.get_output_datatype()
                 odt_hls = odt.get_hls_datatype_str()
                 f_thresh.write(
@@ -309,12 +295,6 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                 not float32 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
-                if self.get_input_datatype() == DataType.BIPOLAR:
-                    # store bipolar activations as binary
-                    reshaped_input = (reshaped_input + 1) / 2
-                    export_idt = DataType.BINARY
-                else:
-                    export_idt = self.get_input_datatype()
                 # make copy before saving the array
                 reshaped_input = reshaped_input.copy()
                 np.save(
@@ -332,11 +312,6 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             super().exec_precompiled_singlenode_model()
             # load output npy file
             super().npy_to_dynamic_output(context)
-            # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType.BIPOLAR:
-                out = context[node.output[0]]
-                out = 2 * out - 1
-                context[node.output[0]] = out
             assert (
                 context[node.output[0]].shape == self.get_folded_output_shape()
             ), """Output shape is not as expected"""
@@ -346,9 +321,8 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
+            idt = self.get_input_datatype()
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), idt, nbits)
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
             output = self.rtlsim(sim, inp)
@@ -396,9 +370,6 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        if dtype == DataType.BIPOLAR:
-            # use binary for bipolar storage
-            dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -444,9 +415,6 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
-            # use binary for bipolar storage
-            dtype = DataType.BINARY
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
