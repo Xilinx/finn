@@ -30,6 +30,7 @@ import os
 import numpy as np
 import brevitas.onnx as bo
 
+from finn.custom_op.registry import getCustomOp
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 
@@ -55,6 +56,10 @@ from finn.transformation.streamline.remove import RemoveIdentityOps
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.change_datalayout import ChangeDataLayoutQuantAvgPool2d
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
+)
 
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
@@ -135,3 +140,26 @@ def test_end2end_mobilenet_lowering():
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
     model.save(build_dir + "/end2end_mobilenet_lowered.onnx")
+
+
+def test_end2end_mobilenet_convert_to_hls_layers():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_lowered.onnx")
+    model = model.transform(to_hls.InferPool_Batch())
+    model = model.transform(to_hls.InferConvInpGen())
+    model = model.transform(to_hls.InferVVAU())
+    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
+    model = model.transform(to_hls.InferChannelwiseLinearLayer())
+    model.save(build_dir + "/end2end_mobilenet_hls_layers.onnx")
+
+
+def test_end2end_mobilenet_create_dataflow_partition():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_mobilenet_hls_layers.onnx"
+    )
+    parent_model = model.transform(CreateDataflowPartition())
+    parent_model.save(build_dir + "/end2end_mobilenet_dataflow_parent.onnx")
+    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    sdp_node = getCustomOp(sdp_node)
+    dataflow_model_filename = sdp_node.get_nodeattr("model")
+    dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
+    dataflow_model.save(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
