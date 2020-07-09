@@ -71,6 +71,15 @@ class CreateStitchedIP(Transformation):
         self.clock_reset_are_external = False
         self.create_cmds = []
         self.connect_cmds = []
+        # keep track of top-level interface names
+        self.intf_names = {
+            "clk": [],
+            "rst": [],
+            "s_axis": [],
+            "m_axis": [],
+            "aximm": [],
+            "axilite": [],
+        }
 
     def connect_clk_rst(self, node):
         inst_name = node.name
@@ -92,6 +101,8 @@ class CreateStitchedIP(Transformation):
                 "set_property name ap_rst_n [get_bd_ports ap_rst_n_0]"
             )
             self.clock_reset_are_external = True
+            self.intf_names["clk"] = ["ap_clk"]
+            self.intf_names["rst"] = ["ap_rst_n"]
         # otherwise connect clock and reset
         else:
             self.connect_cmds.append(
@@ -119,6 +130,7 @@ class CreateStitchedIP(Transformation):
             assert (
                 self.has_axilite is False
             ), "Currently limited to one slave AXI-Stream"
+            self.intf_names["axilite"] = ["s_axi_control"]
             self.has_axilite = True
         if len(aximm_intf_name) != 0:
             self.connect_cmds.append(
@@ -128,6 +140,7 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append(
                 "set_property name m_axi_gmem0 [get_bd_intf_ports m_axi_gmem_0]"
             )
+            self.intf_names["aximm"] = ["m_axi_gmem0"]
             assert self.has_aximm is False, "Currently limited to one AXI-MM interface"
             self.has_aximm = True
 
@@ -146,6 +159,7 @@ class CreateStitchedIP(Transformation):
                 % (self.m_axis_idx, output_intf_name)
             )
             self.has_m_axis = True
+            self.intf_names["m_axis"].append("m_axis_%d" % self.m_axis_idx)
             self.m_axis_idx += 1
 
     def connect_s_axis_external(self, node):
@@ -163,6 +177,7 @@ class CreateStitchedIP(Transformation):
                 % (self.s_axis_idx, input_intf_name)
             )
             self.has_s_axis = True
+            self.intf_names["s_axis"].append("s_axis_%d" % self.s_axis_idx)
             self.s_axis_idx += 1
 
     def apply(self, model):
@@ -304,6 +319,7 @@ class CreateStitchedIP(Transformation):
         block_library = "finn"
         block_vlnv = "%s:%s:%s:1.0" % (block_vendor, block_library, block_name)
         model.set_metadata_prop("vivado_stitch_vlnv", block_vlnv)
+        model.set_metadata_prop("vivado_stitch_ifnames", str(self.intf_names))
         tcl.append(
             (
                 "ipx::package_project -root_dir %s/ip -vendor %s "
