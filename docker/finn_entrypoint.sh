@@ -1,7 +1,5 @@
 #!/bin/bash
 
-export XILINX_VIVADO=$VIVADO_PATH
-export XILINX_VITIS=$VITIS_PATH
 export SHELL=/bin/bash
 export FINN_ROOT=/workspace/finn
 
@@ -16,7 +14,7 @@ gecho () {
 # the repos themselves are cloned in the Dockerfile
 BREVITAS_COMMIT=f9a27226d4acf1661dd38bc449f71f89e0983cce
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
-HLSLIB_COMMIT=8f9f2018762f654f196b666838aeaf6fc730ad9a
+HLSLIB_COMMIT=cfafe11a93b79ab1af7529d68f08886913a6466e
 PYVERILATOR_COMMIT=c97a5ba41bbc7c419d6f25c74cdf3bdc3393174f
 PYNQSHELL_COMMIT=0c82a61b0ec1a07fa275a14146233824ded7a13d
 OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
@@ -49,10 +47,14 @@ gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
 git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
 
-# source Vivado env.vars
-source $VIVADO_PATH/settings64.sh
-
-# source Vitis env.vars
-source $VITIS_PATH/settings64.sh
-
+if [ ! -z "$VIVADO_PATH" ];then
+  # source Vivado env.vars
+  export XILINX_VIVADO=$VIVADO_PATH
+  source $VIVADO_PATH/settings64.sh
+fi
+if [ ! -z "$VITIS_PATH" ];then
+  # source Vitis env.vars
+  export XILINX_VITIS=$VITIS_PATH
+  source $VITIS_PATH/settings64.sh
+fi
 exec "$@"
