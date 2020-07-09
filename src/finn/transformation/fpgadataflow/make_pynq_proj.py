@@ -49,22 +49,9 @@ class MakePYNQProject(Transformation):
     value.
     """
 
-    def __init__(
-        self,
-        platform,
-        clk_name="ap_clk",
-        rst_name="ap_rst_n",
-        s_axis_if_name="s_axis_0",
-        m_axis_if_name="m_axis_0",
-        s_aximm_if_name="s_axi_control",
-    ):
+    def __init__(self, platform):
         super().__init__()
         self.platform = platform
-        self.clk_name = clk_name
-        self.rst_name = rst_name
-        self.s_axis_if_name = s_axis_if_name
-        self.m_axis_if_name = m_axis_if_name
-        self.s_aximm_if_name = s_aximm_if_name
 
     def apply(self, model):
         pynq_shell_path = os.environ["PYNQSHELL_PATH"]
@@ -80,6 +67,16 @@ class MakePYNQProject(Transformation):
             raise Exception(
                 "No vlnv for stitched IP found, apply CreateStitchedIP first."
             )
+        vivado_stitch_ifnames = model.get_metadata_prop("vivado_stitch_ifnames")
+        if vivado_stitch_ifnames is None:
+            raise Exception("No IF name metadata found, apply CreateStitchedIP first.")
+        vivado_stitch_ifnames = eval(vivado_stitch_ifnames)
+        # recover interface names from dict
+        self.clk_name = vivado_stitch_ifnames["clk"][0]
+        self.rst_name = vivado_stitch_ifnames["rst"][0]
+        self.s_axis_if_name = vivado_stitch_ifnames["s_axis"][0]
+        self.m_axis_if_name = vivado_stitch_ifnames["m_axis"][0]
+        self.s_aximm_if_name = vivado_stitch_ifnames["axilite"][0]
 
         # collect list of all IP dirs
         ip_dirs = ["list"]
