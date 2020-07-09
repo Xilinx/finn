@@ -53,10 +53,10 @@ fi
 if [ -z "$VITIS_PATH" ];then
         recho "Please set the VITIS_PATH that contains the path to your Vitis installation directory."
         recho "FINN functionality depending on Vitis will not be available."
-fi
-
-if [ -z "$PLATFORM_REPO_PATHS" ];then
-        recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
+else
+    if [ -z "$PLATFORM_REPO_PATHS" ];then
+            recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
+    fi
 fi
 
 DOCKER_GID=$(id -g)
