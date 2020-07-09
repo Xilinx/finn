@@ -26,10 +26,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import os
 import numpy as np
 import brevitas.onnx as bo
 
-from finn.util.basic import make_build_dir
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 
@@ -48,8 +48,16 @@ from finn.transformation.general import (
 from finn.transformation.merge_onnx_models import MergeONNXModels
 from finn.transformation.insert_topk import InsertTopK
 import finn.transformation.streamline.absorb as absorb
+import finn.transformation.streamline.reorder as reorder
+from finn.transformation.streamline import Streamline
+from finn.transformation.double_to_single_float import DoubleToSingleFloat
+from finn.transformation.streamline.remove import RemoveIdentityOps
+from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
+from finn.transformation.change_datalayout import ChangeDataLayoutQuantAvgPool2d
+from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 
-build_dir = make_build_dir("test_brevitas_mobilenet-v1_")
+
+build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 
 
 def test_end2end_mobilenet_preprocess_export():
@@ -97,3 +105,33 @@ def test_end2end_mobilenet_tidy_and_merge_with_preproc():
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(MergeONNXModels(preproc_model))
     model.save(build_dir + "/end2end_mobilenet_tidy.onnx")
+
+
+def test_end2end_mobilenet_streamline():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_tidy.onnx")
+    model = model.transform(Streamline())
+    model = model.transform(DoubleToSingleFloat())
+    model = model.transform(reorder.MoveMulPastDWConv())
+    model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
+    model = model.transform(ChangeDataLayoutQuantAvgPool2d())
+    model = model.transform(InferDataLayouts())
+    model = model.transform(reorder.MoveTransposePastScalarMul())
+    model = model.transform(absorb.AbsorbTransposeIntoFlatten())
+    model = model.transform(reorder.MoveFlattenPastAffine())
+    model = model.transform(reorder.MoveFlattenPastTopK())
+    model = model.transform(reorder.MoveScalarMulPastMatMul())
+    model = model.transform(CollapseRepeatedMul())
+    model = model.transform(RemoveIdentityOps())
+    model.save(build_dir + "/end2end_mobilenet_streamlined.onnx")
+
+
+def test_end2end_mobilenet_lowering():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_mobilenet_streamlined.onnx"
+    )
+    model = model.transform(LowerConvsToMatMul())
+    model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(InferDataTypes())
+    model.save(build_dir + "/end2end_mobilenet_lowered.onnx")
