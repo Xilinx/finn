@@ -27,8 +27,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+import onnx.helper as oh
+from onnx import TensorProto
 import os
-from onnx import helper, TensorProto
 import pkg_resources as pk
 import brevitas.onnx as bo
 import numpy as np
@@ -85,21 +86,22 @@ def test_conv_lowering_cnv_w1a1():
 # padding
 @pytest.mark.parametrize("padding", [[0, 0, 0, 0], [1, 1, 1, 1]])
 def test_depthwise_conv_lowering(idt, k, ifm_dim, ifm_ch, stride, padding):
-    odt = wdt = idt
+    wdt = idt
+    odt = DataType.INT32
     ofm_ch = ifm_ch
     ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad=padding[0])
 
     # set up onnx model
-    inp = helper.make_tensor_value_info(
+    inp = oh.make_tensor_value_info(
         "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim]
     )
-    outp = helper.make_tensor_value_info(
+    outp = oh.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_ch, ofm_dim, ofm_dim]
     )
 
-    W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ofm_ch, 1, k, k])
+    W = oh.make_tensor_value_info("W", TensorProto.FLOAT, [ofm_ch, 1, k, k])
 
-    dw_cnv = helper.make_node(
+    dw_cnv = oh.make_node(
         "Conv",
         inputs=["inp", "W"],
         outputs=["outp"],
@@ -108,7 +110,7 @@ def test_depthwise_conv_lowering(idt, k, ifm_dim, ifm_ch, stride, padding):
         strides=[stride, stride],
         group=ifm_ch,
     )
-    graph = helper.make_graph(
+    graph = oh.make_graph(
         nodes=[dw_cnv],
         name="dw_cnv_graph",
         inputs=[inp],
@@ -116,7 +118,7 @@ def test_depthwise_conv_lowering(idt, k, ifm_dim, ifm_ch, stride, padding):
         value_info=[W],
     )
 
-    model = helper.make_model(graph, producer_name="dws_cnv-model")
+    model = oh.make_model(graph, producer_name="dws_cnv-model")
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", odt)
@@ -138,7 +140,7 @@ def test_depthwise_conv_lowering(idt, k, ifm_dim, ifm_ch, stride, padding):
     # check if created nodes have attributes that indicate depthwise conv
     assert model.get_tensor_sparsity("W") is not None
     im2col_node = getCustomOp(model.graph.node[1])
-    assert im2col_node.get_nodeattr("dw") == 1
+    assert im2col_node.get_nodeattr("depthwise") == 1
 
 
 def test_conv_lowering_conv_1x1():
@@ -161,22 +163,18 @@ def test_conv_lowering_conv_1x1():
     conv_config["pads"] = [0, 0, 0, 0]
     conv_config["strides"] = [1, 1]
 
-    top_in = helper.make_tensor_value_info("top_in", TensorProto.FLOAT, input_shape)
-    top_out = helper.make_tensor_value_info("top_out", TensorProto.FLOAT, output_shape)
+    top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, input_shape)
+    top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, output_shape)
 
-    value_info = [
-        helper.make_tensor_value_info("p1", TensorProto.FLOAT, conv_param_shape)
-    ]
+    value_info = [oh.make_tensor_value_info("p1", TensorProto.FLOAT, conv_param_shape)]
 
-    modelproto = helper.make_model(
-        helper.make_graph(
+    modelproto = oh.make_model(
+        oh.make_graph(
             name="test",
             inputs=[top_in],
             outputs=[top_out],
             value_info=value_info,
-            nodes=[
-                helper.make_node("Conv", ["top_in", "p1"], ["top_out"], **conv_config)
-            ],
+            nodes=[oh.make_node("Conv", ["top_in", "p1"], ["top_out"], **conv_config)],
         )
     )
     model = ModelWrapper(modelproto)
