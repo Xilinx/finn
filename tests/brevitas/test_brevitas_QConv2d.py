@@ -13,7 +13,6 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.core.datatype import DataType
 import finn.core.onnx_exec as oxe
 from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.util.basic import gen_finn_dt_tensor
 
 export_onnx_path = "test_brevitas_conv.onnx"
@@ -75,8 +74,3 @@ def test_brevitas_QConv2d(dw, in_channels):
 
     assert np.isclose(produced, expected, atol=1e-3).all()
     os.remove(export_onnx_path)
-
-    model = model.transform(LowerConvsToMatMul())
-    odict = oxe.execute_onnx(model, idict, True)
-    produced_0 = odict[model.graph.output[0].name]
-    assert np.isclose(produced_0, expected, atol=1e-3).all()

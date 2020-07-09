@@ -30,29 +30,36 @@ from finn.custom_op.im2col import compute_conv_output_dim
 @pytest.mark.parametrize(
     "conv_config", [(1, 2, 0), (1, 3, 0), (3, 2, 1), (3, 1, 0), (3, 1, 1), (5, 2, 1)]
 )
+@pytest.mark.parametrize("depthwise", [False, True])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_convert_to_hls_conv_layer(conv_config, exec_mode):
+def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
     kernel_size, stride, pad = conv_config
     np.random.seed(0)
     idt = DataType.UINT4
 
     in_feature_dim = 7
     in_chn = 16
-    out_chn = 20
+
+    if depthwise is True:
+        group = out_chn = in_chn
+        conv_param_shape = [out_chn, 1, kernel_size, kernel_size]
+    else:
+        group = 1
+        out_chn = 20
+        conv_param_shape = [out_chn, in_chn, kernel_size, kernel_size]
 
     out_feature_dim = compute_conv_output_dim(in_feature_dim, kernel_size, stride, pad)
 
     input_shape = [1, in_chn, in_feature_dim, in_feature_dim]
     output_shape = [1, out_chn, out_feature_dim, out_feature_dim]
 
-    conv_param_shape = [out_chn, in_chn, kernel_size, kernel_size]
     conv_weight_dt = DataType.UINT4
 
     conv_config = {}
     conv_config["dilations"] = [1, 1]
-    conv_config["group"] = 1
+    conv_config["group"] = group
     conv_config["kernel_shape"] = [kernel_size, kernel_size]
     conv_config["pads"] = [pad, pad, pad, pad]
     conv_config["strides"] = [stride, stride]
@@ -86,6 +93,10 @@ def test_convert_to_hls_conv_layer(conv_config, exec_mode):
 
     new_model = model.transform(LowerConvsToMatMul())
     new_model = new_model.transform(to_hls.InferConvInpGen())
+    if depthwise is True:
+        new_model = new_model.transform(to_hls.InferVVAU())
+    else:
+        new_model = new_model.transform(to_hls.InferQuantizedStreamingFCLayer())
 
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(InferShapes())
