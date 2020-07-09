@@ -49,9 +49,22 @@ class MakePYNQProject(Transformation):
     value.
     """
 
-    def __init__(self, platform):
+    def __init__(
+        self,
+        platform,
+        clk_name="ap_clk",
+        rst_name="ap_rst_n",
+        s_axis_if_name="s_axis_0",
+        m_axis_if_name="m_axis_0",
+        s_aximm_if_name="s_axi_control",
+    ):
         super().__init__()
         self.platform = platform
+        self.clk_name = clk_name
+        self.rst_name = rst_name
+        self.s_axis_if_name = s_axis_if_name
+        self.m_axis_if_name = m_axis_if_name
+        self.s_aximm_if_name = s_aximm_if_name
 
     def apply(self, model):
         pynq_shell_path = os.environ["PYNQSHELL_PATH"]
@@ -105,11 +118,11 @@ class MakePYNQProject(Transformation):
         multiple of 8."""
         in_bytes = i_bits_per_cycle_padded / 8
         out_bytes = o_bits_per_cycle_padded / 8
-        in_if_name = "in0_V_V_0"
-        out_if_name = "out_r_0"
-        clk_name = "ap_clk_0"
-        nrst_name = "ap_rst_n_0"
-        axi_lite_if_name = "s_axi_control_0"
+        in_if_name = self.s_axis_if_name
+        out_if_name = self.m_axis_if_name
+        clk_name = self.clk_name
+        nrst_name = self.rst_name
+        axi_lite_if_name = self.s_aximm_if_name
         vivado_ip_cache = os.getenv("VIVADO_IP_CACHE", default="")
 
         # create a temporary folder for the project
