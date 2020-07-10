@@ -25,6 +25,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+import pytest
 
 from PIL import Image
 import os
@@ -67,9 +68,13 @@ import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
-
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.core.onnx_exec import execute_onnx
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
+mem_mode = "decoupled"
 
 
 def test_end2end_mobilenet_export():
@@ -181,9 +186,53 @@ def test_end2end_mobilenet_convert_to_hls_layers():
     model = model.transform(to_hls.InferPool_Batch())
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferVVAU())
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
+    model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     model = model.transform(to_hls.InferChannelwiseLinearLayer())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
     model.save(build_dir + "/end2end_mobilenet_hls_layers.onnx")
+
+
+def test_end2end_mobilenet_folding():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_mobilenet_hls_layers.onnx"
+    )
+    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    # each tuple is (PE, SIMD) for a layer
+    folding = [
+        (32, 3),
+        (16, 16),
+        (16, 16),
+        (32, 16),
+        (16, 16),
+        (32, 16),
+        (16, 16),
+        (32, 16),
+        (32, 16),
+        (32, 16),
+        (32, 16),
+        (32, 16),
+        (16, 16),
+        (32, 16),
+        (4, 4),
+    ]
+    for fcl, (pe, simd) in zip(fc_layers, folding):
+        fcl_inst = getCustomOp(fcl)
+        fcl_inst.set_nodeattr("PE", pe)
+        fcl_inst.set_nodeattr("SIMD", simd)
+
+    vvau_layers = model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")
+    # each value is PE for a layer
+    folding = [32, 32, 64, 16, 32, 8, 16, 16, 16, 16, 16, 4, 8]
+    for vvau, pe in zip(vvau_layers, folding):
+        vvau_inst = getCustomOp(vvau)
+        vvau_inst.set_nodeattr("PE", pe)
+        # set SIMD in preceeding ConvInputGen to same value
+        convinputgen = model.find_direct_predecessors(vvau)[0]
+        convinputgen_inst = getCustomOp(convinputgen)
+        convinputgen_inst.set_nodeattr("SIMD", pe)
+
+    model.save("test2.onnx")
 
 
 def test_end2end_mobilenet_create_dataflow_partition():
@@ -197,3 +246,22 @@ def test_end2end_mobilenet_create_dataflow_partition():
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
     dataflow_model.save(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
+
+
+@pytest.mark.vivado
+def test_end2end_mobilenet_verify_all():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_mobilenet_hls_layers.onnx"
+    )
+    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
+    inp_name = model.graph.input[0].name
+    out_name = model.graph.output[0].name
+    inp_dict = {inp_name: x}
+    # cppsim
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
+    model.save(build_dir + "/end2end_mobilenet_cppsim.onnx")
+    ret_cppsim = execute_onnx(model, inp_dict, True)
+    res_cppsim = ret_cppsim[out_name]
+    np.save(build_dir + "/end2end_mobilenet_result_cppsim.npy", res_cppsim)
