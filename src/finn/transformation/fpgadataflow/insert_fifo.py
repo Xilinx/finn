@@ -59,7 +59,9 @@ class InsertFIFO(Transformation):
             if _suitable_node(n):
                 for n_output in n.output:
                     consumers = model.find_consumers(n_output)
-                    if consumers is not None and len(consumers) > 1:
+                    if consumers is None:
+                        continue
+                    if len(consumers) > 1:
                         warnings.warn(
                             n.name
                             + ": HLS node with fan-out higher than 1 cannot be stitched"
