@@ -362,10 +362,12 @@ class InferPool_Batch(Transformation):
                 # insert nodes where the conv is to preserve topological ordering
                 if dlayout == "NCHW":
                     graph.node.insert(node_ind, inp_trans_node)
-                graph.node.insert(node_ind + 1, im2col_node)
-                graph.node.insert(node_ind + 2, pool_node)
-                if dlayout == "NCHW":
+                    graph.node.insert(node_ind + 1, im2col_node)
+                    graph.node.insert(node_ind + 2, pool_node)
                     graph.node.insert(node_ind + 3, out_trans_node)
+                else:
+                    graph.node.insert(node_ind, im2col_node)
+                    graph.node.insert(node_ind + 1, pool_node)
                 # remove old node
                 graph.node.remove(n)
                 graph_modified = True
