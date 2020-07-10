@@ -4,6 +4,7 @@ from onnx import helper as oh
 from finn.custom_op.registry import getCustomOp
 from finn.transformation import Transformation
 from finn.util.fpgadataflow import is_fpgadataflow_node
+import warnings
 import numpy as np
 
 
@@ -56,66 +57,74 @@ class InsertFIFO(Transformation):
         for n in graph.node:
             node_ind += 1
             if _suitable_node(n):
-                n_output = n.output[0]
-                consumer = model.find_consumer(n_output)
-                if _suitable_node(consumer) is True:
-                    n0 = getCustomOp(n)
-                    # determine fifo node attributes
-                    fld_shape = n0.get_folded_output_shape()
-                    dtype = n0.get_output_datatype()
-
-                    # check if folded_shape of output of first node and
-                    # input of the second node is equal
-                    n1 = getCustomOp(consumer)
-                    fld_shape_2 = n1.get_folded_input_shape()
-                    assert _suitable_folded_shapes(
-                        fld_shape, fld_shape_2
-                    ), """The
-                    folded output shape of the first node is not the same as the
-                    folded output shape of the second node. A streaming fifo can't
-                    be implemented in between these nodes."""
-
-                    # check if outFIFOdepth attribute of first node
-                    # and inFIFOdepth attribute of consumer node is equal
-                    n0_depth = n0.get_nodeattr("outFIFODepth")
-                    n1_depth = n1.get_nodeattr("inFIFODepth")
-                    if n0_depth == n1_depth:
-                        fifo_depth = n0_depth
-                    elif n0_depth != n1_depth:
-                        fifo_depth = max(n0_depth, n1_depth)
-
-                    if fifo_depth > 2:
-                        # assumption: HLS streaming components already have
-                        # depth-2 FIFOs on inputs and outputs, so no point
-                        # creating additional small FIFOs in between --
-                        # we only create the larger FIFOs specified
-                        # create fifo node
-                        fifo_output_tensor = oh.make_tensor_value_info(
-                            model.make_new_valueinfo_name(),
-                            TensorProto.FLOAT,
-                            n0.get_normal_output_shape(),
+                for n_output in n.output:
+                    consumers = model.find_consumers(n_output)
+                    if consumers is not None and len(consumers) > 1:
+                        warnings.warn(
+                            n.name
+                            + ": HLS node with fan-out higher than 1 cannot be stitched"
                         )
-                        graph.value_info.append(fifo_output_tensor)
-                        model.set_tensor_datatype(fifo_output_tensor.name, dtype)
+                    consumer = consumers[0]
+                    if _suitable_node(consumer) is True:
+                        n0 = getCustomOp(n)
+                        # determine fifo node attributes
+                        fld_shape = n0.get_folded_output_shape()
+                        dtype = n0.get_output_datatype()
 
-                        fifo_node = oh.make_node(
-                            "StreamingFIFO",
-                            [n_output],
-                            [fifo_output_tensor.name],
-                            domain="finn",
-                            backend="fpgadataflow",
-                            depth=fifo_depth,
-                            folded_shape=fld_shape,
-                            dataType=str(dtype.name),
-                        )
-                        # insert fifo
-                        graph.node.insert(node_ind + 1, fifo_node)
-                        # set fifo output tensor as new input tensor of second node
-                        consumer.input[0] = fifo_output_tensor.name
-                        # ensure created FIFO depth is reflected on both sides
-                        n0.set_nodeattr("outFIFODepth", fifo_depth)
-                        n1.set_nodeattr("inFIFODepth", fifo_depth)
-                        graph_modified = True
+                        # check if folded_shape of output of first node and
+                        # input of the second node is equal
+                        n1 = getCustomOp(consumer)
+                        fld_shape_2 = n1.get_folded_input_shape()
+                        assert _suitable_folded_shapes(
+                            fld_shape, fld_shape_2
+                        ), """The
+                        folded output shape of the first node is not the same as the
+                        folded output shape of the second node. A streaming fifo can't
+                        be implemented in between these nodes."""
+
+                        # check if outFIFOdepth attribute of first node
+                        # and inFIFOdepth attribute of consumer node is equal
+                        n0_depth = n0.get_nodeattr("outFIFODepth")
+                        n1_depth = n1.get_nodeattr("inFIFODepth")
+                        if n0_depth == n1_depth:
+                            fifo_depth = n0_depth
+                        elif n0_depth != n1_depth:
+                            fifo_depth = max(n0_depth, n1_depth)
+
+                        if fifo_depth > 2:
+                            # assumption: HLS streaming components already have
+                            # depth-2 FIFOs on inputs and outputs, so no point
+                            # creating additional small FIFOs in between --
+                            # we only create the larger FIFOs specified
+                            # create fifo node
+                            fifo_output_tensor = oh.make_tensor_value_info(
+                                model.make_new_valueinfo_name(),
+                                TensorProto.FLOAT,
+                                n0.get_normal_output_shape(),
+                            )
+                            graph.value_info.append(fifo_output_tensor)
+                            model.set_tensor_datatype(fifo_output_tensor.name, dtype)
+
+                            fifo_node = oh.make_node(
+                                "StreamingFIFO",
+                                [n_output],
+                                [fifo_output_tensor.name],
+                                domain="finn",
+                                backend="fpgadataflow",
+                                depth=fifo_depth,
+                                folded_shape=fld_shape,
+                                dataType=str(dtype.name),
+                            )
+                            # insert fifo
+                            graph.node.insert(node_ind + 1, fifo_node)
+                            # set fifo output tensor as new input tensor of second node
+                            for idx, inp in enumerate(consumer.input):
+                                if inp == n_output:
+                                    consumer.input[idx] = fifo_output_tensor.name
+                            # ensure created FIFO depth is reflected on both sides
+                            n0.set_nodeattr("outFIFODepth", fifo_depth)
+                            n1.set_nodeattr("inFIFODepth", fifo_depth)
+                            graph_modified = True
 
         if graph_modified is False:
             # insert FIFO as first node
