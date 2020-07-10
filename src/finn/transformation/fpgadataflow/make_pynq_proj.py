@@ -67,6 +67,16 @@ class MakePYNQProject(Transformation):
             raise Exception(
                 "No vlnv for stitched IP found, apply CreateStitchedIP first."
             )
+        vivado_stitch_ifnames = model.get_metadata_prop("vivado_stitch_ifnames")
+        if vivado_stitch_ifnames is None:
+            raise Exception("No IF name metadata found, apply CreateStitchedIP first.")
+        vivado_stitch_ifnames = eval(vivado_stitch_ifnames)
+        # recover interface names from dict
+        self.clk_name = vivado_stitch_ifnames["clk"][0]
+        self.rst_name = vivado_stitch_ifnames["rst"][0]
+        self.s_axis_if_name = vivado_stitch_ifnames["s_axis"][0]
+        self.m_axis_if_name = vivado_stitch_ifnames["m_axis"][0]
+        self.s_aximm_if_name = vivado_stitch_ifnames["axilite"][0]
 
         # collect list of all IP dirs
         ip_dirs = ["list"]
@@ -105,11 +115,11 @@ class MakePYNQProject(Transformation):
         multiple of 8."""
         in_bytes = i_bits_per_cycle_padded / 8
         out_bytes = o_bits_per_cycle_padded / 8
-        in_if_name = "in0_V_V_0"
-        out_if_name = "out_r_0"
-        clk_name = "ap_clk_0"
-        nrst_name = "ap_rst_n_0"
-        axi_lite_if_name = "s_axi_control_0"
+        in_if_name = self.s_axis_if_name
+        out_if_name = self.m_axis_if_name
+        clk_name = self.clk_name
+        nrst_name = self.rst_name
+        axi_lite_if_name = self.s_aximm_if_name
         vivado_ip_cache = os.getenv("VIVADO_IP_CACHE", default="")
 
         # create a temporary folder for the project

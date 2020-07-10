@@ -119,7 +119,7 @@ def create_one_fc_model():
     return model
 
 
-def create_two_fc_model():
+def create_two_fc_model(mem_mode="decoupled"):
     # create a model with two StreamingFCLayer instances
     wdt = DataType.INT2
     idt = DataType.INT32
@@ -152,7 +152,7 @@ def create_two_fc_model():
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
-        mem_mode="decoupled",
+        mem_mode=mem_mode,
     )
 
     fc1 = helper.make_node(
@@ -172,7 +172,7 @@ def create_two_fc_model():
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
-        mem_mode="decoupled",
+        mem_mode=mem_mode,
     )
 
     graph = helper.make_graph(
@@ -247,35 +247,35 @@ def test_fpgadataflow_ipstitch_rtlsim():
     model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
     sim = pyverilate_stitched_ip(model)
     exp_io = [
-        "ap_clk_0",
-        "ap_rst_n_0",
-        "in0_V_V_0_tdata",
-        "in0_V_V_0_tready",
-        "in0_V_V_0_tvalid",
-        "out_r_0_tdata",
-        "out_r_0_tkeep",
-        "out_r_0_tlast",
-        "out_r_0_tready",
-        "out_r_0_tvalid",
-        "s_axi_control_0_araddr",
-        "s_axi_control_0_arready",
-        "s_axi_control_0_arvalid",
-        "s_axi_control_0_awaddr",
-        "s_axi_control_0_awready",
-        "s_axi_control_0_awvalid",
-        "s_axi_control_0_bready",
-        "s_axi_control_0_bresp",
-        "s_axi_control_0_bvalid",
-        "s_axi_control_0_rdata",
-        "s_axi_control_0_rready",
-        "s_axi_control_0_rresp",
-        "s_axi_control_0_rvalid",
-        "s_axi_control_0_wdata",
-        "s_axi_control_0_wready",
-        "s_axi_control_0_wstrb",
-        "s_axi_control_0_wvalid",
+        "ap_clk",
+        "ap_rst_n",
+        "s_axis_0_tdata",
+        "s_axis_0_tready",
+        "s_axis_0_tvalid",
+        "m_axis_0_tdata",
+        "m_axis_0_tkeep",
+        "m_axis_0_tlast",
+        "m_axis_0_tready",
+        "m_axis_0_tvalid",
+        "s_axi_control_araddr",
+        "s_axi_control_arready",
+        "s_axi_control_arvalid",
+        "s_axi_control_awaddr",
+        "s_axi_control_awready",
+        "s_axi_control_awvalid",
+        "s_axi_control_bready",
+        "s_axi_control_bresp",
+        "s_axi_control_bvalid",
+        "s_axi_control_rdata",
+        "s_axi_control_rready",
+        "s_axi_control_rresp",
+        "s_axi_control_rvalid",
+        "s_axi_control_wdata",
+        "s_axi_control_wready",
+        "s_axi_control_wstrb",
+        "s_axi_control_wvalid",
     ]
-    assert dir(sim.io) == exp_io
+    assert sorted(dir(sim.io)) == sorted(exp_io)
     model.set_metadata_prop("exec_mode", "rtlsim")
     idt = model.get_tensor_datatype("inp")
     ishape = model.get_tensor_shape("inp")
