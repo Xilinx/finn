@@ -356,3 +356,8 @@ class AddStreams_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        intf_names["s_axis"] = ["in0_V_V", "in1_V_V"]
+        return intf_names

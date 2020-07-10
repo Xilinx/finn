@@ -33,6 +33,8 @@ from onnx import TensorProto, helper
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -71,6 +73,9 @@ def make_dupstreams_modelwrapper(ch, pe, idim, idt):
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
 
     return model
 

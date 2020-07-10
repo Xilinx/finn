@@ -25,6 +25,7 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+import time
 import pytest
 
 from PIL import Image
@@ -188,6 +189,7 @@ def test_end2end_mobilenet_convert_to_hls_layers():
     model = model.transform(to_hls.InferVVAU())
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     model = model.transform(to_hls.InferChannelwiseLinearLayer())
+    model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model.save(build_dir + "/end2end_mobilenet_hls_layers.onnx")
@@ -232,13 +234,11 @@ def test_end2end_mobilenet_folding():
         convinputgen_inst = getCustomOp(convinputgen)
         convinputgen_inst.set_nodeattr("SIMD", pe)
 
-    model.save("test2.onnx")
+    model.save(build_dir + "/end2end_mobilenet_folded.onnx")
 
 
 def test_end2end_mobilenet_create_dataflow_partition():
-    model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_mobilenet_hls_layers.onnx"
-    )
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
     parent_model = model.transform(CreateDataflowPartition())
     parent_model.save(build_dir + "/end2end_mobilenet_dataflow_parent.onnx")
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
@@ -250,17 +250,21 @@ def test_end2end_mobilenet_create_dataflow_partition():
 
 @pytest.mark.vivado
 def test_end2end_mobilenet_verify_all():
-    model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_mobilenet_hls_layers.onnx"
-    )
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
     inp_name = model.graph.input[0].name
     out_name = model.graph.output[0].name
     inp_dict = {inp_name: x}
+    start = time.time()
     # cppsim
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
     model = model.transform(SetExecMode("cppsim"))
+    end = time.time()
+    elapsed_time = end - start
+    f = open(build_dir + "/end2end_mobilenet_cppsim_time.txt", "w+")
+    f.write("Execution time in seconds: " + str(elapsed_time))
+    f.close()
     model.save(build_dir + "/end2end_mobilenet_cppsim.onnx")
     ret_cppsim = execute_onnx(model, inp_dict, True)
     res_cppsim = ret_cppsim[out_name]
