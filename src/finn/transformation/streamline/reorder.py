@@ -560,7 +560,9 @@ class MoveScalarLinearPastInvariants(Transformation):
                     graph_modified = True
                 else:
                     continue
-        model = model.transform(InferShapes())
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
         return (model, graph_modified)
 
 
