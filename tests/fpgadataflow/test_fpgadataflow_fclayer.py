@@ -329,7 +329,7 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
+def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh
 ):
     if nf == -1:
