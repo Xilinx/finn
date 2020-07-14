@@ -280,6 +280,9 @@ class Thresholding_Batch(HLSCustomOp):
 
         threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
         tdt = DataType.INT32
+        assert np.vectorize(tdt.allowed)(
+            threshold_tensor
+        ).all(), "Thresholds are not int"
         thresholds_hls_code = numpy_to_hls_code(
             threshold_tensor, tdt, "thresholds", False, True
         )
