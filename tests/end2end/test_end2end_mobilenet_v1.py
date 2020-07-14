@@ -64,6 +64,7 @@ from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.streamline.remove import RemoveIdentityOps
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.change_datalayout import ChangeDataLayoutQuantAvgPool2d
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -72,9 +73,21 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
+
 from finn.core.onnx_exec import execute_onnx
+from finn.util.basic import pynq_part_map
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
+test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+test_fpga_part = pynq_part_map[test_pynq_board]
+target_clk_ns = 10
 mem_mode = "decoupled"
 
 
@@ -155,18 +168,26 @@ def test_end2end_mobilenet_tidy_and_merge_with_preproc():
 def test_end2end_mobilenet_streamline():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_tidy.onnx")
     model = model.transform(Streamline())
-    model = model.transform(DoubleToSingleFloat())
-    model = model.transform(reorder.MoveMulPastDWConv())
-    model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
-    model = model.transform(ChangeDataLayoutQuantAvgPool2d())
-    model = model.transform(InferDataLayouts())
-    model = model.transform(reorder.MoveTransposePastScalarMul())
-    model = model.transform(absorb.AbsorbTransposeIntoFlatten())
-    model = model.transform(reorder.MoveFlattenPastAffine())
-    model = model.transform(reorder.MoveFlattenPastTopK())
-    model = model.transform(reorder.MoveScalarMulPastMatMul())
-    model = model.transform(CollapseRepeatedMul())
-    model = model.transform(RemoveIdentityOps())
+    additional_streamline_transformations = [
+        DoubleToSingleFloat(),
+        reorder.MoveMulPastDWConv(),
+        absorb.AbsorbMulIntoMultiThreshold(),
+        ChangeDataLayoutQuantAvgPool2d(),
+        InferDataLayouts(),
+        reorder.MoveTransposePastScalarMul(),
+        absorb.AbsorbTransposeIntoFlatten(),
+        reorder.MoveFlattenPastAffine(),
+        reorder.MoveFlattenPastTopK(),
+        reorder.MoveScalarMulPastMatMul(),
+        CollapseRepeatedMul(),
+        RemoveIdentityOps(),
+        RoundAndClipThresholds(),
+    ]
+    for trn in additional_streamline_transformations:
+        model = model.transform(trn)
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(InferDataTypes())
     model.save(build_dir + "/end2end_mobilenet_streamlined.onnx")
 
 
@@ -179,6 +200,7 @@ def test_end2end_mobilenet_lowering():
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
+    model = model.transform(RoundAndClipThresholds())
     model.save(build_dir + "/end2end_mobilenet_lowered.onnx")
 
 
@@ -233,8 +255,29 @@ def test_end2end_mobilenet_folding():
         convinputgen = model.find_direct_predecessors(vvau)[0]
         convinputgen_inst = getCustomOp(convinputgen)
         convinputgen_inst.set_nodeattr("SIMD", pe)
+        # set SIMD in preceeding FMPadding to same value
+        padding = model.find_direct_predecessors(convinputgen)[0]
+        if padding.op_type == "FMPadding_Batch":
+            padding_inst = getCustomOp(padding)
+            padding_inst.set_nodeattr("SIMD", pe)
 
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
+
+
+def test_end2end_mobilenet_gen_hls_ip():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
+    start = time.time()
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(ReplaceVerilogRelPaths())
+    end = time.time()
+    elapsed_time = end - start
+    f = open(build_dir + "/end2end_mobilenet_ipgen_time.txt", "w+")
+    f.write("Execution time in seconds: " + str(elapsed_time))
+    f.close()
+
+    model = model.transform(AnnotateResources("hls"))
+    model.save(build_dir + "/end2end_mobilenet_ipgen.onnx")
 
 
 def test_end2end_mobilenet_create_dataflow_partition():
@@ -248,8 +291,9 @@ def test_end2end_mobilenet_create_dataflow_partition():
     dataflow_model.save(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
 
 
+@pytest.mark.slow
 @pytest.mark.vivado
-def test_end2end_mobilenet_verify_all():
+def test_end2end_mobilenet_cppsim():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
     inp_name = model.graph.input[0].name
@@ -262,10 +306,55 @@ def test_end2end_mobilenet_verify_all():
     model = model.transform(SetExecMode("cppsim"))
     end = time.time()
     elapsed_time = end - start
-    f = open(build_dir + "/end2end_mobilenet_cppsim_time.txt", "w+")
+    f = open(build_dir + "/end2end_mobilenet_compile_time.txt", "w+")
     f.write("Execution time in seconds: " + str(elapsed_time))
     f.close()
     model.save(build_dir + "/end2end_mobilenet_cppsim.onnx")
     ret_cppsim = execute_onnx(model, inp_dict, True)
     res_cppsim = ret_cppsim[out_name]
     np.save(build_dir + "/end2end_mobilenet_result_cppsim.npy", res_cppsim)
+    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
+    res_cppsim_prob = ret_cppsim[model.graph.node[-2].output[0]] * a0
+    np.save(build_dir + "/end2end_mobilenet_result_cppsim_prob.npy", res_cppsim_prob)
+
+    # check result with golden values
+    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
+    golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
+
+    assert (golden == res_cppsim).all()
+    assert np.isclose(golden_prob, res_cppsim_prob).all()
+
+
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_end2end_mobilenet_rtlsim():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_ipgen.onnx")
+    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
+    inp_name = model.graph.input[0].name
+    out_name = model.graph.output[0].name
+    inp_dict = {inp_name: x}
+    # node-by-node rtlsim
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareRTLSim())
+    model.save(build_dir + "/end2end_mobilenet_ipgen_nodebynode_rtlsim.onnx")
+    ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
+    res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
+    np.save(
+        build_dir + "/end2end_mobilenet_result_rtlsim_nodebynode.npy",
+        res_rtlsim_nodebynode,
+    )
+    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
+    res_rtlsim_nodebynode_prob = (
+        ret_rtlsim_nodebynode[model.graph.node[-2].output[0]] * a0
+    )
+    np.save(
+        build_dir + "/end2end_mobilenet_result_rtlsim_nodebynode_prob.npy",
+        res_rtlsim_nodebynode_prob,
+    )
+
+    # check result with golden values
+    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
+    golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
+
+    assert (golden == res_rtlsim_nodebynode).all()
+    assert np.isclose(golden_prob, res_rtlsim_nodebynode_prob).all()
