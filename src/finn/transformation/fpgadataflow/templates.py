@@ -107,6 +107,7 @@ class FINNAccelDriver():
     def __init__(self, N, bitfile, platform="zynq"):
         \"\"\"Instantiate the FINN accelerator driver.
         Gets batchsize (N) as integer and path to bitfile as string.\"\"\"
+        self.platform = platform
         self.N = N
         # input FINN DataType
         self.idt = $INPUT_FINN_DATATYPE$
@@ -127,7 +128,7 @@ class FINNAccelDriver():
             # clock frequency
             self.fclk_mhz = $CLOCK_FREQ_MHZ$
             # set the clock frequency as specified by user during transformations
-            if fclk_mhz > 0:
+            if self.fclk_mhz > 0:
                 Clocks.$CLK_NAME$ = self.fclk_mhz
             self.dma = self.ol.axi_dma_0
             self.ctrl_regs = self.ol.resize_accel_0
