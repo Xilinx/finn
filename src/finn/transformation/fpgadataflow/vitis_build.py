@@ -140,13 +140,14 @@ class CreateVitisXO(Transformation):
         bash_command = ["bash", package_xo_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+        assert os.path.isfile(xo_path), "Vitis .xo file not created, check logs under %s" % vivado_proj_dir
         return (model, False)
 
 
 class VitisLink(Transformation):
     """Create an XCLBIN with Vitis.
 
-    Outcome if successful: sets the xclbin attribute in the ONNX
+    Outcome if successful: sets the vitis_xclbin attribute in the ONNX
     ModelProto's metadata_props field with the XCLBIN full path as value.
     """
 
@@ -239,6 +240,10 @@ class VitisLink(Transformation):
         bash_command = ["bash", script]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+        # TODO rename xclbin appropriately here?
+        xclbin = link_dir + "/a.xclbin
+        assert os.path.isfile(xclbin), "Vitis .xclbin file not created, check logs under %s" % link_dir
+        model.set_metadata_prop("vitis_xclbin", xclbin)
         return (model, False)
 
 
