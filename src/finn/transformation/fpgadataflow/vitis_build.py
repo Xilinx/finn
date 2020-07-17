@@ -246,7 +246,7 @@ class VitisLink(Transformation):
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         # TODO rename xclbin appropriately here?
-        xclbin = link_dir + "/a.xclbin
+        xclbin = link_dir + "/a.xclbin"
         assert os.path.isfile(xclbin), "Vitis .xclbin file not created, check logs under %s" % link_dir
         model.set_metadata_prop("vitis_xclbin", xclbin)
         return (model, False)
