@@ -426,6 +426,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.parametrize("extw", [True, False])
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.vitis
 def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
     platform = alveo_default_platform[board]
     fpga_part = alveo_part_map[board]
