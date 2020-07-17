@@ -5,12 +5,13 @@ import numpy as np
 import brevitas.onnx as bo
 import torch
 from finn.util.basic import make_build_dir
-from finn.util.pytorch import NormalizePreProc
+from finn.util.pytorch import NormalizePreProc, BrevitasDebugHook
 from finn.util.test import get_test_model_trained, resize_smaller_side, crop_center
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.general import RemoveStaticGraphInputs
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import (
     GiveReadableTensorNames,
@@ -25,6 +26,7 @@ import finn.util.imagenet as imagenet_util
 import pytest
 
 n_images = 1
+debug_mode = True
 
 
 @pytest.mark.slow
@@ -47,13 +49,18 @@ def test_brevitas_validate_mobilenet():
     # export the actual MobileNet-v1
     finn_onnx = export_onnx_path + "/quant_mobilenet_v1_4b.onnx"
     mobilenet = get_test_model_trained("mobilenet", 4, 4)
+    if debug_mode:
+        dbg_hook = BrevitasDebugHook()
+        bo.enable_debug(mobilenet, dbg_hook)
     bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
+    model = model.transform(RemoveStaticGraphInputs())
     model = model.transform(InsertTopK())
     # get initializer from Mul that will be absorbed into topk
-    a0 = model.get_initializer(model.graph.node[-2].input[1])
+
+    a0 = model.get_initializer(model.get_nodes_by_op_type("Mul")[-1].input[1])
     model = model.transform(absorb.AbsorbScalarMulIntoTopK())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
@@ -103,9 +110,11 @@ def test_brevitas_validate_mobilenet():
             for index in expected_top5:
                 expected_top5_prob.append(expected_topk[index])
             idict = {model.graph.input[0].name: img_np}
-            odict = oxe.execute_onnx(model, idict, True)
+            odict = oxe.execute_onnx(model, idict, return_full_exec_context=True)
             produced = odict[model.graph.output[0].name]
             produced_prob = odict["TopK_0_out0"] * a0
+            inds_ok = (produced.flatten() == expected_top5).all()
+            probs_ok = np.isclose(produced_prob.flatten(), expected_top5_prob).all()
             writer.writerow(
                 [
                     str(target_id),
@@ -113,8 +122,19 @@ def test_brevitas_validate_mobilenet():
                     str(expected_top5_prob),
                     str(produced.flatten()),
                     str(produced_prob.flatten()),
-                    str((produced.flatten() == expected_top5).all()),
-                    str(np.isclose(produced_prob.flatten(), expected_top5_prob).all()),
+                    str(inds_ok),
+                    str(probs_ok),
                 ]
             )
             csvfile.flush()
+            if ((not inds_ok) or (not probs_ok)) and debug_mode:
+                # check all tensors at debug markers
+                names_brevitas = set(dbg_hook.outputs.keys())
+                names_finn = set(odict.keys())
+                names_common = names_brevitas.intersection(names_finn)
+                for dbg_name in names_common:
+                    if not np.isclose(
+                        dbg_hook.outputs[dbg_name], odict[dbg_name], atol=1e-3
+                    ).all():
+                        print("Tensor %s differs between Brevitas and FINN" % dbg_name)
+            assert inds_ok and probs_ok
