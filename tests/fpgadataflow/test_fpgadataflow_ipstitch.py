@@ -50,13 +50,19 @@ from finn.transformation.fpgadataflow.make_pynq_proj import MakePYNQProject
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 import finn.transformation.fpgadataflow.replace_verilog_relpaths as rvp
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import gen_finn_dt_tensor, pynq_part_map
+from finn.util.basic import (
+    gen_finn_dt_tensor,
+    pynq_part_map,
+    alveo_part_map,
+    alveo_default_platform,
+)
 from finn.util.fpgadataflow import pyverilate_stitched_ip
 from finn.util.test import load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.floorplan import Floorplan
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -410,3 +416,25 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
     assert getCustomOp(model.graph.node[1]).get_nodeattr("partition_id") == 2
     assert getCustomOp(model.graph.node[2]).get_nodeattr("partition_id") == 1
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_iodma_floorplan.onnx")
+
+
+# board
+@pytest.mark.parametrize("board", ["U250"])
+# clock period
+@pytest.mark.parametrize("period_ns", [5])
+# override mem_mode to external
+@pytest.mark.parametrize("extw", [True, False])
+@pytest.mark.slow
+@pytest.mark.vivado
+@pytest.mark.vitis
+def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
+    platform = alveo_default_platform[board]
+    fpga_part = alveo_part_map[board]
+    model = create_two_fc_model("external" if extw else "decoupled")
+    if model.graph.node[0].op_type == "StreamingDataflowPartition":
+        sdp_node = getCustomOp(model.graph.node[0])
+        assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
+        assert os.path.isfile(sdp_node.get_nodeattr("model"))
+        model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
+    model = model.transform(VitisBuild(fpga_part, period_ns, platform))
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_vitis.onnx")
