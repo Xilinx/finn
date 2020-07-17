@@ -114,19 +114,19 @@ def rtlsim_exec(model, execution_context):
 def _reset_rtlsim(sim):
     """Sets reset input in pyverilator to zero, toggles the clock and set it
     back to one"""
-    sim.io.ap_rst_n_0 = 0
+    sim.io.ap_rst_n = 0
     _toggle_clk(sim)
     _toggle_clk(sim)
-    sim.io.ap_rst_n_0 = 1
+    sim.io.ap_rst_n = 1
     _toggle_clk(sim)
     _toggle_clk(sim)
 
 
 def _toggle_clk(sim):
     """Toggles the clock input in pyverilator once."""
-    sim.io.ap_clk_0 = 0
+    sim.io.ap_clk = 0
     sim.eval()
-    sim.io.ap_clk_0 = 1
+    sim.io.ap_clk = 1
     sim.eval()
 
 
@@ -140,7 +140,7 @@ def _run_rtlsim(sim, inp, num_out_values, trace_file=None, reset=True):
     from finn.util.fpgadataflow)"""
     inputs = inp
     outputs = []
-    sim.io.out_r_0_tready = 1
+    sim.io.m_axis_0_tready = 1
 
     # observe if output is completely calculated
     # observation_count will contain the number of cycles the calculation ran
@@ -159,12 +159,12 @@ def _run_rtlsim(sim, inp, num_out_values, trace_file=None, reset=True):
         _reset_rtlsim(sim)
 
     while not (output_observed):
-        sim.io.in0_V_V_0_tvalid = 1 if len(inputs) > 0 else 0
-        sim.io.in0_V_V_0_tdata = inputs[0] if len(inputs) > 0 else 0
-        if sim.io.in0_V_V_0_tready == 1 and sim.io.in0_V_V_0_tvalid == 1:
+        sim.io.s_axis_0_tvalid = 1 if len(inputs) > 0 else 0
+        sim.io.s_axis_0_tdata = inputs[0] if len(inputs) > 0 else 0
+        if sim.io.s_axis_0_tready == 1 and sim.io.s_axis_0_tvalid == 1:
             inputs = inputs[1:]
-        if sim.io.out_r_0_tvalid == 1 and sim.io.out_r_0_tready == 1:
-            outputs = outputs + [sim.io.out_r_0_tdata]
+        if sim.io.m_axis_0_tvalid == 1 and sim.io.m_axis_0_tready == 1:
+            outputs = outputs + [sim.io.m_axis_0_tdata]
         _toggle_clk(sim)
 
         observation_count = observation_count + 1

@@ -32,7 +32,7 @@ import numpy as np
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
-from onnx import TensorProto, helper
+from onnx import helper, TensorProto
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -80,24 +80,33 @@ class DuplicateStreams_Batch(HLSCustomOp):
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == exp_ishape, "Unexpected input shape."
-        # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
+
+        oshape = self.get_normal_output_shape()
+        values = np.zeros(oshape).astype(np.float32)
         split_input = np.concatenate((values, values), axis=0)
-        return helper.make_node(
-            "Split",
-            inputs=[split_input],
-            outputs=[self.onnx_node.output[0], self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor", data_type=TensorProto.FLOAT, axis=0
-            ),
+
+        split_in = helper.make_tensor_value_info(
+            model.make_new_valueinfo_name(), TensorProto.FLOAT, oshape
         )
+
+        model.graph.value_info.append(split_in)  # requires clean up
+        model.set_initializer(split_in.name, split_input)
+
+        shape_comp_node = helper.make_node(
+            "Split",
+            inputs=[split_in.name],
+            outputs=[self.onnx_node.output[0], self.onnx_node.output[1]],
+            axis=0,
+        )
+
+        return shape_comp_node
 
     def infer_node_datatype(self, model):
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
+        model.set_tensor_datatype(self.onnx_node.output[1], odt)
 
     def verify_node(self):
         info_messages = []
@@ -359,3 +368,8 @@ class DuplicateStreams_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        intf_names["m_axis"] = ["out0_V_V", "out1_V_V"]
+        return intf_names

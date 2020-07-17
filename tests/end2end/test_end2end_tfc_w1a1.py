@@ -63,7 +63,12 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.general import (
+    RemoveUnusedTensors,
+    RemoveStaticGraphInputs,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+)
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
@@ -98,12 +103,14 @@ def test_end2end_tfc_w1a1_import_and_tidy():
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
+    model = model.transform(RemoveStaticGraphInputs())
     model.save(build_dir + "/end2end_tfc_w1a1_tidy.onnx")
 
 
 def test_end2end_tfc_w1a1_streamline():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_tidy.onnx")
     model = model.transform(Streamline())
+    model = model.transform(RemoveUnusedTensors())
     model.save(build_dir + "/end2end_tfc_w1a1_streamlined.onnx")
 
 

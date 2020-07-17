@@ -102,6 +102,23 @@ class HLSCustomOp(CustomOp):
         prefixed_top_name = "%s_%s" % (node.name, node.name)
         return prefixed_top_name
 
+    def get_verilog_top_module_intf_names(self):
+        """Return a dict of names of input and output interfaces.
+        The keys reflect the protocols each interface implements:
+        'clk', 'rst', 'm_axis', 's_axis', 'aximm', 'axilite'.
+        Values are lists of names:
+        's_axis' names correspond to the list of node inputs in order,
+        'm_axis' names correspond to the list of node outputs in order'
+        Each block must have at most one aximm and one axilite."""
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["rst"] = ["ap_rst_n"]
+        intf_names["s_axis"] = ["in0_V_V"]
+        intf_names["m_axis"] = ["out_V_V"]
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        return intf_names
+
     def get_verilog_top_filename(self):
         "Return the Verilog top module filename for this node."
 

@@ -28,6 +28,7 @@
 
 import os
 import shutil
+import warnings
 
 from finn.custom_op.registry import getCustomOp
 from finn.transformation import Transformation
@@ -53,7 +54,7 @@ class MakePYNQDriver(Transformation):
     def apply(self, model):
         vivado_pynq_proj = model.get_metadata_prop("vivado_pynq_proj")
         if vivado_pynq_proj is None or (not os.path.isdir(vivado_pynq_proj)):
-            raise Exception("No PYNQ project found, apply MakePYNQProject first.")
+            warnings.warn("No PYNQ project found, apply MakePYNQProject first.")
 
         # create a temporary folder for the generated driver
         pynq_driver_dir = make_build_dir(prefix="pynq_driver_")
@@ -108,7 +109,12 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
 
         # clock settings for driver
-        clk_ns = float(model.get_metadata_prop("clk_ns"))
+        clk_ns = model.get_metadata_prop("clk_ns")
+        # default to 10ns / 100 MHz if property not set
+        if clk_ns is None:
+            clk_ns = 10.0
+        else:
+            clk_ns = float(clk_ns)
         fclk_mhz = 1 / (clk_ns * 0.001)
         # TODO change according to PYNQ board?
         driver = driver.replace("$CLK_NAME$", "fclk0_mhz")
