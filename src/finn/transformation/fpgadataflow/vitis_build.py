@@ -52,6 +52,10 @@ from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeN
 from finn.util.basic import make_build_dir
 from finn.transformation.infer_data_layouts import InferDataLayouts
 
+def _check_vitis_envvars():
+    assert "VITIS_PATH" in os.environ, "VITIS_PATH must be set for Vitis"
+    assert "PLATFORM_REPO_PATHS" in os.environ, "PLATFORM_REPO_PATHS must be set for Vitis"
+    assert "XILINX_XRT" in os.environ, "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
 
 class CreateVitisXO(Transformation):
     """Create a Vitis object file from a stitched FINN ip.
@@ -66,6 +70,7 @@ class CreateVitisXO(Transformation):
         self.ip_name = ip_name
 
     def apply(self, model):
+        _check_vitis_envvars()
         vivado_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         stitched_ip_dir = vivado_proj_dir + "/ip"
         args_string = []
@@ -157,7 +162,7 @@ class VitisLink(Transformation):
         self.f_mhz = f_mhz
 
     def apply(self, model):
-
+        _check_vitis_envvars()
         # create a config file and empty list of xo files
         config = ["[connectivity]"]
         object_files = []
@@ -257,6 +262,7 @@ class VitisBuild(Transformation):
         self.platform = platform
 
     def apply(self, model):
+        _check_vitis_envvars()
         # first infer layouts
         model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels
