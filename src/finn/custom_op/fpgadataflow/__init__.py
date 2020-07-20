@@ -209,6 +209,12 @@ class HLSCustomOp(CustomOp):
         HLSCustomOp class but has to be filled by every node"""
         return 0
 
+    def get_exp_cycles(self):
+        """Function for estimation of expected cycles for set folding,
+        is member function of HLSCustomOp class but has to be filled
+        by every node"""
+        return 0
+
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
         node = self.onnx_node
