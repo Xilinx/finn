@@ -95,6 +95,10 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
+    def get_exp_cycles(self):
+        # Channels * batch size * odim * odim
+        return np.prod(self.get_folded_output_shape()[:-1])
+
     def get_instream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()
         ifm_ch = self.get_nodeattr("NumChannels")
