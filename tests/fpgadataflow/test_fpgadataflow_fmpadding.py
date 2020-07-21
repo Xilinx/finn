@@ -15,6 +15,8 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 from finn.util.basic import pynq_part_map
 
@@ -123,3 +125,10 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, pad_style, idt, mode):
     )
 
     assert (y_produced == y_expected).all()
+
+    if mode == "rtlsim":
+        inst = getCustomOp(model.graph.node[0])
+        sim_cycles = inst.get_nodeattr("sim_cycles")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[str(model.graph.node[0])]
+        assert np.isclose(exp_cycles, sim_cycles, atol=10)
