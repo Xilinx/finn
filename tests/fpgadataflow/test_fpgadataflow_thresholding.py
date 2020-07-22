@@ -47,6 +47,8 @@ from finn.util.basic import gen_finn_dt_tensor
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
+from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_single_thresholding_modelwrapper(T, pe, idt, odt):
@@ -152,3 +154,9 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     if exec_mode == "rtlsim":
         hls_synt_res_est = model.analysis(hls_synth_res_estimation)
         assert "Thresholding_Batch_0" in hls_synt_res_est
+
+        inst = getCustomOp(model.graph.node[0])
+        sim_cycles = inst.get_nodeattr("sim_cycles")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[str(model.graph.node[0])]
+        assert np.isclose(exp_cycles, sim_cycles, atol=10)
