@@ -135,8 +135,10 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, exec_mode):
     assert (y1 == expected_y).all(), exec_mode + " failed"
 
     if exec_mode == "rtlsim":
-        inst = getCustomOp(model.graph.node[0])
+        node = model.get_nodes_by_op_type("DuplicateStreams_Batch")[0]
+        inst = getCustomOp(node)
         sim_cycles = inst.get_nodeattr("sim_cycles")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-        exp_cycles = exp_cycles_dict[str(model.graph.node[0])]
+        exp_cycles = exp_cycles_dict[str(node)]
         assert np.isclose(exp_cycles, sim_cycles, atol=10)
+        assert exp_cycles != 0

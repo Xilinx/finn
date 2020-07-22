@@ -155,8 +155,10 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
         hls_synt_res_est = model.analysis(hls_synth_res_estimation)
         assert "Thresholding_Batch_0" in hls_synt_res_est
 
-        inst = getCustomOp(model.graph.node[0])
+        node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
+        inst = getCustomOp(node)
         sim_cycles = inst.get_nodeattr("sim_cycles")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-        exp_cycles = exp_cycles_dict[str(model.graph.node[0])]
+        exp_cycles = exp_cycles_dict[str(node)]
         assert np.isclose(exp_cycles, sim_cycles, atol=10)
+        assert exp_cycles != 0
