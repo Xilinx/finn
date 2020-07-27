@@ -594,7 +594,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             thresholds = model.get_initializer(self.onnx_node.input[2])
             if thresholds is not None:
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-                tdt = DataType.INT32
                 # use UINT32 threshold export for bipolar times bipolar
                 inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
                 wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
@@ -604,8 +603,40 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
                 inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
                 wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-                if inp_is_bipolar and wt_is_bipolar:
-                    tdt = DataType.UINT32
+                # set threshold datatype (and accumulator datatype implicitly)
+                min_threshold = thresholds.min()
+                max_threshold = thresholds.max()
+                min_weight = weights.min()
+                max_weight = weights.max()
+                perceptive_field_elems = self.get_nodeattr("MW")
+                min_input = self.get_input_datatype().min()
+                max_input = self.get_input_datatype().max()
+                # calculate minimum and maximum values of accumulator
+                # assume inputs span the whole range of the input datatype
+                acc_min = perceptive_field_elems * min(
+                    min_weight * max_input,
+                    min_weight * min_input,
+                    max_weight * max_input,
+                    max_weight * min_input,
+                )
+                acc_max = perceptive_field_elems * max(
+                    min_weight * max_input,
+                    min_weight * min_input,
+                    max_weight * max_input,
+                    max_weight * min_input,
+                )
+
+                # get range required by threshold values
+                tdt_min = min(acc_min, min_threshold)
+                tdt_max = max(acc_max, max_threshold)
+                if tdt_min < 0:
+                    if abs(tdt_min) > tdt_max:
+                        tdt = DataType.get_smallest_possible(tdt_min)
+                    else:
+                        tdt = DataType.get_smallest_possible(0 - tdt_max)
+                else:
+                    tdt = DataType.get_smallest_possible(tdt_max)
+
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True
                 )
