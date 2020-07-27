@@ -183,8 +183,8 @@ class GlobalAccPool_Batch(HLSCustomOp):
         return np.prod(self.get_folded_output_shape()[1:-1])
 
     def get_exp_cycles(self):
-        # Channels/PE * batch size (ofmdim = 1)
-        return np.prod(self.get_folded_output_shape()[:-1])
+        # Channels/PE * batch size * idim * idim
+        return np.prod(self.get_folded_input_shape()[:-1])
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
