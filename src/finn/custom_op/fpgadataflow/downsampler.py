@@ -37,12 +37,12 @@ class DownSampler(HLSCustomOp):
         return int(np.floor((idim - 1) / stride) + 1)
 
     def get_exp_cycles(self):
-        fmdim = self.get_downsampled_odim()
+        idim = self.get_nodeattr("ImgDim")
         channels = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
         batch_size = self.get_nodeattr("numInputVectors")
-        exp_cycles = channels / simd * batch_size * fmdim * fmdim
-        return exp_cycles
+        exp_cycles = channels / simd * batch_size * idim * idim
+        return int(exp_cycles)
 
     def get_normal_input_shape(self):
         idim = self.get_nodeattr("ImgDim")
