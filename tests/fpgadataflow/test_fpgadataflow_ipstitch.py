@@ -454,7 +454,38 @@ def test_fpgadataflow_ipstitch_zynqbuild(board):
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
-    model.transform(ZynqBuild(board, 10))
+    # generate inputs for remote exec
+    iname = "inp"
+    idt = model.get_tensor_datatype(iname)
+    ishape = model.get_tensor_shape(iname)
+    # driver
+    model = model.transform(MakePYNQDriver())
+    driver_dir = model.get_metadata_prop("pynq_driver_dir")
+    assert driver_dir is not None
+    assert os.path.isdir(driver_dir)
+    # bitfile using ZynqBuild
+    model = model.transform(ZynqBuild(board, 10))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")
     bitfile_name = model.get_metadata_prop("vivado_pynq_bitfile")
+    assert bitfile_name is not None
     assert os.path.isfile(bitfile_name)
+    # deployment
+    try:
+        ip = os.environ["PYNQ_IP"]  # no default for this one; skip if not defined
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
+        username = os.getenv("PYNQ_USERNAME", "xilinx")
+        password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        port = os.getenv("PYNQ_PORT", 22)
+        target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
+        deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
+        assert deployment_dir is not None
+        assert os.path.isdir(deployment_dir)
+        # remote exec
+        x = gen_finn_dt_tensor(idt, ishape)
+        input_dict = {"inp": x}
+        outp = execute_onnx(model, input_dict)
+        assert np.isclose(outp["outp"], x).all()
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")
