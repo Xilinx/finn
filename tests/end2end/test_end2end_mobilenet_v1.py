@@ -54,6 +54,7 @@ from finn.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     GiveUniqueParameterTensors,
+    RemoveUnusedTensors,
 )
 from finn.transformation.merge_onnx_models import MergeONNXModels
 from finn.transformation.insert_topk import InsertTopK
@@ -211,6 +212,7 @@ def test_end2end_mobilenet_convert_to_hls_layers():
     model = model.transform(to_hls.InferVVAU())
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     model = model.transform(to_hls.InferChannelwiseLinearLayer())
+    # model = model.transform(to_hls.InferLabelSelectLayer())
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
@@ -261,6 +263,7 @@ def test_end2end_mobilenet_folding():
             padding_inst = getCustomOp(padding)
             padding_inst.set_nodeattr("SIMD", pe)
 
+    model = model.transform(InferDataLayouts())
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
 
 
@@ -288,6 +291,7 @@ def test_end2end_mobilenet_create_dataflow_partition():
     sdp_node = getCustomOp(sdp_node)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
+    dataflow_model = dataflow_model.transform(RemoveUnusedTensors())
     dataflow_model.save(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
 
 
