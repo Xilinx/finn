@@ -289,6 +289,15 @@ set NUM_AXIMM %d
 set BOARD %s
 set FPGA_PART %s
 create_project finn_zynq_link ./ -part $FPGA_PART
+
+# set board part repo paths to find PYNQ-Z1/Z2
+set paths_prop [get_property BOARD_PART_REPO_PATHS [current_project]]
+set paths_param [get_param board.repoPaths]
+lappend paths_prop /workspace/finn/board_files
+lappend paths_param /workspace/finn/board_files
+set_property BOARD_PART_REPO_PATHS $paths_prop [current_project]
+set_param board.repoPaths $paths_param
+
 if {$BOARD == "ZCU104"} {
     set_property board_part xilinx.com:zcu104:part0:1.1 [current_project]
     set ZYNQ_TYPE "zynq_us+"
@@ -362,7 +371,8 @@ validate_bd_design
 set_property SYNTH_CHECKPOINT_MODE "Hierarchical" [ get_files top.bd ]
 make_wrapper -files [get_files top.bd] -import -fileset sources_1 -top
 
-set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
+# out-of-context synth can't be used for bitstream generation
+# set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
 launch_runs -to_step write_bitstream impl_1 -jobs %d
 wait_on_run [get_runs impl_1]
 
