@@ -118,8 +118,11 @@ class InsertFIFO(Transformation):
                         graph_modified = True
 
         if graph_modified is False:
-            # insert FIFO as first node
-            if graph.node[0].op_type != "StreamingFIFO":
+            # insert FIFO as first node, except when first node is DMA
+            if (
+                graph.node[0].op_type != "StreamingFIFO"
+                and graph.node[0].op_type != "IODMA"
+            ):
                 n = graph.node[0]
                 n_input = n.input[0]
                 n0 = getCustomOp(n)
@@ -153,8 +156,11 @@ class InsertFIFO(Transformation):
                 # set fifo output tensor as new input tensor of second node
                 n.input[0] = fifo_output_tensor.name
 
-            # insert FIFO as last node
-            if graph.node[-1].op_type != "StreamingFIFO":
+            # insert FIFO as last node, except when last node is DMA
+            if (
+                graph.node[-1].op_type != "StreamingFIFO"
+                and graph.node[0].op_type != "IODMA"
+            ):
                 n = graph.node[-1]
                 assert (
                     n.op_type != "TLastMarker"
