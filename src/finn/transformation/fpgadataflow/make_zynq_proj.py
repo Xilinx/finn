@@ -289,3 +289,4 @@ class ZynqBuild(Transformation):
             kernel_model.save(dataflow_model_filename)
         # Assemble design from IPs
         model = model.transform(MakeZYNQProject(self.platform))
+        return (model, False)
