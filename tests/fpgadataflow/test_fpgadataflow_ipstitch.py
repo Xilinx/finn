@@ -63,6 +63,7 @@ from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -438,3 +439,18 @@ def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model = model.transform(VitisBuild(fpga_part, period_ns, platform))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_vitis.onnx")
+
+
+# board
+@pytest.mark.parametrize("board", ["Pynq-Z1"])
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_ipstitch_zynq(board):
+    model = create_two_fc_model()
+    if model.graph.node[0].op_type == "StreamingDataflowPartition":
+        sdp_node = getCustomOp(model.graph.node[0])
+        assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
+        assert os.path.isfile(sdp_node.get_nodeattr("model"))
+        model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
+    model.transform(ZynqBuild(board, 10))
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")
