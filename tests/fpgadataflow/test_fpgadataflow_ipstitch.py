@@ -447,7 +447,7 @@ def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
 @pytest.mark.parametrize("board", ["Pynq-Z1"])
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_ipstitch_zynq(board):
+def test_fpgadataflow_ipstitch_zynqbuild(board):
     model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
@@ -456,3 +456,5 @@ def test_fpgadataflow_ipstitch_zynq(board):
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model.transform(ZynqBuild(board, 10))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")
+    bitfile_name = model.get_metadata_prop("vivado_pynq_bitfile")
+    assert os.path.isfile(bitfile_name)

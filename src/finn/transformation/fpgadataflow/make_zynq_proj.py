@@ -52,6 +52,7 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_data_layouts import InferDataLayouts
+from shutil import copy
 
 from . import templates
 
@@ -238,6 +239,23 @@ class MakeZYNQProject(Transformation):
         bash_command = ["bash", synth_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+        bitfile_name = (
+            vivado_pynq_proj_dir + "/finn_zynq_link.runs/impl_1/top_wrapper.bit"
+        )
+        if not os.path.isfile(bitfile_name):
+            raise Exception("Synthesis failed, no bitfile found")
+        deploy_bitfile_name = vivado_pynq_proj_dir + "/top.bit"
+        copy(bitfile_name, deploy_bitfile_name)
+        # set bitfile attribute
+        model.set_metadata_prop("vivado_pynq_bitfile", deploy_bitfile_name)
+        hwh_name = (
+            vivado_pynq_proj_dir
+            + "/finn_zynq_link.srcs/sources_1/bd/top/hw_handoff/top.hwh"
+        )
+        if not os.path.isfile(hwh_name):
+            raise Exception("Synthesis failed, no hardware handoff file found")
+        deploy_hwh_name = vivado_pynq_proj_dir + "/top.hwh"
+        copy(hwh_name, deploy_hwh_name)
         return (model, False)
 
 
