@@ -429,6 +429,8 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.vivado
 @pytest.mark.vitis
 def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
+    if "VITIS_PATH" not in os.environ:
+        pytest.skip("VITIS_PATH not set")
     platform = alveo_default_platform[board]
     fpga_part = alveo_part_map[board]
     model = create_two_fc_model("external" if extw else "decoupled")
