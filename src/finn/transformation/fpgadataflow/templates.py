@@ -141,8 +141,16 @@ class FINNAccelDriver():
         elif self.platform == "alveo":
             self.idma = self.ol.idma0
             self.odma = self.ol.odma0
+        elif self.platform == "zynq-iodma":
+            self.idma = self.ol.idma0
+            self.odma = self.ol.odma0
+            # clock frequency
+            self.fclk_mhz = $CLOCK_FREQ_MHZ$
+            # set the clock frequency as specified by user during transformations
+            if self.fclk_mhz > 0:
+                Clocks.$CLK_NAME$ = self.fclk_mhz
         else:
-            raise ValueError("Supported platforms are zynq and alveo")
+            raise ValueError("Supported platforms are zynq zynq-iodma alveo")
 
         # allocate a PYNQ buffer for the packed input and buffer
         self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8)
@@ -194,7 +202,18 @@ class FINNAccelDriver():
             dma.recvchannel.transfer(self.obuf_packed_device)
             dma.sendchannel.wait()
             dma.recvchannel.wait()
-        else:
+        elif self.platform == "zynq-iodma":
+            # manually launch IODMAs since signatures are missing
+            self.idma.write(0x10, self.ibuf_packed_device.device_address)
+            self.idma.write(0x1c, self.N)
+            self.odma.write(0x10, self.obuf_packed_device.device_address)
+            self.odma.write(0x1c, self.N)
+            self.idma.write(0x00, 1)
+            self.odma.write(0x00, 1)
+            # wait until output IODMA is finished
+            while self.odma.read(0x00) and 2 == 0:
+                pass
+        elif self.platform == "alveo":
             self.ibuf_packed_device.sync_to_device()
             self.idma.start(self.ibuf_packed_device, self.N)
             self.odma.start(self.obuf_packed_device, self.N)
@@ -207,7 +226,7 @@ class FINNAccelDriver():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Set exec mode, batchsize N, bitfile name, inputfile name and outputfile name')
     parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
-    parser.add_argument('--platform', help='Target platform, zynq or alveo', default="zynq")
+    parser.add_argument('--platform', help='Target platform: zynq zynq-iodma alveo', default="zynq")
     parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
     parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
     parser.add_argument('--inputfile', help='name of input npy file (i.e. "input.npy")', default="input.npy")
