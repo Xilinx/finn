@@ -224,6 +224,10 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         nf = np.prod(self.get_folded_output_shape()[:-1])
         return nf
 
+    def get_exp_cycles(self):
+        # Channels/PE * batch size * fmdim * fmdim
+        return np.prod(self.get_folded_output_shape()[:-1])
+
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
         data types."""

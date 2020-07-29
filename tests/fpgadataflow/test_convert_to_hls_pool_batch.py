@@ -44,6 +44,7 @@ from finn.transformation.general import GiveUniqueNodeNames
 from finn.custom_op.registry import getCustomOp
 from finn.util.basic import gen_finn_dt_tensor
 from finn.transformation.infer_shapes import InferShapes
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_single_maxpool_modelwrapper(k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt):
@@ -210,3 +211,11 @@ def test_convert_to_hls_pool_batch(
             assert len(new_model.graph.node) == 5
     else:
         assert len(new_model.graph.node) == 1
+
+    if exec_mode == "rtlsim":
+        node = new_model.get_nodes_by_op_type("Pool_Batch")[0]
+        inst = getCustomOp(node)
+        sim_cycles = inst.get_nodeattr("sim_cycles")
+        exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[str(node)]
+        assert np.isclose(exp_cycles, sim_cycles, atol=10)
