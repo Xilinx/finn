@@ -18,19 +18,6 @@ from finn.transformation.general import (
     GiveUniqueParameterTensors,
 )
 from finn.transformation.merge_onnx_models import MergeONNXModels
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
-from finn.transformation.streamline import Streamline
-from finn.transformation.streamline.remove import RemoveIdentityOps
-from finn.transformation.streamline.reorder import (
-    MoveMulPastDWConv,
-    MoveTransposePastScalarMul,
-    MoveFlattenPastAffine,
-    MoveFlattenPastTopK,
-    MoveScalarMulPastMatMul,
-)
-from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
-from finn.transformation.change_datalayout import ChangeDataLayoutQuantAvgPool2d
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 import finn.transformation.streamline.absorb as absorb
 from finn.transformation.insert_topk import InsertTopK
 import finn.core.onnx_exec as oxe
