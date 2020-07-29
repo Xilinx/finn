@@ -139,6 +139,18 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         nf = np.prod(self.get_folded_output_shape()[:-1])
         return nf
 
+    def get_exp_cycles(self):
+        pe = self.get_nodeattr("PE")
+        ch = self.get_nodeattr("Channels")
+        dim = self.get_nodeattr("Dim")
+        k = self.get_nodeattr("Kernel")
+        # currently FINN supports for vvau a batch size of 1
+        batch_size = 1
+        # since mmv != 1 is not supported yet, we set mmv for now to 1
+        mmv = 1
+        exp_cycles = ((ch * k * k) / pe) * batch_size * (dim * dim) / mmv
+        return int(exp_cycles)
+
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
         data types."""
@@ -230,7 +242,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         else:
             f_weights.write(
                 "const BinaryWeights<1,{},{}> weights = ".format(
-                    self.get_nodeattr("PE"), self.calc_wmem(),
+                    self.get_nodeattr("PE"), self.calc_wmem()
                 )
             )
         f_weights.write(weight_hls_code)
@@ -478,3 +490,17 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             ("#pragma HLS ARRAY_PARTITION variable=weights.m_weights " "complete dim=1")
         )
+        if self.calc_tmem() != 0:
+            # TODO find a better way of checking for no pregenerated thresholds
+            self.code_gen_dict["$PRAGMAS$"].append(
+                (
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=1"
+                )
+            )
+            self.code_gen_dict["$PRAGMAS$"].append(
+                (
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=3"
+                )
+            )
