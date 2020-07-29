@@ -458,6 +458,7 @@ def test_fpgadataflow_ipstitch_zynqbuild(board):
     iname = "inp"
     idt = model.get_tensor_datatype(iname)
     ishape = model.get_tensor_shape(iname)
+    x = gen_finn_dt_tensor(idt, ishape)
     # driver
     model = model.transform(MakePYNQDriver())
     driver_dir = model.get_metadata_prop("pynq_driver_dir")
@@ -466,6 +467,7 @@ def test_fpgadataflow_ipstitch_zynqbuild(board):
     # bitfile using ZynqBuild
     model = model.transform(ZynqBuild(board, 10))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")
+
     bitfile_name = model.get_metadata_prop("vivado_pynq_bitfile")
     assert bitfile_name is not None
     assert os.path.isfile(bitfile_name)
@@ -483,9 +485,8 @@ def test_fpgadataflow_ipstitch_zynqbuild(board):
         assert deployment_dir is not None
         assert os.path.isdir(deployment_dir)
         # remote exec
-        x = gen_finn_dt_tensor(idt, ishape)
-        input_dict = {"inp": x}
+        input_dict = {"global_in": x}
         outp = execute_onnx(model, input_dict)
-        assert np.isclose(outp["outp"], x).all()
+        assert np.isclose(outp["global_out"], x).all()
     except KeyError:
         pytest.skip("PYNQ board IP address not specified")
