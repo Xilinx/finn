@@ -93,7 +93,7 @@ def resize_smaller_side(target_pixels, img):
     ratio = target_pixels / min(img.size)
     width = int(img.size[0] * ratio)
     height = int(img.size[1] * ratio)
-    return img.resize((width, height))
+    return img.resize((width, height), resample=0)
 
 
 def crop_center(size, img):
