@@ -244,17 +244,19 @@ class MakeZYNQProject(Transformation):
         )
         if not os.path.isfile(bitfile_name):
             raise Exception("Synthesis failed, no bitfile found")
-        deploy_bitfile_name = vivado_pynq_proj_dir + "/top.bit"
+        deploy_bitfile_name = vivado_pynq_proj_dir + "/resizer.bit"
         copy(bitfile_name, deploy_bitfile_name)
         # set bitfile attribute
         model.set_metadata_prop("vivado_pynq_bitfile", deploy_bitfile_name)
+        # set platform attribute for correct remote execution
+        model.set_metadata_prop("platform", "zynq-iodma")
         hwh_name = (
             vivado_pynq_proj_dir
             + "/finn_zynq_link.srcs/sources_1/bd/top/hw_handoff/top.hwh"
         )
         if not os.path.isfile(hwh_name):
             raise Exception("Synthesis failed, no hardware handoff file found")
-        deploy_hwh_name = vivado_pynq_proj_dir + "/top.hwh"
+        deploy_hwh_name = vivado_pynq_proj_dir + "/resizer.hwh"
         copy(hwh_name, deploy_hwh_name)
         return (model, False)
 
