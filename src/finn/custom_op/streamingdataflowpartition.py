@@ -83,7 +83,7 @@ class StreamingDataflowPartition(CustomOp):
             )
 
         # verify the number of inputs
-        if len(self.onnx_node.input) == 1:
+        if len(self.onnx_node.input) >= 1:
             info_messages.append("The number of inputs is correct")
         else:
             info_messages.append("StreamingDataflowPartition needs 1 data input")

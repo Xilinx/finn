@@ -107,6 +107,7 @@ class InferConvInpGen(Transformation):
                         Padding=2 * pad,
                         NumChannels=ifm_ch,
                         inputDataType=dt.name,
+                        SIMD=ifm_ch,
                     )
                     graph.node.insert(node_ind, padding_node)
 
