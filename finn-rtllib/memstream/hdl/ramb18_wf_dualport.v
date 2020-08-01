@@ -31,26 +31,31 @@
 module ramb18_wf_dualport
 #(
     parameter ID = 0,
-	parameter DWIDTH = 18,
-	parameter AWIDTH = 10,
-	parameter MEM_INIT = "",
-  parameter RAM_STYLE = "auto"
+    parameter DWIDTH = 18,
+    parameter AWIDTH = 10,
+    parameter DEPTH = 2**AWIDTH,
+    parameter MEM_INIT = "",
+    parameter RAM_STYLE = "auto"
 )
 (
 	input clk,
 
 	input wea,
+    input ena,
+    input enqa,
 	input [AWIDTH-1:0] addra,
 	input [DWIDTH-1:0] wdataa,
 	output reg [DWIDTH-1:0] rdqa,
 
 	input web,
+    input enb,
+    input enqb,
 	input [AWIDTH-1:0] addrb,
 	input [DWIDTH-1:0] wdatab,
 	output reg [DWIDTH-1:0] rdqb
 );
 
-(* ram_style = RAM_STYLE *) reg [DWIDTH-1:0] mem[0:2**AWIDTH-1];
+(* ram_style = RAM_STYLE *) reg [DWIDTH-1:0] mem[0:DEPTH-1];
 reg [DWIDTH-1:0] rdataa;
 reg [DWIDTH-1:0] rdatab;
 
@@ -85,16 +90,22 @@ end
 
 //memory ports, with output pipeline register
 always @(posedge clk) begin
-    if(wea)
-        mem[addra] <= wdataa;
-    rdataa <= mem[addra];
-    rdqa <= rdataa;
+    if(ena) begin
+        if(wea)
+            mem[addra] <= wdataa;
+        rdataa <= mem[addra];
+    end
+    if(enqa)
+        rdqa <= rdataa;
 end
 always @(posedge clk) begin
-    if(web)
-        mem[addrb] <= wdatab;
-    rdatab <= mem[addrb];
-    rdqb <= rdatab;
+    if(enb) begin
+        if(web)
+            mem[addrb] <= wdatab;
+        rdatab <= mem[addrb];
+    end
+    if(enqb)
+        rdqb <= rdatab;
 end
 
 endmodule
