@@ -166,7 +166,7 @@ memstream
 .STRM0_DEPTH($WSTREAM_DEPTH$),
 
 //offsets for each stream
-.STRM0_OFFSET(0),
+.STRM0_OFFSET(0)
 )
 mem
 (
