@@ -66,26 +66,25 @@ class AnnotateResources(Transformation):
         children_dict = {}
         # annotate node resources
         for node in graph.node:
-            if _is_fpgadataflow_node(node):
-                if node.name in self.res_dict.keys():
-                    op_inst = registry.getCustomOp(node)
-                    op_inst.set_nodeattr(
-                        "res_" + self.mode, str(self.res_dict[node.name])
-                    )
-                    children_dict[node.name] = self.res_dict[node.name]
-                elif node.op_type == "StreamingDataflowPartition":
-                    # recurse into model to manually annotate per-layer resources
-                    sdp_model_filename = getCustomOp(node).get_nodeattr("model")
-                    sdp_model = ModelWrapper(sdp_model_filename)
-                    sdp_model = sdp_model.transform(
-                        AnnotateResources(self.mode, self.res_dict)
-                    )
-                    sdp_dict = sdp_model.get_metadata_prop("res_total_" + self.mode)
-                    # save transformed model
-                    sdp_model.save(sdp_model_filename)
-                    # set res attribute for sdp node
-                    getCustomOp(node).set_nodeattr("res_" + self.mode, str(sdp_dict))
-                    children_dict[node.name] = sdp_dict
+            if _is_fpgadataflow_node(node) and node.name in self.res_dict.keys():
+                op_inst = registry.getCustomOp(node)
+                op_inst.set_nodeattr("res_" + self.mode, str(self.res_dict[node.name]))
+                children_dict[node.name] = self.res_dict[node.name]
+            elif node.op_type == "StreamingDataflowPartition":
+                # recurse into model to manually annotate per-layer resources
+                sdp_model_filename = getCustomOp(node).get_nodeattr("model")
+                sdp_model = ModelWrapper(sdp_model_filename)
+                sdp_model = sdp_model.transform(
+                    AnnotateResources(self.mode, self.res_dict)
+                )
+                sdp_dict = sdp_model.get_metadata_prop("res_total_" + self.mode)
+                sdp_dict = eval(sdp_dict)
+                # save transformed model
+                sdp_model.save(sdp_model_filename)
+                # set res attribute for sdp node
+                getCustomOp(node).set_nodeattr("res_" + self.mode, str(sdp_dict))
+                children_dict[node.name] = sdp_dict
+        self.res_dict.update(children_dict)
         total_dict = {}
         for lname in children_dict.keys():
             layer_res_dict = self.res_dict[lname]

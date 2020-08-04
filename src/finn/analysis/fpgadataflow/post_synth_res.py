@@ -55,36 +55,35 @@ def post_synth_res(model, override_synth_report_filename=None):
         raise Exception("Please run synthesis first")
 
     for node in model.graph.node:
-        if _is_fpgadataflow_node(node):
-            if node.op_type == "StreamingDataflowPartition":
-                sdp_model = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
-                sdp_res_dict = post_synth_res(sdp_model, synth_report_filename)
-                res_dict.update(sdp_res_dict)
-            else:
-                row = root.findall(".//*[@contents='%s']/.." % node.name)
-                if row != []:
-                    node_dict = {}
-                    row = row[0].getchildren()
-                    """ Expected XML structure:
-    <tablerow class="" suppressoutput="0" wordwrap="0">
-        <tableheader class="" contents="Instance" halign="3" width="-1"/>
-        <tableheader class="" contents="Module" halign="3" width="-1"/>
-        <tableheader class="" contents="Total LUTs" halign="3" width="-1"/>
-        <tableheader class="" contents="Logic LUTs" halign="3" width="-1"/>
-        <tableheader class="" contents="LUTRAMs" halign="3" width="-1"/>
-        <tableheader class="" contents="SRLs" halign="3" width="-1"/>
-        <tableheader class="" contents="FFs" halign="3" width="-1"/>
-        <tableheader class="" contents="RAMB36" halign="3" width="-1"/>
-        <tableheader class="" contents="RAMB18" halign="3" width="-1"/>
-        <tableheader class="" contents="DSP48 Blocks" halign="3" width="-1"/>
-    </tablerow>
-                    """
-                    node_dict["LUT"] = int(row[2].attrib["contents"])
-                    node_dict["SRL"] = int(row[5].attrib["contents"])
-                    node_dict["FF"] = int(row[6].attrib["contents"])
-                    node_dict["BRAM_36K"] = int(row[7].attrib["contents"])
-                    node_dict["BRAM_18K"] = int(row[8].attrib["contents"])
-                    node_dict["DSP48"] = int(row[9].attrib["contents"])
-                    res_dict[node.name] = node_dict
+        if node.op_type == "StreamingDataflowPartition":
+            sdp_model = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
+            sdp_res_dict = post_synth_res(sdp_model, synth_report_filename)
+            res_dict.update(sdp_res_dict)
+        elif _is_fpgadataflow_node(node):
+            row = root.findall(".//*[@contents='%s']/.." % node.name)
+            if row != []:
+                node_dict = {}
+                row = row[0].getchildren()
+                """ Expected XML structure:
+<tablerow class="" suppressoutput="0" wordwrap="0">
+    <tableheader class="" contents="Instance" halign="3" width="-1"/>
+    <tableheader class="" contents="Module" halign="3" width="-1"/>
+    <tableheader class="" contents="Total LUTs" halign="3" width="-1"/>
+    <tableheader class="" contents="Logic LUTs" halign="3" width="-1"/>
+    <tableheader class="" contents="LUTRAMs" halign="3" width="-1"/>
+    <tableheader class="" contents="SRLs" halign="3" width="-1"/>
+    <tableheader class="" contents="FFs" halign="3" width="-1"/>
+    <tableheader class="" contents="RAMB36" halign="3" width="-1"/>
+    <tableheader class="" contents="RAMB18" halign="3" width="-1"/>
+    <tableheader class="" contents="DSP48 Blocks" halign="3" width="-1"/>
+</tablerow>
+                """
+                node_dict["LUT"] = int(row[2].attrib["contents"])
+                node_dict["SRL"] = int(row[5].attrib["contents"])
+                node_dict["FF"] = int(row[6].attrib["contents"])
+                node_dict["BRAM_36K"] = int(row[7].attrib["contents"])
+                node_dict["BRAM_18K"] = int(row[8].attrib["contents"])
+                node_dict["DSP48"] = int(row[9].attrib["contents"])
+                res_dict[node.name] = node_dict
 
     return res_dict
