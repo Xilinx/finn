@@ -395,4 +395,7 @@ make_wrapper -files [get_files top.bd] -import -fileset sources_1 -top
 launch_runs -to_step write_bitstream impl_1 -jobs %d
 wait_on_run [get_runs impl_1]
 
+# generate synthesis report
+open_run synth_1 -name synth_1
+report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
 """
