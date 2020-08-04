@@ -51,7 +51,8 @@ def execute_node(node, context, graph):
     if node.op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(node)
         model = ModelWrapper(sdp_node.get_nodeattr("model"))
-        ret = execute_onnx(model, context, True)
+        inp_ctx = dict(filter(lambda x: x[0] in node.input, context.items()))
+        ret = execute_onnx(model, inp_ctx, False)
         context.update(ret)
     else:
         if node.domain == "finn":
