@@ -32,6 +32,8 @@ from finn.transformation.move_reshape import _is_fpgadataflow_node
 from finn.analysis.fpgadataflow.res_estimation import res_estimation
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.post_synth_res import post_synth_res
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.registry import getCustomOp
 
 
 class AnnotateResources(Transformation):
@@ -44,9 +46,10 @@ class AnnotateResources(Transformation):
     chosen mode (e.g. HLSSynthIP for hls) was previously run.
     """
 
-    def __init__(self, mode):
+    def __init__(self, mode, override_res_dict=None):
         super().__init__()
         self.mode = mode
+        self.res_dict = override_res_dict
 
     def apply(self, model):
         graph = model.graph
@@ -58,10 +61,34 @@ class AnnotateResources(Transformation):
             res_fxn = post_synth_res
         else:
             raise Exception("Unrecognized mode for AnnotateResources")
-        res_dict = model.analysis(res_fxn)
+        if self.res_dict is None:
+            self.res_dict = model.analysis(res_fxn)
+        children_dict = {}
+        # annotate node resources
+        for node in graph.node:
+            if _is_fpgadataflow_node(node):
+                if node.name in self.res_dict.keys():
+                    op_inst = registry.getCustomOp(node)
+                    op_inst.set_nodeattr(
+                        "res_" + self.mode, str(self.res_dict[node.name])
+                    )
+                    children_dict[node.name] = self.res_dict[node.name]
+                elif node.op_type == "StreamingDataflowPartition":
+                    # recurse into model to manually annotate per-layer resources
+                    sdp_model_filename = getCustomOp(node).get_nodeattr("model")
+                    sdp_model = ModelWrapper(sdp_model_filename)
+                    sdp_model = sdp_model.transform(
+                        AnnotateResources(self.mode, self.res_dict)
+                    )
+                    sdp_dict = sdp_model.get_metadata_prop("res_total_" + self.mode)
+                    # save transformed model
+                    sdp_model.save(sdp_model_filename)
+                    # set res attribute for sdp node
+                    getCustomOp(node).set_nodeattr("res_" + self.mode, str(sdp_dict))
+                    children_dict[node.name] = sdp_dict
         total_dict = {}
-        for lname in res_dict.keys():
-            layer_res_dict = res_dict[lname]
+        for lname in children_dict.keys():
+            layer_res_dict = self.res_dict[lname]
             for r_type in layer_res_dict.keys():
                 r_amount = layer_res_dict[r_type]
                 r_amount = float(r_amount)
@@ -73,9 +100,4 @@ class AnnotateResources(Transformation):
             if "efficiency" in k:
                 total_dict[k] = total_dict[k] / len(graph.node)
         model.set_metadata_prop("res_total_" + self.mode, str(total_dict))
-        for node in graph.node:
-            if _is_fpgadataflow_node(node) and node.name in res_dict.keys():
-                op_inst = registry.getCustomOp(node)
-                op_inst.set_nodeattr("res_" + self.mode, str(res_dict[node.name]))
-
         return (model, False)
