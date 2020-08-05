@@ -104,7 +104,7 @@ from finn.core.datatype import DataType
 from pynq.ps import Clocks
 
 class FINNAccelDriver():
-    def __init__(self, N, bitfile, platform="zynq"):
+    def __init__(self, N, bitfile, platform="$PLATFORM$"):
         \"\"\"Instantiate the FINN accelerator driver.
         Gets batchsize (N) as integer and path to bitfile as string.\"\"\"
         self.platform = platform
