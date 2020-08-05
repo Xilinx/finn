@@ -52,6 +52,13 @@ def execute_node(node, context, graph):
         sdp_node = getCustomOp(node)
         model = ModelWrapper(sdp_node.get_nodeattr("model"))
         inp_ctx = dict(filter(lambda x: x[0] in node.input, context.items()))
+        # input may have been renamed in partition
+        assert len(inp_ctx) == 1
+        old_iname = node.input[0]
+        new_iname = model.graph.input[0].name
+        if old_iname != new_iname:
+            inp_ctx[new_iname] = inp_ctx[old_iname]
+            del inp_ctx[old_iname]
         ret = execute_onnx(model, inp_ctx, False)
         context.update(ret)
     else:
