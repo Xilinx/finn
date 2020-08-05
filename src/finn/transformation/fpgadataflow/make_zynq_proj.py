@@ -90,9 +90,10 @@ class MakeZYNQProject(Transformation):
     value.
     """
 
-    def __init__(self, platform):
+    def __init__(self, platform, enable_debug=False):
         super().__init__()
         self.platform = platform
+        self.enable_debug = 1 if enable_debug else 0
 
     def apply(self, model):
 
@@ -222,6 +223,7 @@ class MakeZYNQProject(Transformation):
                     self.platform,
                     pynq_part_map[self.platform],
                     config,
+                    self.enable_debug,
                     get_num_default_workers(),
                 )
             )
@@ -267,11 +269,12 @@ class MakeZYNQProject(Transformation):
 class ZynqBuild(Transformation):
     """Best-effort attempt at building the accelerator for Zynq."""
 
-    def __init__(self, platform, period_ns):
+    def __init__(self, platform, period_ns, enable_debug=False):
         super().__init__()
         self.fpga_part = pynq_part_map[platform]
         self.period_ns = period_ns
         self.platform = platform
+        self.enable_debug = enable_debug
 
     def apply(self, model):
         # first infer layouts
@@ -311,5 +314,7 @@ class ZynqBuild(Transformation):
             )
             kernel_model.save(dataflow_model_filename)
         # Assemble design from IPs
-        model = model.transform(MakeZYNQProject(self.platform))
+        model = model.transform(
+            MakeZYNQProject(self.platform, enable_debug=self.enable_debug)
+        )
         return (model, False)
