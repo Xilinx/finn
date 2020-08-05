@@ -60,7 +60,11 @@ def execute_node(node, context, graph):
             inp_ctx[new_iname] = inp_ctx[old_iname]
             del inp_ctx[old_iname]
         ret = execute_onnx(model, inp_ctx, False)
-        context.update(ret)
+        # output may have been renamed in partition
+        assert len(ret) == 1
+        node_oname = node.output[0]
+        model_oname = model.graph.output[0].name
+        context[node_oname] = ret[model_oname]
     else:
         if node.domain == "finn":
 
