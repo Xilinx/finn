@@ -41,7 +41,6 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -297,9 +296,6 @@ class ZynqBuild(Transformation):
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_model = kernel_model.transform(InsertFIFO())
-            kernel_model = kernel_model.transform(
-                InsertTLastMarker(both=True, external=False, dynamic=False)
-            )
             kernel_model = kernel_model.transform(GiveUniqueNodeNames())
             kernel_model.save(dataflow_model_filename)
             kernel_model = kernel_model.transform(
