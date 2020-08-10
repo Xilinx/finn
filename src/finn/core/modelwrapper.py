@@ -83,9 +83,9 @@ class ModelWrapper:
         """Saves the wrapper ONNX ModelProto into a file with given name."""
         onnx.save(self._model_proto, filename)
 
-    def analysis(self, analysis_fxn):
+    def analysis(self, analysis_fxn, *args, **kwargs):
         """Runs given anaylsis_fxn on this model and return resulting dict."""
-        return analysis_fxn(self)
+        return analysis_fxn(self, *args, **kwargs)
 
     def transform(self, transformation, make_deepcopy=True):
         """Applies given Transformation repeatedly until no more changes can be made
