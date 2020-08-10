@@ -76,15 +76,15 @@ initial begin
 	//MEM_INIT path must be terminated by /
   `ifdef SYNTHESIS
   if (ID < 10)
-    $readmemh({MEM_INIT,"memblock_",idx+8'd48,".dat"}, mem, 0, 1023);
+    $readmemh({MEM_INIT,"memblock_",idx+8'd48,".dat"}, mem, 0, DEPTH-1);
   else
-    $readmemh({MEM_INIT,"memblock_",(idx/10)+8'd48,(idx%10)+8'd48,".dat"}, mem, 0, 1023);
+    $readmemh({MEM_INIT,"memblock_",(idx/10)+8'd48,(idx%10)+8'd48,".dat"}, mem, 0, DEPTH-1);
   `else
   $sformat(idx,"%0d",ID);
   if (ID < 10)
-    $readmemh({MEM_INIT,"memblock_",idx[7:0],".dat"}, mem, 0, 1023);
+    $readmemh({MEM_INIT,"memblock_",idx[7:0],".dat"}, mem, 0, DEPTH-1);
   else
-    $readmemh({MEM_INIT,"memblock_",idx,".dat"}, mem, 0, 1023);
+    $readmemh({MEM_INIT,"memblock_",idx,".dat"}, mem, 0, DEPTH-1);
   `endif
 end
 
