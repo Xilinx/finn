@@ -81,8 +81,8 @@ class InsertIODMA(Transformation):
                 # check if tensor is NHWC
                 assert (
                     model.get_tensor_layout(graph_out_name) == DataLayout.NHWC
-                    or model.get_tensor_layout(graph_in_name) == DataLayout.NC
-                ), "Data layout of tensors must be NHWC or NC"
+                    or model.get_tensor_layout(graph_out_name) == DataLayout.NC
+                ), "Data layout of output tensor must be NHWC or NC"
                 out_shape = model.get_tensor_shape(graph_out_name)
                 out_dtype = model.get_tensor_datatype(graph_out_name)
                 # determine the feasible interface width
@@ -120,7 +120,7 @@ class InsertIODMA(Transformation):
                 assert (
                     model.get_tensor_layout(graph_in_name) == DataLayout.NHWC
                     or model.get_tensor_layout(graph_in_name) == DataLayout.NC
-                ), "Data layout of tensors must be NHWC or NC"
+                ), "Data layout of input tensor must be NHWC or NC"
                 in_shape = model.get_tensor_shape(graph_in_name)
                 in_dtype = model.get_tensor_datatype(graph_in_name)
                 # determine the feasible interface width
