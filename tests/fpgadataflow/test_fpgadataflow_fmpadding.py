@@ -131,6 +131,6 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, pad_style, idt, mode):
         inst = getCustomOp(node)
         sim_cycles = inst.get_nodeattr("sim_cycles")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-        exp_cycles = exp_cycles_dict[str(node)]
+        exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, sim_cycles, atol=10)
         assert exp_cycles != 0

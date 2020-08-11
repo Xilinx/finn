@@ -129,7 +129,7 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
         inst = getCustomOp(node)
         sim_cycles = inst.get_nodeattr("sim_cycles")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-        exp_cycles = exp_cycles_dict[str(node)]
+        exp_cycles = exp_cycles_dict[node.name]
         # commented out, needs performance debug:
         # test_fpgadataflow_globalaccpool[rtlsim-7-1-64-DataType.UINT4]
         # assert False where False =
