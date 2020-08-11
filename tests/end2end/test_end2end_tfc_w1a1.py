@@ -319,7 +319,7 @@ def test_end2end_tfc_w1a1_synth_pynq_project():
 
 def test_end2end_tfc_w1a1_make_driver():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_tfc_w1a1_synth.onnx")
-    model = model.transform(MakePYNQDriver())
+    model = model.transform(MakePYNQDriver(platform="zynq"))
     model.save(build_dir + "/end2end_tfc_w1a1_pynq_driver.onnx")
 
 
