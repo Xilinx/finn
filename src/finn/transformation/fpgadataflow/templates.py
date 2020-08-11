@@ -211,8 +211,10 @@ class FINNAccelDriver():
             self.idma.write(0x00, 1)
             self.odma.write(0x00, 1)
             # wait until output IODMA is finished
-            while self.odma.read(0x00) and 2 == 0:
-                pass
+            status = self.odma.read(0x00)
+            while status & 0x2 == 0:
+                status = self.odma.read(0x00)
+
         elif self.platform == "alveo":
             self.ibuf_packed_device.sync_to_device()
             self.idma.start(self.ibuf_packed_device, self.N)
