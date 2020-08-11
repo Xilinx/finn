@@ -57,4 +57,19 @@ if [ ! -z "$VITIS_PATH" ];then
   export XILINX_VITIS=$VITIS_PATH
   source $VITIS_PATH/settings64.sh
 fi
+
+# download PYNQ board files if not already there
+if [ ! -d "/workspace/finn/board_files" ]; then
+    gecho "Downloading PYNQ board files for Vivado"
+    wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
+    wget -q https://d2m32eurp10079.cloudfront.net/Download/pynq-z2.zip
+    unzip -q pynq-z1.zip
+    unzip -q pynq-z2.zip
+    mkdir /workspace/finn/board_files
+    mv pynq-z1/ board_files/
+    mv pynq-z2/ board_files/
+    rm pynq-z1.zip
+    rm pynq-z2.zip
+fi
+
 exec "$@"

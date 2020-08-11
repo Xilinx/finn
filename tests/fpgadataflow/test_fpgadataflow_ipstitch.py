@@ -63,6 +63,7 @@ from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -428,6 +429,8 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.vivado
 @pytest.mark.vitis
 def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
+    if "VITIS_PATH" not in os.environ:
+        pytest.skip("VITIS_PATH not set")
     platform = alveo_default_platform[board]
     fpga_part = alveo_part_map[board]
     model = create_two_fc_model("external" if extw else "decoupled")
@@ -438,3 +441,52 @@ def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model = model.transform(VitisBuild(fpga_part, period_ns, platform))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_vitis.onnx")
+
+
+# board
+@pytest.mark.parametrize("board", ["Pynq-Z1"])
+@pytest.mark.slow
+@pytest.mark.vivado
+def test_fpgadataflow_ipstitch_zynqbuild(board):
+    model = create_two_fc_model()
+    if model.graph.node[0].op_type == "StreamingDataflowPartition":
+        sdp_node = getCustomOp(model.graph.node[0])
+        assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
+        assert os.path.isfile(sdp_node.get_nodeattr("model"))
+        model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
+    # generate inputs for remote exec
+    iname = "inp"
+    idt = model.get_tensor_datatype(iname)
+    ishape = model.get_tensor_shape(iname)
+    x = gen_finn_dt_tensor(idt, ishape)
+    # driver
+    model = model.transform(MakePYNQDriver())
+    driver_dir = model.get_metadata_prop("pynq_driver_dir")
+    assert driver_dir is not None
+    assert os.path.isdir(driver_dir)
+    # bitfile using ZynqBuild
+    model = model.transform(ZynqBuild(board, 10))
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")
+
+    bitfile_name = model.get_metadata_prop("vivado_pynq_bitfile")
+    assert bitfile_name is not None
+    assert os.path.isfile(bitfile_name)
+    # deployment
+    try:
+        ip = os.environ["PYNQ_IP"]  # no default for this one; skip if not defined
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
+        username = os.getenv("PYNQ_USERNAME", "xilinx")
+        password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        port = os.getenv("PYNQ_PORT", 22)
+        target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
+        deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
+        assert deployment_dir is not None
+        assert os.path.isdir(deployment_dir)
+        # remote exec
+        input_dict = {"global_in": x}
+        outp = execute_onnx(model, input_dict)
+        assert np.isclose(outp["global_out"], x).all()
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")

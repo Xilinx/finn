@@ -52,10 +52,16 @@ from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeN
 from finn.util.basic import make_build_dir
 from finn.transformation.infer_data_layouts import InferDataLayouts
 
+
 def _check_vitis_envvars():
     assert "VITIS_PATH" in os.environ, "VITIS_PATH must be set for Vitis"
-    assert "PLATFORM_REPO_PATHS" in os.environ, "PLATFORM_REPO_PATHS must be set for Vitis"
-    assert "XILINX_XRT" in os.environ, "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
+    assert (
+        "PLATFORM_REPO_PATHS" in os.environ
+    ), "PLATFORM_REPO_PATHS must be set for Vitis"
+    assert (
+        "XILINX_XRT" in os.environ
+    ), "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
+
 
 class CreateVitisXO(Transformation):
     """Create a Vitis object file from a stitched FINN ip.
@@ -145,7 +151,9 @@ class CreateVitisXO(Transformation):
         bash_command = ["bash", package_xo_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
-        assert os.path.isfile(xo_path), "Vitis .xo file not created, check logs under %s" % vivado_proj_dir
+        assert os.path.isfile(xo_path), (
+            "Vitis .xo file not created, check logs under %s" % vivado_proj_dir
+        )
         return (model, False)
 
 
@@ -238,7 +246,7 @@ class VitisLink(Transformation):
             f.write("cd {}\n".format(link_dir))
             f.write(
                 "v++ -t hw --platform %s --link %s"
-                " --kernel_frequency %d --config config.txt\n"
+                " --kernel_frequency %d --config config.txt --optimize 2 --save-temps -R2\n"
                 % (self.platform, " ".join(object_files), self.f_mhz)
             )
             f.write("cd {}\n".format(working_dir))
@@ -247,7 +255,9 @@ class VitisLink(Transformation):
         process_compile.communicate()
         # TODO rename xclbin appropriately here?
         xclbin = link_dir + "/a.xclbin"
-        assert os.path.isfile(xclbin), "Vitis .xclbin file not created, check logs under %s" % link_dir
+        assert os.path.isfile(xclbin), (
+            "Vitis .xclbin file not created, check logs under %s" % link_dir
+        )
         model.set_metadata_prop("vitis_xclbin", xclbin)
         return (model, False)
 
@@ -305,5 +315,7 @@ class VitisBuild(Transformation):
             kernel_model.save(dataflow_model_filename)
         # Assemble design from kernels
         model = model.transform(VitisLink(self.platform, round(1000 / self.period_ns)))
+        # set platform attribute for correct remote execution
+        model.set_metadata_prop("platform", "alveo")
 
         return (model, False)

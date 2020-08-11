@@ -36,7 +36,12 @@ class StreamingDataflowPartition(CustomOp):
     bitfile by itself."""
 
     def get_nodeattr_types(self):
-        return {"model": ("s", True, "")}
+        return {
+            "model": ("s", True, ""),
+            "res_estimate": ("s", False, ""),
+            "res_hls": ("s", False, ""),
+            "res_synth": ("s", False, ""),
+        }
 
     def make_shape_compatible_op(self, model):
         pass
