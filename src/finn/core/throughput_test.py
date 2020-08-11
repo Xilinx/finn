@@ -125,7 +125,7 @@ def throughput_test_rtlsim(model, batchsize=100):
     os.environ["LIVENESS_THRESHOLD"] = "-1"
     rtlsim_exec(model, ctx)
     # extract metrics
-    cycles = int(model.get_metadata_prop("sim_cycles"))
+    cycles = int(model.get_metadata_prop("cycles_rtlsim"))
     clk_ns = float(model.get_metadata_prop("clk_ns"))
     fclk_mhz = 1 / (clk_ns * 0.001)
     runtime_s = (cycles * clk_ns) * (10 ** -9)
