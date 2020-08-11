@@ -156,9 +156,7 @@ def test_end2end_zynqbuild_tfc_w2a2_build():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_zynqbuild_tfc_w2a2_pynq_driver.onnx"
     )
-    model = model.transform(
-        ZynqBuild(test_pynq_board, target_clk_ns, enable_debug=True)
-    )
+    model = model.transform(ZynqBuild(test_pynq_board, target_clk_ns))
     model = model.transform(AnnotateResources("synth"))
     model.save(build_dir + "/end2end_zynqbuild_tfc_w2a2_build.onnx")
 
