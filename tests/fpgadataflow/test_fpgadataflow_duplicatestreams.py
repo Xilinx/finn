@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+import numpy as np
 
 from onnx import TensorProto, helper
 
@@ -46,6 +47,8 @@ from finn.util.basic import gen_finn_dt_tensor
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
+from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_dupstreams_modelwrapper(ch, pe, idim, idt):
@@ -130,3 +133,12 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, exec_mode):
 
     assert (y0 == expected_y).all(), exec_mode + " failed"
     assert (y1 == expected_y).all(), exec_mode + " failed"
+
+    if exec_mode == "rtlsim":
+        node = model.get_nodes_by_op_type("DuplicateStreams_Batch")[0]
+        inst = getCustomOp(node)
+        sim_cycles = inst.get_nodeattr("sim_cycles")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, sim_cycles, atol=10)
+        assert exp_cycles != 0

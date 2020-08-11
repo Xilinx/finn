@@ -36,6 +36,9 @@ from finn.custom_op.registry import getCustomOp
 
 def post_synth_res(model, override_synth_report_filename=None):
     """Extracts the FPGA resource results from the Vivado synthesis.
+    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
+    transformation) prior to calling this analysis pass to ensure all nodes are
+    visible in the results.
 
     Returns {node name : resources_dict}."""
 

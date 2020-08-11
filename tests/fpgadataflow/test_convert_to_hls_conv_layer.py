@@ -24,6 +24,7 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.custom_op.im2col import compute_conv_output_dim
 from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 # conv_config  kernel_size,stride, pad
 
@@ -111,6 +112,14 @@ def test_convert_to_hls_conv_layer(conv_config, exec_mode):
     assert oxe.compare_execution(model, new_model, inp_dict)
     if kernel_size == 1 and stride > 1 and pad == 0:
         assert new_model.graph.node[1].op_type == "DownSampler"
+        if exec_mode == "rtlsim":
+            node = new_model.get_nodes_by_op_type("DownSampler")[0]
+            inst = getCustomOp(node)
+            sim_cycles = inst.get_nodeattr("sim_cycles")
+            exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
+            exp_cycles = exp_cycles_dict[node.name]
+            assert np.isclose(exp_cycles, sim_cycles, atol=11)
+            assert exp_cycles != 0
 
     if pad == 1:
         padding_node = new_model.get_nodes_by_op_type("FMPadding_Batch")[0]
