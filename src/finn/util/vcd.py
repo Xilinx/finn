@@ -175,7 +175,7 @@ def get_all_stream_if_stats(vcd_file, stream_ifs=None, sort_by="{'V': 1, 'R': 0}
     if stream_ifs is None:
         stream_ifs = list_stream_if(vcd_file)
 
-    if num_workers == None:
+    if num_workers is None:
         num_workers = get_num_default_workers()
 
     with mp.Pool(num_workers) as p:
