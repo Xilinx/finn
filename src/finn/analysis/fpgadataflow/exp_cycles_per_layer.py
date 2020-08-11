@@ -31,8 +31,8 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def exp_cycles_per_layer(model):
-    """Estimates the resources needed for the given model.
-    Returns {node name : resource estimation}."""
+    """Estimates the number of cycles per sample for dataflow layers in the given model.
+    Returns {node name : cycle estimation}."""
 
     cycle_dict = {}
     for node in model.graph.node:
