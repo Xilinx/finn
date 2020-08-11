@@ -63,6 +63,7 @@ from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
@@ -116,6 +117,7 @@ def test_end2end_zynqbuild_cnv_w1a1_convert_to_hls_layers():
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
+    model = model.transform(GiveUniqueNodeNames())
     model = model.transform(RemoveCNVtoFCFlatten())
     model = model.transform(InferDataLayouts())
     model.save(build_dir + "/end2end_zynqbuild_cnv_w1a1_hls_layers.onnx")
@@ -165,6 +167,7 @@ def test_end2end_zynqbuild_cnv_w1a1_fold():
         swg_inst.set_nodeattr("SIMD", simd)
         swg_inst.set_nodeattr("inFIFODepth", swg_idepth[i])
     model = model.transform(AnnotateResources("estimate"))
+    model = model.transform(AnnotateCycles())
     model.save(build_dir + "/end2end_zynqbuild_cnv_w1a1_folded.onnx")
 
 
