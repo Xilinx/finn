@@ -45,6 +45,9 @@ from finn.util.basic import gen_finn_dt_tensor
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
+from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+
 
 
 def make_accpool_modelwrapper(ch, pe, idim, idt):
@@ -121,3 +124,12 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
     expected_y = np.sum(x, axis=(1, 2)).flatten()
 
     assert (y == expected_y).all(), exec_mode + " failed"
+
+    if exec_mode == "rtlsim":
+    	node = model.get_nodes_by_op_type("GlobalAccPool_Batch")[0]
+    	inst = getCustomOp(node)
+    	sim_cycles = inst.get_nodeattr("sim_cycles")
+    	exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    	exp_cycles = exp_cycles_dict[str(node)]
+    	assert np.isclose(exp_cycles, sim_cycles, atol=11)
+    	assert exp_cycles != 0
