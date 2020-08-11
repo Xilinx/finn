@@ -52,6 +52,7 @@ from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from shutil import copy
+from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 
 from . import templates
 
@@ -280,6 +281,7 @@ class ZynqBuild(Transformation):
         model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels
         prep_transforms = [
+            MakePYNQDriver(platform="zynq-iodma"),
             InsertIODMA(64),
             InsertDWC(),
             Floorplan(),

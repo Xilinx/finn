@@ -107,7 +107,7 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
         model = model.transform(MakePYNQProject(test_pynq_board))
         model = model.transform(SynthPYNQProject())
-        model = model.transform(MakePYNQDriver(platform="zynq-iodma"))
+        model = model.transform(MakePYNQDriver(platform="zynq"))
         username = os.getenv("PYNQ_USERNAME", "xilinx")
         password = os.getenv("PYNQ_PASSWORD", "xilinx")
         port = os.getenv("PYNQ_PORT", 22)
