@@ -83,6 +83,7 @@ class HLSCustomOp(CustomOp):
             "ip_vlnv": ("s", False, ""),
             "exec_mode": ("s", False, ""),
             "cycles_rtlsim": ("i", False, 0),
+            "cycles_estimate": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
             "res_estimate": ("s", False, ""),
             "res_hls": ("s", False, ""),
