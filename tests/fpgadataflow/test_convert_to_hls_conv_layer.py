@@ -99,6 +99,14 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
         new_model = new_model.transform(to_hls.InferVVAU())
     else:
         new_model = new_model.transform(to_hls.InferQuantizedStreamingFCLayer())
+        fc_node = new_model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+        fc_inst = getCustomOp(fc_node)
+        mw = fc_inst.get_nodeattr("MW")
+        mh = fc_inst.get_nodeattr("MH")
+        pe_cands = list(filter(lambda x: mh % x == 0, range(2, mh + 1)))
+        simd_cands = list(filter(lambda x: mw % x == 0, range(2, mw + 1)))
+        fc_inst.set_nodeattr("PE", pe_cands[0])
+        fc_inst.set_nodeattr("SIMD", simd_cands[0])
 
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(InferShapes())
@@ -142,6 +150,6 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
-        exp_cycles = exp_cycles_dict[str(node)]
+        exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=11)
         assert exp_cycles != 0
