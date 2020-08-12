@@ -82,7 +82,8 @@ class HLSCustomOp(CustomOp):
             "ip_path": ("s", False, ""),
             "ip_vlnv": ("s", False, ""),
             "exec_mode": ("s", False, ""),
-            "sim_cycles": ("i", False, 0),
+            "cycles_rtlsim": ("i", False, 0),
+            "cycles_estimate": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
             "res_estimate": ("s", False, ""),
             "res_hls": ("s", False, ""),
@@ -442,7 +443,7 @@ compilation transformations?
             no_change_count = no_change_count + 1
 
             if len(outputs) == num_out_values:
-                self.set_nodeattr("sim_cycles", observation_count)
+                self.set_nodeattr("cycles_rtlsim", observation_count)
                 output_observed = True
 
             if no_change_count == liveness_threshold:
@@ -471,7 +472,7 @@ compilation transformations?
             trace_file = self.onnx_node.name + ".vcd"
         num_out_values = self.get_number_output_values()
         total_cycle_count = rtlsim_multi_io(sim, io_dict, num_out_values, trace_file)
-        self.set_nodeattr("sim_cycles", total_cycle_count)
+        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 
     def execute_node(self, context, graph):
         """Executes single node using cppsim or rtlsim."""

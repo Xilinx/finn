@@ -27,22 +27,33 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import finn.custom_op.registry as registry
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.transformation import Transformation
+from finn.transformation.move_reshape import _is_fpgadataflow_node
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.registry import getCustomOp
 
 
-def exp_cycles_per_layer(model):
-    """Estimates the number of cycles per sample for dataflow layers in the given model.
-    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
-    transformation) prior to calling this analysis pass to ensure all nodes are
-    visible in the results.
+class AnnotateCycles(Transformation):
+    """Annotate the estimate of clock cycles per sample taken by each fpgadataflow
+    node as an attribute on the node.
+    """
 
-    Returns {node name : cycle estimation}."""
+    def __init__(self):
+        super().__init__()
 
-    cycle_dict = {}
-    for node in model.graph.node:
-        if is_fpgadataflow_node(node) is True:
-            op_type = node.op_type
-            inst = registry.custom_op[op_type](node)
-            cycle_dict[node.name] = inst.get_exp_cycles()
-
-    return cycle_dict
+    def apply(self, model):
+        graph = model.graph
+        # annotate node cycles
+        for node in graph.node:
+            if _is_fpgadataflow_node(node):
+                op_inst = registry.getCustomOp(node)
+                cycles = op_inst.get_exp_cycles()
+                op_inst.set_nodeattr("cycles_estimate", cycles)
+            elif node.op_type == "StreamingDataflowPartition":
+                # recurse into model to manually annotate per-layer cycles
+                sdp_model_filename = getCustomOp(node).get_nodeattr("model")
+                sdp_model = ModelWrapper(sdp_model_filename)
+                sdp_model = sdp_model.transform(AnnotateCycles())
+                # save transformed model
+                sdp_model.save(sdp_model_filename)
+        return (model, False)

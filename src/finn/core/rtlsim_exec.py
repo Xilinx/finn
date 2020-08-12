@@ -102,7 +102,7 @@ def rtlsim_exec(model, execution_context):
         sim = PyVerilator(rtlsim_so, auto_eval=False)
     ret = _run_rtlsim(sim, packed_input, num_out_values, trace_file)
     packed_output = ret[0]
-    model.set_metadata_prop("sim_cycles", str(ret[1]))
+    model.set_metadata_prop("cycles_rtlsim", str(ret[1]))
     # unpack output and put into context
     o_folded_tensor = rtlsim_output_to_npy(
         packed_output, None, o_dt, o_folded_shape, packedBits, targetBits
@@ -171,7 +171,7 @@ def _run_rtlsim(sim, inp, num_out_values, trace_file=None, reset=True):
         no_change_count = no_change_count + 1
 
         if len(outputs) == num_out_values:
-            sim_cycles = observation_count
+            cycles_rtlsim = observation_count
             output_observed = True
 
         if no_change_count == liveness_threshold:
@@ -191,4 +191,4 @@ def _run_rtlsim(sim, inp, num_out_values, trace_file=None, reset=True):
         sim.flush_vcd_trace()
         sim.stop_vcd_trace()
 
-    return (outputs, sim_cycles)
+    return (outputs, cycles_rtlsim)

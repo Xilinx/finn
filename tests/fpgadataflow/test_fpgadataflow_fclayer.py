@@ -314,12 +314,11 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 
     node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
     inst = getCustomOp(node)
-    sim_cycles = inst.get_nodeattr("sim_cycles")
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-    exp_cycles = exp_cycles_dict[str(node)]
-    assert np.isclose(exp_cycles, sim_cycles, atol=15)
+    exp_cycles = exp_cycles_dict[node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
-
 
 
 # mem_mode: const or decoupled
@@ -416,9 +415,8 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
 
     node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
     inst = getCustomOp(node)
-    sim_cycles = inst.get_nodeattr("sim_cycles")
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-    exp_cycles = exp_cycles_dict[str(node)]
-    assert np.isclose(exp_cycles, sim_cycles, atol=15)
+    exp_cycles = exp_cycles_dict[node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
-

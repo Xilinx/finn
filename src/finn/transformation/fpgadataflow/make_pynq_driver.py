@@ -26,10 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import shutil
-import warnings
 
+import shutil
 from finn.custom_op.registry import getCustomOp
 from finn.transformation import Transformation
 from finn.util.basic import gen_finn_dt_tensor, get_finn_root, make_build_dir
@@ -43,19 +41,18 @@ class MakePYNQDriver(Transformation):
     accelerator, including data packing/unpacking. The MakePYNQProject
     transformation must have been already applied.
 
+    platform: one of ["zynq", "zynq-iodma", "alveo"]
+
     Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the
     value.
     """
 
-    def __init__(self):
+    def __init__(self, platform):
         super().__init__()
+        self.platform = platform
 
     def apply(self, model):
-        vivado_pynq_proj = model.get_metadata_prop("vivado_pynq_proj")
-        if vivado_pynq_proj is None or (not os.path.isdir(vivado_pynq_proj)):
-            warnings.warn("No PYNQ project found, apply MakePYNQProject first.")
-
         # create a temporary folder for the generated driver
         pynq_driver_dir = make_build_dir(prefix="pynq_driver_")
         model.set_metadata_prop("pynq_driver_dir", pynq_driver_dir)
@@ -68,11 +65,21 @@ class MakePYNQDriver(Transformation):
         o_tensor_shape_normal = tuple(model.get_tensor_shape(o_tensor_name))
         i_tensor_dt = model.get_tensor_datatype(i_tensor_name)
         o_tensor_dt = model.get_tensor_datatype(o_tensor_name)
-        # extract HLSCustomOp instances to get folded i/o shapes
-        first_node = getCustomOp(model.find_consumer(i_tensor_name))
-        last_node = getCustomOp(model.find_producer(o_tensor_name))
-        i_tensor_shape_folded = tuple(first_node.get_folded_input_shape())
-        o_tensor_shape_folded = tuple(last_node.get_folded_output_shape())
+        # handle folded i/o shapes due to differences in DMA engines
+        if self.platform == "zynq":
+            # extract HLSCustomOp instances to get folded i/o shapes
+            first_node = getCustomOp(model.find_consumer(i_tensor_name))
+            last_node = getCustomOp(model.find_producer(o_tensor_name))
+            i_tensor_shape_folded = tuple(first_node.get_folded_input_shape())
+            o_tensor_shape_folded = tuple(last_node.get_folded_output_shape())
+        else:
+            i_tensor_shape_folded = list(i_tensor_shape_normal)
+            i_tensor_shape_folded.insert(-1, 1)
+            i_tensor_shape_folded = tuple(i_tensor_shape_folded)
+            o_tensor_shape_folded = list(o_tensor_shape_normal)
+            o_tensor_shape_folded.insert(-1, 1)
+            o_tensor_shape_folded = tuple(o_tensor_shape_folded)
+
         # generate dummy folded i/o tensors and their packed versions
         i_tensor_dummy_folded = gen_finn_dt_tensor(i_tensor_dt, i_tensor_shape_folded)
         o_tensor_dummy_folded = gen_finn_dt_tensor(o_tensor_dt, o_tensor_shape_folded)
@@ -99,6 +106,7 @@ class MakePYNQDriver(Transformation):
             ret = ret.replace("[1,", "[%s," % batch_var_name)
             return ret
 
+        driver = driver.replace("$PLATFORM$", self.platform)
         driver = driver.replace("$INPUT_FINN_DATATYPE$", str(i_tensor_dt))
         driver = driver.replace("$INPUT_SHAPE_NORMAL$", mss(i_tensor_shape_normal))
         driver = driver.replace("$INPUT_SHAPE_FOLDED$", mss(i_tensor_shape_folded))

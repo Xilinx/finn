@@ -159,7 +159,7 @@ class InsertFIFO(Transformation):
             # insert FIFO as last node, except when last node is DMA
             if (
                 graph.node[-1].op_type != "StreamingFIFO"
-                and graph.node[0].op_type != "IODMA"
+                and graph.node[-1].op_type != "IODMA"
             ):
                 n = graph.node[-1]
                 assert (

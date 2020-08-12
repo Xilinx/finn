@@ -143,7 +143,7 @@ class Pool_Batch(HLSCustomOp):
         k = self.get_nodeattr("KernelSize")
         odim = self.get_nodeattr("OutImgDim")
         batch_size = self.get_nodeattr("BatchSize")
-        exp_cycles = (ifm_ch * k * k) / pe * odim * odim * batch_size
+        exp_cycles = ((ifm_ch * k * k) / pe) * odim * odim * batch_size
         return int(exp_cycles)
 
     def get_instream_width(self):
