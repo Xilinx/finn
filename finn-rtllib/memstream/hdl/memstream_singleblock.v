@@ -77,8 +77,6 @@ module memstream_singleblock
 
 );
 
-//calculate width of memory address
-localparam BLOCKADRWIDTH = $clog2(MEM_DEPTH);
 
 //TODO: check that memory width is equal to the widest stream
 //TODO: check that the stream depths and offsets make sense, and that the memory depth is sufficient (or calculate depth here?)
@@ -93,17 +91,23 @@ end
 wire rst;
 assign rst = ~aresetn;
 
-reg [BLOCKADRWIDTH-1:0] strm0_addr = STRM0_OFFSET;
-reg [BLOCKADRWIDTH-1:0] strm1_addr = STRM1_OFFSET;
-
 wire strm0_incr_en;
 wire strm1_incr_en;
 
-wire strm0_rst;
-wire strm1_rst;
-
 assign strm0_incr_en = m_axis_0_tready | ~m_axis_0_tvalid;
 assign strm1_incr_en = m_axis_1_tready | ~m_axis_1_tvalid;
+
+generate
+if(MEM_DEPTH > 1) begin: use_ram
+
+//calculate width of memory address, with a minimum of 1 bit
+localparam BLOCKADRWIDTH = $clog2(MEM_DEPTH);
+
+reg [BLOCKADRWIDTH-1:0] strm0_addr = STRM0_OFFSET;
+reg [BLOCKADRWIDTH-1:0] strm1_addr = STRM1_OFFSET;
+
+wire strm0_rst;
+wire strm1_rst;
 
 assign strm0_rst = strm0_incr_en & (strm0_addr == (STRM0_OFFSET + STRM0_DEPTH-1));
 assign strm1_rst = strm1_incr_en & (strm1_addr == (STRM1_OFFSET + STRM1_DEPTH-1));
@@ -147,6 +151,19 @@ ram
 	.wdatab('d0),
 	.rdqb(m_axis_1_tdata)
 );
+
+end else begin: bypass
+
+reg [MEM_WIDTH-1:0] singleval[0:0];
+initial begin
+    $readmemh({MEM_INIT,"memblock_0.dat"}, singleval, 0, 0);
+end
+
+assign m_axis_0_tdata = singleval[0];
+assign m_axis_1_tdata = singleval[0];
+
+end
+endgenerate
 
 //signal valid after 2 tready cycles after initialization
 //then stay valid
