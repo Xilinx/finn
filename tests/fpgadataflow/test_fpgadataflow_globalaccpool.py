@@ -127,13 +127,13 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
     if exec_mode == "rtlsim":
         node = model.get_nodes_by_op_type("GlobalAccPool_Batch")[0]
         inst = getCustomOp(node)
-        sim_cycles = inst.get_nodeattr("sim_cycles")
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
         # commented out, needs performance debug:
         # test_fpgadataflow_globalaccpool[rtlsim-7-1-64-DataType.UINT4]
         # assert False where False =
         # <function isclose at 0x7eff26d5ca60>(50, 103, atol=(0.1 * 103))
-        # assert np.isclose(exp_cycles, sim_cycles, atol=0.1 * sim_cycles)
+        # assert np.isclose(exp_cycles, cycles_rtlsim, atol=0.1 * cycles_rtlsim)
         assert exp_cycles != 0
-        assert sim_cycles != 0
+        assert cycles_rtlsim != 0
