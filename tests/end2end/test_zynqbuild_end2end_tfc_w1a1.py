@@ -62,7 +62,7 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
-
+from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
@@ -112,6 +112,7 @@ def test_end2end_zynqbuild_tfc_w1a1_convert_to_hls_layers():
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
     model = model.transform(RoundAndClipThresholds())
     model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
+    model = model.transform(InferDataLayouts())
     model.save(build_dir + "/end2end_zynqbuild_tfc_w1a1_hls_layers.onnx")
 
 
