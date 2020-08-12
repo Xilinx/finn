@@ -64,6 +64,33 @@ alveo_default_platform["U200"] = "xilinx_u200_xdma_201830_2"
 alveo_default_platform["U250"] = "xilinx_u250_xdma_201830_2"
 alveo_default_platform["U280"] = "xilinx_u280_xdma_201920_3"
 
+# resource availability for PYNQ and Alveo boards
+platform_resource_counts = dict()
+platform_resource_counts["Pynq-Z1"] = {"slr0": {"LUT": 53200, "BRAM_18K": 280}}
+platform_resource_counts["Pynq-Z2"] = {"slr0": {"LUT": 53200, "BRAM_18K": 280}}
+platform_resource_counts["Ultra96"] = {"slr0": {"LUT": 71000, "BRAM_18K": 412}}
+platform_resource_counts["ZCU104"] = {"slr0": {"LUT": 230000, "BRAM_18K": 610}}
+platform_resource_counts["U50"] = {
+    "slr0": {"LUT": 369000, "BRAM_18K": 1128},
+    "slr1": {"LUT": 362000, "BRAM_18K": 1128},
+}
+platform_resource_counts["U200"] = {
+    "slr0": {"LUT": 355000, "BRAM_18K": 1276},
+    "slr1": {"LUT": 160000, "BRAM_18K": 652},
+    "slr2": {"LUT": 355000, "BRAM_18K": 1276},
+}
+platform_resource_counts["U250"] = {
+    "slr0": {"LUT": 345000, "BRAM_18K": 1000},
+    "slr1": {"LUT": 345000, "BRAM_18K": 1000},
+    "slr2": {"LUT": 345000, "BRAM_18K": 1000},
+    "slr3": {"LUT": 345000, "BRAM_18K": 1000},
+}
+platform_resource_counts["U280"] = {
+    "slr0": {"LUT": 369000, "BRAM_18K": 1014},
+    "slr1": {"LUT": 333000, "BRAM_18K": 936},
+    "slr2": {"LUT": 367000, "BRAM_18K": 1024},
+}
+
 
 def get_rtlsim_trace_depth():
     """Return the trace depth for rtlsim via PyVerilator. Controllable

@@ -244,7 +244,27 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
         omega = (D_in * D_out) / (Q * P)
-        return P * (math.ceil(omega / 512)) * (math.ceil((Q * W) / 36))
+        mem_width = Q * W * P
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle == "distributed") or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            return 0
+        # assuming SDP mode RAMB18s (see UG573 Table 1-10)
+        # assuming decoupled (RTL) memory, which is more efficient than const (HLS)
+        if mem_width == 1:
+            return math.ceil(omega / 16384)
+        elif mem_width == 2:
+            return math.ceil(omega / 8192)
+        elif mem_width <= 4:
+            return (math.ceil(omega / 4096)) * (math.ceil(mem_width / 4))
+        elif mem_width <= 9:
+            return (math.ceil(omega / 2048)) * (math.ceil(mem_width / 9))
+        elif mem_width <= 18 or omega > 512:
+            return (math.ceil(omega / 1024)) * (math.ceil(mem_width / 18))
+        else:
+            return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
 
     def bram_efficiency_estimation(self):
         wdt = self.get_weight_datatype()
@@ -252,6 +272,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
         bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
         wbits = W * D_in * D_out
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
@@ -267,6 +289,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # TODO add in/out FIFO contributions
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
+        MW = self.get_nodeattr("MW")
         wdt = self.get_weight_datatype()
         W = wdt.bitwidth()
         # determine tdt with input and weight data types
@@ -275,8 +298,36 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # parameters from experiments in paper mentioned above
         c0 = 300
         c1 = 1.1
+        c2 = 0
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle == "distributed") or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
 
-        return c0 + c1 * (P * Q) * (W * A)
+        # multiplication
+        mult_luts = (2 * math.ceil((W + A) / 6) - 1) * (W + A)
+        # adder tree
+        addertree_luts = (W + A) * (2 * Q - 1)
+        # accumulator
+        acc_bits = W + A + math.log(MW, 2)
+        acc_luts = acc_bits
+        # thresholds and threshold comparators
+        thr_luts = 0
+        comp_luts = 0
+        noact = self.get_nodeattr("noActivation")
+        if noact == 0:
+            odt = self.get_input_datatype()
+            B = odt.bitwidth()
+            thr_luts = (2 ** B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
+            comp_luts = (2 ** B - 1) * acc_bits
+
+        return int(
+            c0
+            + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts))
+            + c2
+        )
 
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")

@@ -77,7 +77,11 @@ from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.transformation.fpgadataflow.allocate_resources import AllocateResources
 from finn.core.throughput_test import throughput_test_rtlsim
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.analysis.fpgadataflow.res_estimation import res_estimation
+from finn.util.basic import platform_resource_counts
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -180,6 +184,37 @@ def test_end2end_cnv_w1a1_fold_and_tlastmarker():
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(AnnotateResources("estimate"))
     model.save(build_dir + "/end2end_cnv_w1a1_folded.onnx")
+
+
+# desired frames per second
+@pytest.mark.parametrize("target_fps", [30, 10 ** 3, 10 ** 5])
+def test_end2end_cnv_w1a1_resalloc(target_fps):
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_cnv_w1a1_dataflow_model.onnx"
+    )
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(
+        AllocateResources(target_fps, target_clk_ns, test_pynq_board)
+    )
+    exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    achieved_cycles_per_frame = max(exp_cycles_dict.values())
+    achieved_fps = int(10 ** 9 / (target_clk_ns * achieved_cycles_per_frame))
+    assert (
+        0.5 * min(2712, target_fps) <= achieved_fps <= 2 * min(2712, target_fps)
+    ), "Achieved FPS out of expected range"
+    resource_usage = model.analysis(res_estimation)
+    luts = sum([r["LUT"] for r in resource_usage.values()])
+    brams = sum([r["BRAM_18K"] for r in resource_usage.values()])
+    max_luts = sum(
+        [r["LUT"] for r in platform_resource_counts[test_pynq_board].values()]
+    )
+    max_brams = sum(
+        [r["BRAM_18K"] for r in platform_resource_counts[test_pynq_board].values()]
+    )
+    assert (
+        luts < max_luts and brams < max_brams
+    ), "Resource utilization too high for platform"
+    model.save(build_dir + "/end2end_cnv_w1a1_autofolded.onnx")
 
 
 @pytest.mark.slow

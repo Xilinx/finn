@@ -28,6 +28,7 @@
 
 import os
 
+import math
 import numpy as np
 
 from finn.core.datatype import DataType
@@ -193,6 +194,20 @@ class ConvolutionInputGenerator(HLSCustomOp):
         exp_cycles = ifm_dim * k * (ifm_ch / simd) + ofm_dim * max_cycles
 
         return int(exp_cycles)
+
+    def bram_estimation(self):
+        simd = self.get_nodeattr("SIMD")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        k = self.get_nodeattr("ConvKernelDim")
+        stride = self.get_nodeattr("Stride")
+        return (k + stride) * (
+            math.ceil(simd * self.get_input_datatype().bitwidth() / 16)
+            * math.ceil(ifm_dim * ifm_ch / simd / 1024)
+        )
+
+    def lut_estimation(self):
+        return 300
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
