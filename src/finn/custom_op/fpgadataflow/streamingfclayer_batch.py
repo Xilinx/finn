@@ -617,6 +617,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
                 if inp_is_bipolar and wt_is_bipolar:
                     tdt = DataType.UINT32
+                assert np.vectorize(tdt.allowed)(
+                    threshold_tensor
+                ).all(), "Thresholds are not int"
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True
                 )
