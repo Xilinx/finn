@@ -45,7 +45,6 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.general import (
     RemoveUnusedTensors,
     RemoveStaticGraphInputs,
@@ -142,19 +141,11 @@ def test_end2end_zynqbuild_tfc_w2a2_fold():
     model.save(build_dir + "/end2end_zynqbuild_tfc_w2a2_folded.onnx")
 
 
-def test_end2end_zynqbuild_tfc_w2a2_make_driver():
-    model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_zynqbuild_tfc_w2a2_folded.onnx"
-    )
-    model = model.transform(MakePYNQDriver(platform="zynq-iodma"))
-    model.save(build_dir + "/end2end_zynqbuild_tfc_w2a2_pynq_driver.onnx")
-
-
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_end2end_zynqbuild_tfc_w2a2_build():
     model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_zynqbuild_tfc_w2a2_pynq_driver.onnx"
+        build_dir + "/end2end_zynqbuild_tfc_w2a2_folded.onnx"
     )
     model = model.transform(ZynqBuild(test_pynq_board, target_clk_ns))
     model = model.transform(AnnotateResources("synth"))

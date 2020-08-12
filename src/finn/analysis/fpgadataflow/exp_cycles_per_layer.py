@@ -32,6 +32,10 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 def exp_cycles_per_layer(model):
     """Estimates the number of cycles per sample for dataflow layers in the given model.
+    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
+    transformation) prior to calling this analysis pass to ensure all nodes are
+    visible in the results.
+
     Returns {node name : cycle estimation}."""
 
     cycle_dict = {}

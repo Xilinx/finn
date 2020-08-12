@@ -343,7 +343,7 @@ def test_fpgadataflow_ipstitch_pynq_driver():
     model = load_test_checkpoint_or_skip(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_synth.onnx"
     )
-    model = model.transform(MakePYNQDriver())
+    model = model.transform(MakePYNQDriver(platform="zynq"))
     driver_dir = model.get_metadata_prop("pynq_driver_dir")
     assert driver_dir is not None
     assert os.path.isdir(driver_dir)
@@ -459,11 +459,6 @@ def test_fpgadataflow_ipstitch_zynqbuild(board):
     idt = model.get_tensor_datatype(iname)
     ishape = model.get_tensor_shape(iname)
     x = gen_finn_dt_tensor(idt, ishape)
-    # driver
-    model = model.transform(MakePYNQDriver())
-    driver_dir = model.get_metadata_prop("pynq_driver_dir")
-    assert driver_dir is not None
-    assert os.path.isdir(driver_dir)
     # bitfile using ZynqBuild
     model = model.transform(ZynqBuild(board, 10))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")

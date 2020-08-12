@@ -41,6 +41,8 @@ class MakePYNQDriver(Transformation):
     accelerator, including data packing/unpacking. The MakePYNQProject
     transformation must have been already applied.
 
+    platform: one of ["zynq", "zynq-iodma", "alveo"]
+
     Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the
     value.
