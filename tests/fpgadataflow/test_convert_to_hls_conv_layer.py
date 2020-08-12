@@ -140,8 +140,8 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
     if depthwise is True and exec_mode == "rtlsim":
         node = new_model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")[0]
         inst = getCustomOp(node)
-        sim_cycles = inst.get_nodeattr("sim_cycles")
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[str(node)]
-        assert np.isclose(exp_cycles, sim_cycles, atol=11)
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=11)
         assert exp_cycles != 0
