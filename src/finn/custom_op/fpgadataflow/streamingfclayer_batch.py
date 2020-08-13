@@ -278,6 +278,17 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         return c0 + c1 * (P * Q) * (W * A)
 
+    def get_exp_cycles(self):
+        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        num_inp_vec = self.get_nodeattr("numInputVectors")
+        mh = self.get_nodeattr("MH")
+        mw = self.get_nodeattr("MW")
+        # since mmv != 1 is not supported yet, we set mmv for now to 1
+        mmv = 1
+        exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
+        return int(exp_cycles)
+
     def get_input_datatype(self):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
@@ -594,6 +605,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
                 if inp_is_bipolar and wt_is_bipolar:
                     tdt = DataType.UINT32
+                assert np.vectorize(tdt.allowed)(
+                    threshold_tensor
+                ).all(), "Thresholds are not int"
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True
                 )

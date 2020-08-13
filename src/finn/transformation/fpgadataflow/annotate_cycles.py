@@ -26,61 +26,34 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Temporary and binary files
-*~
-*.py[cod]
-*.so
-*.cfg
-!.isort.cfg
-!setup.cfg
-*.orig
-*.log
-*.pot
-__pycache__/*
-.cache/*
-.*.swp
-*/.ipynb_checkpoints/*
+import finn.custom_op.registry as registry
+from finn.transformation import Transformation
+from finn.transformation.move_reshape import _is_fpgadataflow_node
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.registry import getCustomOp
 
-# Project files
-.ropeproject
-.project
-.pydevproject
-.settings
-.idea
-tags
 
-# Package files
-*.egg
-*.eggs/
-.installed.cfg
-*.egg-info
+class AnnotateCycles(Transformation):
+    """Annotate the estimate of clock cycles per sample taken by each fpgadataflow
+    node as an attribute on the node.
+    """
 
-# Unittest and coverage
-htmlcov/*
-.coverage
-.tox
-junit.xml
-coverage.xml
-.pytest_cache/
+    def __init__(self):
+        super().__init__()
 
-# Build and docs folder/files
-build/*
-dist/*
-sdist/*
-docs/api/*
-docs/_rst/*
-docs/_build/*
-cover/*
-MANIFEST
-
-# Per-project virtualenvs
-.venv*/
-
-# Jenkins cfg dir
-/docker/jenkins_home
-
-# SSH key dir mounted into Docker
-/ssh_keys/
-
-# PYNQ board files
-/board_files/
+    def apply(self, model):
+        graph = model.graph
+        # annotate node cycles
+        for node in graph.node:
+            if _is_fpgadataflow_node(node):
+                op_inst = registry.getCustomOp(node)
+                cycles = op_inst.get_exp_cycles()
+                op_inst.set_nodeattr("cycles_estimate", cycles)
+            elif node.op_type == "StreamingDataflowPartition":
+                # recurse into model to manually annotate per-layer cycles
+                sdp_model_filename = getCustomOp(node).get_nodeattr("model")
+                sdp_model = ModelWrapper(sdp_model_filename)
+                sdp_model = sdp_model.transform(AnnotateCycles())
+                # save transformed model
+                sdp_model.save(sdp_model_filename)
+        return (model, False)

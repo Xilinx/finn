@@ -250,6 +250,7 @@ set_property supported_families { \
   virtex7 Production \
   virtexu Production \
   virtexuplus Production \
+  virtexuplusHBM Production \
   zynq Production \
   zynquplus Production \
   aartix7 Production \

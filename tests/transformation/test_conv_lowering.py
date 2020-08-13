@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
 import onnx.helper as oh
 from onnx import TensorProto
 import os
@@ -34,12 +35,16 @@ import brevitas.onnx as bo
 import numpy as np
 
 from finn.core.modelwrapper import ModelWrapper
+from finn.core.datatype import DataType
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 import finn.core.onnx_exec as oxe
+from finn.custom_op.im2col import compute_conv_output_dim
+from finn.util.basic import gen_finn_dt_tensor
+from finn.custom_op.registry import getCustomOp
 
 export_onnx_path = "test_conv_lowering.onnx"
 
@@ -66,6 +71,76 @@ def test_conv_lowering_cnv_w1a1():
     assert np.isclose(produced, expected).all()
     assert np.argmax(produced) == 3
     os.remove(export_onnx_path)
+
+
+# input datatype
+@pytest.mark.parametrize("idt", [DataType.INT2, DataType.INT4])
+# kernel size
+@pytest.mark.parametrize("k", [2, 4])
+# input dimension
+@pytest.mark.parametrize("ifm_dim", [4, 6])
+# input channels
+@pytest.mark.parametrize("ifm_ch", [2, 3])
+# stride
+@pytest.mark.parametrize("stride", [1, 2])
+# padding
+@pytest.mark.parametrize("padding", [[0, 0, 0, 0], [1, 1, 1, 1]])
+def test_depthwise_conv_lowering(idt, k, ifm_dim, ifm_ch, stride, padding):
+    wdt = idt
+    odt = DataType.INT32
+    ofm_ch = ifm_ch
+    ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad=padding[0])
+
+    # set up onnx model
+    inp = oh.make_tensor_value_info(
+        "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim]
+    )
+    outp = oh.make_tensor_value_info(
+        "outp", TensorProto.FLOAT, [1, ofm_ch, ofm_dim, ofm_dim]
+    )
+
+    W = oh.make_tensor_value_info("W", TensorProto.FLOAT, [ofm_ch, 1, k, k])
+
+    dw_cnv = oh.make_node(
+        "Conv",
+        inputs=["inp", "W"],
+        outputs=["outp"],
+        kernel_shape=[k, k],
+        pads=padding,
+        strides=[stride, stride],
+        group=ifm_ch,
+    )
+    graph = oh.make_graph(
+        nodes=[dw_cnv],
+        name="dw_cnv_graph",
+        inputs=[inp],
+        outputs=[outp],
+        value_info=[W],
+    )
+
+    model = oh.make_model(graph, producer_name="dws_cnv-model")
+    model = ModelWrapper(model)
+    model.set_tensor_datatype("inp", idt)
+    model.set_tensor_datatype("outp", odt)
+    model.set_tensor_datatype("W", wdt)
+    w_tensor = gen_finn_dt_tensor(wdt, [ofm_ch, 1, k, k])
+    model.set_initializer("W", w_tensor)
+    model = model.transform(InferShapes())
+
+    input_tensor = gen_finn_dt_tensor(idt, [1, ifm_ch, ifm_dim, ifm_dim])
+    input_dict = {"inp": input_tensor}
+    output_dict = oxe.execute_onnx(model, input_dict)
+    expected = output_dict["outp"]
+
+    model = model.transform(LowerConvsToMatMul())
+    output_dict = oxe.execute_onnx(model, input_dict)
+    produced = output_dict["outp"]
+    assert (produced == expected).all()
+
+    # check if created nodes have attributes that indicate depthwise conv
+    assert model.get_tensor_sparsity("W") is not None
+    im2col_node = getCustomOp(model.graph.node[1])
+    assert im2col_node.get_nodeattr("depthwise") == 1
 
 
 def test_conv_lowering_conv_1x1():

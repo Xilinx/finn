@@ -81,7 +81,7 @@ def test_pynq_performance_fifo():
         model = model.transform(CreateStitchedIP(fpga_part, clk_ns))
         model = model.transform(MakePYNQProject(board))
         model = model.transform(SynthPYNQProject())
-        model = model.transform(MakePYNQDriver())
+        model = model.transform(MakePYNQDriver(platform="zynq"))
         model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
 
         ret = dict()

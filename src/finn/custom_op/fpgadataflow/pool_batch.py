@@ -136,6 +136,16 @@ class Pool_Batch(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[1:-1])
 
+    def get_exp_cycles(self):
+        # (Channels * kernel * kernel) / PE * odim * odim * batch_size
+        ifm_ch = self.get_nodeattr("Channels")
+        pe = self.get_nodeattr("PE")
+        k = self.get_nodeattr("KernelSize")
+        odim = self.get_nodeattr("OutImgDim")
+        batch_size = self.get_nodeattr("BatchSize")
+        exp_cycles = ((ifm_ch * k * k) / pe) * odim * odim * batch_size
+        return int(exp_cycles)
+
     def get_instream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
