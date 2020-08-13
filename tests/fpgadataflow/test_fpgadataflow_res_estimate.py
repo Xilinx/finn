@@ -92,7 +92,7 @@ def test_res_estimate():
     model = model.transform(GiveUniqueNodeNames())
     prod_resource_estimation = model.analysis(res_estimation)
     expect_resource_estimation = {
-        "StreamingFCLayer_Batch_0": {"BRAM_18K": 1, 'BRAM_efficiency': 0.001736111111111111, "LUT": 304.4}
+        "StreamingFCLayer_Batch_0": {"BRAM_18K": 0, "BRAM_efficiency": 1, "LUT": 357}
     }
 
     assert check_two_dict_for_equality(
