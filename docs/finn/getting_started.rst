@@ -84,7 +84,14 @@ These are summarized below:
 * `JUPYTER_PORT` (default 8888) changes the port for Jupyter inside Docker
 * `NETRON_PORT` (default 8081) changes the port for Netron inside Docker
 * `NUM_DEFAULT_WORKERS` (default 1) specifies the degree of parallelization for the transformations that can be run in parallel
-* `PYNQ_BOARD` specifies the type of PYNQ board used (Pynq-Z1, Pynq-Z2, Ultra96, ZCU104) for the test suite
+* `PYNQ_BOARD` specifies the type of PYNQ board used (see "supported hardware" below) for the test suite
 * `PYNQ_IP` and `PYNQ_PORT` specify ip address and port number to access the PYNQ board
 * `PYNQ_USERNAME` and `PYNQ_PASSWORD` specify the PYNQ board access credentials for the test suite
 * `PYNQ_TARGET_DIR` specifies the target dir on the PYNQ board for the test suite
+
+Supported Hardware
+===================
+**End-to-end support including driver:** For quick deployment, FINN targets boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
+
+**Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials) and wire it up to your FPGA design.
+
