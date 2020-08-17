@@ -50,6 +50,15 @@ if [ -z "$PYNQ_IP" ];then
         recho "Please set the PYNQ_IP env.var. to enable PYNQ deployment tests."
 fi
 
+if [ -z "$VITIS_PATH" ];then
+        recho "Please set the VITIS_PATH that contains the path to your Vitis installation directory."
+        recho "FINN functionality depending on Vitis will not be available."
+else
+    if [ -z "$PLATFORM_REPO_PATHS" ];then
+            recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
+    fi
+fi
+
 DOCKER_GID=$(id -g)
 DOCKER_GNAME=$(id -gn)
 DOCKER_UNAME=$(id -un)
@@ -65,6 +74,11 @@ DOCKER_INST_NAME="finn_dev_${DOCKER_UNAME}"
 # ensure Docker tag and inst. name are all lowercase
 DOCKER_TAG=$(echo "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')
 DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
+# Absolute path to this script, e.g. /home/user/bin/foo.sh
+SCRIPT=$(readlink -f "$0")
+# Absolute path this script is in, thus /home/user/bin
+SCRIPTPATH=$(dirname "$SCRIPT")
+
 # the settings below will be taken from environment variables if available,
 # otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
@@ -74,11 +88,7 @@ DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
 : ${PYNQ_BOARD="Pynq-Z1"}
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 : ${NUM_DEFAULT_WORKERS=1}
-
-# Absolute path to this script, e.g. /home/user/bin/foo.sh
-SCRIPT=$(readlink -f "$0")
-# Absolute path this script is in, thus /home/user/bin
-SCRIPTPATH=$(dirname "$SCRIPT")
+: ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
 
 BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
@@ -87,10 +97,12 @@ VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
 # ensure build dir exists locally
 mkdir -p $BUILD_LOCAL
 mkdir -p $VIVADO_IP_CACHE
+mkdir -p $FINN_SSH_KEY_DIR
 
 gecho "Instance is named as $DOCKER_INST_NAME"
 gecho "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
 gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
+gecho "Mounting $VITIS_PATH into $VITIS_PATH"
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
@@ -126,23 +138,34 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --init \
---hostname $DOCKER_INST_NAME \
--e "XILINX_VIVADO=$VIVADO_PATH" \
--e "SHELL=/bin/bash" \
--v $SCRIPTPATH:/workspace/finn \
--v $BUILD_LOCAL:$BUILD_LOCAL \
--v $VIVADO_PATH:$VIVADO_PATH \
--e VIVADO_PATH=$VIVADO_PATH \
--e FINN_INST_NAME=$DOCKER_INST_NAME \
--e FINN_ROOT="/workspace/finn" \
--e VIVADO_IP_CACHE="$VIVADO_IP_CACHE" \
--e PYNQ_BOARD=$PYNQ_BOARD \
--e PYNQ_IP=$PYNQ_IP \
--e PYNQ_USERNAME=$PYNQ_USERNAME \
--e PYNQ_PASSWORD=$PYNQ_PASSWORD \
--e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR \
--e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS \
--p $JUPYTER_PORT:$JUPYTER_PORT \
--p $NETRON_PORT:$NETRON_PORT \
-$DOCKER_TAG $DOCKER_CMD
+DOCKER_EXEC="docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --init "
+DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
+DOCKER_EXEC+="-e SHELL=/bin/bash "
+DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
+DOCKER_EXEC+="-v $BUILD_LOCAL:$BUILD_LOCAL "
+DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/home/$DOCKER_UNAME/.ssh "
+DOCKER_EXEC+="-e FINN_INST_NAME=$DOCKER_INST_NAME "
+DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
+DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
+DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "
+DOCKER_EXEC+="-e PYNQ_IP=$PYNQ_IP "
+DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
+DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
+DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
+DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
+DOCKER_EXEC+="-p $JUPYTER_PORT:$JUPYTER_PORT "
+DOCKER_EXEC+="-p $NETRON_PORT:$NETRON_PORT "
+if [ ! -z "$VIVADO_PATH" ];then
+  DOCKER_EXEC+="-e "XILINX_VIVADO=$VIVADO_PATH" "
+  DOCKER_EXEC+="-v $VIVADO_PATH:$VIVADO_PATH "
+  DOCKER_EXEC+="-e VIVADO_PATH=$VIVADO_PATH "
+fi
+if [ ! -z "$VITIS_PATH" ];then
+  DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
+  DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:/workspace/finn/vitis_platforms "
+  DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
+  DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=/workspace/finn/vitis_platforms "
+fi
+DOCKER_EXEC+="$DOCKER_TAG $DOCKER_CMD"
+
+$DOCKER_EXEC

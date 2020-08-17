@@ -27,12 +27,15 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+import numpy as np
 
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -44,6 +47,8 @@ from finn.util.basic import gen_finn_dt_tensor
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
+from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_dupstreams_modelwrapper(ch, pe, idim, idt):
@@ -71,6 +76,9 @@ def make_dupstreams_modelwrapper(ch, pe, idim, idt):
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
+
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
 
     return model
 
@@ -125,3 +133,12 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, exec_mode):
 
     assert (y0 == expected_y).all(), exec_mode + " failed"
     assert (y1 == expected_y).all(), exec_mode + " failed"
+
+    if exec_mode == "rtlsim":
+        node = model.get_nodes_by_op_type("DuplicateStreams_Batch")[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert exp_cycles != 0

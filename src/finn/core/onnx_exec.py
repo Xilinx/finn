@@ -39,6 +39,7 @@ from finn.core.remote_exec import remote_exec
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.custom_op.registry import getCustomOp
 import finn.analysis.topology as ta
+from finn.util.basic import sanitize_quant_values, get_sanitize_quant_tensors
 
 
 def execute_node(node, context, graph):
@@ -50,8 +51,20 @@ def execute_node(node, context, graph):
     if node.op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(node)
         model = ModelWrapper(sdp_node.get_nodeattr("model"))
-        ret = execute_onnx(model, context, True)
-        context.update(ret)
+        inp_ctx = dict(filter(lambda x: x[0] in node.input, context.items()))
+        # input may have been renamed in partition
+        assert len(inp_ctx) == 1
+        old_iname = node.input[0]
+        new_iname = model.graph.input[0].name
+        if old_iname != new_iname:
+            inp_ctx[new_iname] = inp_ctx[old_iname]
+            del inp_ctx[old_iname]
+        ret = execute_onnx(model, inp_ctx, False)
+        # output may have been renamed in partition
+        assert len(ret) == 1
+        node_oname = node.output[0]
+        model_oname = model.graph.output[0].name
+        context[node_oname] = ret[model_oname]
     else:
         if node.domain == "finn":
 
@@ -102,15 +115,14 @@ def execute_node(node, context, graph):
                     raise Exception(
                         """Output shapes disagree after node execution:
                         found %s vs expected %s"""
-                        % (
-                            str(output_list[list_ind].shape),
-                            str(context[outp].shape),
-                        )
+                        % (str(output_list[list_ind].shape), str(context[outp].shape))
                     )
                 context[outp] = output_list[list_ind]
 
 
-def execute_onnx(model, input_dict, return_full_exec_context=False):
+def execute_onnx(
+    model, input_dict, return_full_exec_context=False, start_node=None, end_node=None
+):
     """Executes given ONNX ModelWrapper with given named inputs.
 
     If return_full_exec_context is False, a dict of named outputs is returned
@@ -118,7 +130,12 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
 
     If return return_full_exec_context is True, the full set of tensors used by
     the execution (including inputs, weights, activations and final outputs)
-    will be returned as a dict."""
+    will be returned as a dict.
+
+    When start_node and end_node are set to None, the whole graph is executed.
+    If they are set to particular ONNX nodes, only the subgraph between (and
+    including) those nodes is executed.
+    """
 
     if not model.check_all_tensor_shapes_specified():
         raise Exception("Found unspecified tensor shapes, try infer_shapes")
@@ -161,8 +178,28 @@ def execute_onnx(model, input_dict, return_full_exec_context=False):
         # execute the model node by node
         # we can simply walk down the list since the ONNX spec guarantees that it is
         # topologically sorted
-        for node in graph.node:
+        subgraph = []
+        if start_node is None:
+            start_node = model.graph.node[0]
+        if end_node is None:
+            end_node = model.graph.node[-1]
+        # select the nodes between specified start/end nodes
+        start_ind = model.get_node_index(start_node)
+        end_ind = model.get_node_index(end_node) + 1
+        assert end_ind >= start_ind, "Start/end nodes must define valid subgraph"
+        subgraph = graph.node[start_ind:end_ind]
+        for node in subgraph:
+            if get_sanitize_quant_tensors() != 0:
+                # round input values to match quantization annotation
+                execution_context = sanitize_quant_values(
+                    model, node.input, execution_context
+                )
             execute_node(node, execution_context, graph)
+            if get_sanitize_quant_tensors() != 0:
+                # round output values to quantization annotation
+                execution_context = sanitize_quant_values(
+                    model, node.output, execution_context
+                )
     elif model_exec_mode == "remote_pynq":
         # use remote exec metadata built into model to execute on a remote PYNQ
         remote_exec(model, execution_context)

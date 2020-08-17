@@ -33,6 +33,8 @@ import subprocess
 from finn.transformation import Transformation
 from finn.util.basic import get_by_name, make_build_dir
 from finn.custom_op.registry import getCustomOp
+from finn.util.basic import get_num_default_workers
+import multiprocessing as mp
 
 
 class CreateStitchedIP(Transformation):
@@ -49,20 +51,137 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns = 10.0):
+    def __init__(self, fpgapart, clk_ns=10.0, ip_name="finn_design", vitis=False):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
+        self.ip_name = ip_name
+        self.vitis = vitis
         if float(clk_ns) not in [5.0, 10.0, 20.0]:
             warnings.warn(
                 """The chosen frequency may lead to failure due to clock divider
                 constraints."""
             )
+        self.has_axilite = False
+        self.has_aximm = False
+        self.has_m_axis = False
+        self.m_axis_idx = 0
+        self.has_s_axis = False
+        self.s_axis_idx = 0
+        self.clock_reset_are_external = False
+        self.create_cmds = []
+        self.connect_cmds = []
+        # keep track of top-level interface names
+        self.intf_names = {
+            "clk": [],
+            "rst": [],
+            "s_axis": [],
+            "m_axis": [],
+            "aximm": [],
+            "axilite": [],
+        }
+
+    def connect_clk_rst(self, node):
+        inst_name = node.name
+        node_inst = getCustomOp(node)
+        clock_intf_name = node_inst.get_verilog_top_module_intf_names()["clk"][0]
+        reset_intf_name = node_inst.get_verilog_top_module_intf_names()["rst"][0]
+        # make clock and reset external, if they aren't already
+        if not self.clock_reset_are_external:
+            self.connect_cmds.append(
+                "make_bd_pins_external [get_bd_pins %s/%s]"
+                % (inst_name, clock_intf_name)
+            )
+            self.connect_cmds.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
+            self.connect_cmds.append(
+                "make_bd_pins_external [get_bd_pins %s/%s]"
+                % (inst_name, reset_intf_name)
+            )
+            self.connect_cmds.append(
+                "set_property name ap_rst_n [get_bd_ports ap_rst_n_0]"
+            )
+            self.clock_reset_are_external = True
+            self.intf_names["clk"] = ["ap_clk"]
+            self.intf_names["rst"] = ["ap_rst_n"]
+        # otherwise connect clock and reset
+        else:
+            self.connect_cmds.append(
+                "connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins %s/%s]"
+                % (inst_name, reset_intf_name)
+            )
+            self.connect_cmds.append(
+                "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/%s]"
+                % (inst_name, clock_intf_name)
+            )
+
+    def connect_axi(self, node):
+        inst_name = node.name
+        node_inst = getCustomOp(node)
+        axilite_intf_name = node_inst.get_verilog_top_module_intf_names()["axilite"]
+        aximm_intf_name = node_inst.get_verilog_top_module_intf_names()["aximm"]
+        if len(axilite_intf_name) != 0:
+            self.connect_cmds.append(
+                "make_bd_intf_pins_external "
+                "[get_bd_intf_pins %s/%s]" % (inst_name, axilite_intf_name[0])
+            )
+            self.connect_cmds.append(
+                "set_property name s_axi_control " "[get_bd_intf_ports s_axi_control_0]"
+            )
+            assert (
+                self.has_axilite is False
+            ), "Currently limited to one slave AXI-Stream"
+            self.intf_names["axilite"] = ["s_axi_control"]
+            self.has_axilite = True
+        if len(aximm_intf_name) != 0:
+            self.connect_cmds.append(
+                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                % (inst_name, aximm_intf_name[0])
+            )
+            self.connect_cmds.append(
+                "set_property name m_axi_gmem0 [get_bd_intf_ports m_axi_gmem_0]"
+            )
+            self.intf_names["aximm"] = ["m_axi_gmem0"]
+            assert self.has_aximm is False, "Currently limited to one AXI-MM interface"
+            self.has_aximm = True
+
+    def connect_m_axis_external(self, node):
+        inst_name = node.name
+        node_inst = getCustomOp(node)
+        output_intf_names = node_inst.get_verilog_top_module_intf_names()["m_axis"]
+        # make output axis external
+        for output_intf_name in output_intf_names:
+            self.connect_cmds.append(
+                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                % (inst_name, output_intf_name)
+            )
+            self.connect_cmds.append(
+                "set_property name m_axis_%d [get_bd_intf_ports %s_0]"
+                % (self.m_axis_idx, output_intf_name)
+            )
+            self.has_m_axis = True
+            self.intf_names["m_axis"].append("m_axis_%d" % self.m_axis_idx)
+            self.m_axis_idx += 1
+
+    def connect_s_axis_external(self, node):
+        inst_name = node.name
+        node_inst = getCustomOp(node)
+        input_intf_names = node_inst.get_verilog_top_module_intf_names()["s_axis"]
+        # make input axis external
+        for input_intf_name in input_intf_names:
+            self.connect_cmds.append(
+                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
+                % (inst_name, input_intf_name)
+            )
+            self.connect_cmds.append(
+                "set_property name s_axis_%d [get_bd_intf_ports %s_0]"
+                % (self.s_axis_idx, input_intf_name)
+            )
+            self.has_s_axis = True
+            self.intf_names["s_axis"].append("s_axis_%d" % self.s_axis_idx)
+            self.s_axis_idx += 1
 
     def apply(self, model):
         ip_dirs = ["list"]
-        create_cmds = []
-        connect_cmds = []
         # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
             assert node.domain == "finn", 'Node domain is not set to "finn"'
@@ -80,59 +199,57 @@ class CreateStitchedIP(Transformation):
             vlnv = node_inst.get_nodeattr("ip_vlnv")
             inst_name = node.name
             create_cmd = "create_bd_cell -type ip -vlnv %s %s" % (vlnv, inst_name)
-            create_cmds += [create_cmd]
-            # TODO nonlinear topologies: check this for all inputs
+            self.create_cmds += [create_cmd]
             my_producer = model.find_producer(node.input[0])
+            self.connect_clk_rst(node)
+            self.connect_axi(node)
             if my_producer is None:
                 # first node in graph
-                # make clock and reset external
-                connect_cmds.append(
-                    "make_bd_pins_external [get_bd_pins %s/ap_clk]" % inst_name
-                )
-                connect_cmds.append(
-                    "make_bd_pins_external [get_bd_pins %s/ap_rst_n]" % inst_name
-                )
-                # make input external
-                connect_cmds.append(
-                    "make_bd_intf_pins_external [get_bd_intf_pins %s/in0_V_V]"
-                    % inst_name
-                )
+                self.connect_s_axis_external(node)
+                if node.op_type == "TLastMarker":
+                    assert (
+                        node_inst.get_nodeattr("Direction") == "in"
+                    ), """Output TLastMarker incorrect direction"""
+                elif node.op_type == "IODMA" and len(model.graph.node) != 1:
+                    # don't apply this check for a 1-node partition
+                    assert (
+                        node_inst.get_nodeattr("direction") == "in"
+                    ), """Input DMA incorrect direction"""
             else:
                 # intermediate node
-                # wire up global clock and reset
-                connect_cmds.append(
-                    "connect_bd_net [get_bd_ports ap_rst_n_0] [get_bd_pins %s/ap_rst_n]"
-                    % inst_name
-                )
-                connect_cmds.append(
-                    "connect_bd_net [get_bd_ports ap_clk_0] [get_bd_pins %s/ap_clk]"
-                    % inst_name
-                )
-                # wire up input to previous output
-                # TODO nonlinear topologies: loop over all inputs
-                my_in_name = "%s/in0_V_V" % (inst_name)
-                prev_out_name = "%s/out_V_V" % (my_producer.name)
-                connect_cmds.append(
-                    "connect_bd_intf_net [get_bd_intf_pins %s] [get_bd_intf_pins %s]"
-                    % (prev_out_name, my_in_name)
-                )
-            if model.find_consumer(node.output[0]) is None:
+                # wire up input(s) to previous node output(s)
+                # foreach input
+                #     find producer
+                #     find index of producer output connected to our target input
+                #     get names of hdl interfaces for input and producer output
+                #     issue a TCL directive to connect input to output
+                for i in range(len(node.input)):
+                    producer = model.find_producer(node.input[i])
+                    if producer is None:
+                        continue
+                    j = list(producer.output).index(node.input[i])
+                    src_intf_name = getCustomOp(
+                        producer
+                    ).get_verilog_top_module_intf_names()["m_axis"][j]
+                    dst_intf_name = node_inst.get_verilog_top_module_intf_names()[
+                        "s_axis"
+                    ][i]
+                    self.connect_cmds.append(
+                        "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                        "[get_bd_intf_pins %s/%s]"
+                        % (producer.name, src_intf_name, node.name, dst_intf_name)
+                    )
+            if model.find_consumers(node.output[0]) is None:
                 # last node in graph
-                # ensure it is a TLastMarker to have a valid TLast signal
-                assert (
-                    node.op_type == "TLastMarker"
-                ), """Last node is not TLastMarker.
-                Please run transformation InsertTLastMarker to ensure a valid
-                TLast signal"""
-                # make output external
-                connect_cmds.append(
-                    "make_bd_intf_pins_external [get_bd_intf_pins %s/out_r]" % inst_name
-                )
-                # make AXI lite IF external
-                connect_cmds.append(
-                    "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi_control]"
-                    % inst_name
-                )
+                self.connect_m_axis_external(node)
+                if node.op_type == "TLastMarker":
+                    assert (
+                        node_inst.get_nodeattr("Direction") == "out"
+                    ), """Output TLastMarker incorrect direction"""
+                elif node.op_type == "IODMA" and len(model.graph.node) != 1:
+                    assert (
+                        node_inst.get_nodeattr("direction") == "out"
+                    ), """Output DMA incorrect direction"""
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
@@ -150,33 +267,17 @@ class CreateStitchedIP(Transformation):
         tcl.append("set_property ip_repo_paths [%s] [current_project]" % ip_dirs_str)
         tcl.append("update_ip_catalog")
         # create block design and instantiate all layers
-        block_name = "finn_design"
+        block_name = self.ip_name
         tcl.append('create_bd_design "%s"' % block_name)
-        tcl.extend(create_cmds)
-        tcl.extend(connect_cmds)
+        tcl.extend(self.create_cmds)
+        tcl.extend(self.connect_cmds)
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
         model.set_metadata_prop("clk_ns", str(self.clk_ns))
-        tcl.append("set_property CONFIG.FREQ_HZ %f [get_bd_ports /ap_clk_0]" % fclk_hz)
+        tcl.append("set_property CONFIG.FREQ_HZ %f [get_bd_ports /ap_clk]" % fclk_hz)
         tcl.append("regenerate_bd_layout")
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
-        # export block design itself as an IP core
-        block_vendor = "xilinx_finn"
-        block_library = "finn"
-        block_vlnv = "%s:%s:%s:1.0" % (block_vendor, block_library, block_name)
-        model.set_metadata_prop("vivado_stitch_vlnv", block_vlnv)
-        tcl.append(
-            (
-                "ipx::package_project -root_dir %s/ip -vendor %s "
-                "-library %s -taxonomy /UserIP -module %s -import_files"
-            )
-            % (vivado_stitch_proj_dir, block_vendor, block_library, block_name)
-        )
-        tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
-        tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
-        tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
-        tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
         # create wrapper hdl (for rtlsim later on)
         bd_base = "%s/%s.srcs/sources_1/bd/%s" % (
             vivado_stitch_proj_dir,
@@ -188,6 +289,124 @@ class CreateStitchedIP(Transformation):
         wrapper_filename = "%s/hdl/%s_wrapper.v" % (bd_base, block_name)
         tcl.append("add_files -norecurse %s" % wrapper_filename)
         model.set_metadata_prop("wrapper_filename", wrapper_filename)
+        # synthesize to DCP and export stub, DCP and constraints
+        if self.vitis:
+            tcl.append(
+                "set_property SYNTH_CHECKPOINT_MODE Hierarchical [ get_files %s ]"
+                % bd_filename
+            )
+            tcl.append(
+                "set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} "
+                "-value {-mode out_of_context} -objects [get_runs synth_1]"
+            )
+            num_workers = get_num_default_workers()
+            assert num_workers >= 0, "Number of workers must be nonnegative."
+            if num_workers == 0:
+                num_workers = mp.cpu_count()
+            tcl.append("launch_runs synth_1 -jobs %s" % str(num_workers))
+            tcl.append("wait_on_run [get_runs synth_1]")
+            tcl.append("open_run synth_1 -name synth_1")
+            tcl.append("write_verilog -force -mode synth_stub %s.v" % block_name)
+            tcl.append("write_checkpoint %s.dcp" % block_name)
+            tcl.append("write_xdc %s.xdc" % block_name)
+        # export block design itself as an IP core
+        block_vendor = "xilinx_finn"
+        block_library = "finn"
+        block_vlnv = "%s:%s:%s:1.0" % (block_vendor, block_library, block_name)
+        model.set_metadata_prop("vivado_stitch_vlnv", block_vlnv)
+        model.set_metadata_prop("vivado_stitch_ifnames", str(self.intf_names))
+        tcl.append(
+            (
+                "ipx::package_project -root_dir %s/ip -vendor %s "
+                "-library %s -taxonomy /UserIP -module %s -import_files"
+            )
+            % (vivado_stitch_proj_dir, block_vendor, block_library, block_name)
+        )
+        tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
+        # if targeting Vitis, add some properties to the IP
+        if self.vitis:
+            tcl.append(
+                "ipx::remove_bus_parameter FREQ_HZ "
+                "[ipx::get_bus_interfaces CLK.AP_CLK -of_objects [ipx::current_core]]"
+            )
+            # replace source code with dcp
+            tcl.append(
+                "set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv
+            )
+            tcl.append(
+                "set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv
+            )
+            tcl.append(
+                "set_property supported_families { } [ipx::find_open_core %s]"
+                % block_vlnv
+            )
+            tcl.append(
+                "set_property xpm_libraries {XPM_CDC XPM_MEMORY XPM_FIFO} "
+                "[ipx::find_open_core %s]" % block_vlnv
+            )
+            tcl.append(
+                "set_property auto_family_support_level level_2 "
+                "[ipx::find_open_core %s]" % block_vlnv
+            )
+            # remove all files from synthesis and sim groups
+            # we'll replace with DCP, stub, and xdc
+            tcl.append(
+                "ipx::remove_all_file "
+                "[ipx::get_file_groups xilinx_anylanguagebehavioralsimulation]"
+            )
+            tcl.append(
+                "ipx::remove_all_file "
+                "[ipx::get_file_groups xilinx_anylanguagesynthesis]"
+            )
+            tcl.append(
+                "ipx::remove_file_group "
+                "xilinx_anylanguagebehavioralsimulation [ipx::current_core]"
+            )
+            tcl.append(
+                "ipx::remove_file_group "
+                "xilinx_anylanguagesynthesis [ipx::current_core]"
+            )
+            # remove sim and src folders
+            tcl.append("file delete -force %s/ip/sim" % vivado_stitch_proj_dir)
+            tcl.append("file delete -force %s/ip/src" % vivado_stitch_proj_dir)
+            # copy and add DCP, stub, and xdc
+            tcl.append("file mkdir %s/ip/dcp" % vivado_stitch_proj_dir)
+            tcl.append("file mkdir %s/ip/impl" % vivado_stitch_proj_dir)
+            tcl.append(
+                "file copy -force %s.dcp %s/ip/dcp"
+                % (block_name, vivado_stitch_proj_dir)
+            )
+            tcl.append(
+                "file copy -force %s.xdc %s/ip/impl"
+                % (block_name, vivado_stitch_proj_dir)
+            )
+            tcl.append("ipx::add_file_group xilinx_implementation [ipx::current_core]")
+            tcl.append(
+                "ipx::add_file impl/%s.xdc [ipx::get_file_groups xilinx_implementation]"
+                % block_name
+            )
+            tcl.append(
+                "set_property used_in [list implementation] "
+                "[ipx::get_files impl/%s.xdc "
+                "-of_objects [ipx::get_file_groups xilinx_implementation]]" % block_name
+            )
+            tcl.append(
+                "ipx::add_file_group " "xilinx_synthesischeckpoint [ipx::current_core]"
+            )
+            tcl.append(
+                "ipx::add_file dcp/%s.dcp "
+                "[ipx::get_file_groups xilinx_synthesischeckpoint]" % block_name
+            )
+            tcl.append(
+                "ipx::add_file_group xilinx_simulationcheckpoint [ipx::current_core]"
+            )
+            tcl.append(
+                "ipx::add_file dcp/%s.dcp "
+                "[ipx::get_file_groups xilinx_simulationcheckpoint]" % block_name
+            )
+        tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
+        tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
         # export list of used Verilog files (for rtlsim later on)
         tcl.append("set all_v_files [get_files -filter {FILE_TYPE == Verilog}]")
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir

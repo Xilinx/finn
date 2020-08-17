@@ -170,6 +170,10 @@ class AddStreams_Batch(HLSCustomOp):
     def get_number_output_values(self):
         return np.prod(self.get_folded_output_shape()[:-1])
 
+    def get_exp_cycles(self):
+        # Channels/PE * batch size * fmdim * fmdim
+        return np.prod(self.get_folded_output_shape()[:-1])
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
@@ -356,3 +360,8 @@ class AddStreams_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        intf_names["s_axis"] = ["in0_V_V", "in1_V_V"]
+        return intf_names

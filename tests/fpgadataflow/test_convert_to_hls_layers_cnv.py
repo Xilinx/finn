@@ -51,7 +51,7 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.custom_op.registry import getCustomOp
 
-export_onnx_path_cnv = "test_output_cnv.onnx"
+export_onnx_path_cnv = "test_convert_to_hls_layers_cnv.onnx"
 
 
 @pytest.mark.vivado

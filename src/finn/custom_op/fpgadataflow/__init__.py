@@ -82,12 +82,15 @@ class HLSCustomOp(CustomOp):
             "ip_path": ("s", False, ""),
             "ip_vlnv": ("s", False, ""),
             "exec_mode": ("s", False, ""),
-            "sim_cycles": ("i", False, 0),
+            "cycles_rtlsim": ("i", False, 0),
+            "cycles_estimate": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
             "res_estimate": ("s", False, ""),
             "res_hls": ("s", False, ""),
             "res_synth": ("s", False, ""),
             "rtlsim_so": ("s", False, ""),
+            # partitioning info
+            "partition_id": ("i", False, 0),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
@@ -99,6 +102,23 @@ class HLSCustomOp(CustomOp):
         node = self.onnx_node
         prefixed_top_name = "%s_%s" % (node.name, node.name)
         return prefixed_top_name
+
+    def get_verilog_top_module_intf_names(self):
+        """Return a dict of names of input and output interfaces.
+        The keys reflect the protocols each interface implements:
+        'clk', 'rst', 'm_axis', 's_axis', 'aximm', 'axilite'.
+        Values are lists of names:
+        's_axis' names correspond to the list of node inputs in order,
+        'm_axis' names correspond to the list of node outputs in order'
+        Each block must have at most one aximm and one axilite."""
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["rst"] = ["ap_rst_n"]
+        intf_names["s_axis"] = ["in0_V_V"]
+        intf_names["m_axis"] = ["out_V_V"]
+        intf_names["aximm"] = []
+        intf_names["axilite"] = []
+        return intf_names
 
     def get_verilog_top_filename(self):
         "Return the Verilog top module filename for this node."
@@ -171,8 +191,14 @@ class HLSCustomOp(CustomOp):
         of the node as a dictionary."""
         ret = dict()
         ret["BRAM_18K"] = self.bram_estimation()
+        ret["BRAM_efficiency"] = self.bram_efficiency_estimation()
         ret["LUT"] = self.lut_estimation()
         return ret
+
+    def bram_efficiency_estimation(self):
+        """Function for BRAM efficiency estimation: actual parameter storage
+        needed divided by the allocated BRAM storage (from estimation)"""
+        return 1
 
     def bram_estimation(self):
         """Function for BRAM resource estimation, is member function of
@@ -182,6 +208,12 @@ class HLSCustomOp(CustomOp):
     def lut_estimation(self):
         """Function for LUT resource estimation, is member function of
         HLSCustomOp class but has to be filled by every node"""
+        return 0
+
+    def get_exp_cycles(self):
+        """Function for estimation of expected cycles for set folding,
+        is member function of HLSCustomOp class but has to be filled
+        by every node"""
         return 0
 
     def code_generation_ipgen(self, model, fpgapart, clk):
@@ -219,7 +251,6 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
-
         template = self.ipgentcl_template
 
         for key in self.code_gen_dict:
@@ -235,7 +266,7 @@ class HLSCustomOp(CustomOp):
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
         return []
-        
+
     def ipgen_singlenode_code(self):
         """Builds the bash script for ip generation using the IPGenBuilder from
         finn.util.fpgadataflow."""
@@ -412,7 +443,7 @@ compilation transformations?
             no_change_count = no_change_count + 1
 
             if len(outputs) == num_out_values:
-                self.set_nodeattr("sim_cycles", observation_count)
+                self.set_nodeattr("cycles_rtlsim", observation_count)
                 output_observed = True
 
             if no_change_count == liveness_threshold:
@@ -441,7 +472,7 @@ compilation transformations?
             trace_file = self.onnx_node.name + ".vcd"
         num_out_values = self.get_number_output_values()
         total_cycle_count = rtlsim_multi_io(sim, io_dict, num_out_values, trace_file)
-        self.set_nodeattr("sim_cycles", total_cycle_count)
+        self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 
     def execute_node(self, context, graph):
         """Executes single node using cppsim or rtlsim."""

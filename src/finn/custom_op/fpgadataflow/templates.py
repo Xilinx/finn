@@ -99,6 +99,7 @@ set_top $config_toplevelfxn
 open_solution sol1
 set_part $config_proj_part
 
+config_compile -ignore_long_run_time -disable_unroll_code_size_check
 config_interface -m_axi_addr64
 config_rtl -auto_prefix
 $EXTRA_DIRECTIVES$
@@ -343,6 +344,7 @@ set_property supported_families { \
   virtex7 Production \
   virtexu Production \
   virtexuplus Production \
+  virtexuplusHBM Production \
   zynq Production \
   zynquplus Production \
   aartix7 Production \

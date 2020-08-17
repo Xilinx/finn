@@ -37,28 +37,25 @@ ARG PASSWD
 ARG JUPYTER_PORT
 ARG NETRON_PORT
 
-EXPOSE $JUPYTER_PORT
-EXPOSE $NETRON_PORT
-
 WORKDIR /workspace
 
 RUN apt-get update
 RUN apt-get -y upgrade
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
-RUN apt-get install verilator
-RUN apt-get install nano
-RUN apt-get -y install sshpass
+RUN apt-get install -y verilator nano zsh rsync
+RUN apt-get -y install sshpass wget unzip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
 RUN pip install jupyter
-RUN pip install netron
 RUN pip install matplotlib
 RUN pip install pytest-dependency
 RUN pip install sphinx
 RUN pip install sphinx_rtd_theme
+RUN pip install pytest-xdist
+RUN pip install pytest-parallel
 
 # switch user
 RUN groupadd -g $GID $GNAME
@@ -81,12 +78,29 @@ RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
 RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
 # PYNQ-HelloWorld
 RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
+# oh-my-xilinx
+RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
+# netron
+RUN git clone https://github.com/lutzroeder/netron.git /workspace/netron
+
+# build and install netron
+USER root
+RUN curl -sL https://deb.nodesource.com/setup_12.x | bash -
+RUN apt-get install -y nodejs
+WORKDIR /workspace/netron
+RUN git checkout 376e9d33733a3eacfe3c432808fd46e6cd1460cb
+RUN npm install
+RUN python setup.py build
+RUN pip install /workspace/netron
+USER $UNAME
 
 # for this developer-oriented Docker container we assume the FINN repo is cloned and mounted from the host
 # at /workspace/finn -- see run-docker.sh for an example of how to do this.
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
+ENV PATH "${PATH}:/workspace/oh-my-xilinx:/home/$UNAME/.local/bin"
+ENV OHMYXILINX "/workspace/oh-my-xilinx"
 
 WORKDIR /home/$UNAME/finn
 RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /home/$UNAME/.bashrc
@@ -99,6 +113,9 @@ COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
 USER $UNAME
+
+EXPOSE $JUPYTER_PORT
+EXPOSE $NETRON_PORT
 
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]

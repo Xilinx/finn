@@ -99,28 +99,32 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
        input values anymore."""
     assert y.shape == tuple(Shape), """The output shape is incorrect."""
 
-    model = model.transform(ReplaceVerilogRelPaths())
-    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
-    model = model.transform(MakePYNQProject(test_pynq_board))
-    model = model.transform(SynthPYNQProject())
-    model = model.transform(MakePYNQDriver())
-    ip = os.environ["PYNQ_IP"]
-    username = os.getenv("PYNQ_USERNAME", "xilinx")
-    password = os.getenv("PYNQ_PASSWORD", "xilinx")
-    port = os.getenv("PYNQ_PORT", 22)
-    target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-    model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
-
-    res = throughput_test(model)
-    expected_dict = {}
-    expected_dict["runtime[ms]"] = []
-    expected_dict["throughput[images/s]"] = []
-    expected_dict["DRAM_in_bandwidth[Mb/s]"] = []
-    expected_dict["DRAM_out_bandwidth[Mb/s]"] = []
-    for key in expected_dict:
-        assert (
-            key in res
-        ), """Throughput test not successful, no value for {}
-        in result dictionary""".format(
-            key
-        )
+    try:
+        ip = os.environ["PYNQ_IP"]  # NOQA
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
+        model = model.transform(ReplaceVerilogRelPaths())
+        model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+        model = model.transform(MakePYNQProject(test_pynq_board))
+        model = model.transform(SynthPYNQProject())
+        model = model.transform(MakePYNQDriver(platform="zynq"))
+        username = os.getenv("PYNQ_USERNAME", "xilinx")
+        password = os.getenv("PYNQ_PASSWORD", "xilinx")
+        port = os.getenv("PYNQ_PORT", 22)
+        target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
+        res = throughput_test(model)
+        expected_dict = {}
+        expected_dict["runtime[ms]"] = []
+        expected_dict["throughput[images/s]"] = []
+        expected_dict["DRAM_in_bandwidth[Mb/s]"] = []
+        expected_dict["DRAM_out_bandwidth[Mb/s]"] = []
+        for key in expected_dict:
+            assert (
+                key in res
+            ), """Throughput test not successful, no value for {}
+            in result dictionary""".format(
+                key
+            )
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")

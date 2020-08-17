@@ -1,6 +1,5 @@
 #!/bin/bash
 
-export XILINX_VIVADO=$VIVADO_PATH
 export SHELL=/bin/bash
 export FINN_ROOT=/workspace/finn
 
@@ -13,11 +12,12 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-BREVITAS_COMMIT=989cdfdba4700fdd900ba0b25a820591d561c21a
+BREVITAS_COMMIT=f9a27226d4acf1661dd38bc449f71f89e0983cce
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
-HLSLIB_COMMIT=13e9b0772a27a3a1efc40c878d8e78ed09efb716
+HLSLIB_COMMIT=cfafe11a93b79ab1af7529d68f08886913a6466e
 PYVERILATOR_COMMIT=c97a5ba41bbc7c419d6f25c74cdf3bdc3393174f
 PYNQSHELL_COMMIT=bf281fc3a44eca29efbcbefd63f1196d82c7c255
+OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
 
 gecho "Setting up known-good commit versions for FINN dependencies"
 # Brevitas
@@ -41,8 +41,34 @@ git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT --quiet
 gecho "PYNQ shell @ $PYNQSHELL_COMMIT"
 git -C /workspace/PYNQ-HelloWorld pull --quiet
 git -C /workspace/PYNQ-HelloWorld checkout $PYNQSHELL_COMMIT --quiet
+# oh-my-xilinx
+gecho "oh-my-xilinx @ $OMX_COMMIT"
+git -C /workspace/oh-my-xilinx pull --quiet
+git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
 
-# source Vivado env.vars
-source $VIVADO_PATH/settings64.sh
+if [ ! -z "$VIVADO_PATH" ];then
+  # source Vivado env.vars
+  export XILINX_VIVADO=$VIVADO_PATH
+  source $VIVADO_PATH/settings64.sh
+fi
+if [ ! -z "$VITIS_PATH" ];then
+  # source Vitis env.vars
+  export XILINX_VITIS=$VITIS_PATH
+  source $VITIS_PATH/settings64.sh
+fi
+
+# download PYNQ board files if not already there
+if [ ! -d "/workspace/finn/board_files" ]; then
+    gecho "Downloading PYNQ board files for Vivado"
+    wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
+    wget -q https://d2m32eurp10079.cloudfront.net/Download/pynq-z2.zip
+    unzip -q pynq-z1.zip
+    unzip -q pynq-z2.zip
+    mkdir /workspace/finn/board_files
+    mv pynq-z1/ board_files/
+    mv pynq-z2/ board_files/
+    rm pynq-z1.zip
+    rm pynq-z2.zip
+fi
 
 exec "$@"

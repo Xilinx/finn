@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+import numpy as np
 
 from onnx import TensorProto, helper
 
@@ -41,6 +42,9 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor
+
+from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt):
@@ -182,3 +186,12 @@ def test_fpgadataflow_slidingwindow(
         y_expected = y_expected.transpose(0, 1, 2, 4, 3, 5)
         y_expected = y_expected.reshape(1, ofm_dim, ofm_dim, ifm_ch * k * k)
         assert (y_produced == y_expected).all()
+
+    if exec_mode == "rtlsim":
+        node = model.get_nodes_by_op_type("ConvolutionInputGenerator")[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert exp_cycles != 0

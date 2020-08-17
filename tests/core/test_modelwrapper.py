@@ -36,7 +36,7 @@ import finn.core.data_layout as DataLayout
 from finn.core.modelwrapper import ModelWrapper
 from finn.util.test import get_test_model_trained
 
-export_onnx_path = "test_output_lfc.onnx"
+export_onnx_path = "test_modelwrapper.onnx"
 
 
 def test_modelwrapper():
