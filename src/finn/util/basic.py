@@ -42,6 +42,7 @@ pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
 pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
 pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
+pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
 
 # native AXI HP port width (in bits) for PYNQ boards
@@ -49,6 +50,7 @@ pynq_native_port_width = dict()
 pynq_native_port_width["Pynq-Z1"] = 64
 pynq_native_port_width["Pynq-Z2"] = 64
 pynq_native_port_width["Ultra96"] = 128
+pynq_native_port_width["ZCU102"] = 128
 pynq_native_port_width["ZCU104"] = 128
 
 # Alveo device and platform mappings
