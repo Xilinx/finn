@@ -77,7 +77,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             # FINN DataType for accumulator -- auto-computed and updated
-            "accDataType": ("s", False, "DataType.INT32"),
+            "accDataType": ("s", False, "INT32"),
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
             "binaryXnorMode": ("i", False, 0),
@@ -483,6 +483,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     adt = DataType.get_smallest_possible(0 - acc_max)
             else:
                 adt = DataType.get_smallest_possible(acc_max)
+            # ensure a datatype divisible by 8-bits in case this is the last node
+            bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
+            new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
+            adt = DataType[new_adt_name]
             self.set_nodeattr("accDataType", adt.name)
             # for no-activation nodes, output dt = acc dt
             self.set_nodeattr("outputDataType", adt.name)
