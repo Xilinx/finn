@@ -77,7 +77,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             # FINN DataType for accumulator -- auto-computed and updated
-            "accDataType": ("s", False, "DataType.INT32"),
+            "accDataType": ("s", False, "INT32"),
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
             "binaryXnorMode": ("i", False, 0),
