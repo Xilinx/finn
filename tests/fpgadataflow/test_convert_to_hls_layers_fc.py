@@ -123,6 +123,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
     # do forward pass in PyTorch/Brevitas
     expected = tfc.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
+    os.remove(export_onnx_path)
 
 
 @pytest.mark.vivado
