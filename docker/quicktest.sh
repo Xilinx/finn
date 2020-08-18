@@ -16,6 +16,11 @@ elif [ $1 = "rtlsim" ]; then
 elif [ $1 = "end2end" ]; then
   echo "Running end2end test suite with no parallelism"
   python setup.py test --addopts "-k end2end"
+elif [ $1 = "full" ]; then
+  echo "Running full test suite, each step with appropriate parallelism"
+  $0 main;
+  $0 rtlsim;
+  $0 end2end;
 else
   echo "Unrecognized argument to quicktest.sh"
 fi

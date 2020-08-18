@@ -156,13 +156,19 @@ def make_build_dir(prefix=""):
 
 
 def get_by_name(container, name, name_field="name"):
-    """Return item from container by .name field if it exists, None otherwise"""
+    """Return item from container by .name field if it exists, None otherwise.
+    Will throw an Exception if multiple items are found, since this violates the
+    ONNX standard."""
     names = [getattr(x, name_field) for x in container]
-    try:
-        ind = names.index(name)
-        return container[ind]
-    except ValueError:
+
+    inds = [i for i, e in enumerate(names) if e == name]
+    if len(inds) > 1:
+        raise Exception("Found multiple get_by_name matches, undefined behavior")
+    elif len(inds) == 0:
         return None
+    else:
+        ind = inds[0]
+        return container[ind]
 
 
 def remove_by_name(container, name, name_field="name"):
