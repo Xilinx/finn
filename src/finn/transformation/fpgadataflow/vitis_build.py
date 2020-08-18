@@ -160,7 +160,7 @@ class CreateVitisXO(Transformation):
 class VitisLink(Transformation):
     """Create an XCLBIN with Vitis.
 
-    Outcome if successful: sets the vitis_xclbin attribute in the ONNX
+    Outcome if successful: sets the bitfile attribute in the ONNX
     ModelProto's metadata_props field with the XCLBIN full path as value.
     """
 
@@ -259,7 +259,7 @@ class VitisLink(Transformation):
         assert os.path.isfile(xclbin), (
             "Vitis .xclbin file not created, check logs under %s" % link_dir
         )
-        model.set_metadata_prop("vitis_xclbin", xclbin)
+        model.set_metadata_prop("bitfile", xclbin)
         return (model, False)
 
 

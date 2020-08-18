@@ -249,7 +249,7 @@ class MakeZYNQProject(Transformation):
         deploy_bitfile_name = vivado_pynq_proj_dir + "/resizer.bit"
         copy(bitfile_name, deploy_bitfile_name)
         # set bitfile attribute
-        model.set_metadata_prop("vivado_pynq_bitfile", deploy_bitfile_name)
+        model.set_metadata_prop("bitfile", deploy_bitfile_name)
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "zynq-iodma")
         hwh_name = (

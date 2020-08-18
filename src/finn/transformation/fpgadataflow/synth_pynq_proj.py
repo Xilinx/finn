@@ -50,8 +50,6 @@ class SynthPYNQProject(Transformation):
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         # set bitfile attribute
-        model.set_metadata_prop(
-            "vivado_pynq_bitfile", vivado_pynq_proj_dir + "/resizer.bit"
-        )
+        model.set_metadata_prop("bitfile", vivado_pynq_proj_dir + "/resizer.bit")
         # TODO pull out synthesis statistics and put them in as attributes
         return (model, False)
