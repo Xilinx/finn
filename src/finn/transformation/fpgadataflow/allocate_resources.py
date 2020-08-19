@@ -49,6 +49,12 @@ class AllocateResources(Transformation):
         self.max_bram = 0.8 * sum(
             [r["BRAM_18K"] for r in platform_resource_counts[platform].values()]
         )
+        self.max_uram = 0.8 * sum(
+            [r["URAM"] for r in platform_resource_counts[platform].values()]
+        )
+        self.max_dsp = 0.8 * sum(
+            [r["DSP"] for r in platform_resource_counts[platform].values()]
+        )
 
     def apply(self, model):
         feasible_implementation = False
@@ -76,11 +82,23 @@ class AllocateResources(Transformation):
             resource_usage = model.analysis(res_estimation)
             luts = sum([r["LUT"] for r in resource_usage.values()])
             brams = sum([r["BRAM_18K"] for r in resource_usage.values()])
+            urams = sum([r["URAMS"] for r in resource_usage.values()])
+            dsps = sum([r["DSP"] for r in resource_usage.values()])
 
             # determine if we're overrunning the available resources; if so, lower
             # cpf target and fold again
-            if luts > self.max_luts or brams > self.max_bram:
-                self.cpf_target *= max(luts / self.max_luts, brams / self.max_bram)
+            if (
+                luts > self.max_luts
+                or brams > self.max_bram
+                or urams > self.max_uram
+                or dsps > self.max_dsp
+            ):
+                self.cpf_target *= max(
+                    luts / self.max_luts,
+                    brams / self.max_bram,
+                    urams / self.max_uram,
+                    dsps / self.max_dsp,
+                )
             else:
                 feasible_implementation = True
 

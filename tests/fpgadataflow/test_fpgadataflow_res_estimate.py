@@ -28,7 +28,10 @@
 
 from onnx import TensorProto, helper
 
-from finn.analysis.fpgadataflow.res_estimation import res_estimation
+from finn.analysis.fpgadataflow.res_estimation import (
+    res_estimation,
+    res_estimation_complete,
+)
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.general import GiveUniqueNodeNames
@@ -66,7 +69,6 @@ def test_res_estimate():
         ["outp"],
         domain="finn",
         backend="fpgadataflow",
-        resType="ap_resource_lut()",
         MW=mw,
         MH=mh,
         SIMD=simd,
@@ -92,10 +94,29 @@ def test_res_estimate():
     model = model.transform(GiveUniqueNodeNames())
     prod_resource_estimation = model.analysis(res_estimation)
     expect_resource_estimation = {
-        "StreamingFCLayer_Batch_0": {"BRAM_18K": 0, "BRAM_efficiency": 1, "LUT": 357}
+        "StreamingFCLayer_Batch_0": {
+            "BRAM_18K": 0,
+            "BRAM_efficiency": 1,
+            "LUT": 357,
+            "DSP": 0,
+            "URAM": 0,
+        }
     }
 
     assert check_two_dict_for_equality(
         prod_resource_estimation, expect_resource_estimation
     ), """The produced output of
-    the resource estimation analysis pass is not equal to the expected one"""
+    the res_estimation analysis pass is not equal to the expected one"""
+
+    prod_resource_estimation = model.analysis(res_estimation_complete)
+    expect_resource_estimation = {
+        "StreamingFCLayer_Batch_0": [
+            {"BRAM_18K": 0, "BRAM_efficiency": 1, "LUT": 352, "DSP": 1, "URAM": 0},
+            {"BRAM_18K": 0, "BRAM_efficiency": 1, "LUT": 357, "DSP": 0, "URAM": 0},
+        ]
+    }
+
+    assert check_two_dict_for_equality(
+        prod_resource_estimation, expect_resource_estimation
+    ), """The produced output of
+    the res_estimation_complete analysis pass is not equal to the expected one"""

@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import finn.custom_op.registry as registry
+from finn.custom_op.registry import getCustomOp
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -41,8 +41,45 @@ def res_estimation(model):
     res_dict = {}
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:
-            op_type = node.op_type
-            inst = registry.custom_op[op_type](node)
+            inst = getCustomOp(node)
             res_dict[node.name] = inst.node_res_estimation()
+
+    return res_dict
+
+
+def res_estimation_complete(model):
+    """Estimates the resources needed for the given model and all values for
+    resource-related switches.
+    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
+    transformation) prior to calling this analysis pass to ensure all nodes are
+    visible in the results.
+
+    Returns {node name : [resource estimation(s)]}."""
+
+    res_dict = {}
+    for node in model.graph.node:
+        if is_fpgadataflow_node(node) is True:
+            op_type = node.op_type
+            inst = getCustomOp(node)
+            if op_type == "StreamingFCLayer_Batch":
+                orig_restype = inst.get_nodeattr("resType")
+                res_dict[node.name] = []
+                inst.set_nodeattr("resType", "dsp")
+                res_dict[node.name].append(inst.node_res_estimation())
+                inst.set_nodeattr("resType", "lut")
+                res_dict[node.name].append(inst.node_res_estimation())
+                inst.set_nodeattr("resType", orig_restype)
+            elif op_type == "ConvolutionInputGenerator":
+                orig_ramstyle = inst.get_nodeattr("ram_style")
+                res_dict[node.name] = []
+                inst.set_nodeattr("ram_style", "block")
+                res_dict[node.name].append(inst.node_res_estimation())
+                inst.set_nodeattr("ram_style", "distributed")
+                res_dict[node.name].append(inst.node_res_estimation())
+                inst.set_nodeattr("ram_style", "ultra")
+                res_dict[node.name].append(inst.node_res_estimation())
+                inst.set_nodeattr("ram_style", orig_ramstyle)
+            else:
+                res_dict[node.name] = [inst.node_res_estimation()]
 
     return res_dict

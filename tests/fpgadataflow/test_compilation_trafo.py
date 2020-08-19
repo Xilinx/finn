@@ -57,7 +57,6 @@ def test_compilation_trafo():
         backend="fpgadataflow",
         code_gen_dir="",
         executable_path="",
-        resType="ap_resource_lut()",
         MW=mw,
         MH=mh,
         SIMD=simd,

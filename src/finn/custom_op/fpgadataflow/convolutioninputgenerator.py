@@ -201,13 +201,55 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ifm_dim = self.get_nodeattr("IFMDim")
         k = self.get_nodeattr("ConvKernelDim")
         stride = self.get_nodeattr("Stride")
-        return (k + stride) * (
-            math.ceil(simd * self.get_input_datatype().bitwidth() / 16)
-            * math.ceil(ifm_dim * ifm_ch / simd / 1024)
-        )
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style == "block" or ram_style == "auto":
+            return int(
+                (k + stride)
+                * (
+                    math.ceil(simd * self.get_input_datatype().bitwidth() / 16)
+                    * math.ceil(ifm_dim * ifm_ch / simd / 1024)
+                )
+            )
+        else:
+            return 0
 
     def lut_estimation(self):
-        return 300
+        simd = self.get_nodeattr("SIMD")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        k = self.get_nodeattr("ConvKernelDim")
+        stride = self.get_nodeattr("Stride")
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style == "distributed":
+            ram_luts = int(
+                (k + stride)
+                * (
+                    simd
+                    * self.get_input_datatype().bitwidth()
+                    * math.ceil(ifm_dim * ifm_ch / simd / 64)
+                )
+            )
+        else:
+            ram_luts = 0
+        return 300 + ram_luts
+
+    def uram_estimation(self):
+        simd = self.get_nodeattr("SIMD")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        k = self.get_nodeattr("ConvKernelDim")
+        stride = self.get_nodeattr("Stride")
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style == "block" or ram_style == "auto":
+            return int(
+                (k + stride)
+                * (
+                    math.ceil(simd * self.get_input_datatype().bitwidth() / 64)
+                    * math.ceil(ifm_dim * ifm_ch / simd / 4096)
+                )
+            )
+        else:
+            return 0
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

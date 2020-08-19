@@ -66,29 +66,37 @@ alveo_default_platform["U280"] = "xilinx_u280_xdma_201920_3"
 
 # resource availability for PYNQ and Alveo boards
 platform_resource_counts = dict()
-platform_resource_counts["Pynq-Z1"] = {"slr0": {"LUT": 53200, "BRAM_18K": 280}}
-platform_resource_counts["Pynq-Z2"] = {"slr0": {"LUT": 53200, "BRAM_18K": 280}}
-platform_resource_counts["Ultra96"] = {"slr0": {"LUT": 71000, "BRAM_18K": 412}}
-platform_resource_counts["ZCU104"] = {"slr0": {"LUT": 230000, "BRAM_18K": 610}}
+platform_resource_counts["Pynq-Z1"] = {
+    "slr0": {"LUT": 53200, "BRAM_18K": 280, "DSP": 220, "URAM": 0}
+}
+platform_resource_counts["Pynq-Z2"] = {
+    "slr0": {"LUT": 53200, "BRAM_18K": 280, "DSP": 220, "URAM": 0}
+}
+platform_resource_counts["Ultra96"] = {
+    "slr0": {"LUT": 71000, "BRAM_18K": 412, "DSP": 360, "URAM": 0}
+}
+platform_resource_counts["ZCU104"] = {
+    "slr0": {"LUT": 230000, "BRAM_18K": 610, "DSP": 1728, "URAM": 92}
+}
 platform_resource_counts["U50"] = {
-    "slr0": {"LUT": 369000, "BRAM_18K": 1128},
-    "slr1": {"LUT": 362000, "BRAM_18K": 1128},
+    "slr0": {"LUT": 369000, "BRAM_18K": 1128, "DSP": 2580, "URAM": 304},
+    "slr1": {"LUT": 362000, "BRAM_18K": 1128, "DSP": 2760, "URAM": 304},
 }
 platform_resource_counts["U200"] = {
-    "slr0": {"LUT": 355000, "BRAM_18K": 1276},
-    "slr1": {"LUT": 160000, "BRAM_18K": 652},
-    "slr2": {"LUT": 355000, "BRAM_18K": 1276},
+    "slr0": {"LUT": 355000, "BRAM_18K": 1276, "DSP": 2265, "URAM": 320},
+    "slr1": {"LUT": 160000, "BRAM_18K": 652, "DSP": 1317, "URAM": 160},
+    "slr2": {"LUT": 355000, "BRAM_18K": 1276, "DSP": 2265, "URAM": 320},
 }
 platform_resource_counts["U250"] = {
-    "slr0": {"LUT": 345000, "BRAM_18K": 1000},
-    "slr1": {"LUT": 345000, "BRAM_18K": 1000},
-    "slr2": {"LUT": 345000, "BRAM_18K": 1000},
-    "slr3": {"LUT": 345000, "BRAM_18K": 1000},
+    "slr0": {"LUT": 345000, "BRAM_18K": 1000, "DSP": 2877, "URAM": 320},
+    "slr1": {"LUT": 345000, "BRAM_18K": 1000, "DSP": 2877, "URAM": 320},
+    "slr2": {"LUT": 345000, "BRAM_18K": 1000, "DSP": 2877, "URAM": 320},
+    "slr3": {"LUT": 345000, "BRAM_18K": 1000, "DSP": 2877, "URAM": 320},
 }
 platform_resource_counts["U280"] = {
-    "slr0": {"LUT": 369000, "BRAM_18K": 1014},
-    "slr1": {"LUT": 333000, "BRAM_18K": 936},
-    "slr2": {"LUT": 367000, "BRAM_18K": 1024},
+    "slr0": {"LUT": 369000, "BRAM_18K": 1014, "DSP": 2733, "URAM": 320},
+    "slr1": {"LUT": 333000, "BRAM_18K": 936, "DSP": 2877, "URAM": 320},
+    "slr2": {"LUT": 367000, "BRAM_18K": 1024, "DSP": 2880, "URAM": 320},
 }
 
 

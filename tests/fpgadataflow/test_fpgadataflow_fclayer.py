@@ -93,7 +93,6 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         ["outp"],
         domain="finn",
         backend="fpgadataflow",
-        resType="ap_resource_lut()",
         MW=mw,
         MH=mh,
         SIMD=simd,

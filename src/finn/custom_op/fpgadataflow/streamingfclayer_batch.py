@@ -69,7 +69,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
-            "resType": ("s", True, ""),
+            "resType": ("s", False, "lut"),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
@@ -307,7 +307,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
 
         # multiplication
-        mult_luts = (2 * math.ceil((W + A) / 6) - 1) * (W + A)
+        res_type = self.get_nodeattr("resType")
+        if res_type == "dsp":
+            mult_luts = 0
+        else:
+            mult_luts = (2 * math.ceil((W + A) / 6) - 1) * (W + A)
         # adder tree
         addertree_luts = (W + A) * (2 * Q - 1)
         # accumulator
@@ -328,6 +332,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts))
             + c2
         )
+
+    def dsp_estimation(self):
+        # multiplication
+        res_type = self.get_nodeattr("resType")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        if res_type == "dsp":
+            mult_dsp = Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
+        else:
+            mult_dsp = 0
+        return int(mult_dsp)
 
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
@@ -900,6 +918,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def docompute(self):
         mem_mode = self.get_nodeattr("mem_mode")
+        map_to_hls_mult_style = {
+            "auto": "ap_resource_dflt()",
+            "lut": "ap_resource_lut()",
+            "dsp": "ap_resource_dsp()",
+        }
         tmpl_args = self.get_template_param_values()
         if self.calc_tmem() == 0:
             odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
@@ -916,7 +939,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
                     threshs,
-                    self.get_nodeattr("resType"),
+                    map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
             ]
         elif mem_mode == "decoupled" or mem_mode == "external":
@@ -934,7 +957,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     tmpl_args["TWeightI"],
                     wdtype_hls_str,
                     threshs,
-                    self.get_nodeattr("resType"),
+                    map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
             ]
 

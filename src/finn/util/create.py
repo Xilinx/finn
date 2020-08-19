@@ -148,7 +148,6 @@ def hls_mlp_maker(layer_spec):
             [current_out_name],
             domain="finn",
             backend="fpgadataflow",
-            resType="ap_resource_lut()",
             MW=mw,
             MH=mh,
             SIMD=simd,
