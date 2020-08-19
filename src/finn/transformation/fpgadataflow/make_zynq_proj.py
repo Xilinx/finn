@@ -260,6 +260,7 @@ class MakeZYNQProject(Transformation):
             raise Exception("Synthesis failed, no hardware handoff file found")
         deploy_hwh_name = vivado_pynq_proj_dir + "/resizer.hwh"
         copy(hwh_name, deploy_hwh_name)
+        model.set_metadata_prop("hw_handoff", deploy_hwh_name)
         # filename for the synth utilization report
         synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
