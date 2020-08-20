@@ -422,3 +422,14 @@ wait_on_run [get_runs impl_1]
 open_run synth_1 -name synth_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
 """
+
+alveo_run_sh_template = """
+#!/bin/bash
+
+cd $REMOTE_DEPLOY_DIR$
+conda activate $CONDA_ENV_NAME$
+source $REMOTE_XRT$/packages/setenv.sh
+export PLATFORM_REPO_PATHS=$REMOTE_PLATFORM_REPO_PATHS$
+python3.6 driver.py --exec_mode=$1 --batchsize=$2 --bitfile=$BITFILE$ \
+    --inputfile=input.npy --outputfile=output.npy --platform=alveo
+"""

@@ -68,21 +68,22 @@ def throughput_test_remote(model, batchsize=1000):
         # PYNQ Zynq boards need to execute with sudo
         remote_prefix = "echo %s | sudo -S " % pynq_password
 
+    # use platform attribute for correct remote execution
+    if platform == "alveo":
+        remote_cmd = "bash -i %s/%s/run.sh throughput_test %d" % (
+            pynq_target_dir,
+            deployment_folder,
+            batchsize,
+        )
+    else:
+        remote_cmd = (
+            "python3.6 driver.py --exec_mode=throughput_test --batchsize={} "
+            "--bitfile={} --inputfile=input.npy --outputfile=output.npy "
+            '--platform={} "'
+        ).format(batchsize, bitfile, platform)
     cmd = (
-        local_prefix + "ssh {}@{} -p {} "
-        '"cd {}/{}; '
-        + remote_prefix
-        + 'python3.6 driver.py --exec_mode="throughput_test" --batchsize=%d '
-        '--bitfile={} --platform={} "' % batchsize
-    ).format(
-        pynq_username,
-        pynq_ip,
-        pynq_port,
-        pynq_target_dir,
-        deployment_folder,
-        bitfile,
-        platform,
-    )
+        local_prefix + "ssh {}@{} -p {} " '"cd {}/{}; ' + remote_prefix + remote_cmd
+    ).format(pynq_username, pynq_ip, pynq_port, pynq_target_dir, deployment_folder)
     bash_command = ["/bin/bash", "-c", cmd]
     process_throughput_test = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_throughput_test.communicate()

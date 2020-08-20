@@ -57,8 +57,8 @@ def remote_exec(model, execution_context):
         local_prefix = "sshpass -p %s " % pynq_password
 
     if platform == "alveo":
-        # Alveo can run without sudo but needs correct environment
-        remote_prefix = "conda activate finn-pynq-alveo; "
+        # Alveo can run without sudo
+        remote_prefix = ""
     elif "zynq" in platform:
         # PYNQ Zynq boards need to execute with sudo
         remote_prefix = "echo %s | sudo -S " % pynq_password
@@ -66,7 +66,7 @@ def remote_exec(model, execution_context):
     inp = execution_context[model.graph.input[0].name]
     # make copy of array before saving it
     inp = inp.copy()
-    bsize = inp.shape[0]
+    batchsize = inp.shape[0]
     np.save(os.path.join(deployment_dir, "input.npy"), inp)
     # extracting last folder of absolute path (deployment_dir)
     deployment_folder = os.path.basename(os.path.normpath(deployment_dir))
@@ -82,24 +82,23 @@ def remote_exec(model, execution_context):
     bash_command = ["/bin/bash", "-c", cmd]
     process_scp_in = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_scp_in.communicate()
+
     # use platform attribute for correct remote execution
+    if platform == "alveo":
+        remote_cmd = "bash -i %s/%s/run.sh execute %d" % (
+            pynq_target_dir,
+            deployment_folder,
+            batchsize,
+        )
+    else:
+        remote_cmd = (
+            "python3.6 driver.py --exec_mode=execute --batchsize={} "
+            "--bitfile={} --inputfile=input.npy --outputfile=output.npy "
+            '--platform={} "'
+        ).format(batchsize, bitfile, platform)
     cmd = (
-        local_prefix + "ssh {}@{} -p {} "
-        '"cd {}/{}; '
-        + remote_prefix
-        + "python3.6 driver.py --exec_mode=execute --batchsize={} "
-        "--bitfile={} --inputfile=input.npy --outputfile=output.npy "
-        '--platform={} "'
-    ).format(
-        pynq_username,
-        pynq_ip,
-        pynq_port,
-        pynq_target_dir,
-        deployment_folder,
-        bsize,
-        bitfile,
-        platform,
-    )
+        local_prefix + "ssh {}@{} -p {} " '"cd {}/{}; ' + remote_prefix + remote_cmd
+    ).format(pynq_username, pynq_ip, pynq_port, pynq_target_dir, deployment_folder)
     bash_command = ["/bin/bash", "-c", cmd]
     process_exec_accel = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_exec_accel.communicate()

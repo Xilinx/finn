@@ -34,6 +34,7 @@ from shutil import copy
 
 from finn.transformation import Transformation
 from finn.util.basic import make_build_dir
+import finn.transformation.fpgadataflow.templates as templates
 
 
 class DeployToPYNQ(Transformation):
@@ -73,13 +74,32 @@ class DeployToPYNQ(Transformation):
             if dfile is not None:
                 copy(dfile, deployment_dir)
 
+        # helper script for Alveo
+        platform = model.get_metadata_prop("platform")
+        if platform == "alveo":
+            alveo_run_sh = templates.alveo_run_sh_template
+            fill_dict = {
+                "$REMOTE_DEPLOY_DIR$": self.target_dir
+                + "/"
+                + os.path.basename(deployment_dir),
+                "$CONDA_ENV_NAME$": "finn-pynq-alveo",
+                "$REMOTE_XRT$": os.environ["VITIS_XRT"],
+                "$REMOTE_PLATFORM_REPO_PATHS$": os.environ["PLATFORM_REPO_PATHS"],
+                "$BITFILE$": os.path.basename(bitfile),
+            }
+            for key, value in fill_dict.items():
+                alveo_run_sh = alveo_run_sh.replace(key, value)
+            alveo_run_sh_path = deployment_dir + "/alveo_run.sh"
+            with open(alveo_run_sh_path, "w") as f:
+                f.write(alveo_run_sh)
+
         # driver.py and python libraries
         pynq_driver_dir = model.get_metadata_prop("pynq_driver_dir")
         copy_tree(pynq_driver_dir, deployment_dir)
         model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
         model.set_metadata_prop("exec_mode", "remote_pynq")
         if self.password == "":
-            prefix = "" # assume we are using an ssh key
+            prefix = ""  # assume we are using an ssh key
             warnings.warn("Empty password, make sure you've set up an ssh key")
         else:
             prefix = "sshpass -p %s " % self.password
@@ -93,11 +113,7 @@ class DeployToPYNQ(Transformation):
         process_compile.communicate()
         # copy directory to PYNQ board using scp and sshpass
         cmd = prefix + "scp -P{} -r {} {}@{}:{}".format(
-            self.port,
-            deployment_dir,
-            self.username,
-            self.ip,
-            self.target_dir,
+            self.port, deployment_dir, self.username, self.ip, self.target_dir,
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
