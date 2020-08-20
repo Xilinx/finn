@@ -30,12 +30,12 @@ import os
 
 
 import pytest
-
+import numpy as np
 
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
-
+import onnx.numpy_helper as nph
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -62,7 +62,9 @@ from finn.util.basic import alveo_part_map, alveo_default_platform
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.transformation.infer_data_layouts import InferDataLayouts
-
+from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
+from pkgutil import get_data
+from finn.core.onnx_exec import execute_onnx
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_alveo_board = os.getenv("ALVEO_BOARD", default="U250")
@@ -163,3 +165,64 @@ def test_end2end_vitis_tfc_w1a1_build():
     model = model.transform(VitisBuild(test_fpga_part, target_clk_ns, test_platform))
     # TODO post-synth resources
     model.save(build_dir + "/end2end_vitis_tfc_w1a1_build.onnx")
+
+
+def test_end2end_vitis_tfc_w1a1_deploy_on_pynq():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_vitis_tfc_w1a1_build.onnx"
+    )
+    try:
+        ip = os.environ["ALVEO_IP"]  # no fault for this one; skip if not defined
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
+        username = os.getenv("ALVEO_USERNAME", "xilinx")
+        password = os.getenv("ALVEO_PASSWORD", "xilinx")
+        port = os.getenv("ALVEO_PORT", 22)
+        target_dir = os.getenv("ALVEO_TARGET_DIR", "/home/xilinx/finn")
+        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
+        # save the model to be able to link it to the parent
+        model.save(build_dir + "/end2end_vitis_tfc_w1a1_pynq_deploy.onnx")
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")
+
+
+def test_end2end_vitis_tfc_w1a1_run_on_pynq():
+    # use the streamlined model as the "golden" model for right answers
+    golden = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_vitis_tfc_w1a1_streamlined.onnx"
+    )
+    iname = golden.graph.input[0].name
+    oname = golden.graph.output[0].name
+    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    input_tensor = onnx.load_tensor_from_string(raw_i)
+    x = nph.to_array(input_tensor)
+    # x = np.zeros(ishape, dtype=np.float32)
+    # run using FINN-based execution
+    ret_golden = execute_onnx(golden, {iname: x}, True)
+    y_golden = ret_golden[oname]
+    # set up parent+child graph to test
+    # we'll use models from the previous step as the child model
+    parent_model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_vitis_tfc_w1a1_dataflow_parent.onnx"
+    )
+    iname = parent_model.graph.input[0].name
+    oname = parent_model.graph.output[0].name
+    try:
+        ip = os.environ["ALVEO_IP"]  # NOQA
+        if ip == "":
+            pytest.skip("PYNQ board IP address not specified")
+        # produce results with cppsim
+        sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+        sdp_node = getCustomOp(sdp_node)
+        load_test_checkpoint_or_skip(
+            build_dir + "/end2end_vitis_tfc_w1a1_pynq_deploy.onnx"
+        )
+        sdp_node.set_nodeattr(
+            "model", build_dir + "/end2end_vitis_tfc_w1a1_pynq_deploy.onnx"
+        )
+        ret = execute_onnx(parent_model, {iname: x}, True)
+        y = ret[oname]
+        assert np.isclose(y, y_golden).all()
+
+    except KeyError:
+        pytest.skip("PYNQ board IP address not specified")

@@ -12,7 +12,14 @@ build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 
 @pytest.mark.parametrize(
     "end2end_example",
-    ["zynqbuild_tfc_w1a1", "zynqbuild_cnv_w1a1", "tfc_w1a1", "cnv_w1a1", "cnv_w2a2"],
+    [
+        "zynqbuild_tfc_w1a1",
+        "zynqbuild_cnv_w1a1",
+        "vitis_tfc_w1a1",
+        "tfc_w1a1",
+        "cnv_w1a1",
+        "cnv_w2a2",
+    ],
 )
 @pytest.mark.slow
 def test_pynq_performance_end2end(end2end_example):
