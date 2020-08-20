@@ -161,10 +161,20 @@ if [ ! -z "$VIVADO_PATH" ];then
   DOCKER_EXEC+="-e VIVADO_PATH=$VIVADO_PATH "
 fi
 if [ ! -z "$VITIS_PATH" ];then
+  if [ -z "$PLATFORM_REPO_PATHS" ];then
+          recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
+          exit -1
+  fi
+  if [ -z "$VITIS_XRT" ];then
+          recho "VITIS_XRT must be set for Vitis/Alveo flows"
+          exit -1
+  fi
   DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
-  DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:/workspace/finn/vitis_platforms "
+  DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
+  DOCKER_EXEC+="-v $VITIS_XRT:$VITIS_XRT "
   DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
-  DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=/workspace/finn/vitis_platforms "
+  DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
+  DOCKER_EXEC+="-e VITIS_XRT:$VITIS_XRT "
 fi
 DOCKER_EXEC+="$DOCKER_TAG $DOCKER_CMD"
 
