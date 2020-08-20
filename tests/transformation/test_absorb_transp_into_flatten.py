@@ -57,9 +57,9 @@ def test_absorb_transp_into_flatten(perm, shape, ishape, data_layout):
     model = model.transform(InferDataLayouts())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
-    model.save("test.onnx")
+    # model.save("test.onnx")
     model_transformed = model.transform(AbsorbTransposeIntoFlatten())
-    model_transformed.save("test2.onnx")
+    # model_transformed.save("test2.onnx")
 
     # verify transformation
     inp_values = np.random.uniform(low=-1, high=1, size=tuple(ishape)).astype(

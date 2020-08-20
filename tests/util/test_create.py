@@ -61,4 +61,4 @@ def test_hls_random_mlp_maker(bitwidth):
 
     ret = create.hls_random_mlp_maker(layer_spec)
     assert len(ret.graph.node) == 5
-    ret.save("mlp-%s.onnx" % str(bitwidth))
+    # ret.save("mlp-%s.onnx" % str(bitwidth))

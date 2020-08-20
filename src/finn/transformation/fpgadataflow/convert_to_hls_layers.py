@@ -29,6 +29,7 @@
 
 from onnx import helper, TensorProto
 import numpy as np
+import warnings
 
 from finn.core.datatype import DataType
 from finn.transformation import Transformation
