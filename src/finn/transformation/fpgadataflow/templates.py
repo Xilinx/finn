@@ -124,15 +124,14 @@ class FINNAccelDriver():
         self.ol = Overlay(bitfile)
         # neuron folding factor of output = iterations per sample
         self.itersPerSample = self.oshape_packed[-2]
+        # clock frequency as specified by user
+        self.fclk_mhz = $CLOCK_FREQ_MHZ$
         if self.platform == "zynq":
-            # clock frequency
-            self.fclk_mhz = $CLOCK_FREQ_MHZ$
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
                 Clocks.$CLK_NAME$ = self.fclk_mhz
             self.dma = self.ol.axi_dma_0
             self.ctrl_regs = self.ol.resize_accel_0
-
             # AXI lite register offset for number of iterations
             # used by TLastMarker to signal end of transmission for AXI CDMA
             self.REG_OFFSET_NUM_ITERS = 0x10
@@ -144,8 +143,6 @@ class FINNAccelDriver():
         elif self.platform == "zynq-iodma":
             self.idma = self.ol.idma0
             self.odma = self.ol.odma0
-            # clock frequency
-            self.fclk_mhz = $CLOCK_FREQ_MHZ$
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
                 Clocks.$CLK_NAME$ = self.fclk_mhz
@@ -289,7 +286,10 @@ if __name__ == "__main__":
         res["throughput[images/s]"] = N / runtime
         res["DRAM_in_bandwidth[Mb/s]"] = np.prod(finnDriver.ishape_packed)*0.000001 / runtime
         res["DRAM_out_bandwidth[Mb/s]"] = np.prod(finnDriver.oshape_packed)*0.000001 / runtime
-        res["fclk[mhz]"] = Clocks.fclk0_mhz
+        if platform != "alveo":
+            res["fclk[mhz]"] = Clocks.fclk0_mhz
+        else:
+            res["fclk[mhz]"] = finnDriver.fclk_mhz
         res["N"] = N
         file = open("nw_metrics.txt", "w")
         file.write(str(res))
@@ -429,10 +429,15 @@ open_run synth_1 -name synth_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
 """
 
-alveo_run_sh_template = """
-#!/bin/bash
+alveo_run_sh_template = """#!/bin/bash
+
+if [ "$#" -ne 2 ]; then
+    echo "Usage: alveo_run.sh <exec_mode={execute, throughput_test}> <batch_size>"
+    exit -1
+fi
 
 cd $REMOTE_DEPLOY_DIR$
+eval "$(conda shell.bash hook)"
 conda activate $CONDA_ENV_NAME$
 source $REMOTE_XRT$/packages/setenv.sh
 export PLATFORM_REPO_PATHS=$REMOTE_PLATFORM_REPO_PATHS$
