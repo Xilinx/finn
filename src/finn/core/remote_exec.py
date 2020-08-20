@@ -85,11 +85,7 @@ def remote_exec(model, execution_context):
 
     # use platform attribute for correct remote execution
     if platform == "alveo":
-        remote_cmd = "bash -i %s/%s/run.sh execute %d" % (
-            pynq_target_dir,
-            deployment_folder,
-            batchsize,
-        )
+        remote_cmd = "bash -i alveo_run.sh execute %d" % (batchsize)
     else:
         remote_cmd = (
             "python3.6 driver.py --exec_mode=execute --batchsize={} "
