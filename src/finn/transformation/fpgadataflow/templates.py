@@ -191,6 +191,14 @@ class FINNAccelDriver():
     def copy_input_data_to_device(self, data):
         \"\"\"Copies given input data to PYNQ buffer.\"\"\"
         np.copyto(self.ibuf_packed_device, data)
+        if self.platform == "alveo":
+            self.ibuf_packed_device.sync_to_device()
+
+    def copy_output_data_from_device(self, data):
+        \"\"\"Copies PYNQ output buffer from device.\"\"\"
+        if self.platform == "alveo":
+            self.obuf_packed_device.sync_from_device()
+        np.copyto(data, self.obuf_packed_device)
 
     def execute(self):
         \"\"\"Executes accelerator by setting up the DMA(s) and
@@ -214,14 +222,10 @@ class FINNAccelDriver():
             status = self.odma.read(0x00)
             while status & 0x2 == 0:
                 status = self.odma.read(0x00)
-
         elif self.platform == "alveo":
-            self.ibuf_packed_device.sync_to_device()
-            self.idma.start(self.ibuf_packed_device, self.N)
-            self.odma.start(self.obuf_packed_device, self.N)
-            self.idma.wait()
-            self.odma.wait()
-            self.obuf_packed_device.sync_from_device()
+            idma_handle = self.idma.start_sw(self.ibuf_packed_device, self.N)
+            odma_handle = self.odma.start_sw(self.obuf_packed_device, self.N)
+            odma_handle.wait()
 
 
 
@@ -293,7 +297,9 @@ if __name__ == "__main__":
 
     # if execution is selected unpack, unfold and save output to output npy file
     else:
-        obuf_folded = finnDriver.unpack_output(finnDriver.obuf_packed_device)
+        obuf_packed = np.empty_like(finnDriver.obuf_packed_device)
+        finnDriver.copy_output_data_from_device(obuf_packed)
+        obuf_folded = finnDriver.unpack_output(obuf_packed)
         obuf_normal = finnDriver.unfold_output(obuf_folded)
         np.save(outputfile, obuf_normal)
 
