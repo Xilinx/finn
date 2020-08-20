@@ -93,6 +93,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${ALVEO_PASSWORD=""}
 : ${ALVEO_BOARD="U250"}
 : ${ALVEO_TARGET_DIR="/tmp"}
+: ${XILINX_XRT="/opt/xilinx/xrt"}
+: ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 
 BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH

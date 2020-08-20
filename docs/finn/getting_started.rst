@@ -102,7 +102,7 @@ These are summarized below:
 
 Supported Hardware
 ===================
-**End-to-end support including driver:** For quick deployment, FINN targets boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards. 
+**End-to-end support including driver:** For quick deployment, FINN targets boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
 As of FINN v0.4b we also have preliminary support for `Xilinx Alveo boards <>`_ using PYNQ and Vitis, see instructions below for Alveo setup.
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
@@ -113,8 +113,8 @@ We use *host* to refer to the PC running the FINN Docker environment, which will
 
 On the target side:
 
-1. Install Xilinx XRT and set up the ``XILINX_XRT`` environment variable to point to your installation.
-2. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation.
+1. Install Xilinx XRT and set up the ``XILINX_XRT`` environment variable to point to your installation, for instance ``/opt/xilinx/xrt``.
+2. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation, for instance ``/opt/xilinx/platforms``.
 3. Create a conda environment named *finn-pynq-alveo* by following this guide `to set up PYNQ for Alveo <https://pynq.readthedocs.io/en/latest/getting_started/alveo_getting_started.html>`_. It's best to follow the recommended environment.yml (set of package versions) in this guide.
 4. Activate the environment with `conda activate finn-pynq-alveo` and install the bitstring package with ``pip install bitstring``
 5. Done! You should now be able to e.g. ``import pynq`` in Python scripts.
@@ -123,7 +123,7 @@ On the target side:
 
 On the host side:
 
-1. Install Vitis 2020.1 and set up the ``VITIS_PATH`` environment variable to point to your installation. 
+1. Install Vitis 2020.1 and set up the ``VITIS_PATH`` environment variable to point to your installation.
 2. Install Xilinx XRT and set up the ``XILINX_XRT`` environment variable to point to your installation. *This must be the same path as the target's XRT (target step 1)*
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. Set up the ``ALVEO_*`` environment variables accordingly for your target, see description of environment variables above.
