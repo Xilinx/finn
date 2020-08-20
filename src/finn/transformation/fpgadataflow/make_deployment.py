@@ -83,7 +83,7 @@ class DeployToPYNQ(Transformation):
                 + "/"
                 + os.path.basename(deployment_dir),
                 "$CONDA_ENV_NAME$": "finn-pynq-alveo",
-                "$REMOTE_XRT$": os.environ["VITIS_XRT"],
+                "$REMOTE_XRT$": os.environ["XILINX_XRT"],
                 "$REMOTE_PLATFORM_REPO_PATHS$": os.environ["PLATFORM_REPO_PATHS"],
                 "$BITFILE$": os.path.basename(bitfile),
             }

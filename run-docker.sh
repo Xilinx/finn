@@ -169,16 +169,16 @@ if [ ! -z "$VITIS_PATH" ];then
           recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
           exit -1
   fi
-  if [ -z "$VITIS_XRT" ];then
-          recho "VITIS_XRT must be set for Vitis/Alveo flows"
+  if [ -z "$XILINX_XRT" ];then
+          recho "XILINX_XRT must be set for Vitis/Alveo flows"
           exit -1
   fi
   DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
   DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
-  DOCKER_EXEC+="-v $VITIS_XRT:$VITIS_XRT "
+  DOCKER_EXEC+="-v $XILINX_XRT:$XILINX_XRT "
   DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
   DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
-  DOCKER_EXEC+="-e VITIS_XRT=$VITIS_XRT "
+  DOCKER_EXEC+="-e XILINX_XRT=$XILINX_XRT "
   DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
   DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
   DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
