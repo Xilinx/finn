@@ -81,14 +81,19 @@ class RemoveStaticGraphInputs(Transformation):
 
 
 class GiveUniqueNodeNames(Transformation):
-    """Give unique names to each node in the graph using enumeration."""
+    """Give unique names to each node in the graph using enumeration, starting
+    with given prefix (if specified in the constructor)."""
+
+    def __init__(self, prefix=""):
+        super().__init__()
+        self.prefix = prefix
 
     def apply(self, model):
         optype_count = {}
         for n in model.graph.node:
             if n.op_type not in optype_count.keys():
                 optype_count[n.op_type] = 0
-            n.name = "%s_%d" % (n.op_type, optype_count[n.op_type])
+            n.name = "%s%s_%d" % (self.prefix, n.op_type, optype_count[n.op_type])
             optype_count[n.op_type] += 1
         # return model_was_changed = False as single iteration is always enough
         return (model, False)
