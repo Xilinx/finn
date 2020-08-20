@@ -34,7 +34,7 @@ from finn.util.basic import gen_finn_dt_tensor
 from finn.core.rtlsim_exec import rtlsim_exec
 
 
-def throughput_test(model, batchsize=1000):
+def throughput_test_remote(model, batchsize=1000):
     """Runs the throughput test for the given model remotely on the pynq board.
     The metadata properties related to the pynq board have to be set.
     Returns a dictionary with results of the throughput test. Returns None
