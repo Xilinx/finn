@@ -51,6 +51,10 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             "outWidth": ("i", True, 0),
             # FINN DataTypes for inputs/outputs
             "dataType": ("s", True, ""),
+            # Toggle between hls or IPI implementation
+            # hls - use the hls generated IP during stitching
+            # vivado - use the AXI Infrastructure DWC
+            "impl_style": ("s", False, "hls"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -381,3 +385,65 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             exp_shape
         ), """Output
         shape doesn't match expected shape, should be same as input shape"""
+
+    def code_generation_ipi(self):
+        impl_style = self.get_nodeattr("impl_style")
+        if impl_style == "hls":
+            return super().code_generation_ipi()
+        elif impl_style == "vivado":
+            cmd = []
+            node_name = self.onnx_node.name
+            # create a hierarchy for this layer, with the same port names
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
+            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
+            cmd.append("create_bd_cell -type hier %s" % node_name)
+            cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
+            cmd.append(
+                "create_bd_intf_pin -mode Master "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
+                % (node_name, dout_name)
+            )
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
+            )
+            # instantiate and configure DWC
+            cmd.append(
+                "create_bd_cell -type ip "
+                "-vlnv xilinx.com:ip:axis_dwidth_converter:1.1 /%s/dwc" % node_name
+            )
+            cmd.append(
+                "set_property -dict "
+                "[list CONFIG.S_TDATA_NUM_BYTES.VALUE_SRC PROPAGATED] "
+                "[get_bd_cells /%s/dwc]" % node_name
+            )
+            cmd.append(
+                "set_property -dict "
+                "[list CONFIG.M_TDATA_NUM_BYTES {%d}] [get_bd_cells /%s/dwc]"
+                % (np.ceil(self.get_outstream_width() / 8), node_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/dwc/M_AXIS] "
+                "[get_bd_intf_pins %s/%s]" % (node_name, node_name, dout_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/dwc/S_AXIS] "
+                "[get_bd_intf_pins %s/%s]" % (node_name, node_name, din_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/dwc/aresetn]"
+                % (node_name, rst_name, node_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/dwc/aclk]"
+                % (node_name, clk_name, node_name)
+            )
+            return cmd
+        else:
+            raise Exception(
+                "DWC implementation style %s not supported, please use hls or vivado"
+                % impl_style
+            )

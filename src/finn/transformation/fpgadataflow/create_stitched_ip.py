@@ -182,6 +182,8 @@ class CreateStitchedIP(Transformation):
 
     def apply(self, model):
         ip_dirs = ["list"]
+        # add RTL streamer IP
+        ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
         # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
             assert node.domain == "finn", 'Node domain is not set to "finn"'
@@ -196,10 +198,7 @@ class CreateStitchedIP(Transformation):
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
-            vlnv = node_inst.get_nodeattr("ip_vlnv")
-            inst_name = node.name
-            create_cmd = "create_bd_cell -type ip -vlnv %s %s" % (vlnv, inst_name)
-            self.create_cmds += [create_cmd]
+            self.create_cmds += node_inst.code_generation_ipi()
             my_producer = model.find_producer(node.input[0])
             self.connect_clk_rst(node)
             self.connect_axi(node)
@@ -223,6 +222,7 @@ class CreateStitchedIP(Transformation):
                 #     find index of producer output connected to our target input
                 #     get names of hdl interfaces for input and producer output
                 #     issue a TCL directive to connect input to output
+                #     if FC layer with mode "decoupled", add a streamer on input 1
                 for i in range(len(node.input)):
                     producer = model.find_producer(node.input[i])
                     if producer is None:

@@ -308,6 +308,12 @@ class HLSCustomOp(CustomOp):
         f.close()
         self.code_gen_dict.clear()
 
+    def code_generation_ipi(self):
+        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
+        vlnv = self.get_nodeattr("ip_vlnv")
+        cmd = ["create_bd_cell -type ip -vlnv %s %s" % (vlnv, self.onnx_node.name)]
+        return cmd
+
     def compile_singlenode_code(self):
         """Builds the bash script for compilation using the CppBuilder from
         finn.util.basic and executes the script to produce the executable."""
