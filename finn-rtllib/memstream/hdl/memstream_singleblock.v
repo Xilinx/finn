@@ -35,7 +35,7 @@
 module memstream_singleblock
 #(
     parameter CONFIG_EN = 1,
-    parameter NSTREAMS = 2,//1 up to 6
+    parameter NSTREAMS = 2,//1 up to 2
 
     parameter MEM_DEPTH = 512,
     parameter MEM_WIDTH = 32,
@@ -63,8 +63,8 @@ module memstream_singleblock
 	input [31:0] config_address,
 	input config_ce,
 	input config_we,
-	input [31:0] config_d0,
-	output [31:0] config_q0,
+	input [MEM_WIDTH-1:0] config_d0,
+	output [MEM_WIDTH-1:0] config_q0,
 
     //multiple output AXI Streams, TDATA width rounded to multiple of 8 bits
     input m_axis_0_tready,
@@ -104,13 +104,8 @@ if(MEM_DEPTH > 1) begin: use_ram
 localparam BLOCKADRWIDTH = $clog2(MEM_DEPTH);
 
 reg [BLOCKADRWIDTH-1:0] strm0_addr = STRM0_OFFSET;
-reg [BLOCKADRWIDTH-1:0] strm1_addr = STRM1_OFFSET;
-
 wire strm0_rst;
-wire strm1_rst;
-
 assign strm0_rst = strm0_incr_en & (strm0_addr == (STRM0_OFFSET + STRM0_DEPTH-1));
-assign strm1_rst = strm1_incr_en & (strm1_addr == (STRM1_OFFSET + STRM1_DEPTH-1));
 
 //one address counter per stream; more LUTs but keeps routing short and local
 always @(posedge aclk) begin
@@ -118,6 +113,42 @@ always @(posedge aclk) begin
         strm0_addr <= STRM0_OFFSET;
     else if(strm0_incr_en)
         strm0_addr <= strm0_addr + 1;
+end
+
+if(NSTREAMS == 1) begin: sdp
+
+ramb18_sdp
+#(
+    .ID(0),
+	.DWIDTH(MEM_WIDTH),
+	.AWIDTH(BLOCKADRWIDTH),
+    .DEPTH(MEM_DEPTH),
+	.MEM_INIT(MEM_INIT),
+    .RAM_STYLE(RAM_STYLE)
+)
+ram
+(
+	.clk(aclk),
+
+    .ena(config_ce),
+	.wea(config_we),
+	.addra(config_address[BLOCKADRWIDTH-1:0]),
+    .wdataa(config_d0),
+
+    .enb(strm0_incr_en),
+    .enqb(strm0_incr_en),
+	.addrb(strm0_addr),
+	.rdqb(m_axis_0_tdata)
+);
+
+
+end else begin: tdp
+
+reg [BLOCKADRWIDTH-1:0] strm1_addr = STRM1_OFFSET;
+wire strm1_rst;
+assign strm1_rst = strm1_incr_en & (strm1_addr == (STRM1_OFFSET + STRM1_DEPTH-1));
+
+always @(posedge aclk) begin
     if(strm1_rst | rst)
         strm1_addr <= STRM1_OFFSET;
     else if(strm1_incr_en)
@@ -151,6 +182,8 @@ ram
 	.wdatab('d0),
 	.rdqb(m_axis_1_tdata)
 );
+
+end
 
 end else begin: bypass
 
