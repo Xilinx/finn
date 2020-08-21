@@ -15,7 +15,7 @@ Requirements
 
 * Ubuntu 18.04 with ``bash`` installed
 * Docker
-* A working Vivado 2019.1 installation
+* A working Vivado 2019.1 or 2020.1 installation
 * A ``VIVADO_PATH`` environment variable pointing to the Vivado installation directory (e.g. the directory where settings64.sh is located)
 * (optional) A PYNQ board with a network connection
    * the ``bitstring`` package must be installed on the PYNQ: ``sudo pip3 install bitstring``
