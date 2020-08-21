@@ -70,7 +70,7 @@ def throughput_test_remote(model, batchsize=1000):
 
     # use platform attribute for correct remote execution
     if platform == "alveo":
-        remote_cmd = "bash -ic 'bash alveo_run.sh throughput_test %d'" % batchsize
+        remote_cmd = "bash -ic 'bash alveo_run.sh throughput_test %d' \"" % batchsize
     else:
         remote_cmd = (
             "python3.6 driver.py --exec_mode=throughput_test --batchsize={} "
@@ -78,7 +78,7 @@ def throughput_test_remote(model, batchsize=1000):
             '--platform={} "'
         ).format(batchsize, bitfile, platform)
     cmd = (
-        local_prefix + "ssh {}@{} -p {} " '"cd {}/{}; ' + remote_prefix + remote_cmd
+        local_prefix + 'ssh {}@{} -p {} "cd {}/{}; ' + remote_prefix + remote_cmd
     ).format(pynq_username, pynq_ip, pynq_port, pynq_target_dir, deployment_folder)
     bash_command = ["/bin/bash", "-c", cmd]
     process_throughput_test = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
