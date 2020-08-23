@@ -254,7 +254,7 @@ class VitisLink(Transformation):
 
         # create tcl script to generate resource report in XML format
         gen_rep_xml = templates.vitis_gen_xml_report_tcl_template
-        gen_rep_xml.replace("$VITIS_PROJ_PATH$", link_dir)
+        gen_rep_xml = gen_rep_xml.replace("$VITIS_PROJ_PATH$", link_dir)
         with open(link_dir + "/gen_report_xml.tcl", "w") as f:
             f.write(gen_rep_xml)
 
