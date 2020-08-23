@@ -54,7 +54,6 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.util.basic import alveo_part_map, alveo_default_platform
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
-from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 import pkg_resources as pk
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
@@ -63,6 +62,8 @@ from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
+import warnings
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_alveo_board = os.getenv("ALVEO_BOARD", default="U250")
@@ -183,6 +184,11 @@ def test_end2end_vitis_cnv_w1a1_build():
             test_platform,
             strategy=VitisOptStrategy.BUILD_SPEED,
         )
+    )
+    model = model.transform(AnnotateResources("synth"))
+    warnings.warn(
+        "Post-synthesis resources (excluding shell): "
+        + model.get_metadata_prop("res_total_synth")
     )
     model.save(build_dir + "/end2end_vitis_cnv_w1a1_build.onnx")
 
