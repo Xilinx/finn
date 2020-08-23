@@ -55,7 +55,7 @@ from finn.transformation.streamline import Streamline
 from finn.util.basic import alveo_part_map, alveo_default_platform
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 import pkg_resources as pk
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
@@ -176,7 +176,14 @@ def test_end2end_vitis_cnv_w1a1_build():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_vitis_cnv_w1a1_folded.onnx"
     )
-    model = model.transform(VitisBuild(test_fpga_part, target_clk_ns, test_platform))
+    model = model.transform(
+        VitisBuild(
+            test_fpga_part,
+            target_clk_ns,
+            test_platform,
+            strategy=VitisOptStrategy.BUILD_SPEED,
+        )
+    )
     model.save(build_dir + "/end2end_vitis_cnv_w1a1_build.onnx")
 
 

@@ -60,7 +60,7 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import alveo_part_map, alveo_default_platform
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from pkgutil import get_data
@@ -162,7 +162,14 @@ def test_end2end_vitis_tfc_w1a1_build():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_vitis_tfc_w1a1_folded.onnx"
     )
-    model = model.transform(VitisBuild(test_fpga_part, target_clk_ns, test_platform))
+    model = model.transform(
+        VitisBuild(
+            test_fpga_part,
+            target_clk_ns,
+            test_platform,
+            strategy=VitisOptStrategy.BUILD_SPEED,
+        )
+    )
     # TODO post-synth resources
     model.save(build_dir + "/end2end_vitis_tfc_w1a1_build.onnx")
 

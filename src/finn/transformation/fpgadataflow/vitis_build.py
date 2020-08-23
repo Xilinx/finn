@@ -51,6 +51,7 @@ from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.util.basic import make_build_dir
 from finn.transformation.infer_data_layouts import InferDataLayouts
+from enum import Enum
 
 
 def _check_vitis_envvars():
@@ -61,6 +62,17 @@ def _check_vitis_envvars():
     assert (
         "XILINX_XRT" in os.environ
     ), "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
+
+
+class VitisOptStrategy(Enum):
+    "Values applicable to VitisBuild optimization strategy."
+
+    DEFAULT = "0"
+    POWER = "1"
+    PERFORMANCE = "2"
+    PERFORMANCE_BEST = "3"
+    SIZE = "s"
+    BUILD_SPEED = "quick"
 
 
 class CreateVitisXO(Transformation):
@@ -164,10 +176,11 @@ class VitisLink(Transformation):
     ModelProto's metadata_props field with the XCLBIN full path as value.
     """
 
-    def __init__(self, platform, f_mhz=200):
+    def __init__(self, platform, f_mhz=200, strategy=VitisOptStrategy.PERFORMANCE):
         super().__init__()
         self.platform = platform
         self.f_mhz = f_mhz
+        self.strategy = strategy
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -246,9 +259,14 @@ class VitisLink(Transformation):
             f.write("cd {}\n".format(link_dir))
             f.write(
                 "v++ -t hw --platform %s --link %s"
-                " --kernel_frequency %d --config config.txt --optimize 2"
+                " --kernel_frequency %d --config config.txt --optimize %s"
                 " --save-temps -R2\n"
-                % (self.platform, " ".join(object_files), self.f_mhz)
+                % (
+                    self.platform,
+                    " ".join(object_files),
+                    self.f_mhz,
+                    self.strategy.value,
+                )
             )
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", script]
@@ -266,11 +284,14 @@ class VitisLink(Transformation):
 class VitisBuild(Transformation):
     """Best-effort attempt at building the accelerator with Vitis."""
 
-    def __init__(self, fpga_part, period_ns, platform):
+    def __init__(
+        self, fpga_part, period_ns, platform, strategy=VitisOptStrategy.PERFORMANCE
+    ):
         super().__init__()
         self.fpga_part = fpga_part
         self.period_ns = period_ns
         self.platform = platform
+        self.strategy = strategy
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -315,7 +336,11 @@ class VitisBuild(Transformation):
             )
             kernel_model.save(dataflow_model_filename)
         # Assemble design from kernels
-        model = model.transform(VitisLink(self.platform, round(1000 / self.period_ns)))
+        model = model.transform(
+            VitisLink(
+                self.platform, round(1000 / self.period_ns), strategy=self.strategy
+            )
+        )
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "alveo")
 
