@@ -63,7 +63,6 @@ from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-import warnings
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_alveo_board = os.getenv("ALVEO_BOARD", default="U250")
@@ -178,10 +177,6 @@ def test_end2end_vitis_cnv_w1a1_build():
         build_dir + "/end2end_vitis_cnv_w1a1_folded.onnx"
     )
     model = model.transform(VitisBuild(test_fpga_part, target_clk_ns, test_platform))
-    warnings.warn(
-        "Post-synthesis resources (excluding shell): "
-        + model.get_metadata_prop("res_total_synth")
-    )
     model.save(build_dir + "/end2end_vitis_cnv_w1a1_build.onnx")
 
 
