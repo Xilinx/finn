@@ -51,6 +51,7 @@ from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.util.basic import make_build_dir
 from finn.transformation.infer_data_layouts import InferDataLayouts
+from . import templates
 from enum import Enum
 
 
@@ -251,6 +252,12 @@ class VitisLink(Transformation):
         with open(link_dir + "/config.txt", "w") as f:
             f.write(config)
 
+        # create tcl script to generate resource report in XML format
+        gen_rep_xml = templates.vitis_gen_xml_report_tcl_template
+        gen_rep_xml.replace("$VITIS_PROJ_PATH$", link_dir)
+        with open(link_dir + "/gen_report_xml.tcl", "w") as f:
+            f.write(gen_rep_xml)
+
         # create a shell script and call Vitis
         script = link_dir + "/run_vitis_link.sh"
         working_dir = os.environ["PWD"]
@@ -278,6 +285,23 @@ class VitisLink(Transformation):
             "Vitis .xclbin file not created, check logs under %s" % link_dir
         )
         model.set_metadata_prop("bitfile", xclbin)
+
+        # run Vivado to gen xml report
+        gen_rep_xml_sh = link_dir + "/gen_report_xml.sh"
+        working_dir = os.environ["PWD"]
+        with open(gen_rep_xml_sh, "w") as f:
+            f.write("#!/bin/bash \n")
+            f.write("cd {}\n".format(link_dir))
+            f.write(
+                "vivado -mode tcl -source %s\n" % (link_dir + "/gen_report_xml.tcl")
+            )
+            f.write("cd {}\n".format(working_dir))
+        bash_command = ["bash", gen_rep_xml_sh]
+        process_genxml = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_genxml.communicate()
+        # filename for the synth utilization report
+        synth_report_filename = link_dir + "/synth_report.xml"
+        model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
         return (model, False)
 
 

@@ -444,3 +444,9 @@ export PLATFORM_REPO_PATHS=$REMOTE_PLATFORM_REPO_PATHS$
 python3.6 driver.py --exec_mode=$1 --batchsize=$2 --bitfile=$BITFILE$ \
     --inputfile=input.npy --outputfile=output.npy --platform=alveo
 """
+
+vitis_gen_xml_report_tcl_template = """
+open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
+open_run impl_1
+report_utilization -hierarchical -hierarchical_depth 5 -file open_project $VITIS_PROJ_PATH$/synth_report.xml -format xml
+"""
