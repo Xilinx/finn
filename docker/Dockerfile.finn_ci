@@ -37,7 +37,7 @@ RUN apt-get update
 RUN apt-get -y upgrade
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
 RUN apt-get install -y verilator zsh
-RUN apt-get -y install sshpass
+RUN apt-get -y install sshpass wget unzip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # cloning dependency repos
@@ -61,7 +61,6 @@ RUN apt update; apt install nano
 RUN pip install pytest-dependency
 RUN pip install pytest-xdist
 RUN pip install pytest-parallel
-RUN pip install deap
 
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"

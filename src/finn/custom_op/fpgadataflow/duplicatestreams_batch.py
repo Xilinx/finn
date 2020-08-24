@@ -164,6 +164,10 @@ class DuplicateStreams_Batch(HLSCustomOp):
     def get_number_output_values(self):
         return 2 * np.prod(self.get_folded_output_shape()[1:-1])
 
+    def get_exp_cycles(self):
+        # Channels/PE * batch size * fmdim * fmdim
+        return np.prod(self.get_folded_output_shape()[:-1])
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node

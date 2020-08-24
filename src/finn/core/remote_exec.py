@@ -62,11 +62,15 @@ def remote_exec(model, execution_context):
     bash_command = ["/bin/bash", "-c", cmd]
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
     process_compile.communicate()
+    # set platform attribute for correct remote execution
+    platform = model.get_metadata_prop("platform")
+    assert platform in ["alveo", "zynq", "zynq-iodma"]
     cmd = (
         "sshpass -p {} ssh {}@{} -p {} "
         '"cd {}/{}; echo "{}" | '
         'sudo -S python3.6 driver.py --exec_mode="execute" --batchsize=1" '
-        '--bitfile="resizer.bit" --inputfile="input.npy" --outputfile="output.npy"'
+        '--bitfile="resizer.bit" --inputfile="input.npy" --outputfile="output.npy" '
+        '--platform="{}" '
     ).format(
         pynq_password,
         pynq_username,
@@ -75,6 +79,7 @@ def remote_exec(model, execution_context):
         pynq_target_dir,
         deployment_folder,
         pynq_password,
+        platform,
     )
     bash_command = ["/bin/bash", "-c", cmd]
     process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)

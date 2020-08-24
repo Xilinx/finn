@@ -197,11 +197,13 @@ class IODMA(HLSCustomOp):
     def get_number_output_values(self):
         oshape = self.get_normal_output_shape()
         itype_bits = self.get_input_datatype().bitwidth()
-        intfw = self.get_nodeattr("intfWidth")
+        stream_width = self.get_nodeattr("streamWidth")
         nelems = np.prod(oshape)
         nbits = nelems * itype_bits
-        assert nbits % intfw == 0, "DMA: total transfer size must be word multiple"
-        ovalues = nbits // intfw
+        assert (
+            nbits % stream_width == 0
+        ), "DMA: total transfer size must be word multiple"
+        ovalues = nbits // stream_width
         return ovalues
 
     def global_includes(self):

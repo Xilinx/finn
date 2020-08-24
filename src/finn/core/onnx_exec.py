@@ -51,8 +51,20 @@ def execute_node(node, context, graph):
     if node.op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(node)
         model = ModelWrapper(sdp_node.get_nodeattr("model"))
-        ret = execute_onnx(model, context, True)
-        context.update(ret)
+        inp_ctx = dict(filter(lambda x: x[0] in node.input, context.items()))
+        # input may have been renamed in partition
+        assert len(inp_ctx) == 1
+        old_iname = node.input[0]
+        new_iname = model.graph.input[0].name
+        if old_iname != new_iname:
+            inp_ctx[new_iname] = inp_ctx[old_iname]
+            del inp_ctx[old_iname]
+        ret = execute_onnx(model, inp_ctx, False)
+        # output may have been renamed in partition
+        assert len(ret) == 1
+        node_oname = node.output[0]
+        model_oname = model.graph.output[0].name
+        context[node_oname] = ret[model_oname]
     else:
         if node.domain == "finn":
 

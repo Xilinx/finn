@@ -112,6 +112,7 @@ class CreateDataflowPartition(Transformation):
                     "dataflow_partition" + str(target_partition_id) + "_"
                 )
                 df_model_filename = df_model_dir + "/df_model.onnx"
+                df_model.cleanup()
                 df_model.save(df_model_filename)
                 # remove all dataflow nodes from the non-dataflow model
                 # keep track of where the dataflow part starts
@@ -125,6 +126,7 @@ class CreateDataflowPartition(Transformation):
                     [df_out],
                     # use the model attribute to mark the df model
                     model=df_model_filename,
+                    domain="finn",
                 )
                 non_df_model.graph.node.insert(df_start_ind, df_node)
                 model = non_df_model

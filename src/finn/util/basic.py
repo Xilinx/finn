@@ -42,6 +42,7 @@ pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
 pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
 pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
+pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
 
 # native AXI HP port width (in bits) for PYNQ boards
@@ -49,6 +50,7 @@ pynq_native_port_width = dict()
 pynq_native_port_width["Pynq-Z1"] = 64
 pynq_native_port_width["Pynq-Z2"] = 64
 pynq_native_port_width["Ultra96"] = 128
+pynq_native_port_width["ZCU102"] = 128
 pynq_native_port_width["ZCU104"] = 128
 
 # Alveo device and platform mappings
@@ -154,13 +156,19 @@ def make_build_dir(prefix=""):
 
 
 def get_by_name(container, name, name_field="name"):
-    """Return item from container by .name field if it exists, None otherwise"""
+    """Return item from container by .name field if it exists, None otherwise.
+    Will throw an Exception if multiple items are found, since this violates the
+    ONNX standard."""
     names = [getattr(x, name_field) for x in container]
-    try:
-        ind = names.index(name)
-        return container[ind]
-    except ValueError:
+
+    inds = [i for i, e in enumerate(names) if e == name]
+    if len(inds) > 1:
+        raise Exception("Found multiple get_by_name matches, undefined behavior")
+    elif len(inds) == 0:
         return None
+    else:
+        ind = inds[0]
+        return container[ind]
 
 
 def remove_by_name(container, name, name_field="name"):
@@ -255,6 +263,33 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
     ).all(), """The
     calculated output array doesn't match the desired/expected one."""
     return ret
+
+
+def calculate_matvec_accumulator_range(matrix, vec_dt):
+    """Calculate the minimum and maximum possible result (accumulator) values
+    for a dot product x * A, given matrix A of dims (MW, MH), and vector (1, MW)
+    with datatype vec_dt. Returns (acc_min, acc_max).
+    """
+    min_weight = matrix.min()
+    max_weight = matrix.max()
+    perceptive_field_elems = matrix.shape[0]
+    min_input = vec_dt.min()
+    max_input = vec_dt.max()
+    # calculate minimum and maximum values of accumulator
+    # assume inputs span the whole range of the input datatype
+    acc_min = perceptive_field_elems * min(
+        min_weight * max_input,
+        min_weight * min_input,
+        max_weight * max_input,
+        max_weight * min_input,
+    )
+    acc_max = perceptive_field_elems * max(
+        min_weight * max_input,
+        min_weight * min_input,
+        max_weight * max_input,
+        max_weight * min_input,
+    )
+    return (acc_min, acc_max)
 
 
 def gen_finn_dt_tensor(finn_dt, tensor_shape):
