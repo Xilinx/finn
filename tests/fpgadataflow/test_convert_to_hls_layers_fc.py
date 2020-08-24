@@ -89,7 +89,6 @@ def test_convert_to_hls_layers_tfc_w1a1():
     assert fc3.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
-    os.remove(export_onnx_path)
 
     fc0w = getCustomOp(fc0)
     fc0w.set_nodeattr("SIMD", 784)
@@ -123,6 +122,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
     # do forward pass in PyTorch/Brevitas
     expected = tfc.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
+    os.remove(export_onnx_path)
 
 
 @pytest.mark.vivado

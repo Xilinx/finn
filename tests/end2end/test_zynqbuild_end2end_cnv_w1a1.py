@@ -63,6 +63,7 @@ from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+import warnings
 
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
@@ -178,6 +179,10 @@ def test_end2end_zynqbuild_cnv_w1a1_build():
     )
     model = model.transform(ZynqBuild(test_pynq_board, target_clk_ns))
     model = model.transform(AnnotateResources("synth"))
+    warnings.warn(
+        "Post-synthesis resources (excluding shell): "
+        + model.get_metadata_prop("res_total_synth")
+    )
     model.save(build_dir + "/end2end_zynqbuild_cnv_w1a1_build.onnx")
 
 

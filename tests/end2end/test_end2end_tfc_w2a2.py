@@ -74,6 +74,7 @@ from finn.util.basic import pynq_part_map
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+import warnings
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -270,6 +271,10 @@ def test_end2end_tfc_w2a2_synth_pynq_project():
     )
     model = model.transform(SynthPYNQProject())
     model = model.transform(AnnotateResources("synth"))
+    warnings.warn(
+        "Post-synthesis resources (excluding shell): "
+        + model.get_metadata_prop("res_total_synth")
+    )
     model.save(build_dir + "/end2end_tfc_w2a2_synth.onnx")
 
 

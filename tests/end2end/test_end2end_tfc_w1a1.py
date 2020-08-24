@@ -79,6 +79,7 @@ from finn.transformation.fpgadataflow.annotate_resources import AnnotateResource
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.core.throughput_test import throughput_test_rtlsim
 import finn.util.vcd as vcd
+import warnings
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -241,11 +242,11 @@ def test_end2end_tfc_w1a1_throughput_test_rtlsim():
     # run through IP-stitched rtlsim with increasing batch sizes and
     # check the number of cycles it takes to execute
     ret = throughput_test_rtlsim(model, 1)
-    assert ret["cycles"] == 205
+    assert np.isclose(ret["cycles"], 205, atol=5)
     ret = throughput_test_rtlsim(model, 10)
-    assert ret["cycles"] == 844
+    assert np.isclose(ret["cycles"], 844, atol=10)
     ret = throughput_test_rtlsim(model, 100)
-    assert ret["cycles"] == 7234
+    assert np.isclose(ret["cycles"], 7234, atol=100)
 
 
 @pytest.mark.vivado
@@ -314,6 +315,10 @@ def test_end2end_tfc_w1a1_synth_pynq_project():
     )
     model = model.transform(SynthPYNQProject())
     model = model.transform(AnnotateResources("synth"))
+    warnings.warn(
+        "Post-synthesis resources (excluding shell): "
+        + model.get_metadata_prop("res_total_synth")
+    )
     model.save(build_dir + "/end2end_tfc_w1a1_synth.onnx")
 
 

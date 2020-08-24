@@ -64,6 +64,7 @@ from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+import warnings
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -160,6 +161,10 @@ def test_end2end_zynqbuild_tfc_w1a1_build():
     )
     model = model.transform(ZynqBuild(test_pynq_board, target_clk_ns))
     model = model.transform(AnnotateResources("synth"))
+    warnings.warn(
+        "Post-synthesis resources (excluding shell): "
+        + model.get_metadata_prop("res_total_synth")
+    )
     model.save(build_dir + "/end2end_zynqbuild_tfc_w1a1_build.onnx")
 
 
