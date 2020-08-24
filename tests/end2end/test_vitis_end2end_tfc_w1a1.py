@@ -64,6 +64,7 @@ from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStr
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from pkgutil import get_data
+from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.core.onnx_exec import execute_onnx
 import warnings
 
@@ -170,6 +171,11 @@ def test_end2end_vitis_tfc_w1a1_build():
             test_platform,
             strategy=VitisOptStrategy.BUILD_SPEED,
         )
+    )
+    model = model.transform(AnnotateResources("synth"))
+    warnings.warn(
+        "Post-synthesis resources (excluding shell): "
+        + model.get_metadata_prop("res_total_synth")
     )
     model.save(build_dir + "/end2end_vitis_tfc_w1a1_build.onnx")
 
