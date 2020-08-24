@@ -57,6 +57,30 @@ def post_synth_res(model, override_synth_report_filename=None):
     else:
         raise Exception("Please run synthesis first")
 
+    # TODO build these indices based on table headers instead of harcoding
+    restype_to_ind_default = {
+        "LUT": 2,
+        "SRL": 5,
+        "FF": 6,
+        "BRAM_36K": 7,
+        "BRAM_18K": 8,
+        "DSP48": 9,
+    }
+    restype_to_ind_vitis = {
+        "LUT": 4,
+        "SRL": 7,
+        "FF": 8,
+        "BRAM_36K": 9,
+        "BRAM_18K": 10,
+        "URAM": 11,
+        "DSP48": 12,
+    }
+
+    if model.get_metadata_prop("platform") == "alveo":
+        restype_to_ind = restype_to_ind_vitis
+    else:
+        restype_to_ind = restype_to_ind_default
+
     for node in model.graph.node:
         if node.op_type == "StreamingDataflowPartition":
             sdp_model = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
@@ -81,12 +105,8 @@ def post_synth_res(model, override_synth_report_filename=None):
     <tableheader class="" contents="DSP48 Blocks" halign="3" width="-1"/>
 </tablerow>
                 """
-                node_dict["LUT"] = int(row[2].attrib["contents"])
-                node_dict["SRL"] = int(row[5].attrib["contents"])
-                node_dict["FF"] = int(row[6].attrib["contents"])
-                node_dict["BRAM_36K"] = int(row[7].attrib["contents"])
-                node_dict["BRAM_18K"] = int(row[8].attrib["contents"])
-                node_dict["DSP48"] = int(row[9].attrib["contents"])
+                for (restype, ind) in restype_to_ind:
+                    node_dict[restype] = int(row[ind].attrib["contents"])
                 res_dict[node.name] = node_dict
 
     return res_dict
