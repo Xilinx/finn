@@ -112,6 +112,7 @@ class CreateDataflowPartition(Transformation):
                     "dataflow_partition" + str(target_partition_id) + "_"
                 )
                 df_model_filename = df_model_dir + "/df_model.onnx"
+                df_model.cleanup()
                 df_model.save(df_model_filename)
                 # remove all dataflow nodes from the non-dataflow model
                 # keep track of where the dataflow part starts

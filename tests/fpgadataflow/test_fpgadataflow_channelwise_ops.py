@@ -159,8 +159,8 @@ def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_m
 
         node = model.get_nodes_by_op_type("ChannelwiseOp_Batch")[0]
         inst = getCustomOp(node)
-        sim_cycles = inst.get_nodeattr("sim_cycles")
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
-        assert np.isclose(exp_cycles, sim_cycles, atol=10)
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0

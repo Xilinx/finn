@@ -26,39 +26,34 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pytest
-import finn.util.create as create
-from finn.core.datatype import DataType
+import finn.custom_op.registry as registry
+from finn.transformation import Transformation
+from finn.transformation.move_reshape import _is_fpgadataflow_node
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.registry import getCustomOp
 
 
-@pytest.mark.parametrize("bitwidth", [DataType.BIPOLAR, DataType.INT2, DataType.INT4])
-def test_hls_random_mlp_maker(bitwidth):
-    w = bitwidth
-    a = bitwidth
-    layer_spec = [
-        {
-            "mw": 185,
-            "mh": 100,
-            "simd": 185,
-            "pe": 100,
-            "idt": DataType.BIPOLAR,
-            "wdt": w,
-            "act": a,
-        },
-        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
-        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
-        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
-        {
-            "mw": 100,
-            "mh": 1,
-            "simd": 100,
-            "pe": 1,
-            "idt": a,
-            "wdt": w,
-            "act": DataType.BIPOLAR,
-        },
-    ]
+class AnnotateCycles(Transformation):
+    """Annotate the estimate of clock cycles per sample taken by each fpgadataflow
+    node as an attribute on the node.
+    """
 
-    ret = create.hls_random_mlp_maker(layer_spec)
-    assert len(ret.graph.node) == 5
-    # ret.save("mlp-%s.onnx" % str(bitwidth))
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        graph = model.graph
+        # annotate node cycles
+        for node in graph.node:
+            if _is_fpgadataflow_node(node):
+                op_inst = registry.getCustomOp(node)
+                cycles = op_inst.get_exp_cycles()
+                op_inst.set_nodeattr("cycles_estimate", cycles)
+            elif node.op_type == "StreamingDataflowPartition":
+                # recurse into model to manually annotate per-layer cycles
+                sdp_model_filename = getCustomOp(node).get_nodeattr("model")
+                sdp_model = ModelWrapper(sdp_model_filename)
+                sdp_model = sdp_model.transform(AnnotateCycles())
+                # save transformed model
+                sdp_model.save(sdp_model_filename)
+        return (model, False)

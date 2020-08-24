@@ -49,13 +49,14 @@ RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
-RUN pip install jupyter
-RUN pip install matplotlib
-RUN pip install pytest-dependency
-RUN pip install sphinx
-RUN pip install sphinx_rtd_theme
-RUN pip install pytest-xdist
-RUN pip install pytest-parallel
+RUN pip install jupyter==1.0.0
+RUN pip install matplotlib==3.3.1 --ignore-installed certifi
+RUN pip install pytest-dependency==0.5.1
+RUN pip install sphinx==3.1.2
+RUN pip install sphinx_rtd_theme==0.5.0
+RUN pip install pytest-xdist==2.0.0
+RUN pip install pytest-parallel==0.1.0
+RUN pip install netron==4.4.7
 
 # switch user
 RUN groupadd -g $GID $GNAME
@@ -80,19 +81,6 @@ RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
 RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
 # oh-my-xilinx
 RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
-# netron
-RUN git clone https://github.com/lutzroeder/netron.git /workspace/netron
-
-# build and install netron
-USER root
-RUN curl -sL https://deb.nodesource.com/setup_12.x | bash -
-RUN apt-get install -y nodejs
-WORKDIR /workspace/netron
-RUN git checkout 376e9d33733a3eacfe3c432808fd46e6cd1460cb
-RUN npm install
-RUN python setup.py build
-RUN pip install /workspace/netron
-USER $UNAME
 
 # for this developer-oriented Docker container we assume the FINN repo is cloned and mounted from the host
 # at /workspace/finn -- see run-docker.sh for an example of how to do this.

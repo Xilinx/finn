@@ -82,6 +82,7 @@ from finn.core.throughput_test import throughput_test_rtlsim
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.res_estimation import res_estimation
 from finn.util.basic import platform_resource_counts
+import warnings
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -352,6 +353,10 @@ def test_end2end_cnv_w1a1_synth_pynq_project():
     )
     model = model.transform(SynthPYNQProject())
     model = model.transform(AnnotateResources("synth"))
+    warnings.warn(
+        "Post-synthesis resources (excluding shell): "
+        + model.get_metadata_prop("res_total_synth")
+    )
     model.save(build_dir + "/end2end_cnv_w1a1_synth.onnx")
 
 
