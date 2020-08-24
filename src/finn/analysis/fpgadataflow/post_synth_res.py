@@ -105,7 +105,7 @@ def post_synth_res(model, override_synth_report_filename=None):
     <tableheader class="" contents="DSP48 Blocks" halign="3" width="-1"/>
 </tablerow>
                 """
-                for (restype, ind) in restype_to_ind:
+                for (restype, ind) in restype_to_ind.items():
                     node_dict[restype] = int(row[ind].attrib["contents"])
                 res_dict[node.name] = node_dict
 
