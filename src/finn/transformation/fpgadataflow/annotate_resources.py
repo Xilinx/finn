@@ -41,6 +41,7 @@ class AnnotateResources(Transformation):
     node as an attribute on the node, depending on the mode parameter:
     * 'estimate' -- use the analytical estimation model
     * 'hls' -- use results from the HLS synthesis report
+    * 'synth' -- use post-synthesis (Vivado or Vitis) report
 
     No annotations can be provided unless the relevant transformation for the
     chosen mode (e.g. HLSSynthIP for hls) was previously run.
