@@ -82,9 +82,10 @@ class AllocateResources(Transformation):
             resource_usage = model.analysis(res_estimation)
             luts = sum([r["LUT"] for r in resource_usage.values()])
             brams = sum([r["BRAM_18K"] for r in resource_usage.values()])
-            urams = sum([r["URAMS"] for r in resource_usage.values()])
+            urams = sum([r["URAM"] for r in resource_usage.values()])
             dsps = sum([r["DSP"] for r in resource_usage.values()])
 
+            assert not (urams > 0 and self.max_uram == 0), "URAMs allocated but target platform has no URAM resources"
             # determine if we're overrunning the available resources; if so, lower
             # cpf target and fold again
             if (
@@ -93,12 +94,19 @@ class AllocateResources(Transformation):
                 or urams > self.max_uram
                 or dsps > self.max_dsp
             ):
-                self.cpf_target *= max(
-                    luts / self.max_luts,
-                    brams / self.max_bram,
-                    urams / self.max_uram,
-                    dsps / self.max_dsp,
-                )
+                if self.max_uram > 0:
+                    self.cpf_target *= max(
+                        luts / self.max_luts,
+                        brams / self.max_bram,
+                        urams / self.max_uram,
+                        dsps / self.max_dsp,
+                    )
+                else:
+                    self.cpf_target *= max(
+                        luts / self.max_luts,
+                        brams / self.max_bram,
+                        dsps / self.max_dsp,
+                    )
             else:
                 feasible_implementation = True
 
