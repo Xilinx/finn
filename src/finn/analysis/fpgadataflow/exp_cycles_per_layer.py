@@ -25,56 +25,24 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import warnings
-import os
-import xml.etree.ElementTree as ET
 
 import finn.custom_op.registry as registry
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-def hls_synth_res_estimation(model):
-    """Extracts the FPGA resource results from the Vivado HLS synthesis estimates.
+def exp_cycles_per_layer(model):
+    """Estimates the number of cycles per sample for dataflow layers in the given model.
     Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
     transformation) prior to calling this analysis pass to ensure all nodes are
     visible in the results.
 
-    Returns {node name : resources_dict}."""
+    Returns {node name : cycle estimation}."""
 
-    res_dict = {}
+    cycle_dict = {}
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:
-            # init values to zero
-            res_dict[node.name] = dict()
-            res_dict[node.name]["BRAM_18K"] = 0
-            res_dict[node.name]["FF"] = 0
-            res_dict[node.name]["LUT"] = 0
-            res_dict[node.name]["DSP48E"] = 0
-            res_dict[node.name]["URAM"] = 0
             op_type = node.op_type
             inst = registry.custom_op[op_type](node)
-            code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
-            if code_gen_dir == "":
-                warnings.warn(
-                    """Could not find report files, values will be set to zero
-                    for this node. Please run "PrepareIP" transformation and
-                    "HLSSynthIP" first to generate the report files"""
-                )
-            else:
-                xmlfile = "{}/project_{}/sol1/syn/report/{}_csynth.xml".format(
-                    code_gen_dir, node.name, node.name
-                )
+            cycle_dict[node.name] = inst.get_exp_cycles()
 
-                if os.path.isfile(xmlfile):
-                    tree = ET.parse(xmlfile)
-                    root = tree.getroot()
-                    for item in root.findall("AreaEstimates/Resources"):
-                        for child in item:
-                            res_dict[node.name][child.tag] = child.text
-                else:
-                    warnings.warn(
-                        """Could not find report files, values will be set to zero
-                        for this node. Please run "PrepareIP" transformation and
-                        "HLSSynthIP" first to generate the report files"""
-                    )
-    return res_dict
+    return cycle_dict

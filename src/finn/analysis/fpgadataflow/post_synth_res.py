@@ -30,15 +30,23 @@ import os
 import xml.etree.ElementTree as ET
 
 from finn.transformation.move_reshape import _is_fpgadataflow_node
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.registry import getCustomOp
 
 
-def post_synth_res(model):
+def post_synth_res(model, override_synth_report_filename=None):
     """Extracts the FPGA resource results from the Vivado synthesis.
+    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
+    transformation) prior to calling this analysis pass to ensure all nodes are
+    visible in the results.
 
     Returns {node name : resources_dict}."""
 
     res_dict = {}
-    synth_report_filename = model.get_metadata_prop("vivado_synth_rpt")
+    if override_synth_report_filename is not None:
+        synth_report_filename = override_synth_report_filename
+    else:
+        synth_report_filename = model.get_metadata_prop("vivado_synth_rpt")
     if os.path.isfile(synth_report_filename):
         tree = ET.parse(synth_report_filename)
         root = tree.getroot()
@@ -50,7 +58,11 @@ def post_synth_res(model):
         raise Exception("Please run synthesis first")
 
     for node in model.graph.node:
-        if _is_fpgadataflow_node(node):
+        if node.op_type == "StreamingDataflowPartition":
+            sdp_model = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
+            sdp_res_dict = post_synth_res(sdp_model, synth_report_filename)
+            res_dict.update(sdp_res_dict)
+        elif _is_fpgadataflow_node(node):
             row = root.findall(".//*[@contents='%s']/.." % node.name)
             if row != []:
                 node_dict = {}

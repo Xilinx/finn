@@ -49,6 +49,7 @@ from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -311,6 +312,14 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
 
+    node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+    inst = getCustomOp(node)
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    exp_cycles = exp_cycles_dict[node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+    assert exp_cycles != 0
+
 
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["decoupled"])
@@ -329,7 +338,7 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
 @pytest.mark.vivado
-def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
+def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh
 ):
     if nf == -1:
@@ -403,3 +412,11 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
+
+    node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+    inst = getCustomOp(node)
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    exp_cycles = exp_cycles_dict[node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+    assert exp_cycles != 0

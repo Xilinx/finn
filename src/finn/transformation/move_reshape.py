@@ -36,5 +36,15 @@ class RemoveCNVtoFCFlatten(Transformation):
                             graph_modified = True
                             consumer.input[0] = n.input[0]
                             graph.node.remove(n)
+                    elif producer.op_type == "Transpose":
+                        transp_node = producer
+                        producer = model.find_producer(transp_node.input[0])
+                        if _is_fpgadataflow_node(producer) is True:
+                            consumer = model.find_consumer(n.output[0])
+                            if _is_fpgadataflow_node(consumer) is True:
+                                graph_modified = True
+                                consumer.input[0] = transp_node.input[0]
+                                graph.node.remove(n)
+                                graph.node.remove(transp_node)
 
         return (model, graph_modified)

@@ -52,6 +52,9 @@ from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
 from finn.custom_op.quantavgpool2d import QuantAvgPool2d
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
+from finn.custom_op.fpgadataflow.vector_vector_activate_batch import (
+    Vector_Vector_Activate_Batch,
+)
 from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
 from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.debugmarker import DebugMarker
@@ -79,6 +82,7 @@ custom_op["AddStreams_Batch"] = AddStreams_Batch
 custom_op["LabelSelect_Batch"] = LabelSelect_Batch
 custom_op["QuantAvgPool2d"] = QuantAvgPool2d
 custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
+custom_op["Vector_Vector_Activate_Batch"] = Vector_Vector_Activate_Batch
 custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
 custom_op["IODMA"] = IODMA
 custom_op["DebugMarker"] = DebugMarker
