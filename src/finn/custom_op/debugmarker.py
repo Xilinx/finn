@@ -25,57 +25,42 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import torch
 
-from torch.nn import Module, Sequential
-from brevitas.quant_tensor import QuantTensor
-
-
-class Normalize(Module):
-    def __init__(self, mean, std, channels):
-        super(Normalize, self).__init__()
-
-        self.mean = mean
-        self.std = std
-        self.channels = channels
-
-    def forward(self, x):
-        x = x - torch.tensor(self.mean, device=x.device).reshape(1, self.channels, 1, 1)
-        x = x / self.std
-        return x
+from finn.custom_op import CustomOp
+from onnx import helper
 
 
-class ToTensor(Module):
-    def __init__(self):
-        super(ToTensor, self).__init__()
+class DebugMarker(CustomOp):
+    def get_nodeattr_types(self):
+        return {"export_debug_name": ("s", True, "")}
 
-    def forward(self, x):
-        x = x / 255
-        return x
+    def make_shape_compatible_op(self, model):
+        node = self.onnx_node
+        return helper.make_node("Identity", [node.input[0]], [node.output[0]])
 
+    def infer_node_datatype(self, model):
+        node = self.onnx_node
+        # data type stays the same
+        dtype = model.get_tensor_datatype(node.input[0])
+        model.set_tensor_datatype(node.output[0], dtype)
+        # create quantization annotation for debug marker
+        model.set_tensor_datatype(self.get_nodeattr("export_debug_name"), dtype)
 
-class NormalizePreProc(Module):
-    def __init__(self, mean, std, channels):
-        super(NormalizePreProc, self).__init__()
-        self.features = Sequential()
-        scaling = ToTensor()
-        self.features.add_module("scaling", scaling)
-        normalize = Normalize(mean, std, channels)
-        self.features.add_module("normalize", normalize)
+    def execute_node(self, context, graph):
+        node = self.onnx_node
+        inp_name = node.input[0]
+        out_name = node.output[0]
+        inp = context[inp_name]
+        context[out_name] = inp
+        # insert debug marker output as separate tensor
+        context[self.get_nodeattr("export_debug_name")] = inp
 
-    def forward(self, x):
-        return self.features(x)
-
-
-class BrevitasDebugHook:
-    def __init__(self):
-        self.outputs = {}
-
-    def __call__(self, module, module_in, module_out):
-        tensor = module_out
-        if isinstance(module_out, QuantTensor):
-            tensor = module_out[0]
-        self.outputs[module.export_debug_name] = tensor.detach().numpy()
-
-    def clear(self):
-        self.outputs = {}
+    def verify_node(self):
+        info_messages = []
+        # verify that "domain" is set to "finn"
+        domain_value = self.onnx_node.domain
+        if domain_value == "finn":
+            info_messages.append("Attribute domain is set correctly")
+        else:
+            info_messages.append('Attribute domain should be set to "finn"')
+        return info_messages
