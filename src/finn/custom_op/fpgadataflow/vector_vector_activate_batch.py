@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import math
 
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
@@ -568,8 +569,6 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         c0 = 300
         c1 = 1.1
         c2 = 0
-        mmode = self.get_nodeattr("mem_mode")
-        mstyle = self.get_nodeattr("ram_style")
         if self.calc_wmem() <= 128:
             c2 = P * W * math.ceil(self.calc_wmem() / 64)
 
@@ -581,7 +580,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             mult_luts = (2 * math.ceil((W + A) / 6) - 1) * (W + A)
         # accumulator
         k = self.get_nodeattr("Kernel")
-        acc_bits = W + A + np.ceil(math.log(k*k, 2))
+        acc_bits = W + A + math.ceil(math.log(k*k, 2))
         acc_luts = acc_bits
         # thresholds and threshold comparators
         thr_luts = 0
