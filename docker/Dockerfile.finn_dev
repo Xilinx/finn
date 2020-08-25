@@ -55,7 +55,7 @@ RUN pip install -r requirements.txt
 RUN rm requirements.txt
 RUN pip install jupyter
 RUN pip install netron
-RUN pip install matplotlib
+RUN pip install matplotlib --ignore-installed
 RUN pip install pytest-dependency
 RUN pip install sphinx
 RUN pip install sphinx_rtd_theme
