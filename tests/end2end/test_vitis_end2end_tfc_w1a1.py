@@ -184,6 +184,10 @@ def test_end2end_vitis_tfc_w1a1_annotate_resources():
         "Post-synthesis resources (excluding shell): "
         + model.get_metadata_prop("res_total_synth")
     )
+    warnings.warn(
+        "Post-synthesis resources (all inclusive): "
+        + model.get_metadata_prop("res_total_top_synth")
+    )
     model.save(build_dir + "/end2end_vitis_tfc_w1a1_annotate_resources.onnx")
 
 

@@ -154,6 +154,10 @@ def test_end2end_zynqbuild_tfc_w2a2_build():
         "Post-synthesis resources (excluding shell): "
         + model.get_metadata_prop("res_total_synth")
     )
+    warnings.warn(
+        "Post-synthesis resources (all inclusive): "
+        + model.get_metadata_prop("res_total_top_synth")
+    )
     model.save(build_dir + "/end2end_zynqbuild_tfc_w2a2_build.onnx")
 
 
