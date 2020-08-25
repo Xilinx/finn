@@ -27,6 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import numpy as np
+from PIL import Image
+from finn.core.data_layout import NCHW, NHWC
+from finn.util.test import resize_smaller_side, crop_center
 
 
 def get_val_images(n_images=100):
@@ -58,6 +62,61 @@ def get_val_images(n_images=100):
         return ret
     except KeyError:
         return None
+
+
+def load_resize_crop(img_path, layout=NCHW, dtype=np.float32):
+    """Load, resize and center crop given image for standard ImageNet preprocessing,
+    return a numpy array."""
+    # get single image as input and prepare image
+    img = Image.open(img_path).convert("RGB")
+    # resize smallest side of the image to 256 pixels and resize larger side
+    # with same ratio
+    img = resize_smaller_side(256, img)
+    # crop central 224*224 window
+    img = crop_center(224, img)
+    if layout == NCHW:
+        # save image as numpy array and as torch tensor to enable testing in
+        # brevitas/pytorch and finn and transpose from (H, W, C) to (C, H, W)
+        img_np = np.asarray(img).copy().astype(dtype).transpose(2, 0, 1)
+        img_np = img_np.reshape(1, 3, 224, 224)
+        return img_np
+    elif layout == NHWC:
+        img_np = np.asarray(img).copy().astype(dtype)
+        img_np = img_np.reshape(1, 224, 224, 3)
+        return img_np
+    else:
+        raise Exception("Unknown data layout for load_resize_crop")
+
+
+def measure_topk(n_images, fxn_pre, fxn_exec, fxn_post, verbose=True, k=5):
+    "Do top-k accuracy measurement on ILSVRC2012 with given functions."
+
+    workload = get_val_images(n_images)
+    top1_ok = 0.0
+    top1_nok = 0.0
+    topk_ok = 0.0
+    topk_nok = 0.0
+    for i, (img_path, target_id) in enumerate(workload):
+        img_np = load_resize_crop(img_path)
+        inp = fxn_pre(img_np)
+        ret = fxn_exec(inp)
+        res = fxn_post(ret)
+        res = res.flatten()
+        res = np.argsort(res)[-k:]
+        res = np.flip(res)
+        if target_id == res[0]:
+            top1_ok += 1.0
+        else:
+            top1_nok += 1.0
+        if target_id in res:
+            topk_ok += 1.0
+        else:
+            topk_nok += 1.0
+        print(
+            "[%d/%d] Top-1: %f Top-%d: %f"
+            % (i + 1, n_images, 100 * top1_ok / n_images, k, 100 * topk_ok / n_images)
+        )
+    return ((top1_ok, top1_nok), (topk_ok, topk_nok))
 
 
 # human-readable names for ImageNet classes
