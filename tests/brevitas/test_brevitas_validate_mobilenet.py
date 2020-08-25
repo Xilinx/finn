@@ -30,6 +30,9 @@ debug_mode = True
 
 
 @pytest.mark.slow
+# marked as XFAIL until Brevitas export issues are resolved:
+# https://github.com/Xilinx/brevitas/issues/173
+@pytest.mark.xfail
 def test_brevitas_validate_mobilenet():
     if "IMAGENET_VAL_PATH" not in os.environ.keys():
         pytest.skip("Can't do validation without IMAGENET_VAL_PATH")
