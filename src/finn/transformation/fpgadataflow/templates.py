@@ -124,15 +124,14 @@ class FINNAccelDriver():
         self.ol = Overlay(bitfile)
         # neuron folding factor of output = iterations per sample
         self.itersPerSample = self.oshape_packed[-2]
+        # clock frequency as specified by user
+        self.fclk_mhz = $CLOCK_FREQ_MHZ$
         if self.platform == "zynq":
-            # clock frequency
-            self.fclk_mhz = $CLOCK_FREQ_MHZ$
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
                 Clocks.$CLK_NAME$ = self.fclk_mhz
             self.dma = self.ol.axi_dma_0
             self.ctrl_regs = self.ol.resize_accel_0
-
             # AXI lite register offset for number of iterations
             # used by TLastMarker to signal end of transmission for AXI CDMA
             self.REG_OFFSET_NUM_ITERS = 0x10
@@ -144,8 +143,6 @@ class FINNAccelDriver():
         elif self.platform == "zynq-iodma":
             self.idma = self.ol.idma0
             self.odma = self.ol.odma0
-            # clock frequency
-            self.fclk_mhz = $CLOCK_FREQ_MHZ$
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
                 Clocks.$CLK_NAME$ = self.fclk_mhz
@@ -191,6 +188,14 @@ class FINNAccelDriver():
     def copy_input_data_to_device(self, data):
         \"\"\"Copies given input data to PYNQ buffer.\"\"\"
         np.copyto(self.ibuf_packed_device, data)
+        if self.platform == "alveo":
+            self.ibuf_packed_device.sync_to_device()
+
+    def copy_output_data_from_device(self, data):
+        \"\"\"Copies PYNQ output buffer from device.\"\"\"
+        if self.platform == "alveo":
+            self.obuf_packed_device.sync_from_device()
+        np.copyto(data, self.obuf_packed_device)
 
     def execute(self):
         \"\"\"Executes accelerator by setting up the DMA(s) and
@@ -214,14 +219,10 @@ class FINNAccelDriver():
             status = self.odma.read(0x00)
             while status & 0x2 == 0:
                 status = self.odma.read(0x00)
-
         elif self.platform == "alveo":
-            self.ibuf_packed_device.sync_to_device()
-            self.idma.start(self.ibuf_packed_device, self.N)
-            self.odma.start(self.obuf_packed_device, self.N)
-            self.idma.wait()
-            self.odma.wait()
-            self.obuf_packed_device.sync_from_device()
+            idma_handle = self.idma.start_sw(self.ibuf_packed_device, self.N)
+            odma_handle = self.odma.start_sw(self.obuf_packed_device, self.N)
+            odma_handle.wait()
 
 
 
@@ -285,7 +286,10 @@ if __name__ == "__main__":
         res["throughput[images/s]"] = N / runtime
         res["DRAM_in_bandwidth[Mb/s]"] = np.prod(finnDriver.ishape_packed)*0.000001 / runtime
         res["DRAM_out_bandwidth[Mb/s]"] = np.prod(finnDriver.oshape_packed)*0.000001 / runtime
-        res["fclk[mhz]"] = Clocks.fclk0_mhz
+        if platform != "alveo":
+            res["fclk[mhz]"] = Clocks.fclk0_mhz
+        else:
+            res["fclk[mhz]"] = finnDriver.fclk_mhz
         res["N"] = N
         file = open("nw_metrics.txt", "w")
         file.write(str(res))
@@ -293,7 +297,9 @@ if __name__ == "__main__":
 
     # if execution is selected unpack, unfold and save output to output npy file
     else:
-        obuf_folded = finnDriver.unpack_output(finnDriver.obuf_packed_device)
+        obuf_packed = np.empty_like(finnDriver.obuf_packed_device)
+        finnDriver.copy_output_data_from_device(obuf_packed)
+        obuf_folded = finnDriver.unpack_output(obuf_packed)
         obuf_normal = finnDriver.unfold_output(obuf_folded)
         np.save(outputfile, obuf_normal)
 
@@ -421,4 +427,26 @@ wait_on_run [get_runs impl_1]
 # generate synthesis report
 open_run synth_1 -name synth_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+"""
+
+alveo_run_sh_template = """#!/bin/bash
+
+if [ "$#" -ne 2 ]; then
+    echo "Usage: alveo_run.sh <exec_mode={execute, throughput_test}> <batch_size>"
+    exit -1
+fi
+
+cd $REMOTE_DEPLOY_DIR$
+eval "$(conda shell.bash hook)"
+conda activate $CONDA_ENV_NAME$
+source $REMOTE_XRT$/setup.sh
+export PLATFORM_REPO_PATHS=$REMOTE_PLATFORM_REPO_PATHS$
+python3.6 driver.py --exec_mode=$1 --batchsize=$2 --bitfile=$BITFILE$ \
+    --inputfile=input.npy --outputfile=output.npy --platform=alveo
+"""
+
+vitis_gen_xml_report_tcl_template = """
+open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
+open_run impl_1
+report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/synth_report.xml -format xml
 """

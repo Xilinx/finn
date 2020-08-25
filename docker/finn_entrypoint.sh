@@ -56,6 +56,10 @@ if [ ! -z "$VITIS_PATH" ];then
   export XILINX_VITIS=$VITIS_PATH
   source $VITIS_PATH/settings64.sh
 fi
+if [ ! -z "$XILINX_XRT" ];then
+  # source XRT
+  source $XILINX_XRT/setup.sh
+fi
 
 # download PYNQ board files if not already there
 if [ ! -d "/workspace/finn/board_files" ]; then

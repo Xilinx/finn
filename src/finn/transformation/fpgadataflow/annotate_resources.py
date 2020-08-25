@@ -41,6 +41,7 @@ class AnnotateResources(Transformation):
     node as an attribute on the node, depending on the mode parameter:
     * 'estimate' -- use the analytical estimation model
     * 'hls' -- use results from the HLS synthesis report
+    * 'synth' -- use post-synthesis (Vivado or Vitis) report
 
     No annotations can be provided unless the relevant transformation for the
     chosen mode (e.g. HLSSynthIP for hls) was previously run.
@@ -99,4 +100,7 @@ class AnnotateResources(Transformation):
             if "efficiency" in k:
                 total_dict[k] = total_dict[k] / len(graph.node)
         model.set_metadata_prop("res_total_" + self.mode, str(total_dict))
+        if "(top)" in self.res_dict.keys():
+            top_dict = self.res_dict["(top)"]
+            model.set_metadata_prop("res_total_top_" + self.mode, str(top_dict))
         return (model, False)

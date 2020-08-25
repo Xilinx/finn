@@ -18,7 +18,7 @@ from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 import finn.transformation.fpgadataflow.replace_verilog_relpaths as rvp
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import pynq_part_map, pynq_native_port_width
-from finn.core.throughput_test import throughput_test
+from finn.core.throughput_test import throughput_test_remote
 from scipy.stats import linregress
 import warnings
 
@@ -90,7 +90,7 @@ def test_pynq_performance_fifo():
         bsize_range_in = [2 ** i for i in range(20)]
         bsize_range = []
         for bsize in bsize_range_in:
-            res = throughput_test(model, bsize)
+            res = throughput_test_remote(model, bsize)
             if res is not None:
                 ret[bsize] = res
                 bsize_range.append(bsize)
