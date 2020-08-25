@@ -240,7 +240,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         k = self.get_nodeattr("ConvKernelDim")
         stride = self.get_nodeattr("Stride")
         ram_style = self.get_nodeattr("ram_style")
-        if ram_style == "block" or ram_style == "auto":
+        if ram_style == "ultra":
             return int(
                 (k + stride)
                 * (
