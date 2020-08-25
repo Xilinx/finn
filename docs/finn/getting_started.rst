@@ -96,3 +96,4 @@ These are summarized below:
 * `PYNQ_IP` and `PYNQ_PORT` specify ip address and port number to access the PYNQ board
 * `PYNQ_USERNAME` and `PYNQ_PASSWORD` specify the PYNQ board access credentials for the test suite
 * `PYNQ_TARGET_DIR` specifies the target dir on the PYNQ board for the test suite
+* ``IMAGENET_VAL_PATH`` (optional) specifies the path to the ImageNet validation directory
