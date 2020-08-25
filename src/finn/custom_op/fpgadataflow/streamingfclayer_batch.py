@@ -338,6 +338,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def dsp_estimation(self):
         # multiplication
+        P = self.get_nodeattr("PE")
         res_type = self.get_nodeattr("resType")
         Q = self.get_nodeattr("SIMD")
         wdt = self.get_weight_datatype()
@@ -345,7 +346,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         idt = self.get_input_datatype()
         A = idt.bitwidth()
         if res_type == "dsp":
-            mult_dsp = Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
+            mult_dsp = P * Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
         else:
             mult_dsp = 0
         return int(mult_dsp)
