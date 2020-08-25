@@ -84,7 +84,8 @@ def test_brevitas_validate_mobilenet():
                 "brevitasTop5",
                 "brevitasTop5[%]",
                 "finnTop5",
-                "finnTop5[%]" "top5equal",
+                "finnTop5[%]",
+                "top5equal",
                 "top5%equal",
             ]
         )
