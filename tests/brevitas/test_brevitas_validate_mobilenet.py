@@ -25,8 +25,8 @@ import finn.core.onnx_exec as oxe
 import finn.util.imagenet as imagenet_util
 import pytest
 
-n_images = 1
-debug_mode = True
+n_images = 10
+debug_mode = False
 
 
 @pytest.mark.slow
@@ -91,6 +91,8 @@ def test_brevitas_validate_mobilenet():
         )
         csvfile.flush()
         workload = imagenet_util.get_val_images(n_images)
+        all_inds_ok = True
+        all_probs_ok = True
         for (img_path, target_id) in workload:
             # get single image as input and prepare image
             img = Image.open(img_path)
@@ -119,6 +121,8 @@ def test_brevitas_validate_mobilenet():
             produced_prob = odict["TopK_0_out0"] * a0
             inds_ok = (produced.flatten() == expected_top5).all()
             probs_ok = np.isclose(produced_prob.flatten(), expected_top5_prob).all()
+            all_inds_ok = all_inds_ok and inds_ok
+            all_probs_ok = all_probs_ok and probs_ok
             writer.writerow(
                 [
                     str(target_id),
@@ -132,6 +136,7 @@ def test_brevitas_validate_mobilenet():
             )
             csvfile.flush()
             if ((not inds_ok) or (not probs_ok)) and debug_mode:
+                print("Results differ for %s" % img_path)
                 # check all tensors at debug markers
                 names_brevitas = set(dbg_hook.outputs.keys())
                 names_finn = set(odict.keys())
@@ -141,4 +146,4 @@ def test_brevitas_validate_mobilenet():
                         dbg_hook.outputs[dbg_name], odict[dbg_name], atol=1e-3
                     ).all():
                         print("Tensor %s differs between Brevitas and FINN" % dbg_name)
-            assert inds_ok and probs_ok
+        assert all_inds_ok and all_probs_ok
