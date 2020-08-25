@@ -56,7 +56,7 @@ def test_res_estimate():
     pe = 1
     idt = DataType.INT2
     wdt = DataType.INT2
-    odt = DataType.INT32
+    odt = DataType.INT2
     actval = odt.min()
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
