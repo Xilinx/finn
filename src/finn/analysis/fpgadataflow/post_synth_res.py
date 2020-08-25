@@ -81,32 +81,30 @@ def post_synth_res(model, override_synth_report_filename=None):
     else:
         restype_to_ind = restype_to_ind_default
 
+    def get_instance_stats(inst_name):
+        row = root.findall(".//*[@contents='%s']/.." % inst_name)
+        if row != []:
+            node_dict = {}
+            row = row[0].getchildren()
+            for (restype, ind) in restype_to_ind.items():
+                node_dict[restype] = int(row[ind].attrib["contents"])
+            return node_dict
+        else:
+            return None
+
+    # global (top-level) stats, including shell etc.
+    top_dict = get_instance_stats("(top)")
+    if top_dict is not None:
+        res_dict["(top)"] = top_dict
+
     for node in model.graph.node:
         if node.op_type == "StreamingDataflowPartition":
             sdp_model = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
             sdp_res_dict = post_synth_res(sdp_model, synth_report_filename)
             res_dict.update(sdp_res_dict)
         elif _is_fpgadataflow_node(node):
-            row = root.findall(".//*[@contents='%s']/.." % node.name)
-            if row != []:
-                node_dict = {}
-                row = row[0].getchildren()
-                """ Expected XML structure:
-<tablerow class="" suppressoutput="0" wordwrap="0">
-    <tableheader class="" contents="Instance" halign="3" width="-1"/>
-    <tableheader class="" contents="Module" halign="3" width="-1"/>
-    <tableheader class="" contents="Total LUTs" halign="3" width="-1"/>
-    <tableheader class="" contents="Logic LUTs" halign="3" width="-1"/>
-    <tableheader class="" contents="LUTRAMs" halign="3" width="-1"/>
-    <tableheader class="" contents="SRLs" halign="3" width="-1"/>
-    <tableheader class="" contents="FFs" halign="3" width="-1"/>
-    <tableheader class="" contents="RAMB36" halign="3" width="-1"/>
-    <tableheader class="" contents="RAMB18" halign="3" width="-1"/>
-    <tableheader class="" contents="DSP48 Blocks" halign="3" width="-1"/>
-</tablerow>
-                """
-                for (restype, ind) in restype_to_ind.items():
-                    node_dict[restype] = int(row[ind].attrib["contents"])
+            node_dict = get_instance_stats(node.name)
+            if node_dict is not None:
                 res_dict[node.name] = node_dict
 
     return res_dict
