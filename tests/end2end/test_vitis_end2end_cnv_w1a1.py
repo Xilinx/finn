@@ -185,12 +185,19 @@ def test_end2end_vitis_cnv_w1a1_build():
             strategy=VitisOptStrategy.BUILD_SPEED,
         )
     )
+    model.save(build_dir + "/end2end_vitis_cnv_w1a1_build.onnx")
+
+
+def test_end2end_vitis_cnv_w1a1_annotate_resources():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_vitis_cnv_w1a1_build.onnx"
+    )
     model = model.transform(AnnotateResources("synth"))
     warnings.warn(
         "Post-synthesis resources (excluding shell): "
         + model.get_metadata_prop("res_total_synth")
     )
-    model.save(build_dir + "/end2end_vitis_cnv_w1a1_build.onnx")
+    model.save(build_dir + "/end2end_vitis_cnv_w1a1_annotate_resources.onnx")
 
 
 def test_end2end_vitis_cnv_w1a1_deploy_on_pynq():
