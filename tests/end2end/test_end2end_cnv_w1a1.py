@@ -201,7 +201,7 @@ def test_end2end_cnv_w1a1_resalloc(target_fps):
     achieved_cycles_per_frame = max(exp_cycles_dict.values())
     achieved_fps = int(10 ** 9 / (target_clk_ns * achieved_cycles_per_frame))
     assert (
-        0.5 * min(2712, target_fps) <= achieved_fps <= 2 * min(2712, target_fps)
+        0.5 * min(3472, target_fps) <= achieved_fps <= 2 * min(3472, target_fps)
     ), "Achieved FPS out of expected range"
     resource_usage = model.analysis(res_estimation)
     luts = sum([r["LUT"] for r in resource_usage.values()])

@@ -314,18 +314,18 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         if res_type == "dsp":
             mult_luts = 0
         else:
-            mult_luts = (2 * math.ceil((W + A) / 6) - 1) * (W + A)
+            mult_luts = Q * (2 * math.ceil((W + A) / 6) - 1) * (W + A)
         # adder tree
         addertree_luts = (W + A) * (2 * Q - 1)
         # accumulator
-        acc_bits = W + A + math.log(MW, 2)
+        acc_bits = W + A + np.ceil(math.log(MW, 2))
         acc_luts = acc_bits
         # thresholds and threshold comparators
         thr_luts = 0
         comp_luts = 0
         noact = self.get_nodeattr("noActivation")
         if noact == 0:
-            odt = self.get_input_datatype()
+            odt = self.get_output_datatype()
             B = odt.bitwidth()
             thr_luts = (2 ** B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
             comp_luts = (2 ** B - 1) * acc_bits
