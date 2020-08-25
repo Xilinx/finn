@@ -250,8 +250,6 @@ class MakeZYNQProject(Transformation):
         copy(bitfile_name, deploy_bitfile_name)
         # set bitfile attribute
         model.set_metadata_prop("bitfile", deploy_bitfile_name)
-        # set platform attribute for correct remote execution
-        model.set_metadata_prop("platform", "zynq-iodma")
         hwh_name = (
             vivado_pynq_proj_dir
             + "/finn_zynq_link.srcs/sources_1/bd/top/hw_handoff/top.hwh"
@@ -312,9 +310,12 @@ class ZynqBuild(Transformation):
                     self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True
                 )
             )
+            kernel_model.set_metadata_prop("platform", "zynq-iodma")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from IPs
         model = model.transform(
             MakeZYNQProject(self.platform, enable_debug=self.enable_debug)
         )
+        # set platform attribute for correct remote execution
+        model.set_metadata_prop("platform", "zynq-iodma")
         return (model, False)
