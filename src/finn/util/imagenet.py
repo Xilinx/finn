@@ -33,11 +33,17 @@ from finn.core.data_layout import NCHW, NHWC
 from finn.util.test import resize_smaller_side, crop_center
 
 
-def get_val_images(n_images=100):
+def get_val_images(n_images=100, interleave_classes=False):
     """Returns generator over (path_to_jpeg, imagenet_class_id) for the first n_images
     in the ILSVRC2012 validation dataset. The IMAGENET_VAL_PATH environment variable
     must point to the validation dataset folder, containing 1000 folders (one for
     each ImageNet-1K class), in turn each containing 50 test images.
+
+    interleave_classes controls the ordering of the picked images. If False
+    (default), consecutive images will have the same class until that class has
+    no more images. Otherwise, consecutive images will be from classes 0, 1, 2...
+    and back to class 0 after the first 1000 images.
+
     For more information on how to prepare the ILSVRC2012 validation dataset,
     please see:
     https://github.com/Xilinx/brevitas/blob/dev/brevitas_examples/imagenet_classification/README.md
@@ -56,10 +62,16 @@ def get_val_images(n_images=100):
             current_file = os.path.join(current_folder, current_files[n_current_file])
             yield (current_file, n_current_folder)
             total += 1
-            n_current_file += 1
-            if n_current_file == 50:
+            if interleave_classes:
                 n_current_folder += 1
-                n_current_file = 0
+                if n_current_folder == 1000:
+                    n_current_file += 1
+                    n_current_folder = 0
+            else:
+                n_current_file += 1
+                if n_current_file == 50:
+                    n_current_folder += 1
+                    n_current_file = 0
     except KeyError:
         return None
 
