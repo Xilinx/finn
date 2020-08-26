@@ -23,9 +23,9 @@ from finn.transformation.insert_topk import InsertTopK
 import finn.core.onnx_exec as oxe
 import finn.util.imagenet as imagenet_util
 import pytest
+import torchvision.datasets as datasets
+import torchvision.transforms as transforms
 
-n_images = 10
-debug_mode = False
 # normalization (preprocessing) settings for MobileNet-v1 w4a4
 mean = [0.485, 0.456, 0.406]
 std = 0.226
@@ -35,17 +35,37 @@ ch = 3
 def test_brevitas_mobilenet_preproc():
     if "IMAGENET_VAL_PATH" not in os.environ.keys():
         pytest.skip("Can't do validation without IMAGENET_VAL_PATH")
-    preproc = NormalizePreProc(mean, std, ch)
-    mobilenet = get_test_model_trained("mobilenet", 4, 4)
-
-    ((top1_ok, top1_nok), (top5_ok, top5_nok)) = imagenet_util.measure_topk(
-        n_images,
-        fxn_pre=lambda x: preproc.forward(torch.from_numpy(x).float()),
-        fxn_exec=lambda x: mobilenet.forward(x),
-        fxn_post=lambda x: x.detach().numpy(),
+    n_images = 1000
+    # Brevitas-style: use torchvision pipeline
+    std_arr = [std, std, std]
+    normalize = transforms.Normalize(mean=mean, std=std_arr)
+    val_loader = torch.utils.data.DataLoader(
+        datasets.ImageFolder(
+            os.environ["IMAGENET_VAL_PATH"] + "/../",
+            transforms.Compose(
+                [
+                    transforms.Resize(256),
+                    transforms.CenterCrop(224),
+                    transforms.ToTensor(),
+                    normalize,
+                ]
+            ),
+        ),
+        batch_size=1,
+        shuffle=False,
+        num_workers=0,
     )
-    assert (top1_ok, top1_nok) == (7, 3)
-    assert (top5_ok, top5_nok) == (8, 2)
+    # FINN-style: load_resize_crop then normalization as PyTorch graph
+    preproc = NormalizePreProc(mean, std, ch)
+    finn_loader = imagenet_util.get_val_images(n_images)
+    val_loader = iter(val_loader)
+    for i in range(n_images):
+        (img_path, finn_target) = next(finn_loader)
+        finn_img = imagenet_util.load_resize_crop(img_path)
+        finn_img = preproc.forward(torch.from_numpy(finn_img).float())
+        (pyt_img, pyt_target) = next(val_loader)
+        assert finn_img.shape == pyt_img.shape
+        assert (finn_img == pyt_img).all()
 
 
 @pytest.mark.slow
@@ -55,6 +75,8 @@ def test_brevitas_mobilenet_preproc():
 def test_brevitas_compare_exported_mobilenet():
     if "IMAGENET_VAL_PATH" not in os.environ.keys():
         pytest.skip("Can't do validation without IMAGENET_VAL_PATH")
+    n_images = 10
+    debug_mode = False
     export_onnx_path = make_build_dir("test_brevitas_mobilenet-v1_")
     # export preprocessing
     preproc_onnx = export_onnx_path + "/quant_mobilenet_v1_4b_preproc.onnx"
