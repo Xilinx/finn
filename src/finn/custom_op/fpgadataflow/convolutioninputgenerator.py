@@ -177,6 +177,23 @@ class ConvolutionInputGenerator(HLSCustomOp):
         num_output_elems = np.prod(folded_oshape[:-1])
         return num_output_elems
 
+    def get_exp_cycles(self):
+        simd = self.get_nodeattr("SIMD")
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ofm_dim = self.get_nodeattr("OFMDim")
+        stride = self.get_nodeattr("Stride")
+        # since mmv != 1 is not supported yet, we set mmv for now to 1
+        mmv = 1
+        # see https://github.com/Xilinx/finn-hlslib/blob/master/slidingwindow.h
+        cycles_write_block = (ofm_dim * k * k * (ifm_ch / simd)) / mmv
+        cycles_read_block = stride * ifm_dim * (ifm_ch / simd)
+        max_cycles = max(cycles_write_block, cycles_read_block)
+        exp_cycles = ifm_dim * k * (ifm_ch / simd) + ofm_dim * max_cycles
+
+        return int(exp_cycles)
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node

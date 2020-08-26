@@ -42,6 +42,14 @@ class FMPadding_Batch(HLSCustomOp):
         pad = self.get_nodeattr("Padding")
         return idim + pad
 
+    def get_exp_cycles(self):
+        odim = self.get_padded_odim()
+        channels = self.get_nodeattr("NumChannels")
+        simd = self.get_nodeattr("SIMD")
+        batch_size = self.get_nodeattr("numInputVectors")
+        exp_cycles = (channels / simd) * batch_size * odim * odim
+        return exp_cycles
+
     def get_normal_input_shape(self):
         idim = self.get_nodeattr("ImgDim")
         num_ch = self.get_nodeattr("NumChannels")

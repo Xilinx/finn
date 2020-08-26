@@ -128,6 +128,8 @@ class MakePYNQProject(Transformation):
         # filename for the synth utilization report
         synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
+        # set platform attribute for correct remote execution
+        model.set_metadata_prop("platform", "zynq")
 
         # get metadata property clk_ns to calculate clock frequency
         clk_ns = float(model.get_metadata_prop("clk_ns"))

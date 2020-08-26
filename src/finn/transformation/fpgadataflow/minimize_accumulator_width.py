@@ -26,39 +26,23 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pytest
-import finn.util.create as create
-from finn.core.datatype import DataType
+from finn.custom_op.registry import getCustomOp
+from finn.transformation import Transformation
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-@pytest.mark.parametrize("bitwidth", [DataType.BIPOLAR, DataType.INT2, DataType.INT4])
-def test_hls_random_mlp_maker(bitwidth):
-    w = bitwidth
-    a = bitwidth
-    layer_spec = [
-        {
-            "mw": 185,
-            "mh": 100,
-            "simd": 185,
-            "pe": 100,
-            "idt": DataType.BIPOLAR,
-            "wdt": w,
-            "act": a,
-        },
-        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
-        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
-        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
-        {
-            "mw": 100,
-            "mh": 1,
-            "simd": 100,
-            "pe": 1,
-            "idt": a,
-            "wdt": w,
-            "act": DataType.BIPOLAR,
-        },
-    ]
+class MinimizeAccumulatorWidth(Transformation):
+    """For relevant nodes, call the accumulator width minimization
+    functions to save on resources. May alter tensor DataType for
+    certain nodes if they produce an accumulator as result."""
 
-    ret = create.hls_random_mlp_maker(layer_spec)
-    assert len(ret.graph.node) == 5
-    # ret.save("mlp-%s.onnx" % str(bitwidth))
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        for node in model.graph.node:
+            if is_fpgadataflow_node(node) is True:
+                inst = getCustomOp(node)
+                if hasattr(inst, "minimize_accumulator_width"):
+                    inst.minimize_accumulator_width(model)
+        return (model, False)

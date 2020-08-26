@@ -30,15 +30,23 @@ import os
 import xml.etree.ElementTree as ET
 
 from finn.transformation.move_reshape import _is_fpgadataflow_node
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.registry import getCustomOp
 
 
-def post_synth_res(model):
+def post_synth_res(model, override_synth_report_filename=None):
     """Extracts the FPGA resource results from the Vivado synthesis.
+    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
+    transformation) prior to calling this analysis pass to ensure all nodes are
+    visible in the results.
 
     Returns {node name : resources_dict}."""
 
     res_dict = {}
-    synth_report_filename = model.get_metadata_prop("vivado_synth_rpt")
+    if override_synth_report_filename is not None:
+        synth_report_filename = override_synth_report_filename
+    else:
+        synth_report_filename = model.get_metadata_prop("vivado_synth_rpt")
     if os.path.isfile(synth_report_filename):
         tree = ET.parse(synth_report_filename)
         root = tree.getroot()
@@ -49,32 +57,54 @@ def post_synth_res(model):
     else:
         raise Exception("Please run synthesis first")
 
+    # TODO build these indices based on table headers instead of harcoding
+    restype_to_ind_default = {
+        "LUT": 2,
+        "SRL": 5,
+        "FF": 6,
+        "BRAM_36K": 7,
+        "BRAM_18K": 8,
+        "DSP48": 9,
+    }
+    restype_to_ind_vitis = {
+        "LUT": 4,
+        "SRL": 7,
+        "FF": 8,
+        "BRAM_36K": 9,
+        "BRAM_18K": 10,
+        "URAM": 11,
+        "DSP48": 12,
+    }
+
+    if model.get_metadata_prop("platform") == "alveo":
+        restype_to_ind = restype_to_ind_vitis
+    else:
+        restype_to_ind = restype_to_ind_default
+
+    def get_instance_stats(inst_name):
+        row = root.findall(".//*[@contents='%s']/.." % inst_name)
+        if row != []:
+            node_dict = {}
+            row = row[0].getchildren()
+            for (restype, ind) in restype_to_ind.items():
+                node_dict[restype] = int(row[ind].attrib["contents"])
+            return node_dict
+        else:
+            return None
+
+    # global (top-level) stats, including shell etc.
+    top_dict = get_instance_stats("(top)")
+    if top_dict is not None:
+        res_dict["(top)"] = top_dict
+
     for node in model.graph.node:
-        if _is_fpgadataflow_node(node):
-            row = root.findall(".//*[@contents='%s']/.." % node.name)
-            if row != []:
-                node_dict = {}
-                row = row[0].getchildren()
-                """ Expected XML structure:
-<tablerow class="" suppressoutput="0" wordwrap="0">
-    <tableheader class="" contents="Instance" halign="3" width="-1"/>
-    <tableheader class="" contents="Module" halign="3" width="-1"/>
-    <tableheader class="" contents="Total LUTs" halign="3" width="-1"/>
-    <tableheader class="" contents="Logic LUTs" halign="3" width="-1"/>
-    <tableheader class="" contents="LUTRAMs" halign="3" width="-1"/>
-    <tableheader class="" contents="SRLs" halign="3" width="-1"/>
-    <tableheader class="" contents="FFs" halign="3" width="-1"/>
-    <tableheader class="" contents="RAMB36" halign="3" width="-1"/>
-    <tableheader class="" contents="RAMB18" halign="3" width="-1"/>
-    <tableheader class="" contents="DSP48 Blocks" halign="3" width="-1"/>
-</tablerow>
-                """
-                node_dict["LUT"] = int(row[2].attrib["contents"])
-                node_dict["SRL"] = int(row[5].attrib["contents"])
-                node_dict["FF"] = int(row[6].attrib["contents"])
-                node_dict["BRAM_36K"] = int(row[7].attrib["contents"])
-                node_dict["BRAM_18K"] = int(row[8].attrib["contents"])
-                node_dict["DSP48"] = int(row[9].attrib["contents"])
+        if node.op_type == "StreamingDataflowPartition":
+            sdp_model = ModelWrapper(getCustomOp(node).get_nodeattr("model"))
+            sdp_res_dict = post_synth_res(sdp_model, synth_report_filename)
+            res_dict.update(sdp_res_dict)
+        elif _is_fpgadataflow_node(node):
+            node_dict = get_instance_stats(node.name)
+            if node_dict is not None:
                 res_dict[node.name] = node_dict
 
     return res_dict

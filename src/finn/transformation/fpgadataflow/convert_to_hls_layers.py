@@ -40,6 +40,9 @@ from finn.transformation.general import SortGraph
 import finn.core.data_layout as DataLayout
 from finn.util.onnx import nchw_to_nhwc
 from finn.util.basic import get_by_name
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 
 
 class InferConvInpGen(Transformation):
@@ -508,6 +511,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                     graph.node.remove(n)
                     graph_modified = True
         if graph_modified:
+            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -642,6 +646,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         graph.node.remove(n)
                         graph_modified = True
         if graph_modified:
+            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)

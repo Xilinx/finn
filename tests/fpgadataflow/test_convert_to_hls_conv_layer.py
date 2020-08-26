@@ -24,6 +24,7 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.custom_op.im2col import compute_conv_output_dim
 from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 # conv_config  kernel_size,stride, pad
 
@@ -98,6 +99,14 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
         new_model = new_model.transform(to_hls.InferVVAU())
     else:
         new_model = new_model.transform(to_hls.InferQuantizedStreamingFCLayer())
+        fc_node = new_model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+        fc_inst = getCustomOp(fc_node)
+        mw = fc_inst.get_nodeattr("MW")
+        mh = fc_inst.get_nodeattr("MH")
+        pe_cands = list(filter(lambda x: mh % x == 0, range(2, mh + 1)))
+        simd_cands = list(filter(lambda x: mw % x == 0, range(2, mw + 1)))
+        fc_inst.set_nodeattr("PE", pe_cands[0])
+        fc_inst.set_nodeattr("SIMD", simd_cands[0])
 
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(InferShapes())
@@ -122,8 +131,25 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
     assert oxe.compare_execution(model, new_model, inp_dict)
     if kernel_size == 1 and stride > 1 and pad == 0:
         assert new_model.graph.node[1].op_type == "DownSampler"
+        if exec_mode == "rtlsim":
+            node = new_model.get_nodes_by_op_type("DownSampler")[0]
+            inst = getCustomOp(node)
+            cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+            exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
+            exp_cycles = exp_cycles_dict[node.name]
+            assert np.isclose(exp_cycles, cycles_rtlsim, atol=11)
+            assert exp_cycles != 0
 
     if pad == 1:
         padding_node = new_model.get_nodes_by_op_type("FMPadding_Batch")[0]
         padding_inst = getCustomOp(padding_node)
         assert padding_inst.get_nodeattr("SIMD") == in_chn
+
+    if depthwise is True and exec_mode == "rtlsim":
+        node = new_model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=11)
+        assert exp_cycles != 0
