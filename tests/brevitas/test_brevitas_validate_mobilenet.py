@@ -130,7 +130,7 @@ def test_brevitas_compare_exported_mobilenet():
             ]
         )
         csvfile.flush()
-        workload = imagenet_util.get_val_images(n_images)
+        workload = imagenet_util.get_val_images(n_images, interleave_classes=True)
         all_inds_ok = True
         all_probs_ok = True
         for (img_path, target_id) in workload:
