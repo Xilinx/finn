@@ -267,22 +267,6 @@ def test_end2end_mobilenet_folding():
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
 
 
-def test_end2end_mobilenet_gen_hls_ip():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
-    start = time.time()
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
-    end = time.time()
-    elapsed_time = end - start
-    f = open(build_dir + "/end2end_mobilenet_ipgen_time.txt", "w+")
-    f.write("Execution time in seconds: " + str(elapsed_time))
-    f.close()
-
-    model = model.transform(AnnotateResources("hls"))
-    model.save(build_dir + "/end2end_mobilenet_ipgen.onnx")
-
-
 def test_end2end_mobilenet_create_dataflow_partition():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
     parent_model = model.transform(CreateDataflowPartition())
@@ -362,3 +346,19 @@ def test_end2end_mobilenet_rtlsim():
 
     assert (golden == res_rtlsim_nodebynode).all()
     assert np.isclose(golden_prob, res_rtlsim_nodebynode_prob).all()
+
+
+def test_end2end_mobilenet_gen_hls_ip():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
+    start = time.time()
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(ReplaceVerilogRelPaths())
+    end = time.time()
+    elapsed_time = end - start
+    f = open(build_dir + "/end2end_mobilenet_ipgen_time.txt", "w+")
+    f.write("Execution time in seconds: " + str(elapsed_time))
+    f.close()
+
+    model = model.transform(AnnotateResources("hls"))
+    model.save(build_dir + "/end2end_mobilenet_ipgen.onnx")
