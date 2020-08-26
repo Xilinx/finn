@@ -1,10 +1,14 @@
 import os
 import numpy as np
-
+import warnings
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
-from finn.util.basic import interleave_matrix_outer_dim_from_partitions
+from finn.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+    calculate_matvec_accumulator_range,
+)
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -30,11 +34,72 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
+            # FINN DataType for accumulator -- auto-computed and updated
+            "accDataType": ("s", False, "INT32"),
             # no-activation mode (produce accumulators)
             "noActivation": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def minimize_accumulator_width(self, model):
+        weights = model.get_initializer(self.onnx_node.input[1])
+        k = self.get_nodeattr("Kernel")
+        fm = self.get_nodeattr("Channels")
+        # put weights into the shape expected by calculate_matvec_accumulator_range
+        weights = weights.reshape(fm, k * k).transpose()
+        if len(self.onnx_node.input) > 2:
+            thresholds = model.get_initializer(self.onnx_node.input[2])
+        else:
+            thresholds = None
+        idt = self.get_input_datatype()
+        # calculate minimum and maximum values of accumulator
+        (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
+        if thresholds is not None:
+            threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+            # set threshold datatype (and accumulator datatype implicitly)
+            min_threshold = thresholds.min()
+            max_threshold = thresholds.max()
+            if max_threshold > acc_max + 1:
+                # clip threshold value
+                warnings.warn(
+                    "Clipping larger-than-accumulator thresholds in %s"
+                    % self.onnx_node.name
+                )
+                thresholds = np.clip(thresholds, None, acc_max + 1)
+                model.set_initializer(self.onnx_node.input[2], thresholds)
+                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                max_threshold = thresholds.max()
+            # get range required by threshold values
+            tdt_min = min(acc_min, min_threshold)
+            tdt_max = max(acc_max, max_threshold)
+            if tdt_min < 0:
+                if abs(tdt_min) > tdt_max:
+                    tdt = DataType.get_smallest_possible(tdt_min)
+                else:
+                    tdt = DataType.get_smallest_possible(0 - tdt_max)
+            else:
+                tdt = DataType.get_smallest_possible(tdt_max)
+            assert np.vectorize(tdt.allowed)(
+                threshold_tensor
+            ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+            self.set_nodeattr("accDataType", tdt.name)
+        else:
+            if acc_min < 0:
+                if abs(acc_min) > acc_max:
+                    adt = DataType.get_smallest_possible(acc_min)
+                else:
+                    adt = DataType.get_smallest_possible(0 - acc_max)
+            else:
+                adt = DataType.get_smallest_possible(acc_max)
+            # ensure a datatype divisible by 8-bits in case this is the last node
+            bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
+            new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
+            adt = DataType[new_adt_name]
+            self.set_nodeattr("accDataType", adt.name)
+            # for no-activation nodes, output dt = acc dt
+            self.set_nodeattr("outputDataType", adt.name)
+        return DataType[self.get_nodeattr("accDataType")]
 
     def calc_wmem(self):
         """Calculates and returns WMEM."""
@@ -253,10 +318,11 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             thresholds = model.get_initializer(self.onnx_node.input[2])
             if thresholds is not None:
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-                tdt = DataType.INT32
+                # get computed threshold datatype from attribute
+                tdt = DataType[self.get_nodeattr("accDataType")]
                 assert np.vectorize(tdt.allowed)(
                     threshold_tensor
-                ).all(), "Thresholds are not int"
+                ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True
                 )
