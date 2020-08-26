@@ -791,6 +791,7 @@ class InferVVAU(Transformation):
                         graph.node.remove(n)
                         graph_modified = True
         if graph_modified:
+            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
