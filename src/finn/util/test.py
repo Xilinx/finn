@@ -31,6 +31,7 @@ import numpy as np
 import pytest
 import warnings
 from finn.core.modelwrapper import ModelWrapper
+import torchvision.transforms.functional as torchvision_util
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -90,18 +91,9 @@ def load_test_checkpoint_or_skip(filename):
 def resize_smaller_side(target_pixels, img):
     """Resizes smallest side of image to target pixels and resizes larger side with
     same ratio. Expects a PIL image."""
-    ratio = target_pixels / min(img.size)
-    width = int(img.size[0] * ratio)
-    height = int(img.size[1] * ratio)
-    return img.resize((width, height), resample=0)
+    return torchvision_util.resize(img, target_pixels)
 
 
 def crop_center(size, img):
     """Crop central size*size window out of a PIL image."""
-    width = img.size[0]
-    height = img.size[1]
-    left = (width - size) / 2
-    top = (height - size) / 2
-    right = (width + size) / 2
-    bottom = (height + size) / 2
-    return img.crop((left, top, right, bottom))
+    return torchvision_util.center_crop(img, size)

@@ -34,7 +34,7 @@ from finn.util.test import resize_smaller_side, crop_center
 
 
 def get_val_images(n_images=100):
-    """Returns a list of (path_to_jpeg, imagenet_class_id) for the first n_images
+    """Returns generator over (path_to_jpeg, imagenet_class_id) for the first n_images
     in the ILSVRC2012 validation dataset. The IMAGENET_VAL_PATH environment variable
     must point to the validation dataset folder, containing 1000 folders (one for
     each ImageNet-1K class), in turn each containing 50 test images.
@@ -46,20 +46,20 @@ def get_val_images(n_images=100):
         val_path = os.environ["IMAGENET_VAL_PATH"]
         val_folders = sorted(os.listdir(val_path))
         assert len(val_folders) == 1000, "Expected 1000 subfolders in ILSVRC2012 val"
-        assert n_images < 50000, "ILSVRC2012 validation dataset has 50k images"
+        assert n_images <= 50000, "ILSVRC2012 validation dataset has 50k images"
         n_current_folder = 0
         n_current_file = 0
-        ret = []
-        while len(ret) != n_images:
+        total = 0
+        while total != n_images:
             current_folder = os.path.join(val_path, val_folders[n_current_folder])
             current_files = sorted(os.listdir(current_folder))
             current_file = os.path.join(current_folder, current_files[n_current_file])
-            ret.append((current_file, n_current_folder))
-            n_current_folder += 1
-            if n_current_folder == 1000:
-                n_current_folder = 0
-                n_current_file += 1
-        return ret
+            yield (current_file, n_current_folder)
+            total += 1
+            n_current_file += 1
+            if n_current_file == 50:
+                n_current_folder += 1
+                n_current_file = 0
     except KeyError:
         return None
 
@@ -112,9 +112,10 @@ def measure_topk(n_images, fxn_pre, fxn_exec, fxn_post, verbose=True, k=5):
             topk_ok += 1.0
         else:
             topk_nok += 1.0
+        cnt = i + 1
         print(
             "[%d/%d] Top-1: %f Top-%d: %f"
-            % (i + 1, n_images, 100 * top1_ok / n_images, k, 100 * topk_ok / n_images)
+            % (cnt, n_images, 100 * top1_ok / cnt, k, 100 * topk_ok / cnt)
         )
     return ((top1_ok, top1_nok), (topk_ok, topk_nok))
 
