@@ -30,7 +30,7 @@ import math
 import os
 import subprocess
 from shutil import copy
-
+import warnings
 import numpy as np
 
 from onnx import TensorProto, helper
@@ -461,6 +461,16 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # set threshold datatype (and accumulator datatype implicitly)
             min_threshold = thresholds.min()
             max_threshold = thresholds.max()
+            if max_threshold > acc_max + 1:
+                # clip threshold value
+                warnings.warn(
+                    "Clipping larger-than-accumulator thresholds in %s"
+                    % self.onnx_node.name
+                )
+                thresholds = np.clip(thresholds, None, acc_max + 1)
+                model.set_initializer(self.onnx_node.input[2], thresholds)
+                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                max_threshold = thresholds.max()
             # get range required by threshold values
             tdt_min = min(acc_min, min_threshold)
             tdt_max = max(acc_max, max_threshold)
