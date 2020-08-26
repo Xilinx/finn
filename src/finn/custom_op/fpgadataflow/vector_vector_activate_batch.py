@@ -60,15 +60,19 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             # set threshold datatype (and accumulator datatype implicitly)
             min_threshold = thresholds.min()
             max_threshold = thresholds.max()
+            # clip threshold values
+            clip_upper = None
+            clip_lower = None
             if max_threshold > acc_max + 1:
-                # clip threshold value
-                warnings.warn(
-                    "Clipping larger-than-accumulator thresholds in %s"
-                    % self.onnx_node.name
-                )
-                thresholds = np.clip(thresholds, None, acc_max + 1)
+                clip_upper = acc_max + 1
+            if min_threshold < acc_min:
+                clip_lower = acc_min
+            if (clip_lower is not None) or (clip_upper is not None):
+                warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
+                thresholds = np.clip(thresholds, clip_lower, clip_upper)
                 model.set_initializer(self.onnx_node.input[2], thresholds)
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                min_threshold = thresholds.min()
                 max_threshold = thresholds.max()
             # get range required by threshold values
             tdt_min = min(acc_min, min_threshold)
@@ -80,9 +84,10 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                     tdt = DataType.get_smallest_possible(0 - tdt_max)
             else:
                 tdt = DataType.get_smallest_possible(tdt_max)
-            assert np.vectorize(tdt.allowed)(
-                threshold_tensor
-            ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+            assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
+                "Thresholds in %s can't be expressed with type %s"
+                % (self.onnx_node.name, str(tdt))
+            )
             self.set_nodeattr("accDataType", tdt.name)
         else:
             if acc_min < 0:
@@ -320,9 +325,10 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
                 # get computed threshold datatype from attribute
                 tdt = DataType[self.get_nodeattr("accDataType")]
-                assert np.vectorize(tdt.allowed)(
-                    threshold_tensor
-                ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+                assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
+                    "Thresholds in %s can't be expressed with type %s"
+                    % (self.onnx_node.name, str(tdt))
+                )
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True
                 )
