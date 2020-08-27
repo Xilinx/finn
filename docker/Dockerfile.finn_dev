@@ -46,6 +46,12 @@ RUN apt-get install -y verilator nano zsh rsync
 RUN apt-get -y install sshpass wget unzip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
+# install XRT dependencies
+RUN wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh
+RUN apt-get update
+RUN bash xrtdeps.sh
+RUN rm xrtdeps.sh
+
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt

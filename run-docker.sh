@@ -89,6 +89,12 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 : ${NUM_DEFAULT_WORKERS=1}
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
+: ${ALVEO_USERNAME="alveo_user"}
+: ${ALVEO_PASSWORD=""}
+: ${ALVEO_BOARD="U250"}
+: ${ALVEO_TARGET_DIR="/tmp"}
+: ${XILINX_XRT="/opt/xilinx/xrt"}
+: ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 
 BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
@@ -161,10 +167,25 @@ if [ ! -z "$VIVADO_PATH" ];then
   DOCKER_EXEC+="-e VIVADO_PATH=$VIVADO_PATH "
 fi
 if [ ! -z "$VITIS_PATH" ];then
+  if [ -z "$PLATFORM_REPO_PATHS" ];then
+          recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
+          exit -1
+  fi
+  if [ -z "$XILINX_XRT" ];then
+          recho "XILINX_XRT must be set for Vitis/Alveo flows"
+          exit -1
+  fi
   DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
-  DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:/workspace/finn/vitis_platforms "
+  DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
+  DOCKER_EXEC+="-v $XILINX_XRT:$XILINX_XRT "
   DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
-  DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=/workspace/finn/vitis_platforms "
+  DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
+  DOCKER_EXEC+="-e XILINX_XRT=$XILINX_XRT "
+  DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
+  DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
+  DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
+  DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
+  DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
 fi
 DOCKER_EXEC+="$DOCKER_TAG $DOCKER_CMD"
 

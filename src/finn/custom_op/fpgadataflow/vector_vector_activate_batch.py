@@ -96,7 +96,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
 
     def get_instream_width(self):
         i_bits = self.get_input_datatype().bitwidth()
-        in_width = i_bits * self.get_nodeattr("Channels")
+        in_width = i_bits * self.get_nodeattr("PE")
         return in_width
 
     def get_outstream_width(self):
