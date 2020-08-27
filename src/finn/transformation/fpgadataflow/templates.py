@@ -397,10 +397,10 @@ if {%d == 1} {
 }
 
 #finalize clock and reset connections for interconnects
-set i 0
-while {$i < $NUM_AXILITE} {
-    apply_bd_automation -quiet -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/M0${i}_ACLK]
-    incr i
+if {$ZYNQ_TYPE == "zynq_us+"} {
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} }  [get_bd_pins axi_interconnect_0/M*_ACLK]
+} elseif {$ZYNQ_TYPE == "zynq_7000"} {
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} }  [get_bd_pins axi_interconnect_0/M*_ACLK]
 }
 
 save_bd_design
