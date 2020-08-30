@@ -329,6 +329,7 @@ if {$BOARD == "ZCU104"} {
     set_property board_part xilinx.com:zcu104:part0:1.1 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Ultra96"} {
+    set_property board_part em.avnet.com:ultra96v1:part0:1.2 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Pynq-Z2"} {
     set ZYNQ_TYPE "zynq_7000"
