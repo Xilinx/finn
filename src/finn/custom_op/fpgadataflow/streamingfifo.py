@@ -29,6 +29,7 @@ import os
 import numpy as np
 from shutil import copy
 import subprocess
+import math
 
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.core.datatype import DataType
@@ -384,3 +385,69 @@ class StreamingFIFO(HLSCustomOp):
                 "FIFO implementation style %s not supported, please use rtl or vivado"
                 % impl_style
             )
+
+    def bram_estimation(self):
+        """Calculates resource estimation for BRAM"""
+        impl = self.get_nodeattr("impl_style")
+        ram_type = self.get_nodeattr("ram_style")
+        depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+
+        if impl == "rtl" or (impl == "vivado" and ram_type != "block"):
+            # Non-BRAM based implementation
+            return 0
+
+        if W == 1:
+            return math.ceil(depth / 16384)
+        elif W == 2:
+            return math.ceil(depth / 8192)
+        elif W <= 4:
+            return (math.ceil(depth / 4096)) * (math.ceil(W / 4))
+        elif W <= 9:
+            return (math.ceil(depth / 2048)) * (math.ceil(W / 9))
+        elif W <= 18 or depth > 512:
+            return (math.ceil(depth / 1024)) * (math.ceil(W / 18))
+        else:
+            return (math.ceil(depth / 512)) * (math.ceil(W / 36))
+
+    def uram_estimation(self):
+        """Calculates resource estimation for URAM"""
+
+        impl = self.get_nodeattr("impl_style")
+        ram_type = self.get_nodeattr("ram_style")
+        depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+
+        if impl == "rtl" or (impl == "vivado" and ram_type != "ultra"):
+            # Non-BRAM based implementation
+            return 0
+        else:
+            return (math.ceil(depth / 4096)) * (math.ceil(W / 72))
+
+
+    def bram_efficiency_estimation(self):
+        depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+        bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
+        wbits = W * depth
+        bram16_est_capacity = bram16_est * 36 * 512
+        return wbits / bram16_est_capacity
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs"""
+        impl = self.get_nodeattr("impl_style")
+        ram_type = self.get_nodeattr("ram_style")
+        depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+
+        address_luts = 2 * math.ceil(math.log(depth, 2))
+
+        if impl == "rtl" or (impl == "vivado" and ram_type == "distributed"):
+            ram_luts = (math.ceil(depth / 32)) * (math.ceil(W / 2))
+        else:
+            ram_luts = 0
+
+        return int(address_luts + ram_luts)
+

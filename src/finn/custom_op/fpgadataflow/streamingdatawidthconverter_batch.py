@@ -28,6 +28,7 @@
 
 import os
 import numpy as np
+import math
 
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.core.datatype import DataType
@@ -447,3 +448,34 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
                 "DWC implementation style %s not supported, please use hls or vivado"
                 % impl_style
             )
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs"""
+        impl = self.get_nodeattr("impl_style")
+        inw = self.get_instream_width()
+        outw = self.get_outstream_width()
+
+        minw = min(inw, outw)
+        maxw = max(inw, outw)
+
+        # sometimes withs aren't directly divisible
+        # this requires going up from input width to least common multiple
+        # then down to output width
+        intw = abs(maxw*minw) // math.gcd(maxw, minw)
+
+        # we assume a shift-based implementation
+        # even if we don't use LUTs explicitly, we make some unavailable
+        # to other logic because they're tied into the DWC control sets
+
+        cnt_luts = 0
+        cset_luts = 0
+
+        if inw != intw:
+            cnt_luts += abs(math.ceil(math.log(inw/intw, 2)))
+            cset_luts += intw
+        if intw != outw:
+            cnt_luts += abs(math.ceil(math.log(intw / outw, 2)))
+            cset_luts += outw
+
+        return int(cnt_luts+cset_luts)
+
