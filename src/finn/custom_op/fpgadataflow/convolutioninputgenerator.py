@@ -203,11 +203,24 @@ class ConvolutionInputGenerator(HLSCustomOp):
         stride = self.get_nodeattr("Stride")
         ram_style = self.get_nodeattr("ram_style")
         if ram_style == "block" or ram_style == "auto":
+            ram_depth = ifm_dim * ifm_ch / simd
+            if ram_depth <= 512:
+                ram_width = 36
+            elif ram_depth <= 1024:
+                ram_width = 18
+            elif ram_depth <= 2048:
+                ram_width = 9
+            elif ram_depth <= 4096:
+                ram_width = 4
+            elif ram_depth <= 8192:
+                ram_width = 2
+            else:
+                ram_width = 1
             return int(
                 (k + stride)
                 * (
-                    math.ceil(simd * self.get_input_datatype().bitwidth() / 16)
-                    * math.ceil(ifm_dim * ifm_ch / simd / 1024)
+                    math.ceil(simd * self.get_input_datatype().bitwidth() / ram_width)
+                    * math.ceil(ifm_dim * ifm_ch / simd / ram_depth)
                 )
             )
         else:

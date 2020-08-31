@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from finn.custom_op.registry import getCustomOp
-from finn.transformation import NodeLocalTransformation
+from finn.transformation import Transformation
 
 
 def divisors(num):
@@ -36,7 +36,7 @@ def divisors(num):
             yield x
 
 
-class SetFolding(NodeLocalTransformation):
+class SetFolding(Transformation):
     """Set parallelism attributes in all nodes to meet a specific
     target expressed as cycles per frame. Applies the following rules
     when folding conv layers which have two attributes (PE and SIMD):
@@ -56,63 +56,90 @@ class SetFolding(NodeLocalTransformation):
                 # finish if target met
                 break
 
-    def applyNodeLocal(self, node):
-        op_type = node.op_type
-        # TODO: ensure node is fpgadataflow
-        node_inst = getCustomOp(node)
-        if op_type == "StreamingFCLayer_Batch":
-            max_simd = node_inst.get_nodeattr("MW")
-            max_pe = node_inst.get_nodeattr("MH")
-            node_inst.set_nodeattr("PE", 1)
-            node_inst.set_nodeattr("SIMD", 1)
-            # increase SIMD until either we meet
-            # the target or weight stream becomes
-            # too wide
-            for simd_val in divisors(max_simd):
-                prev_simd_val = node_inst.get_nodeattr("SIMD")
-                node_inst.set_nodeattr("SIMD", simd_val)
-                cyc = node_inst.get_exp_cycles()
-                if cyc < self.cycles_target:
-                    # finish if target met
-                    break
-                if (
-                    node_inst.get_weight_datatype().bitwidth()
-                    * node_inst.get_nodeattr("SIMD")
-                    > 36
-                ):
-                    # revert if we've gone above width threshold
-                    node_inst.set_nodeattr("SIMD", prev_simd_val)
-                    break
+    def apply(self, model):
+        graph = model.graph
+        for node in graph.node:
+            op_type = node.op_type
+            # TODO: ensure node is fpgadataflow
+            node_inst = getCustomOp(node)
+            if op_type == "StreamingFCLayer_Batch":
+                max_simd = node_inst.get_nodeattr("MW")
+                max_pe = node_inst.get_nodeattr("MH")
+                node_inst.set_nodeattr("PE", 1)
+                node_inst.set_nodeattr("SIMD", 1)
+                # increase SIMD until either we meet
+                # the target or weight stream becomes
+                # too wide
+                for simd_val in divisors(max_simd):
+                    prev_simd_val = node_inst.get_nodeattr("SIMD")
+                    node_inst.set_nodeattr("SIMD", simd_val)
+                    cyc = node_inst.get_exp_cycles()
+                    if cyc < self.cycles_target:
+                        # finish if target met
+                        break
+                    if (
+                        node_inst.get_weight_datatype().bitwidth()
+                        * node_inst.get_nodeattr("SIMD")
+                        > 36
+                    ):
+                        # revert if we've gone above width threshold
+                        node_inst.set_nodeattr("SIMD", prev_simd_val)
+                        break
 
-            # increase PE until target met or reached max_pe
-            self.optimize_attribute_val(node_inst, max_pe, "PE")
+                # increase PE until target met or reached max_pe
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
 
-        elif op_type == "AddStreams_Batch":
-            max_pe = node_inst.get_nodeattr("NumChannels")
-            self.optimize_attribute_val(node_inst, max_pe, "PE")
-        elif op_type == "ChannelwiseOp_Batch":
-            max_pe = node_inst.get_nodeattr("NumChannels")
-            self.optimize_attribute_val(node_inst, max_pe, "PE")
-        elif op_type == "DuplicateStreams_Batch":
-            max_pe = node_inst.get_nodeattr("NumChannels")
-            self.optimize_attribute_val(node_inst, max_pe, "PE")
-        elif op_type == "GlobalAccPool_Batch":
-            max_pe = node_inst.get_nodeattr("NumChannels")
-            self.optimize_attribute_val(node_inst, max_pe, "PE")
-        elif op_type == "Pool_Batch":
-            max_pe = node_inst.get_nodeattr("Channels")
-            self.optimize_attribute_val(node_inst, max_pe, "PE")
-        elif op_type == "Thresholding_Batch":
-            max_pe = node_inst.get_nodeattr("NumChannels")
-            self.optimize_attribute_val(node_inst, max_pe, "PE")
-        elif op_type == "DownSampler":
-            max_simd = node_inst.get_nodeattr("NumChannels")
-            self.optimize_attribute_val(node_inst, max_simd, "SIMD")
-        elif op_type == "FMPadding_Batch":
-            max_simd = node_inst.get_nodeattr("NumChannels")
-            self.optimize_attribute_val(node_inst, max_simd, "SIMD")
-        elif op_type == "ConvolutionInputGenerator":
-            max_simd = node_inst.get_nodeattr("IFMChannels")
-            self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+            elif op_type == "Vector_Vector_Activate_Batch":
+                max_pe = node_inst.get_nodeattr("Channels")
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
+                # also set the folding of the upsteam DW SWU
+                # which must be identical to this node
+                swu_node = model.find_producer(node.input[0])
+                if swu_node.op_type == "ConvolutionInputGenerator":
+                    swu_node_inst = getCustomOp(swu_node)
+                    pe = node_inst.get_nodeattr("PE")
+                    swu_node_inst.set_nodeattr("SIMD", pe)
+                else:
+                    raise Exception("Expected SWU on input")
+            elif op_type == "AddStreams_Batch":
+                max_pe = node_inst.get_nodeattr("NumChannels")
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
+            elif op_type == "ChannelwiseOp_Batch":
+                max_pe = node_inst.get_nodeattr("NumChannels")
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
+            elif op_type == "DuplicateStreams_Batch":
+                max_pe = node_inst.get_nodeattr("NumChannels")
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
+            elif op_type == "GlobalAccPool_Batch":
+                max_pe = node_inst.get_nodeattr("NumChannels")
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
+            elif op_type == "Pool_Batch":
+                max_pe = node_inst.get_nodeattr("Channels")
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
+                # also set the folding of the upsteam DW SWU
+                # which must be identical to this node
+                swu_node = model.find_producer(node.input[0])
+                if swu_node.op_type == "ConvolutionInputGenerator":
+                    swu_node_inst = getCustomOp(swu_node)
+                    pe = node_inst.get_nodeattr("PE")
+                    swu_node_inst.set_nodeattr("SIMD", pe)
+                else:
+                    raise Exception("Expected SWU on input")
+            elif op_type == "Thresholding_Batch":
+                max_pe = node_inst.get_nodeattr("NumChannels")
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
+            elif op_type == "DownSampler":
+                max_simd = node_inst.get_nodeattr("NumChannels")
+                self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+            elif op_type == "FMPadding_Batch":
+                max_simd = node_inst.get_nodeattr("NumChannels")
+                self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+            elif op_type == "ConvolutionInputGenerator":
+                depthwise = node_inst.get_nodeattr("depthwise")
+                if depthwise == 0:
+                    max_simd = node_inst.get_nodeattr("IFMChannels")
+                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                else:
+                    continue
 
-        return (node, False)
+        return (model, False)
