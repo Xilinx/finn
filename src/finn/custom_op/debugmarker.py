@@ -26,31 +26,41 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import subprocess
-
-from finn.transformation import Transformation
+from finn.custom_op import CustomOp
+from onnx import helper
 
 
-class SynthPYNQProject(Transformation):
-    """Run synthesis for the PYNQ project for this graph. The MakePYNQProject
-    transformation must be applied prior to this transformation."""
+class DebugMarker(CustomOp):
+    def get_nodeattr_types(self):
+        return {"export_debug_name": ("s", True, "")}
 
-    def __init__(self):
-        super().__init__()
+    def make_shape_compatible_op(self, model):
+        node = self.onnx_node
+        return helper.make_node("Identity", [node.input[0]], [node.output[0]])
 
-    def apply(self, model):
-        vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
-        if vivado_pynq_proj_dir is None or (not os.path.isdir(vivado_pynq_proj_dir)):
-            raise Exception("No synthesis project, apply MakePYNQProject first.")
-        synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
-        if not os.path.isfile(synth_project_sh):
-            raise Exception("No synthesis script, apply MakePYNQProject first.")
-        bash_command = ["bash", synth_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-        # set bitfile attribute
-        model.set_metadata_prop("bitfile", vivado_pynq_proj_dir + "/resizer.bit")
-        model.set_metadata_prop("hw_handoff", vivado_pynq_proj_dir + "/resizer.hwh")
-        # TODO pull out synthesis statistics and put them in as attributes
-        return (model, False)
+    def infer_node_datatype(self, model):
+        node = self.onnx_node
+        # data type stays the same
+        dtype = model.get_tensor_datatype(node.input[0])
+        model.set_tensor_datatype(node.output[0], dtype)
+        # create quantization annotation for debug marker
+        model.set_tensor_datatype(self.get_nodeattr("export_debug_name"), dtype)
+
+    def execute_node(self, context, graph):
+        node = self.onnx_node
+        inp_name = node.input[0]
+        out_name = node.output[0]
+        inp = context[inp_name]
+        context[out_name] = inp
+        # insert debug marker output as separate tensor
+        context[self.get_nodeattr("export_debug_name")] = inp
+
+    def verify_node(self):
+        info_messages = []
+        # verify that "domain" is set to "finn"
+        domain_value = self.onnx_node.domain
+        if domain_value == "finn":
+            info_messages.append("Attribute domain is set correctly")
+        else:
+            info_messages.append('Attribute domain should be set to "finn"')
+        return info_messages

@@ -26,7 +26,7 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
 )
 from finn.transformation.fpgadataflow.synth_pynq_proj import SynthPYNQProject
 from finn.util.basic import pynq_part_map
-from finn.core.throughput_test import throughput_test
+from finn.core.throughput_test import throughput_test_remote
 
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
@@ -113,7 +113,7 @@ def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
         port = os.getenv("PYNQ_PORT", 22)
         target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
         model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
-        res = throughput_test(model)
+        res = throughput_test_remote(model)
         expected_dict = {}
         expected_dict["runtime[ms]"] = []
         expected_dict["throughput[images/s]"] = []

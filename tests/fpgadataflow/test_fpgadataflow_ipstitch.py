@@ -333,7 +333,7 @@ def test_fpgadataflow_ipstitch_pynq_synth():
         ip_stitch_model_dir + "/test_fpgadataflow_pynq_projgen.onnx"
     )
     model = model.transform(SynthPYNQProject())
-    bitfile = model.get_metadata_prop("vivado_pynq_bitfile")
+    bitfile = model.get_metadata_prop("bitfile")
     assert bitfile is not None
     assert os.path.isfile(bitfile)
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_pynq_synth.onnx")
@@ -463,7 +463,7 @@ def test_fpgadataflow_ipstitch_zynqbuild(board):
     model = model.transform(ZynqBuild(board, 10))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")
 
-    bitfile_name = model.get_metadata_prop("vivado_pynq_bitfile")
+    bitfile_name = model.get_metadata_prop("bitfile")
     assert bitfile_name is not None
     assert os.path.isfile(bitfile_name)
     # deployment

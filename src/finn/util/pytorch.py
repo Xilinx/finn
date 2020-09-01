@@ -25,32 +25,42 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+import torch
 
-import os
-import subprocess
-
-from finn.transformation import Transformation
+from torch.nn import Module, Sequential
 
 
-class SynthPYNQProject(Transformation):
-    """Run synthesis for the PYNQ project for this graph. The MakePYNQProject
-    transformation must be applied prior to this transformation."""
+class Normalize(Module):
+    def __init__(self, mean, std, channels):
+        super(Normalize, self).__init__()
 
+        self.mean = mean
+        self.std = std
+        self.channels = channels
+
+    def forward(self, x):
+        x = x - torch.tensor(self.mean, device=x.device).reshape(1, self.channels, 1, 1)
+        x = x / self.std
+        return x
+
+
+class ToTensor(Module):
     def __init__(self):
-        super().__init__()
+        super(ToTensor, self).__init__()
 
-    def apply(self, model):
-        vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
-        if vivado_pynq_proj_dir is None or (not os.path.isdir(vivado_pynq_proj_dir)):
-            raise Exception("No synthesis project, apply MakePYNQProject first.")
-        synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
-        if not os.path.isfile(synth_project_sh):
-            raise Exception("No synthesis script, apply MakePYNQProject first.")
-        bash_command = ["bash", synth_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-        # set bitfile attribute
-        model.set_metadata_prop("bitfile", vivado_pynq_proj_dir + "/resizer.bit")
-        model.set_metadata_prop("hw_handoff", vivado_pynq_proj_dir + "/resizer.hwh")
-        # TODO pull out synthesis statistics and put them in as attributes
-        return (model, False)
+    def forward(self, x):
+        x = x / 255
+        return x
+
+
+class NormalizePreProc(Module):
+    def __init__(self, mean, std, channels):
+        super(NormalizePreProc, self).__init__()
+        self.features = Sequential()
+        scaling = ToTensor()
+        self.features.add_module("scaling", scaling)
+        normalize = Normalize(mean, std, channels)
+        self.features.add_module("normalize", normalize)
+
+    def forward(self, x):
+        return self.features(x)

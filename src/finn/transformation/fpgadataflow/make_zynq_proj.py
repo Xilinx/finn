@@ -249,9 +249,7 @@ class MakeZYNQProject(Transformation):
         deploy_bitfile_name = vivado_pynq_proj_dir + "/resizer.bit"
         copy(bitfile_name, deploy_bitfile_name)
         # set bitfile attribute
-        model.set_metadata_prop("vivado_pynq_bitfile", deploy_bitfile_name)
-        # set platform attribute for correct remote execution
-        model.set_metadata_prop("platform", "zynq-iodma")
+        model.set_metadata_prop("bitfile", deploy_bitfile_name)
         hwh_name = (
             vivado_pynq_proj_dir
             + "/finn_zynq_link.srcs/sources_1/bd/top/hw_handoff/top.hwh"
@@ -260,6 +258,7 @@ class MakeZYNQProject(Transformation):
             raise Exception("Synthesis failed, no hardware handoff file found")
         deploy_hwh_name = vivado_pynq_proj_dir + "/resizer.hwh"
         copy(hwh_name, deploy_hwh_name)
+        model.set_metadata_prop("hw_handoff", deploy_hwh_name)
         # filename for the synth utilization report
         synth_report_filename = vivado_pynq_proj_dir + "/synth_report.xml"
         model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
@@ -311,9 +310,12 @@ class ZynqBuild(Transformation):
                     self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True
                 )
             )
+            kernel_model.set_metadata_prop("platform", "zynq-iodma")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from IPs
         model = model.transform(
             MakeZYNQProject(self.platform, enable_debug=self.enable_debug)
         )
+        # set platform attribute for correct remote execution
+        model.set_metadata_prop("platform", "zynq-iodma")
         return (model, False)

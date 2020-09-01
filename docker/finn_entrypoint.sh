@@ -12,7 +12,7 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-BREVITAS_COMMIT=f9a27226d4acf1661dd38bc449f71f89e0983cce
+BREVITAS_COMMIT=85e28ac2e6570e91216d042212a7d1a28ec6e394
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=cfafe11a93b79ab1af7529d68f08886913a6466e
 PYVERILATOR_COMMIT=c97a5ba41bbc7c419d6f25c74cdf3bdc3393174f
@@ -56,6 +56,10 @@ if [ ! -z "$VITIS_PATH" ];then
   export XILINX_VITIS=$VITIS_PATH
   source $VITIS_PATH/settings64.sh
 fi
+if [ ! -z "$XILINX_XRT" ];then
+  # source XRT
+  source $XILINX_XRT/setup.sh
+fi
 
 # download PYNQ board files if not already there
 if [ ! -d "/workspace/finn/board_files" ]; then
@@ -70,5 +74,10 @@ if [ ! -d "/workspace/finn/board_files" ]; then
     rm pynq-z1.zip
     rm pynq-z2.zip
 fi
-
+if [ ! -d "/workspace/finn/board_files/ultra96v1" ]; then
+    gecho "Downloading Avnet BDF files into board_files"
+    git clone https://github.com/Avnet/bdf.git
+    mv /workspace/finn/bdf/* /workspace/finn/board_files/
+    rm -rf /workspace/finn/bdf
+fi
 exec "$@"
