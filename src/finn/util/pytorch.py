@@ -28,7 +28,6 @@
 import torch
 
 from torch.nn import Module, Sequential
-from brevitas.quant_tensor import QuantTensor
 
 
 class Normalize(Module):
@@ -65,17 +64,3 @@ class NormalizePreProc(Module):
 
     def forward(self, x):
         return self.features(x)
-
-
-class BrevitasDebugHook:
-    def __init__(self):
-        self.outputs = {}
-
-    def __call__(self, module, module_in, module_out):
-        tensor = module_out
-        if isinstance(module_out, QuantTensor):
-            tensor = module_out[0]
-        self.outputs[module.export_debug_name] = tensor.detach().numpy()
-
-    def clear(self):
-        self.outputs = {}
