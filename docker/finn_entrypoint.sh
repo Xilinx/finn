@@ -74,5 +74,10 @@ if [ ! -d "/workspace/finn/board_files" ]; then
     rm pynq-z1.zip
     rm pynq-z2.zip
 fi
-
+if [ ! -d "/workspace/finn/board_files/ultra96v1" ]; then
+    gecho "Downloading Avnet BDF files into board_files"
+    git clone https://github.com/Avnet/bdf.git
+    mv /workspace/finn/bdf/* /workspace/finn/board_files/
+    rm -rf /workspace/finn/bdf
+fi
 exec "$@"

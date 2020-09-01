@@ -150,8 +150,8 @@ class FINNAccelDriver():
             raise ValueError("Supported platforms are zynq zynq-iodma alveo")
 
         # allocate a PYNQ buffer for the packed input and buffer
-        self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8)
-        self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8)
+        self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8, cacheable=True)
+        self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8, cacheable=True)
 
     def fold_input(self, ibuf_normal):
         \"\"\"Reshapes input in desired shape.
@@ -188,13 +188,11 @@ class FINNAccelDriver():
     def copy_input_data_to_device(self, data):
         \"\"\"Copies given input data to PYNQ buffer.\"\"\"
         np.copyto(self.ibuf_packed_device, data)
-        if self.platform == "alveo":
-            self.ibuf_packed_device.sync_to_device()
+        self.ibuf_packed_device.flush()
 
     def copy_output_data_from_device(self, data):
         \"\"\"Copies PYNQ output buffer from device.\"\"\"
-        if self.platform == "alveo":
-            self.obuf_packed_device.sync_from_device()
+        self.obuf_packed_device.invalidate()
         np.copyto(data, self.obuf_packed_device)
 
     def execute(self):
@@ -329,6 +327,7 @@ if {$BOARD == "ZCU104"} {
     set_property board_part xilinx.com:zcu104:part0:1.1 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Ultra96"} {
+    set_property board_part em.avnet.com:ultra96v1:part0:1.2 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Pynq-Z2"} {
     set ZYNQ_TYPE "zynq_7000"
@@ -397,10 +396,10 @@ if {%d == 1} {
 }
 
 #finalize clock and reset connections for interconnects
-set i 0
-while {$i < $NUM_AXILITE} {
-    apply_bd_automation -quiet -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/M0${i}_ACLK]
-    incr i
+if {$ZYNQ_TYPE == "zynq_us+"} {
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} }  [get_bd_pins axi_interconnect_0/M*_ACLK]
+} elseif {$ZYNQ_TYPE == "zynq_7000"} {
+    apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} }  [get_bd_pins axi_interconnect_0/M*_ACLK]
 }
 
 save_bd_design
