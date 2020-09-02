@@ -71,6 +71,18 @@ from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 import warnings
 import pkg_resources as pk
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -207,6 +219,18 @@ def get_golden_io_pair(topology, wbits, abits):
     return (input_tensor_npy, output_tensor_npy)
 
 
+def execute_parent(parent_path, child_path, input_tensor_npy):
+    parent_model = load_test_checkpoint_or_skip(parent_path)
+    iname = parent_model.graph.input[0].name
+    oname = parent_model.graph.output[0].name
+    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    sdp_node = getCustomOp(sdp_node)
+    sdp_node.set_nodeattr("model", child_path)
+    ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
+    y = ret[oname]
+    return y
+
+
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("topology", ["tfc", "cnv"])
@@ -286,8 +310,56 @@ class TestEnd2End:
         model = folding_fxn(model)
         model.save(get_checkpoint_name(topology, wbits, abits, "fold"))
 
-    def test_build(self, topology, wbits, abits):
+    def test_cppsim(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
+        cppsim_chkpt = get_checkpoint_name(topology, wbits, abits, "cppsim")
+        model.save(cppsim_chkpt)
+        parent_chkpt = get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
+        (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
+            topology, wbits, abits
+        )
+        y = execute_parent(parent_chkpt, cppsim_chkpt, input_tensor_npy)
+        assert np.isclose(y, output_tensor_npy).all()
+
+    def test_ipgen(self, topology, wbits, abits):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model.save(get_checkpoint_name(topology, wbits, abits, "ipgen"))
+
+    def test_ipstitch_rtlsim(self, topology, wbits, abits):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        model = model.transform(InsertDWC())
+        model = model.transform(InsertFIFO())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(ReplaceVerilogRelPaths())
+        model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+        model = model.transform(PrepareRTLSim())
+        model.set_metadata_prop("exec_mode", "rtlsim")
+        model.set_metadata_prop(
+            "rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits)
+        )
+        os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+        rtlsim_chkpt = get_checkpoint_name(topology, wbits, abits, "ipstitch_rtlsim")
+        model.save(rtlsim_chkpt)
+        parent_chkpt = get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
+        (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
+            topology, wbits, abits
+        )
+        y = execute_parent(parent_chkpt, rtlsim_chkpt, input_tensor_npy)
+        assert np.isclose(y, output_tensor_npy).all()
+
+    def test_build(self, topology, wbits, abits):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(ZynqBuild(test_pynq_board, target_clk_ns))
         model = model.transform(AnnotateResources("synth"))
