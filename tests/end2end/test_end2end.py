@@ -212,6 +212,8 @@ def get_golden_io_pair(topology, wbits, abits):
 @pytest.mark.parametrize("topology", ["tfc", "cnv"])
 class TestEnd2End:
     def test_export(self, topology, wbits, abits):
+        if wbits > abits:
+            pytest.skip("No wbits > abits end2end network configs for now")
         (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
         chkpt_name = get_checkpoint_name(topology, wbits, abits, "export")
         bo.export_finn_onnx(model, ishape, chkpt_name)
