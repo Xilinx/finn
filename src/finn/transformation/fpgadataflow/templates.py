@@ -150,8 +150,12 @@ class FINNAccelDriver():
             raise ValueError("Supported platforms are zynq zynq-iodma alveo")
 
         # allocate a PYNQ buffer for the packed input and buffer
-        self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8, cacheable=True)
-        self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8, cacheable=True)
+        if self.platform == "alveo":
+            self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8)
+            self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8)
+        else:
+            self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8, cacheable=True)
+            self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8, cacheable=True)
 
     def fold_input(self, ibuf_normal):
         \"\"\"Reshapes input in desired shape.
