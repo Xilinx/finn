@@ -89,6 +89,7 @@ test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 mem_mode = "decoupled"
+rtlsim_trace = False
 
 
 def get_trained_network_and_ishape(topology, wbits, abits):
@@ -345,10 +346,11 @@ class TestEnd2End:
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
         model = model.transform(PrepareRTLSim())
         model.set_metadata_prop("exec_mode", "rtlsim")
-        model.set_metadata_prop(
-            "rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits)
-        )
-        os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+        if rtlsim_trace:
+            model.set_metadata_prop(
+                "rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits)
+            )
+            os.environ["RTLSIM_TRACE_DEPTH"] = "3"
         rtlsim_chkpt = get_checkpoint_name(topology, wbits, abits, "ipstitch_rtlsim")
         model.save(rtlsim_chkpt)
         parent_chkpt = get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
