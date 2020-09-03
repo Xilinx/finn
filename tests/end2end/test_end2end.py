@@ -83,6 +83,9 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.core.modelwrapper import ModelWrapper
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -340,12 +343,16 @@ class TestEnd2End:
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO())
         model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(AnnotateCycles())
+        perf = model.analysis(dataflow_performance)
+        latency = perf["critical_path_cycles"]
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(ReplaceVerilogRelPaths())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
         model = model.transform(PrepareRTLSim())
         model.set_metadata_prop("exec_mode", "rtlsim")
+        os.environ["LIVENESS_THRESHOLD"] = str(int(latency * 1.1))
         if rtlsim_trace:
             model.set_metadata_prop(
                 "rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits)
@@ -358,6 +365,9 @@ class TestEnd2End:
             topology, wbits, abits
         )
         y = execute_parent(parent_chkpt, rtlsim_chkpt, input_tensor_npy)
+        model = ModelWrapper(rtlsim_chkpt)
+        perf["cycles_rtlsim"] = model.get_metadata_prop("cycles_rtlsim")
+        warnings.warn("Estimated & rtlsim performance: " + str(perf))
         assert np.isclose(y, output_tensor_npy).all()
 
     def test_build(self, topology, wbits, abits):
