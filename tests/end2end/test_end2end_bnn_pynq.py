@@ -27,8 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-from pkgutil import get_data
-
 import pytest
 
 import numpy as np
@@ -36,7 +34,6 @@ import numpy as np
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
-import onnx.numpy_helper as nph
 import torch
 import brevitas.onnx as bo
 
@@ -60,17 +57,20 @@ from finn.transformation.general import (
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
-from finn.util.basic import pynq_part_map, alveo_part_map, alveo_default_platform
-from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
+from finn.util.test import (
+    get_build_env,
+    load_test_checkpoint_or_skip,
+    get_example_input,
+    get_trained_network_and_ishape,
+    execute_parent,
+)
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 import warnings
-import pkg_resources as pk
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
@@ -86,22 +86,12 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
+
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 target_clk_ns = 10
 mem_mode = "decoupled"
 rtlsim_trace = False
-
-
-def get_trained_network_and_ishape(topology, wbits, abits):
-    topology_to_ishape = {
-        "tfc": (1, 1, 28, 28),
-        "cnv": (1, 3, 32, 32),
-    }
-    ishape = topology_to_ishape[topology]
-    model = get_test_model_trained(topology.upper(), wbits, abits)
-    return (model, ishape)
 
 
 def get_checkpoint_name(topology, wbits, abits, step):
@@ -200,69 +190,12 @@ def get_folding_function(topology, wbits, abits):
         raise Exception("Unknown topology/quantization combo for predefined folding")
 
 
-def get_example_input(topology):
-    if "fc" in topology:
-        raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
-        onnx_tensor = onnx.load_tensor_from_string(raw_i)
-        return nph.to_array(onnx_tensor)
-    elif topology == "cnv":
-        fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
-        input_tensor = np.load(fn)["arr_0"].astype(np.float32)
-        input_tensor = input_tensor / 255
-        return input_tensor
-    else:
-        raise Exception("Unknown topology, can't return example input")
-
-
 def get_golden_io_pair(topology, wbits, abits):
     (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
     input_tensor_npy = get_example_input(topology)
     input_tensor_torch = torch.from_numpy(input_tensor_npy).float()
     output_tensor_npy = model.forward(input_tensor_torch).detach().numpy()
     return (input_tensor_npy, output_tensor_npy)
-
-
-def execute_parent(parent_path, child_path, input_tensor_npy):
-    parent_model = load_test_checkpoint_or_skip(parent_path)
-    iname = parent_model.graph.input[0].name
-    oname = parent_model.graph.output[0].name
-    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-    sdp_node = getCustomOp(sdp_node)
-    sdp_node.set_nodeattr("model", child_path)
-    ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
-    y = ret[oname]
-    return y
-
-
-def get_build_env(kind):
-    ret = {}
-    if kind == "zynq":
-        ret["board"] = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
-        ret["part"] = pynq_part_map[ret["board"]]
-        ret["ip"] = os.getenv("PYNQ_IP", "")
-        ret["username"] = os.getenv("PYNQ_USERNAME", "xilinx")
-        ret["password"] = os.getenv("PYNQ_PASSWORD", "xilinx")
-        ret["port"] = os.getenv("PYNQ_PORT", 22)
-        ret["target_dir"] = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-        ret["build_fxn"] = ZynqBuild(ret["board"], target_clk_ns)
-    elif kind == "alveo":
-        ret["board"] = os.getenv("ALVEO_BOARD", default="U250")
-        ret["part"] = alveo_part_map[ret["board"]]
-        ret["platform"] = alveo_default_platform[ret["board"]]
-        ret["ip"] = os.getenv("ALVEO_IP", "")
-        ret["username"] = os.getenv("ALVEO_USERNAME", "")
-        ret["password"] = os.getenv("ALVEO_PASSWORD", "")
-        ret["port"] = os.getenv("ALVEO_PORT", 22)
-        ret["target_dir"] = os.getenv("ALVEO_TARGET_DIR", "/tmp/finn_alveo_deploy")
-        ret["build_fxn"] = VitisBuild(
-            ret["part"],
-            target_clk_ns,
-            ret["platform"],
-            strategy=VitisOptStrategy.BUILD_SPEED,
-        )
-    else:
-        raise Exception("Unknown test build environment spec")
-    return ret
 
 
 @pytest.mark.parametrize("wbits", [1, 2])
@@ -362,7 +295,7 @@ class TestEnd2End:
     def test_ipgen(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        test_fpga_part = get_build_env("zynq")["part"]
+        test_fpga_part = get_build_env("zynq", target_clk_ns)["part"]
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
@@ -371,7 +304,7 @@ class TestEnd2End:
     def test_ipstitch_rtlsim(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        test_fpga_part = get_build_env("zynq")["part"]
+        test_fpga_part = get_build_env("zynq", target_clk_ns)["part"]
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO())
         model = model.transform(GiveUniqueNodeNames())
@@ -408,7 +341,7 @@ class TestEnd2End:
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        cfg = get_build_env(kind)
+        cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
         model = model.transform(AnnotateResources("synth"))
         warnings.warn(
@@ -425,7 +358,7 @@ class TestEnd2End:
     def test_deploy(self, topology, wbits, abits, kind):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "build_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        cfg = get_build_env(kind)
+        cfg = get_build_env(kind, target_clk_ns)
         if cfg["ip"] == "":
             pytest.skip("PYNQ board IP address not specified")
         model = model.transform(
@@ -444,7 +377,7 @@ class TestEnd2End:
     def test_run_on_pynq(self, topology, wbits, abits, kind):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "deploy_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)  # NOQA
-        cfg = get_build_env(kind)
+        cfg = get_build_env(kind, target_clk_ns)
         if cfg["ip"] == "":
             pytest.skip("PYNQ board IP address not specified")
         (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
