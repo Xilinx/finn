@@ -60,7 +60,7 @@ from finn.transformation.general import (
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
-from finn.util.basic import pynq_part_map
+from finn.util.basic import pynq_part_map, alveo_part_map, alveo_default_platform
 from finn.util.test import get_test_model_trained, load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.infer_data_layouts import InferDataLayouts
@@ -86,10 +86,9 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
-test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
-test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 mem_mode = "decoupled"
 rtlsim_trace = False
@@ -235,6 +234,37 @@ def execute_parent(parent_path, child_path, input_tensor_npy):
     return y
 
 
+def get_build_env(kind):
+    ret = {}
+    if kind == "zynq":
+        ret["board"] = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
+        ret["part"] = pynq_part_map[ret["board"]]
+        ret["ip"] = os.getenv("PYNQ_IP", "")
+        ret["username"] = os.getenv("PYNQ_USERNAME", "xilinx")
+        ret["password"] = os.getenv("PYNQ_PASSWORD", "xilinx")
+        ret["port"] = os.getenv("PYNQ_PORT", 22)
+        ret["target_dir"] = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
+        ret["build_fxn"] = ZynqBuild(ret["board"], target_clk_ns)
+    elif kind == "alveo":
+        ret["board"] = os.getenv("ALVEO_BOARD", default="U250")
+        ret["part"] = alveo_part_map[ret["board"]]
+        ret["platform"] = alveo_default_platform[ret["board"]]
+        ret["ip"] = os.getenv("ALVEO_IP", "")
+        ret["username"] = os.getenv("ALVEO_USERNAME", "")
+        ret["password"] = os.getenv("ALVEO_PASSWORD", "")
+        ret["port"] = os.getenv("ALVEO_PORT", 22)
+        ret["target_dir"] = os.getenv("ALVEO_TARGET_DIR", "/tmp/finn_alveo_deploy")
+        ret["build_fxn"] = VitisBuild(
+            ret["part"],
+            target_clk_ns,
+            ret["platform"],
+            strategy=VitisOptStrategy.BUILD_SPEED,
+        )
+    else:
+        raise Exception("Unknown test build environment spec")
+    return ret
+
+
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("topology", ["tfc", "cnv"])
@@ -332,6 +362,7 @@ class TestEnd2End:
     def test_ipgen(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        test_fpga_part = get_build_env("zynq")["part"]
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
@@ -340,6 +371,7 @@ class TestEnd2End:
     def test_ipstitch_rtlsim(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        test_fpga_part = get_build_env("zynq")["part"]
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO())
         model = model.transform(GiveUniqueNodeNames())
@@ -370,10 +402,14 @@ class TestEnd2End:
         warnings.warn("Estimated & rtlsim performance: " + str(perf))
         assert np.isclose(y, output_tensor_npy).all()
 
-    def test_build(self, topology, wbits, abits):
+    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    def test_build(self, topology, wbits, abits, kind):
+        if kind == "alveo" and ("VITIS_PATH" not in os.environ):
+            pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        model = model.transform(ZynqBuild(test_pynq_board, target_clk_ns))
+        cfg = get_build_env(kind)
+        model = model.transform(cfg["build_fxn"])
         model = model.transform(AnnotateResources("synth"))
         warnings.warn(
             "Post-synthesis resources (excluding shell): "
@@ -383,52 +419,47 @@ class TestEnd2End:
             "Post-synthesis resources (all inclusive): "
             + model.get_metadata_prop("res_total_top_synth")
         )
-        model.save(get_checkpoint_name(topology, wbits, abits, "build"))
+        model.save(get_checkpoint_name(topology, wbits, abits, "build_" + kind))
 
-    def test_deploy(self, topology, wbits, abits):
-        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "build")
+    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    def test_deploy(self, topology, wbits, abits, kind):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "build_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        try:
-            ip = os.environ["PYNQ_IP"]  # no fault for this one; skip if not defined
-            if ip == "":
-                pytest.skip("PYNQ board IP address not specified")
-            username = os.getenv("PYNQ_USERNAME", "xilinx")
-            password = os.getenv("PYNQ_PASSWORD", "xilinx")
-            port = os.getenv("PYNQ_PORT", 22)
-            target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-            model = model.transform(
-                DeployToPYNQ(ip, port, username, password, target_dir)
-            )
-            # save the model to be able to link it to the parent
-            model.save(get_checkpoint_name(topology, wbits, abits, "deploy"))
-        except KeyError:
+        cfg = get_build_env(kind)
+        if cfg["ip"] == "":
             pytest.skip("PYNQ board IP address not specified")
+        model = model.transform(
+            DeployToPYNQ(
+                cfg["ip"],
+                cfg["port"],
+                cfg["username"],
+                cfg["password"],
+                cfg["target_dir"],
+            )
+        )
+        # save the model to be able to link it to the parent
+        model.save(get_checkpoint_name(topology, wbits, abits, "deploy_" + kind))
 
-    def test_run_on_pynq(self, topology, wbits, abits):
-        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "deploy")
+    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    def test_run_on_pynq(self, topology, wbits, abits, kind):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "deploy_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)  # NOQA
-        try:
-            ip = os.environ["PYNQ_IP"]  # no fault for this one; skip if not defined
-            if ip == "":
-                pytest.skip("PYNQ board IP address not specified")
-            (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
-                topology, wbits, abits
-            )
-            parent_model = load_test_checkpoint_or_skip(
-                get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
-            )
-            iname = parent_model.graph.input[0].name
-            oname = parent_model.graph.output[0].name
-            sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[
-                0
-            ]
-            sdp_node = getCustomOp(sdp_node)
-            sdp_chkpt = get_checkpoint_name(topology, wbits, abits, "deploy")
-            load_test_checkpoint_or_skip(sdp_chkpt)
-            sdp_node.set_nodeattr("model", sdp_chkpt)
-            ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
-            y = ret[oname]
-            assert np.isclose(y, output_tensor_npy).all()
-
-        except KeyError:
+        cfg = get_build_env(kind)
+        if cfg["ip"] == "":
             pytest.skip("PYNQ board IP address not specified")
+        (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
+            topology, wbits, abits
+        )
+        parent_model = load_test_checkpoint_or_skip(
+            get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
+        )
+        iname = parent_model.graph.input[0].name
+        oname = parent_model.graph.output[0].name
+        sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+        sdp_node = getCustomOp(sdp_node)
+        sdp_chkpt = get_checkpoint_name(topology, wbits, abits, "deploy")
+        load_test_checkpoint_or_skip(sdp_chkpt)
+        sdp_node.set_nodeattr("model", sdp_chkpt)
+        ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
+        y = ret[oname]
+        assert np.isclose(y, output_tensor_npy).all()
