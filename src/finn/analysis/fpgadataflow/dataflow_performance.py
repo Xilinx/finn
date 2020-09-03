@@ -32,6 +32,9 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 def dataflow_performance(model):
     """Extract key performance indicators from given model with dataflow nodes.
+    Note that the latency (critical path) analysis is very pessimistic, it
+    assumes no overlap between executions and simply sums the expected cycles
+    for each node along the critical path.
 
     Preconditions:
     - model consists of fpgadataflow nodes
@@ -41,7 +44,7 @@ def dataflow_performance(model):
     Returns:
     - max_cycles : number of cycles for slowest node
     - max_cycles_node_name : name of slowest node
-    - critical_path_cycles : total expected latency from input to output
+    - critical_path_cycles : pessimistic expected latency from input to output
     """
     latency_at_node_output = {}
     max_cycles = 0
