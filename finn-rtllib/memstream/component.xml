@@ -1051,6 +1051,7 @@
         <xilinx:family xilinx:lifeCycle="Beta">azynq</xilinx:family>
         <xilinx:family xilinx:lifeCycle="Beta">zynquplus</xilinx:family>
         <xilinx:family xilinx:lifeCycle="Production">virtexuplus</xilinx:family>
+        <xilinx:family xilinx:lifeCycle="Production">virtexuplusHBM</xilinx:family>
       </xilinx:supportedFamilies>
       <xilinx:taxonomies>
         <xilinx:taxonomy>/UserIP</xilinx:taxonomy>

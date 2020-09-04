@@ -215,6 +215,10 @@ class Thresholding_Batch(HLSCustomOp):
         nf = np.prod(self.get_folded_output_shape()[:-1])
         return nf
 
+    def get_exp_cycles(self):
+        # Channels/PE * batch size * fmdim * fmdim
+        return np.prod(self.get_folded_output_shape()[:-1])
+
     def get_template_param_values(self):
         """Returns the template parameter values according to input, output and weight
         data types."""
@@ -279,7 +283,25 @@ class Thresholding_Batch(HLSCustomOp):
         thresholds = model.get_initializer(self.onnx_node.input[1])
 
         threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-        tdt = DataType.INT32
+
+        min_threshold = thresholds.min()
+        max_threshold = thresholds.max()
+        min_input = self.get_input_datatype().min()
+        max_input = self.get_input_datatype().max()
+        # get range required by threshold values
+        tdt_min = min(min_input, min_threshold)
+        tdt_max = max(max_input, max_threshold)
+        if tdt_min < 0:
+            if abs(tdt_min) > tdt_max:
+                tdt = DataType.get_smallest_possible(tdt_min)
+            else:
+                tdt = DataType.get_smallest_possible(0 - tdt_max - 1)
+        else:
+            tdt = DataType.get_smallest_possible(tdt_max)
+        assert np.vectorize(tdt.allowed)(
+            threshold_tensor
+        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+
         thresholds_hls_code = numpy_to_hls_code(
             threshold_tensor, tdt, "thresholds", False, True
         )

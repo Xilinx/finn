@@ -81,8 +81,8 @@ class InsertIODMA(Transformation):
                 # check if tensor is NHWC
                 assert (
                     model.get_tensor_layout(graph_out_name) == DataLayout.NHWC
-                    or model.get_tensor_layout(graph_in_name) == DataLayout.NC
-                ), "Data layout of tensors must be NHWC or NC"
+                    or model.get_tensor_layout(graph_out_name) == DataLayout.NC
+                ), "Data layout of output tensor must be NHWC or NC"
                 out_shape = model.get_tensor_shape(graph_out_name)
                 out_dtype = model.get_tensor_datatype(graph_out_name)
                 # determine the feasible interface width
@@ -120,7 +120,7 @@ class InsertIODMA(Transformation):
                 assert (
                     model.get_tensor_layout(graph_in_name) == DataLayout.NHWC
                     or model.get_tensor_layout(graph_in_name) == DataLayout.NC
-                ), "Data layout of tensors must be NHWC or NC"
+                ), "Data layout of input tensor must be NHWC or NC"
                 in_shape = model.get_tensor_shape(graph_in_name)
                 in_dtype = model.get_tensor_datatype(graph_in_name)
                 # determine the feasible interface width
@@ -171,6 +171,7 @@ class InsertIODMA(Transformation):
                 # calculate width of stream output from DMA
                 pe = get_by_name(fc_node.attribute, "PE").i
                 simd = get_by_name(fc_node.attribute, "SIMD").i
+                assert pe * simd == w_shape[0], "Malformed weight matrix"
                 streamWidth = simd * pe * w_dtype.bitwidth()
                 # make new buffer
                 fc_node_in = oh.make_tensor_value_info(
@@ -178,12 +179,13 @@ class InsertIODMA(Transformation):
                 )
                 model.graph.value_info.append(fc_node_in)
                 model.set_tensor_datatype(fc_node_in.name, w_dtype)
+                model.set_initializer(fc_node_in.name, model.get_initializer(fc_w_name))
                 dma_node = oh.make_node(
                     "IODMA",
                     [fc_w_name],
                     [fc_node_in.name],
-                    numInputVectors=w_shape[:-1],
-                    NumChannels=w_shape[-1],
+                    numInputVectors=[w_shape[1]],
+                    NumChannels=w_shape[0],
                     dataType=str(w_dtype.name),
                     intfWidth=intfwidth,
                     streamWidth=streamWidth,

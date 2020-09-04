@@ -15,7 +15,7 @@ from finn.transformation.infer_shapes import InferShapes
 export_onnx_path = "test_brevitas_relu_act_export.onnx"
 
 
-@pytest.mark.parametrize("abits", [1, 2, 4, 8])
+@pytest.mark.parametrize("abits", [2, 4, 8])
 @pytest.mark.parametrize("max_val", [1.0, 1.5, 1 - 2 ** (-7)])
 @pytest.mark.parametrize(
     "scaling_impl_type", [ScalingImplType.CONST, ScalingImplType.PARAMETER]
@@ -70,7 +70,7 @@ scaling_impl.learned_value": torch.tensor(
     os.remove(export_onnx_path)
 
 
-@pytest.mark.parametrize("abits", [1, 2, 4, 8])
+@pytest.mark.parametrize("abits", [2, 4, 8])
 @pytest.mark.parametrize("max_val", [1.0, 1.5, 1 - 2 ** (-7)])
 @pytest.mark.parametrize("scaling_per_channel", [True, False])
 def test_brevitas_act_export_relu_imagenet(abits, max_val, scaling_per_channel):
