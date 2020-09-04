@@ -743,8 +743,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 wei = npy_to_rtlsim_input(
                     "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
                 )
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
                 io_dict = {
-                    "inputs": {"in0": inp, "weights": wei},
+                    "inputs": {"in0": inp, "weights": np.tile(wei, num_w_reps)},
                     "outputs": {"out": []},
                 }
                 self.rtlsim_multi_io(sim, io_dict)

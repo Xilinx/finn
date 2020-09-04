@@ -408,7 +408,7 @@ class CreateStitchedIP(Transformation):
         tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
         # export list of used Verilog files (for rtlsim later on)
-        tcl.append("set all_v_files [get_files -filter {FILE_TYPE == Verilog}]")
+        tcl.append("set all_v_files [get_files -filter {FILE_TYPE == Verilog && USED_IN_SYNTHESIS == 1} ]")
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
         tcl.append("set fp [open %s w]" % v_file_list)
         # write each verilog filename to all_verilog_srcs.txt
