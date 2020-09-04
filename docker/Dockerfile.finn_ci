@@ -37,8 +37,14 @@ RUN apt-get update
 RUN apt-get -y upgrade
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
 RUN apt-get install -y verilator zsh
-RUN apt-get -y install sshpass
+RUN apt-get -y install sshpass wget unzip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
+
+# install XRT dependencies
+RUN wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh
+RUN apt-get update
+RUN bash xrtdeps.sh
+RUN rm xrtdeps.sh
 
 # cloning dependency repos
 # Brevitas

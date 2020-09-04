@@ -29,12 +29,12 @@
 import os
 import subprocess
 import numpy as np
-
+import warnings
 from finn.util.basic import gen_finn_dt_tensor
 from finn.core.rtlsim_exec import rtlsim_exec
 
 
-def throughput_test(model, batchsize=1000):
+def throughput_test_remote(model, batchsize=1000):
     """Runs the throughput test for the given model remotely on the pynq board.
     The metadata properties related to the pynq board have to be set.
     Returns a dictionary with results of the throughput test. Returns None
@@ -48,24 +48,41 @@ def throughput_test(model, batchsize=1000):
     deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
     # extracting last folder of absolute path (deployment_dir)
     deployment_folder = os.path.basename(os.path.normpath(deployment_dir))
+    platform = model.get_metadata_prop("platform")
+    assert platform in ["alveo", "zynq", "zynq-iodma"]
+    bitfile = model.get_metadata_prop("bitfile")
+    bitfile = os.path.basename(bitfile)
+    if pynq_password == "":
+        if "zynq" in platform:
+            raise Exception("PYNQ board remote exec needs password for sudo")
+        else:
+            local_prefix = ""  # assume we are using an ssh key
+            warnings.warn("Empty password, make sure you've set up an ssh key")
+    else:
+        local_prefix = "sshpass -p %s " % pynq_password
 
+    if platform == "alveo":
+        # Alveo can run without sudo but needs correct environment
+        remote_prefix = "conda activate finn-pynq-alveo; "
+    elif "zynq" in platform:
+        # PYNQ Zynq boards need to execute with sudo
+        remote_prefix = "echo %s | sudo -S " % pynq_password
+
+    # use platform attribute for correct remote execution
+    if platform == "alveo":
+        remote_cmd = "bash -ic 'bash alveo_run.sh throughput_test %d' \"" % batchsize
+    else:
+        remote_cmd = (
+            "python3.6 driver.py --exec_mode=throughput_test --batchsize={} "
+            "--bitfile={} --inputfile=input.npy --outputfile=output.npy "
+            '--platform={} "'
+        ).format(batchsize, bitfile, platform)
     cmd = (
-        "sshpass -p {} ssh {}@{} -p {} "
-        '"cd {}/{}; echo "{}" | '
-        'sudo -S python3.6 driver.py --exec_mode="throughput_test" --batchsize=%d"'
-        % batchsize
-    ).format(
-        pynq_password,
-        pynq_username,
-        pynq_ip,
-        pynq_port,
-        pynq_target_dir,
-        deployment_folder,
-        pynq_password,
-    )
+        local_prefix + 'ssh {}@{} -p {} "cd {}/{}; ' + remote_prefix + remote_cmd
+    ).format(pynq_username, pynq_ip, pynq_port, pynq_target_dir, deployment_folder)
     bash_command = ["/bin/bash", "-c", cmd]
-    process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-    process_compile.communicate()
+    process_throughput_test = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+    process_throughput_test.communicate()
 
     # remove any pre-existing metrics file
     try:
@@ -73,8 +90,7 @@ def throughput_test(model, batchsize=1000):
     except FileNotFoundError:
         pass
 
-    cmd = "sshpass -p {} scp -P{} {}@{}:{}/{}/nw_metrics.txt {}".format(
-        pynq_password,
+    cmd = local_prefix + "scp -P{} {}@{}:{}/{}/nw_metrics.txt {}".format(
         pynq_port,
         pynq_username,
         pynq_ip,
@@ -125,7 +141,7 @@ def throughput_test_rtlsim(model, batchsize=100):
     os.environ["LIVENESS_THRESHOLD"] = "-1"
     rtlsim_exec(model, ctx)
     # extract metrics
-    cycles = int(model.get_metadata_prop("sim_cycles"))
+    cycles = int(model.get_metadata_prop("cycles_rtlsim"))
     clk_ns = float(model.get_metadata_prop("clk_ns"))
     fclk_mhz = 1 / (clk_ns * 0.001)
     runtime_s = (cycles * clk_ns) * (10 ** -9)

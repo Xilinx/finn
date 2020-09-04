@@ -28,7 +28,7 @@
 
 import os
 import subprocess
-
+import warnings
 import numpy as np
 
 
@@ -43,15 +43,35 @@ def remote_exec(model, execution_context):
     pynq_password = model.get_metadata_prop("pynq_password")
     pynq_target_dir = model.get_metadata_prop("pynq_target_dir")
     deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
+    platform = model.get_metadata_prop("platform")
+    assert platform in ["alveo", "zynq", "zynq-iodma"]
+    bitfile = model.get_metadata_prop("bitfile")
+    bitfile = os.path.basename(bitfile)
+    if pynq_password == "":
+        if "zynq" in platform:
+            raise Exception("PYNQ board remote exec needs password for sudo")
+        else:
+            local_prefix = ""  # assume we are using an ssh key
+            warnings.warn("Empty password, make sure you've set up an ssh key")
+    else:
+        local_prefix = "sshpass -p %s " % pynq_password
+
+    if platform == "alveo":
+        # Alveo can run without sudo
+        remote_prefix = ""
+    elif "zynq" in platform:
+        # PYNQ Zynq boards need to execute with sudo
+        remote_prefix = "echo %s | sudo -S " % pynq_password
+
     inp = execution_context[model.graph.input[0].name]
     # make copy of array before saving it
     inp = inp.copy()
+    batchsize = inp.shape[0]
     np.save(os.path.join(deployment_dir, "input.npy"), inp)
     # extracting last folder of absolute path (deployment_dir)
     deployment_folder = os.path.basename(os.path.normpath(deployment_dir))
     # copy input to PYNQ board
-    cmd = "sshpass -p {} scp -P{} -r {}/input.npy {}@{}:{}/{}".format(
-        pynq_password,
+    cmd = local_prefix + "scp -P{} -r {}/input.npy {}@{}:{}/{}".format(
         pynq_port,
         deployment_dir,
         pynq_username,
@@ -60,33 +80,31 @@ def remote_exec(model, execution_context):
         deployment_folder,
     )
     bash_command = ["/bin/bash", "-c", cmd]
-    process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-    process_compile.communicate()
+    process_scp_in = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+    process_scp_in.communicate()
+
+    # use platform attribute for correct remote execution
+    if platform == "alveo":
+        remote_cmd = "bash -ic 'bash alveo_run.sh execute %d' \"" % batchsize
+    else:
+        remote_cmd = (
+            "python3.6 driver.py --exec_mode=execute --batchsize={} "
+            "--bitfile={} --inputfile=input.npy --outputfile=output.npy "
+            '--platform={} "'
+        ).format(batchsize, bitfile, platform)
     cmd = (
-        "sshpass -p {} ssh {}@{} -p {} "
-        '"cd {}/{}; echo "{}" | '
-        'sudo -S python3.6 driver.py --exec_mode="execute" --batchsize=1" '
-        '--bitfile="resizer.bit" --inputfile="input.npy" --outputfile="output.npy"'
-    ).format(
-        pynq_password,
-        pynq_username,
-        pynq_ip,
-        pynq_port,
-        pynq_target_dir,
-        deployment_folder,
-        pynq_password,
-    )
+        local_prefix + 'ssh {}@{} -p {} "cd {}/{}; ' + remote_prefix + remote_cmd
+    ).format(pynq_username, pynq_ip, pynq_port, pynq_target_dir, deployment_folder)
     bash_command = ["/bin/bash", "-c", cmd]
-    process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-    process_compile.communicate()
+    process_exec_accel = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+    process_exec_accel.communicate()
     # remove stale output file from local dir, if any
     try:
         os.remove("{}/output.npy".format(deployment_dir))
     except FileNotFoundError:
         pass
     # copy generated output to local
-    cmd = "sshpass -p {} scp -P{} {}@{}:{}/{}/output.npy {}".format(
-        pynq_password,
+    cmd = local_prefix + "scp -P{} {}@{}:{}/{}/output.npy {}".format(
         pynq_port,
         pynq_username,
         pynq_ip,
@@ -95,7 +113,7 @@ def remote_exec(model, execution_context):
         deployment_dir,
     )
     bash_command = ["/bin/bash", "-c", cmd]
-    process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-    process_compile.communicate()
+    process_scp_out = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+    process_scp_out.communicate()
     outp = np.load("{}/output.npy".format(deployment_dir))
     execution_context[model.graph.output[0].name] = outp

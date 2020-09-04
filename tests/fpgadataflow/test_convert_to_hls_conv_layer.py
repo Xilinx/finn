@@ -23,6 +23,8 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.custom_op.im2col import compute_conv_output_dim
+from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 # conv_config  kernel_size,stride, pad
 
@@ -30,29 +32,36 @@ from finn.custom_op.im2col import compute_conv_output_dim
 @pytest.mark.parametrize(
     "conv_config", [(1, 2, 0), (1, 3, 0), (3, 2, 1), (3, 1, 0), (3, 1, 1), (5, 2, 1)]
 )
+@pytest.mark.parametrize("depthwise", [False, True])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_convert_to_hls_conv_layer(conv_config, exec_mode):
+def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
     kernel_size, stride, pad = conv_config
     np.random.seed(0)
     idt = DataType.UINT4
 
     in_feature_dim = 7
     in_chn = 16
-    out_chn = 20
+
+    if depthwise is True:
+        group = out_chn = in_chn
+        conv_param_shape = [out_chn, 1, kernel_size, kernel_size]
+    else:
+        group = 1
+        out_chn = 20
+        conv_param_shape = [out_chn, in_chn, kernel_size, kernel_size]
 
     out_feature_dim = compute_conv_output_dim(in_feature_dim, kernel_size, stride, pad)
 
     input_shape = [1, in_chn, in_feature_dim, in_feature_dim]
     output_shape = [1, out_chn, out_feature_dim, out_feature_dim]
 
-    conv_param_shape = [out_chn, in_chn, kernel_size, kernel_size]
     conv_weight_dt = DataType.UINT4
 
     conv_config = {}
     conv_config["dilations"] = [1, 1]
-    conv_config["group"] = 1
+    conv_config["group"] = group
     conv_config["kernel_shape"] = [kernel_size, kernel_size]
     conv_config["pads"] = [pad, pad, pad, pad]
     conv_config["strides"] = [stride, stride]
@@ -86,6 +95,18 @@ def test_convert_to_hls_conv_layer(conv_config, exec_mode):
 
     new_model = model.transform(LowerConvsToMatMul())
     new_model = new_model.transform(to_hls.InferConvInpGen())
+    if depthwise is True:
+        new_model = new_model.transform(to_hls.InferVVAU())
+    else:
+        new_model = new_model.transform(to_hls.InferQuantizedStreamingFCLayer())
+        fc_node = new_model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+        fc_inst = getCustomOp(fc_node)
+        mw = fc_inst.get_nodeattr("MW")
+        mh = fc_inst.get_nodeattr("MH")
+        pe_cands = list(filter(lambda x: mh % x == 0, range(2, mh + 1)))
+        simd_cands = list(filter(lambda x: mw % x == 0, range(2, mw + 1)))
+        fc_inst.set_nodeattr("PE", pe_cands[0])
+        fc_inst.set_nodeattr("SIMD", simd_cands[0])
 
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(InferShapes())
@@ -110,3 +131,25 @@ def test_convert_to_hls_conv_layer(conv_config, exec_mode):
     assert oxe.compare_execution(model, new_model, inp_dict)
     if kernel_size == 1 and stride > 1 and pad == 0:
         assert new_model.graph.node[1].op_type == "DownSampler"
+        if exec_mode == "rtlsim":
+            node = new_model.get_nodes_by_op_type("DownSampler")[0]
+            inst = getCustomOp(node)
+            cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+            exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
+            exp_cycles = exp_cycles_dict[node.name]
+            assert np.isclose(exp_cycles, cycles_rtlsim, atol=11)
+            assert exp_cycles != 0
+
+    if pad == 1:
+        padding_node = new_model.get_nodes_by_op_type("FMPadding_Batch")[0]
+        padding_inst = getCustomOp(padding_node)
+        assert padding_inst.get_nodeattr("SIMD") == in_chn
+
+    if depthwise is True and exec_mode == "rtlsim":
+        node = new_model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=11)
+        assert exp_cycles != 0

@@ -35,6 +35,9 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 def hls_synth_res_estimation(model):
     """Extracts the FPGA resource results from the Vivado HLS synthesis estimates.
+    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
+    transformation) prior to calling this analysis pass to ensure all nodes are
+    visible in the results.
 
     Returns {node name : resources_dict}."""
 

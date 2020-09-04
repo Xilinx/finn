@@ -26,19 +26,23 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+
 from onnx import helper, TensorProto
 import numpy as np
+import warnings
 
 from finn.core.datatype import DataType
 from finn.transformation import Transformation
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.general import SortGraph
 import finn.core.data_layout as DataLayout
 from finn.util.onnx import nchw_to_nhwc
-import warnings
 from finn.util.basic import get_by_name
-import warnings
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 
 
 class InferConvInpGen(Transformation):
@@ -107,6 +111,7 @@ class InferConvInpGen(Transformation):
                         Padding=2 * pad,
                         NumChannels=ifm_ch,
                         inputDataType=dt.name,
+                        SIMD=ifm_ch,
                     )
                     graph.node.insert(node_ind, padding_node)
 
@@ -487,6 +492,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                     graph.node.remove(n)
                     graph_modified = True
         if graph_modified:
+            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -507,7 +513,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "MatMul":
+            if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is None:
                 mm_input = n.input[0]
                 mm_weight = n.input[1]
                 mm_output = n.output[0]
@@ -621,6 +627,151 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         graph.node.remove(n)
                         graph_modified = True
         if graph_modified:
+            model = model.transform(MinimizeAccumulatorWidth())
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferVVAU(Transformation):
+    """Convert MatMul layers with quantized inputs and weights to
+    Vector_Vector_Activate_Batch layers, if the sparsity annotation
+    of the weight matrix indicates that the MatMul layer belongs to
+    a depthwise convolution. Any immediately following MultiThreshold
+    layers will also be absorbed into the VVAU."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if (
+                n.op_type == "MatMul"
+                and model.get_tensor_sparsity(n.input[1]) is not None
+            ):
+                sparsity = model.get_tensor_sparsity(n.input[1])
+                try:
+                    k = sparsity["dw"]["kernel_shape"]
+                except KeyError:
+                    raise Exception(
+                        """Sparsity doesn't indicate that MatMul
+                        belongs to a depthwise convolution."""
+                    )
+
+                mm_input = n.input[0]
+                mm_weight = n.input[1]
+                mm_output = n.output[0]
+                mm_in_shape = model.get_tensor_shape(mm_input)
+                mm_out_shape = model.get_tensor_shape(mm_output)
+                idt = model.get_tensor_datatype(mm_input)
+                wdt = model.get_tensor_datatype(mm_weight)
+                if idt.is_integer() and wdt.is_integer():
+                    mm_output = n.output[0]
+                    W = model.get_initializer(mm_weight)
+                    # infer dense weight tensor from sparse weight matrix
+                    # kernel size k which was extracted above and the value of
+                    # the channels is used.
+                    # the weight matrix has a shape of (k * k * Channels, Channels)
+                    # we need to reverse the creation of the sparse weight matrix
+                    # to achieve a weight tensor of shape (Channels, 1, k, k)
+                    channels = int(W.shape[1])
+                    # transpose to achieve a shape of (k * k * Channels, Channels)
+                    W = W.T
+                    # reshape to (Channels, k, k, Channels) to transpose afterwards
+                    # to (Channels, Channels, k, k)
+                    W = W.reshape(channels, k, k, channels)
+                    W = W.transpose(0, 3, 1, 2)
+                    # now we can extract the values using a for loop over the channels
+                    # and fill a zero numpy array in the correct shape
+                    w_tensor = np.zeros((channels, 1, k, k))
+                    for ch in range(channels):
+                        w_tensor[ch][0] = W[ch][ch]
+                    model.set_initializer(mm_weight, w_tensor)
+                    model.set_tensor_shape(mm_weight, (channels, 1, k, k))
+                    # create node with pe=channels as default
+                    pe = channels
+                    assert (
+                        channels % pe == 0
+                    ), "Requirement Channels divisable by PE is violated."
+                    # see if we have any following thresholds
+                    consumer = model.find_consumer(mm_output)
+                    if consumer is not None and consumer.op_type == "MultiThreshold":
+                        # create VVAU (i.e. including activation)
+                        mt_output = consumer.output[0]
+                        mt_out_shape = model.get_tensor_shape(mt_output)
+                        mt_thres = consumer.input[1]
+                        T = model.get_initializer(mt_thres)
+                        assert (
+                            T.shape[0] == 1 or T.shape[0] == channels
+                        ), """First dimension of
+                        thresholds neither 1 nor Channels."""
+                        odt = model.get_tensor_datatype(mt_output)
+                        scale = getCustomOp(consumer).get_nodeattr("out_scale")
+                        assert (
+                            scale == 1.0
+                        ), "out_scale must be equal to 1.0 for HLS conversion."
+                        actval = getCustomOp(consumer).get_nodeattr("out_bias")
+                        assert (
+                            int(actval) == actval
+                        ), "out_bias must be integer for HLS conversion."
+                        actval = int(actval)
+                        assert (not odt.signed()) or (
+                            actval < 0
+                        ), "Signed output requres actval < 0"
+                        model.set_tensor_shape(mm_input, mm_in_shape)
+                        model.set_tensor_shape(mt_output, mt_out_shape)
+                        # create and insert new Vector_Vector_Activate_Batch node
+                        new_node = helper.make_node(
+                            "Vector_Vector_Activate_Batch",
+                            [mm_input, mm_weight, mt_thres],
+                            [mt_output],
+                            domain="finn",
+                            backend="fpgadataflow",
+                            resType="ap_resource_lut()",
+                            PE=pe,
+                            Dim=mm_in_shape[1],
+                            Channels=channels,
+                            Kernel=k,
+                            inputDataType=idt.name,
+                            weightDataType=wdt.name,
+                            outputDataType=odt.name,
+                            ActVal=actval,
+                            noActivation=0,
+                        )
+                        graph.node.insert(node_ind, new_node)
+                        # remove old nodes
+                        graph.node.remove(n)
+                        graph.node.remove(consumer)
+                        graph_modified = True
+                    else:
+                        # no activation, matmul only
+                        odt = model.get_tensor_datatype(mm_output)
+                        model.set_tensor_shape(mm_input, mm_in_shape)
+                        model.set_tensor_shape(mm_output, mm_out_shape)
+                        # create and insert new VVAU node
+                        new_node = helper.make_node(
+                            "Vector_Vector_Activate_Batch",
+                            [mm_input, mm_weight],
+                            [mm_output],
+                            domain="finn",
+                            backend="fpgadataflow",
+                            resType="ap_resource_lut()",
+                            PE=pe,
+                            Dim=mm_in_shape[1],
+                            Channels=channels,
+                            Kernel=k,
+                            inputDataType=idt.name,
+                            weightDataType=wdt.name,
+                            outputDataType=odt.name,
+                            ActVal=0,
+                            noActivation=1,
+                        )
+                        graph.node.insert(node_ind, new_node)
+                        # remove old node
+                        graph.node.remove(n)
+                        graph_modified = True
+        if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -646,10 +797,21 @@ class InferThresholdingLayer(Transformation):
                 if not idt.is_integer():
                     continue
 
-                # skip conversion if input is not NHWC or NC
+                # check layout of inputs/outputs, and convert if needed
+                # check layout and convert if necessary
                 thl_in_layout = model.get_tensor_layout(thl_input)
-                if thl_in_layout != DataLayout.NHWC and thl_in_layout != DataLayout.NC:
-                    continue
+                if thl_in_layout == DataLayout.NCHW:
+                    thl_input = nchw_to_nhwc(thl_input, model, node_ind)
+                    node_ind += 1
+                    thl_in_shape = model.get_tensor_shape(thl_input)
+
+                # keep track of where we need to insert the HLS Op
+                # it has to be ahead of the output transform
+                insert_point = node_ind
+                thl_output_layout = model.get_tensor_layout(thl_output)
+                if thl_output_layout == DataLayout.NCHW:
+                    thl_output = nchw_to_nhwc(thl_output, model, node_ind, reverse=True)
+                    node_ind += 1
 
                 # now safe to assume number of channels is in last dimension
                 ifc = int(thl_in_shape[-1])
@@ -671,12 +833,172 @@ class InferThresholdingLayer(Transformation):
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
                 )
-                graph.node.insert(node_ind, new_node)
+                graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True
 
         if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferAddStreamsLayer(Transformation):
+    """Convert any Add into a AddStreams HLS layer."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Add":
+                in0 = node.input[0]
+                in1 = node.input[1]
+                result = node.output[0]
+                in0_shape = model.get_tensor_shape(in0)
+                in1_shape = model.get_tensor_shape(in1)
+
+                # skip if different shapes on inputs
+                if in0_shape != in1_shape:
+                    continue
+
+                idt0 = model.get_tensor_datatype(in0)
+                idt1 = model.get_tensor_datatype(in1)
+
+                # skip if different data types on inputs
+                if idt0 != idt1:
+                    continue
+
+                idt = idt0
+
+                # skip conversion for layers with float input
+                if not idt.is_integer():
+                    continue
+
+                # check layout and convert if necessary
+                in0_layout = model.get_tensor_layout(in0)
+                in1_layout = model.get_tensor_layout(in1)
+                result_layout = model.get_tensor_layout(result)
+
+                if in0_layout == DataLayout.NCHW:
+                    in0 = nchw_to_nhwc(in0, model, node_ind)
+                    node_ind += 1
+                    in0_shape = model.get_tensor_shape(in0)
+
+                if in1_layout == DataLayout.NCHW:
+                    in1 = nchw_to_nhwc(in1, model, node_ind)
+                    node_ind += 1
+                    in1_shape = model.get_tensor_shape(in1)
+
+                # keep track of where we need to insert the HLS Op
+                # it has to be ahead of the output transform
+                insert_point = node_ind
+
+                if result_layout == DataLayout.NCHW:
+                    result = nchw_to_nhwc(result, model, node_ind, reverse=True)
+                    node_ind += 1
+
+                # now safe to assume num_channels is size of last dimension
+                num_channels = int(in0_shape[-1])
+                # create node with no parallelization first
+                pe = 1
+                assert (
+                    num_channels % pe == 0
+                ), "Requirement Channels divisable by PE is violated."
+
+                # create and insert new StreamingFCLayer node
+                new_node = helper.make_node(
+                    "AddStreams_Batch",
+                    [in0, in1],
+                    [result],
+                    domain="finn",
+                    backend="fpgadataflow",
+                    NumChannels=num_channels,
+                    PE=pe,
+                    inputDataType=idt.name,
+                    numInputVectors=in0_shape[:-1],
+                )
+                graph.node.insert(insert_point, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferDuplicateStreamsLayer(Transformation):
+    """Insert a DuplicateStreams HLS layer for any tensor with fanout == 2 """
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            successors = model.find_consumers(node.output[0])
+            if successors is not None and len(successors) == 2:
+                output_tensor = node.output[0]
+
+                dt = model.get_tensor_datatype(output_tensor)
+
+                # skip conversion for layers with float input
+                if not dt.is_integer():
+                    continue
+
+                # create clone tensors
+                out_shape = model.get_tensor_shape(output_tensor)
+                out_tensor_clones = []
+                for i in range(2):
+                    clone = helper.make_tensor_value_info(
+                        model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
+                    )
+                    model.graph.value_info.append(clone)
+                    out_tensor_clones += [clone.name]
+
+                num_ch = int(out_shape[-1])
+                vecs = out_shape[:-1]
+
+                # create node with no parallelization first
+                pe = 1
+                assert (
+                    num_ch % pe == 0
+                ), "Requirement channels divisable by PE is violated."
+
+                dup_node = helper.make_node(
+                    "DuplicateStreams_Batch",
+                    [output_tensor],
+                    out_tensor_clones,
+                    domain="finn",
+                    backend="fpgadataflow",
+                    NumChannels=num_ch,
+                    PE=pe,
+                    inputDataType=dt.name,
+                    numInputVectors=vecs,
+                )
+
+                graph.node.insert(node_ind, dup_node)
+
+                # connect successors to out tensor clone
+                clone_idx = 0
+                for successor in successors:
+                    for i, succ_input in enumerate(successor.input):
+                        if succ_input == output_tensor:
+                            successor.input[i] = out_tensor_clones[clone_idx]
+                            clone_idx += 1
+                            # if one node has multiple connections to the same output
+                            # find_direct_successors will return one node per input
+                            # so break the inner loop will result in correct behaviour
+                            break
+
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(SortGraph())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -827,6 +1149,64 @@ class InferChannelwiseLinearLayer(Transformation):
                     numInputVectors=list(ll_in_shape[:-1]),
                 )
                 graph.node.insert(insert_point, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferLabelSelectLayer(Transformation):
+    """Convert any TopK into a LabelSelect HLS layer."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "TopK":
+                fc_input = node.input[0]
+                k_input = node.input[1]
+                val_output = node.output[0]
+                idx_output = node.output[1]
+                fc_in_shape = model.get_tensor_shape(fc_input)
+
+                idt = model.get_tensor_datatype(fc_input)
+
+                # skip conversion for layers with float input
+                if not idt.is_integer():
+                    continue
+
+                # skip conversion for if value output is connected (not supported)
+                if model.find_consumer(val_output) is not None:
+                    continue
+
+                num_labels = int(fc_in_shape[-1])
+                # create node with no parallelization first
+                pe = 1
+                assert (
+                    num_labels % pe == 0
+                ), "Requirement Labels divisable by PE is violated."
+
+                k = model.get_initializer(k_input)[0]
+
+                # create and insert new StreamingFCLayer node
+                new_node = helper.make_node(
+                    "LabelSelect_Batch",
+                    [fc_input],
+                    [idx_output],
+                    domain="finn",
+                    backend="fpgadataflow",
+                    Labels=num_labels,
+                    PE=pe,
+                    K=k,
+                    inputDataType=idt.name,
+                )
+                graph.node.insert(node_ind, new_node)
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True
