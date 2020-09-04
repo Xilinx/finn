@@ -277,6 +277,8 @@ class TestEnd2End:
         model = folding_fxn(model)
         model.save(get_checkpoint_name(topology, wbits, abits, "fold"))
 
+    @pytest.mark.slow
+    @pytest.mark.vivado
     def test_cppsim(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
@@ -292,6 +294,8 @@ class TestEnd2End:
         y = execute_parent(parent_chkpt, cppsim_chkpt, input_tensor_npy)
         assert np.isclose(y, output_tensor_npy).all()
 
+    @pytest.mark.slow
+    @pytest.mark.vivado
     def test_ipgen(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
@@ -301,6 +305,8 @@ class TestEnd2End:
         model = model.transform(HLSSynthIP())
         model.save(get_checkpoint_name(topology, wbits, abits, "ipgen"))
 
+    @pytest.mark.slow
+    @pytest.mark.vivado
     def test_ipstitch_rtlsim(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
@@ -335,6 +341,9 @@ class TestEnd2End:
         warnings.warn("Estimated & rtlsim performance: " + str(perf))
         assert np.isclose(y, output_tensor_npy).all()
 
+    @pytest.mark.slow
+    @pytest.mark.vivado
+    @pytest.mark.vitis
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_build(self, topology, wbits, abits, kind):
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
