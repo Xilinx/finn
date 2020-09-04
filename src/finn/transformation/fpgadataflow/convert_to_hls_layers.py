@@ -1033,9 +1033,9 @@ class InferChannelwiseLinearLayer(Transformation):
         )
 
         if (0 <= vals).all():
-            return DataType.UINT32
+            return DataType.UINT64
         else:
-            return DataType.INT32
+            return DataType.INT64
 
     def apply(self, model):
         graph = model.graph
