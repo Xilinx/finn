@@ -146,39 +146,6 @@ wire m_axis_0_tready;
 wire m_axis_0_tvalid;
 wire $WEIGHT_RANGE$ m_axis_0_tdata;
 
-wire m_axis_0_tready_q;
-wire m_axis_0_tvalid_q;
-wire $WEIGHT_RANGE$ m_axis_0_tdata_q;
-
-wire m_axis_0_tready_q2;
-wire m_axis_0_tvalid_q2;
-wire $WEIGHT_RANGE$ m_axis_0_tdata_q2;
-
-reg m_axis_1_afull = 0;
-reg m_axis_1_tready = 1;
-wire m_axis_1_tvalid;
-wire $WEIGHT_RANGE$ m_axis_1_tdata;
-
-reg m_axis_2_afull = 0;
-reg m_axis_2_tready = 1;
-wire m_axis_2_tvalid;
-wire $WEIGHT_RANGE$ m_axis_2_tdata;
-
-reg m_axis_3_afull = 0;
-reg m_axis_3_tready = 1;
-wire m_axis_3_tvalid;
-wire $WEIGHT_RANGE$ m_axis_3_tdata;
-
-reg m_axis_4_afull = 0;
-reg m_axis_4_tready = 1;
-wire m_axis_4_tvalid;
-wire $WEIGHT_RANGE$ m_axis_4_tdata;
-
-reg m_axis_5_afull = 0;
-reg m_axis_5_tready = 1;
-wire m_axis_5_tvalid;
-wire $WEIGHT_RANGE$ m_axis_5_tdata;
-
 //memstream component
 
 memstream
@@ -194,27 +161,12 @@ memstream
 
 //widths per stream
 .STRM0_WIDTH($WEIGHT_WIDTH$),
-.STRM1_WIDTH($WEIGHT_WIDTH$),
-.STRM2_WIDTH($WEIGHT_WIDTH$),
-.STRM3_WIDTH($WEIGHT_WIDTH$),
-.STRM4_WIDTH($WEIGHT_WIDTH$),
-.STRM5_WIDTH($WEIGHT_WIDTH$),
 
 //depths per stream
 .STRM0_DEPTH($WSTREAM_DEPTH$),
-.STRM1_DEPTH(1),
-.STRM2_DEPTH(1),
-.STRM3_DEPTH(1),
-.STRM4_DEPTH(1),
-.STRM5_DEPTH(1),
 
 //offsets for each stream
-.STRM0_OFFSET(0),
-.STRM1_OFFSET(0),
-.STRM2_OFFSET(0),
-.STRM3_OFFSET(0),
-.STRM4_OFFSET(0),
-.STRM5_OFFSET(0)
+.STRM0_OFFSET(0)
 )
 mem
 (
@@ -232,52 +184,9 @@ mem
 .m_axis_0_afull(m_axis_0_afull),
 .m_axis_0_tready(m_axis_0_tready),
 .m_axis_0_tvalid(m_axis_0_tvalid),
-.m_axis_0_tdata(m_axis_0_tdata),
-
-.m_axis_1_afull(m_axis_1_afull),
-.m_axis_1_tready(m_axis_1_tready),
-.m_axis_1_tvalid(m_axis_1_tvalid),
-.m_axis_1_tdata(m_axis_1_tdata),
-
-.m_axis_2_afull(m_axis_2_afull),
-.m_axis_2_tready(m_axis_2_tready),
-.m_axis_2_tvalid(m_axis_2_tvalid),
-.m_axis_2_tdata(m_axis_2_tdata),
-
-.m_axis_3_afull(m_axis_3_afull),
-.m_axis_3_tready(m_axis_3_tready),
-.m_axis_3_tvalid(m_axis_3_tvalid),
-.m_axis_3_tdata(m_axis_3_tdata),
-
-.m_axis_4_afull(m_axis_4_afull),
-.m_axis_4_tready(m_axis_4_tready),
-.m_axis_4_tvalid(m_axis_4_tvalid),
-.m_axis_4_tdata(m_axis_4_tdata),
-
-.m_axis_5_afull(m_axis_5_afull),
-.m_axis_5_tready(m_axis_5_tready),
-.m_axis_5_tvalid(m_axis_5_tvalid),
-.m_axis_5_tdata(m_axis_5_tdata)
+.m_axis_0_tdata(m_axis_0_tdata)
 
 
-);
-
-
-Q_srl #(
-.depth(32),
-.width($WEIGHT_WIDTH$)
-)
-$LAYER_NAME$_w_fifo_1
-(
- .clock(ap_clk),
- .reset(!ap_rst_n),
- .i_d(m_axis_0_tdata),
- .i_v(m_axis_0_tvalid),
- .i_r(m_axis_0_tready),
- .o_d(m_axis_0_tdata_q),
- .o_v(m_axis_0_tvalid_q),
- .o_r(m_axis_0_tready_q),
- .count(fifo_0_count)
 );
 
 
@@ -291,16 +200,13 @@ MVA_Stream_U
 .in0_V_V_TDATA(in0_V_V_TDATA),		//$IN_RANGE$ input
 .in0_V_V_TVALID(in0_V_V_TVALID),  	//input
 .in0_V_V_TREADY(in0_V_V_TREADY),	//output
-.weights_V_V_TDATA(m_axis_0_tdata_q),	//$WEIGHT_RANGE$ input
-.weights_V_V_TVALID(m_axis_0_tvalid_q),	//input
-.weights_V_V_TREADY(m_axis_0_tready_q),	//output
+.weights_V_V_TDATA(m_axis_0_tdata),	//$WEIGHT_RANGE$ input
+.weights_V_V_TVALID(m_axis_0_tvalid),	//input
+.weights_V_V_TREADY(m_axis_0_tready),	//output
 .out_V_V_TDATA(out_V_V_TDATA),		//$OUT_RANGE$ output
 .out_V_V_TVALID(out_V_V_TVALID),	//output
 .out_V_V_TREADY(out_V_V_TREADY)		//input
 );
-
-// programmable full threshold at 16 elements
-assign m_axis_0_afull = (fifo_0_count > 16);
 
 endmodule
 """

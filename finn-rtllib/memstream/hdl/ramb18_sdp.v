@@ -28,7 +28,7 @@
  OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
-module ramb18_wf_dualport
+module ramb18_sdp
 #(
     parameter ID = 0,
     parameter DWIDTH = 18,
@@ -40,23 +40,18 @@ module ramb18_wf_dualport
 (
 	input clk,
 
+	input ena,
 	input wea,
-    input ena,
-    input enqa,
 	input [AWIDTH-1:0] addra,
 	input [DWIDTH-1:0] wdataa,
-	output reg [DWIDTH-1:0] rdqa,
 
-	input web,
     input enb,
     input enqb,
 	input [AWIDTH-1:0] addrb,
-	input [DWIDTH-1:0] wdatab,
 	output reg [DWIDTH-1:0] rdqb
 );
 
 (* ram_style = RAM_STYLE *) reg [DWIDTH-1:0] mem[0:DEPTH-1];
-reg [DWIDTH-1:0] rdataa;
 reg [DWIDTH-1:0] rdatab;
 
 `ifdef SYNTHESIS
@@ -90,20 +85,10 @@ end
 
 //memory ports, with output pipeline register
 always @(posedge clk) begin
-    if(ena) begin
-        if(wea)
-            mem[addra] <= wdataa;
-        rdataa <= mem[addra];
-    end
-    if(enqa)
-        rdqa <= rdataa;
-end
-always @(posedge clk) begin
-    if(enb) begin
-        if(web)
-            mem[addrb] <= wdatab;
+    if(wea)
+        mem[addra] <= wdataa;
+    if(enb)
         rdatab <= mem[addrb];
-    end
     if(enqb)
         rdqb <= rdatab;
 end
