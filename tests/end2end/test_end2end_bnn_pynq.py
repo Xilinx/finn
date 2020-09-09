@@ -87,7 +87,7 @@ from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.modelwrapper import ModelWrapper
 from scipy.stats import linregress
-from finn.core.throughput_test import throughput_test_remote
+from finn.core.throughput_test import throughput_test_remote, throughput_test_rtlsim
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 target_clk_ns = 10
@@ -341,6 +341,21 @@ class TestEnd2End:
         perf["cycles_rtlsim"] = model.get_metadata_prop("cycles_rtlsim")
         warnings.warn("Estimated & rtlsim performance: " + str(perf))
         assert np.isclose(y, output_tensor_npy).all()
+
+    @pytest.mark.slow
+    @pytest.mark.vivado
+    def test_throughput_rtlsim(self, topology, wbits, abits):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipstitch_rtlsim")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        n_nodes = len(model.graph.node)
+        perf_est = model.analysis(dataflow_performance)
+        latency = int(model.get_metadata_prop("cycles_rtlsim"))
+        cycles_per_sample_est = perf_est["max_cycles"]
+        batchsize = 2 * n_nodes
+        ret = throughput_test_rtlsim(model, batchsize=batchsize)
+        res_cycles = ret["cycles"]
+        est_cycles = latency + cycles_per_sample_est * batchsize
+        assert (abs(res_cycles - est_cycles) / res_cycles) < 0.15
 
     @pytest.mark.slow
     @pytest.mark.vivado
