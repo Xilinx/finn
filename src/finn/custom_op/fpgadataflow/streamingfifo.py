@@ -29,6 +29,7 @@ import os
 import numpy as np
 from shutil import copy
 import subprocess
+import math
 
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.core.datatype import DataType
@@ -51,6 +52,16 @@ class StreamingFIFO(HLSCustomOp):
             "folded_shape": ("ints", True, []),
             # FINN DataTypes for inputs/outputs
             "dataType": ("s", True, ""),
+            # Toggle between hls or IPI implementation
+            # rtl - use the hls generated IP during stitching
+            # vivado - use the AXI Infrastructure FIFO
+            "impl_style": ("s", False, "rtl"),
+            # FPGA resource type for FIFOs when impl_style is vivado
+            # auto -- let Vivado decide
+            # block -- use BRAM
+            # distributed -- use LUTRAM
+            # ultra -- use URAM (on UltraScale+)
+            "ram_style": ("s", False, "auto"),
         }
         my_attrs.update(super().get_nodeattr_types())
 
@@ -306,3 +317,137 @@ class StreamingFIFO(HLSCustomOp):
 
     def pragmas(self):
         pass
+
+    def code_generation_ipi(self):
+        impl_style = self.get_nodeattr("impl_style")
+        if impl_style == "rtl":
+            return super().code_generation_ipi()
+        elif impl_style == "vivado":
+            cmd = []
+            node_name = self.onnx_node.name
+            depth = self.get_nodeattr("depth")
+            ram_style = self.get_nodeattr("ram_style")
+            # create a hierarchy for this layer, with the same port names
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
+            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
+            cmd.append("create_bd_cell -type hier %s" % node_name)
+            cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
+            cmd.append(
+                "create_bd_intf_pin -mode Master "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
+                % (node_name, dout_name)
+            )
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
+            )
+            # instantiate and configure DWC
+            cmd.append(
+                "create_bd_cell -type ip "
+                "-vlnv xilinx.com:ip:axis_data_fifo:2.0 /%s/fifo" % node_name
+            )
+            cmd.append(
+                "set_property -dict [list CONFIG.FIFO_DEPTH {%d}] "
+                "[get_bd_cells /%s/fifo]" % (depth, node_name)
+            )
+            cmd.append(
+                "set_property -dict [list CONFIG.FIFO_MEMORY_TYPE {%s}] "
+                "[get_bd_cells /%s/fifo]" % (ram_style, node_name)
+            )
+            cmd.append(
+                "set_property -dict [list CONFIG.TDATA_NUM_BYTES {%d}] "
+                "[get_bd_cells /%s/fifo]"
+                % (np.ceil(self.get_outstream_width() / 8), node_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/fifo/M_AXIS] "
+                "[get_bd_intf_pins %s/%s]" % (node_name, node_name, dout_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/fifo/S_AXIS] "
+                "[get_bd_intf_pins %s/%s]" % (node_name, node_name, din_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] "
+                "[get_bd_pins %s/fifo/s_axis_aresetn]"
+                % (node_name, rst_name, node_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] "
+                "[get_bd_pins %s/fifo/s_axis_aclk]" % (node_name, clk_name, node_name)
+            )
+            return cmd
+        else:
+            raise Exception(
+                "FIFO implementation style %s not supported, please use rtl or vivado"
+                % impl_style
+            )
+
+    def bram_estimation(self):
+        """Calculates resource estimation for BRAM"""
+        impl = self.get_nodeattr("impl_style")
+        ram_type = self.get_nodeattr("ram_style")
+        depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+
+        if impl == "rtl" or (impl == "vivado" and ram_type != "block"):
+            # Non-BRAM based implementation
+            return 0
+
+        if W == 1:
+            return math.ceil(depth / 16384)
+        elif W == 2:
+            return math.ceil(depth / 8192)
+        elif W <= 4:
+            return (math.ceil(depth / 4096)) * (math.ceil(W / 4))
+        elif W <= 9:
+            return (math.ceil(depth / 2048)) * (math.ceil(W / 9))
+        elif W <= 18 or depth > 512:
+            return (math.ceil(depth / 1024)) * (math.ceil(W / 18))
+        else:
+            return (math.ceil(depth / 512)) * (math.ceil(W / 36))
+
+    def uram_estimation(self):
+        """Calculates resource estimation for URAM"""
+
+        impl = self.get_nodeattr("impl_style")
+        ram_type = self.get_nodeattr("ram_style")
+        depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+
+        if impl == "rtl" or (impl == "vivado" and ram_type != "ultra"):
+            # Non-BRAM based implementation
+            return 0
+        else:
+            return (math.ceil(depth / 4096)) * (math.ceil(W / 72))
+
+
+    def bram_efficiency_estimation(self):
+        depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+        bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
+        wbits = W * depth
+        bram16_est_capacity = bram16_est * 36 * 512
+        return wbits / bram16_est_capacity
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs"""
+        impl = self.get_nodeattr("impl_style")
+        ram_type = self.get_nodeattr("ram_style")
+        depth = self.get_nodeattr("depth")
+        W = self.get_instream_width()
+
+        address_luts = 2 * math.ceil(math.log(depth, 2))
+
+        if impl == "rtl" or (impl == "vivado" and ram_type == "distributed"):
+            ram_luts = (math.ceil(depth / 32)) * (math.ceil(W / 2))
+        else:
+            ram_luts = 0
+
+        return int(address_luts + ram_luts)
+
