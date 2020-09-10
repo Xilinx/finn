@@ -10,9 +10,6 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -101,7 +98,6 @@ def test_convert_to_hls_channelwise_layer(
         new_model = new_model.transform(GiveUniqueNodeNames())
         new_model = new_model.transform(PrepareIP("xc7z020clg400-1", 5))
         new_model = new_model.transform(HLSSynthIP())
-        new_model = new_model.transform(ReplaceVerilogRelPaths())
         new_model = new_model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode")

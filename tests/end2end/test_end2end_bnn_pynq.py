@@ -76,9 +76,6 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
@@ -320,7 +317,6 @@ class TestEnd2End:
         latency = perf["critical_path_cycles"]
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
-        model = model.transform(ReplaceVerilogRelPaths())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
         model = model.transform(PrepareRTLSim())
         model.set_metadata_prop("exec_mode", "rtlsim")

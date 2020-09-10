@@ -45,7 +45,6 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
-import finn.transformation.fpgadataflow.replace_verilog_relpaths as rvp
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import (
     gen_finn_dt_tensor,
@@ -234,7 +233,6 @@ def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
     model = load_test_checkpoint_or_skip(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode
     )
-    model = model.transform(rvp.ReplaceVerilogRelPaths())
     model = model.transform(CreateStitchedIP(test_fpga_part, 5))
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     assert vivado_stitch_proj_dir is not None
