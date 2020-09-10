@@ -49,7 +49,7 @@ def throughput_test_remote(model, batchsize=1000):
     # extracting last folder of absolute path (deployment_dir)
     deployment_folder = os.path.basename(os.path.normpath(deployment_dir))
     platform = model.get_metadata_prop("platform")
-    assert platform in ["alveo", "zynq", "zynq-iodma"]
+    assert platform in ["alveo", "zynq-iodma"]
     bitfile = model.get_metadata_prop("bitfile")
     bitfile = os.path.basename(bitfile)
     if pynq_password == "":

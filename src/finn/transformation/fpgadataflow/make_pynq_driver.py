@@ -28,7 +28,6 @@
 
 
 import shutil
-from finn.custom_op.registry import getCustomOp
 from finn.transformation import Transformation
 from finn.util.basic import gen_finn_dt_tensor, get_finn_root, make_build_dir
 from finn.util.data_packing import finnpy_to_packed_bytearray
@@ -41,7 +40,7 @@ class MakePYNQDriver(Transformation):
     accelerator, including data packing/unpacking. The MakePYNQProject
     transformation must have been already applied.
 
-    platform: one of ["zynq", "zynq-iodma", "alveo"]
+    platform: one of ["zynq-iodma", "alveo"]
 
     Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the
@@ -65,20 +64,15 @@ class MakePYNQDriver(Transformation):
         o_tensor_shape_normal = tuple(model.get_tensor_shape(o_tensor_name))
         i_tensor_dt = model.get_tensor_datatype(i_tensor_name)
         o_tensor_dt = model.get_tensor_datatype(o_tensor_name)
-        # handle folded i/o shapes due to differences in DMA engines
-        if self.platform == "zynq":
-            # extract HLSCustomOp instances to get folded i/o shapes
-            first_node = getCustomOp(model.find_consumer(i_tensor_name))
-            last_node = getCustomOp(model.find_producer(o_tensor_name))
-            i_tensor_shape_folded = tuple(first_node.get_folded_input_shape())
-            o_tensor_shape_folded = tuple(last_node.get_folded_output_shape())
-        else:
-            i_tensor_shape_folded = list(i_tensor_shape_normal)
-            i_tensor_shape_folded.insert(-1, 1)
-            i_tensor_shape_folded = tuple(i_tensor_shape_folded)
-            o_tensor_shape_folded = list(o_tensor_shape_normal)
-            o_tensor_shape_folded.insert(-1, 1)
-            o_tensor_shape_folded = tuple(o_tensor_shape_folded)
+        # folded shapes for i/o simply derived from regular tensor shapes
+        # this used to be extracted from first/last node folded shapes, but
+        # can't do this anymore due to IODMAs
+        i_tensor_shape_folded = list(i_tensor_shape_normal)
+        i_tensor_shape_folded.insert(-1, 1)
+        i_tensor_shape_folded = tuple(i_tensor_shape_folded)
+        o_tensor_shape_folded = list(o_tensor_shape_normal)
+        o_tensor_shape_folded.insert(-1, 1)
+        o_tensor_shape_folded = tuple(o_tensor_shape_folded)
 
         # generate dummy folded i/o tensors and their packed versions
         i_tensor_dummy_folded = gen_finn_dt_tensor(i_tensor_dt, i_tensor_shape_folded)

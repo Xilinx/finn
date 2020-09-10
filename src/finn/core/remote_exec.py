@@ -44,7 +44,7 @@ def remote_exec(model, execution_context):
     pynq_target_dir = model.get_metadata_prop("pynq_target_dir")
     deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
     platform = model.get_metadata_prop("platform")
-    assert platform in ["alveo", "zynq", "zynq-iodma"]
+    assert platform in ["alveo", "zynq-iodma"]
     bitfile = model.get_metadata_prop("bitfile")
     bitfile = os.path.basename(bitfile)
     if pynq_password == "":

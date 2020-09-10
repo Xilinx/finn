@@ -126,18 +126,7 @@ class FINNAccelDriver():
         self.itersPerSample = self.oshape_packed[-2]
         # clock frequency as specified by user
         self.fclk_mhz = $CLOCK_FREQ_MHZ$
-        if self.platform == "zynq":
-            # set the clock frequency as specified by user during transformations
-            if self.fclk_mhz > 0:
-                Clocks.$CLK_NAME$ = self.fclk_mhz
-            self.dma = self.ol.axi_dma_0
-            self.ctrl_regs = self.ol.resize_accel_0
-            # AXI lite register offset for number of iterations
-            # used by TLastMarker to signal end of transmission for AXI CDMA
-            self.REG_OFFSET_NUM_ITERS = 0x10
-            # set up TLastMarker with correct num. samples
-            self.ctrl_regs.write(self.REG_OFFSET_NUM_ITERS, self.N*self.itersPerSample)
-        elif self.platform == "alveo":
+        if self.platform == "alveo":
             self.idma = self.ol.idma0
             self.odma = self.ol.odma0
         elif self.platform == "zynq-iodma":
@@ -147,7 +136,7 @@ class FINNAccelDriver():
             if self.fclk_mhz > 0:
                 Clocks.$CLK_NAME$ = self.fclk_mhz
         else:
-            raise ValueError("Supported platforms are zynq zynq-iodma alveo")
+            raise ValueError("Supported platforms are zynq-iodma alveo")
 
         # allocate a PYNQ buffer for the packed input and buffer
         if self.platform == "alveo":
@@ -203,13 +192,7 @@ class FINNAccelDriver():
         \"\"\"Executes accelerator by setting up the DMA(s) and
         waiting until all transfers/calls complete. Uses only member variables and
         returns nothing.\"\"\"
-        if self.platform == "zynq":
-            dma = self.dma
-            dma.sendchannel.transfer(self.ibuf_packed_device)
-            dma.recvchannel.transfer(self.obuf_packed_device)
-            dma.sendchannel.wait()
-            dma.recvchannel.wait()
-        elif self.platform == "zynq-iodma":
+        if self.platform == "zynq-iodma":
             # manually launch IODMAs since signatures are missing
             self.idma.write(0x10, self.ibuf_packed_device.device_address)
             self.idma.write(0x1c, self.N)
@@ -231,7 +214,7 @@ class FINNAccelDriver():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Set exec mode, batchsize N, bitfile name, inputfile name and outputfile name')
     parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
-    parser.add_argument('--platform', help='Target platform: zynq zynq-iodma alveo', default="zynq")
+    parser.add_argument('--platform', help='Target platform: zynq-iodma alveo', default="zynq")
     parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
     parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
     parser.add_argument('--inputfile', help='name of input npy file (i.e. "input.npy")', default="input.npy")
