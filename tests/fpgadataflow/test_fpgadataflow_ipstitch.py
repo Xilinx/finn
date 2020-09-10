@@ -69,7 +69,7 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 ip_stitch_model_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 
 
-def create_one_fc_model():
+def create_one_fc_model(mem_mode="const"):
     # create a model with a StreamingFCLayer instance with no activation
     # the wider range of the full accumulator makes debugging a bit easier
     wdt = DataType.INT2
@@ -102,6 +102,7 @@ def create_one_fc_model():
         ActVal=actval,
         binaryXnorMode=binary_xnor_mode,
         noActivation=no_act,
+        mem_mode=mem_mode,
     )
 
     graph = helper.make_graph(
@@ -206,11 +207,10 @@ def create_two_fc_model(mem_mode="decoupled"):
     return model
 
 
-# exec_mode of StreamingDataflowPartition
-# @pytest.mark.parametrize("exec_mode", ["remote_pynq"]) #, "rtlsim"])
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 @pytest.mark.vivado
-def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
-    model = create_one_fc_model()
+def test_fpgadataflow_ipstitch_gen_model(mem_mode):
+    model = create_one_fc_model(mem_mode)
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
@@ -223,13 +223,16 @@ def test_fpgadataflow_ipstitch_gen_model():  # exec_mode):
     model = model.transform(HLSSynthIP())
     assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
     assert model.graph.node[-1].op_type == "TLastMarker"
-    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx")
+    model.save(
+        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode
+    )
 
 
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 @pytest.mark.vivado
-def test_fpgadataflow_ipstitch_do_stitch():
+def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
     model = load_test_checkpoint_or_skip(
-        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model.onnx"
+        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode
     )
     model = model.transform(rvp.ReplaceVerilogRelPaths())
     model = model.transform(CreateStitchedIP(test_fpga_part, 5))
@@ -240,13 +243,14 @@ def test_fpgadataflow_ipstitch_do_stitch():
     vivado_stitch_vlnv = model.get_metadata_prop("vivado_stitch_vlnv")
     assert vivado_stitch_vlnv is not None
     assert vivado_stitch_vlnv == "xilinx_finn:finn:finn_design:1.0"
-    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx")
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch_%s.onnx" % mem_mode)
 
 
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 @pytest.mark.vivado
-def test_fpgadataflow_ipstitch_rtlsim():
+def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
     model = load_test_checkpoint_or_skip(
-        ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx"
+        ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch_%s.onnx" % mem_mode
     )
     model.set_metadata_prop("rtlsim_trace", "whole_trace.vcd")
     sim = pyverilate_stitched_ip(model)
@@ -290,11 +294,12 @@ def test_fpgadataflow_ipstitch_rtlsim():
     assert (rtlsim_res == x).all()
 
 
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_ipstitch_synth_ooc():
+def test_fpgadataflow_ipstitch_synth_ooc(mem_mode):
     model = load_test_checkpoint_or_skip(
-        ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch.onnx"
+        ip_stitch_model_dir + "/test_fpgadataflow_ip_stitch_%s.onnx" % mem_mode
     )
     model = model.transform(SynthOutOfContext(test_fpga_part, 5))
     ret = model.get_metadata_prop("res_total_ooc_synth")
