@@ -88,10 +88,10 @@ def soft_verify_topk(invec, idxvec, k):
 
 def load_test_checkpoint_or_skip(filename):
     "Try to load given .onnx and return ModelWrapper, else skip current test."
-    try:
+    if os.path.isfile(filename):
         model = ModelWrapper(filename)
         return model
-    except FileNotFoundError:
+    else:
         warnings.warn(filename + " not found from previous test step, skipping")
         pytest.skip(filename + " not found from previous test step, skipping")
 
