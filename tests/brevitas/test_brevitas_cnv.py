@@ -39,7 +39,6 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_brevitas_cnv.onnx"
@@ -54,7 +53,6 @@ def test_brevitas_cnv_export_exec(wbits, abits):
     bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(RemoveStaticGraphInputs())

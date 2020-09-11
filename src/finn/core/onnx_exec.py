@@ -60,6 +60,10 @@ def execute_node(node, context, graph):
             inp_ctx[new_iname] = inp_ctx[old_iname]
             del inp_ctx[old_iname]
         ret = execute_onnx(model, inp_ctx, False)
+        # if the model was in ip-stitched rtlsim mode, may get annotation
+        # for numbet of elapsed cycles, save again
+        if model.get_metadata_prop("exec_mode") == "rtlsim":
+            model.save(sdp_node.get_nodeattr("model"))
         # output may have been renamed in partition
         assert len(ret) == 1
         node_oname = node.output[0]

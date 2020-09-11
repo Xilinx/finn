@@ -44,7 +44,6 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
 from finn.util.basic import make_build_dir
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
 
 export_onnx_path = make_build_dir("test_streamline_cnv_")
 
@@ -62,7 +61,6 @@ def test_streamline_cnv(size, wbits, abits):
     fc = get_test_model_trained(size, wbits, abits)
     bo.export_finn_onnx(fc, (1, 3, 32, 32), finn_onnx)
     model = ModelWrapper(finn_onnx)
-    model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())

@@ -26,9 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import os
 import finn.custom_op.registry as registry
 from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation import NodeLocalTransformation
+import warnings
 
 
 class HLSSynthIP(NodeLocalTransformation):
@@ -36,9 +38,11 @@ class HLSSynthIP(NodeLocalTransformation):
     that is referenced in node attribute "code_gen_dir_ipgen"
     and save path of generated project in node attribute "ipgen_path".
     All nodes in the graph must have the fpgadataflow backend attribute.
+    Any nodes that already have a ipgen_path attribute pointing to a valid path
+    will be skipped.
 
     This transformation calls Vivado HLS for synthesis, so it will run for
-    some time (several minutes)
+    some time (minutes to hours depending on configuration).
 
     * num_workers (int or None) number of parallel workers, see documentation in
       NodeLocalTransformation for more details.
@@ -59,8 +63,11 @@ class HLSSynthIP(NodeLocalTransformation):
                 ), """Node
                 attribute "code_gen_dir_ipgen" is empty. Please run
                 transformation PrepareIP first."""
-                # call the compilation function for this node
-                inst.ipgen_singlenode_code()
+                if not os.path.isdir(inst.get_nodeattr("ipgen_path")):
+                    # call the compilation function for this node
+                    inst.ipgen_singlenode_code()
+                else:
+                    warnings.warn("Using pre-existing IP for %s" % node.name)
                 # ensure that executable path is now set
                 assert (
                     inst.get_nodeattr("ipgen_path") != ""

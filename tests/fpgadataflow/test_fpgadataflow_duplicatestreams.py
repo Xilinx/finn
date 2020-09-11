@@ -44,9 +44,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.custom_op.registry import getCustomOp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
@@ -119,7 +116,6 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, exec_mode):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP("xc7z020clg400-1", 5))
         model = model.transform(HLSSynthIP())
-        model = model.transform(ReplaceVerilogRelPaths())
         model = model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode")

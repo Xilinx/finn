@@ -11,9 +11,6 @@ from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.util.basic import gen_finn_dt_tensor
@@ -121,7 +118,6 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
         new_model = new_model.transform(GiveUniqueNodeNames())
         new_model = new_model.transform(PrepareIP("xc7z020clg400-1", 5))
         new_model = new_model.transform(HLSSynthIP())
-        new_model = new_model.transform(ReplaceVerilogRelPaths())
         new_model = new_model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode")

@@ -111,8 +111,9 @@ class GiveRandomTensorNames(Transformation):
 
 
 class GiveReadableTensorNames(Transformation):
-    """Give more human-readable names to all internal tensors. It's recommended
-    to apply give_unique_node_names prior to this transform."""
+    """Give more human-readable names to all internal tensors. You should
+    apply GiveUniqueNodeNames prior to this transform to avoid empty node names,
+    as the readable names are based on the node names."""
 
     def apply(self, model):
         # to ensure we can use rename_tensor safely (without renaming existing
@@ -120,6 +121,7 @@ class GiveReadableTensorNames(Transformation):
         model = model.transform(GiveRandomTensorNames())
         graph = model.graph
         for n in graph.node:
+            assert n.name != "", "Found empty node name"
             out_num = 0
             for o in n.output:
                 model.rename_tensor(o, "%s_out%d" % (n.name, out_num))

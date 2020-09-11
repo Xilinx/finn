@@ -75,5 +75,5 @@ def test_brevitas_debug():
     for dbg_name in names_common:
         tensor_pytorch = dbg_hook.values[dbg_name].detach().numpy()
         tensor_finn = output_dict[dbg_name]
-        assert np.isclose(tensor_finn, tensor_pytorch).all()
+        assert np.isclose(tensor_finn, tensor_pytorch, atol=1e-5).all()
     os.remove(finn_onnx)

@@ -35,6 +35,9 @@ from finn.util.basic import get_by_name, make_build_dir
 from finn.custom_op.registry import getCustomOp
 from finn.util.basic import get_num_default_workers
 import multiprocessing as mp
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
 
 
 class CreateStitchedIP(Transformation):
@@ -181,6 +184,8 @@ class CreateStitchedIP(Transformation):
             self.s_axis_idx += 1
 
     def apply(self, model):
+        # ensure non-relative readmemh .dat files
+        model = model.transform(ReplaceVerilogRelPaths())
         ip_dirs = ["list"]
         # add RTL streamer IP
         ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
@@ -408,7 +413,10 @@ class CreateStitchedIP(Transformation):
         tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
         # export list of used Verilog files (for rtlsim later on)
-        tcl.append("set all_v_files [get_files -filter {FILE_TYPE == Verilog && USED_IN_SYNTHESIS == 1} ]")
+        tcl.append(
+            "set all_v_files [get_files -filter {FILE_TYPE == Verilog "
+            + "&& USED_IN_SYNTHESIS == 1} ]"
+        )
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
         tcl.append("set fp [open %s w]" % v_file_list)
         # write each verilog filename to all_verilog_srcs.txt
