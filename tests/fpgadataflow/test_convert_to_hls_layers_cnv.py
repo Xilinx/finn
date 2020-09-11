@@ -42,7 +42,6 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -61,7 +60,6 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     cnv = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path_cnv)
     model = ModelWrapper(export_onnx_path_cnv)
-    model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())

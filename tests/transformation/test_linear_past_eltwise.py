@@ -37,7 +37,6 @@ from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.streamline.reorder import MoveLinearPastEltwiseAdd
 from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
 
 import pytest
 
@@ -105,7 +104,6 @@ def test_linear_past_eltwise_add(ch, ifmdim):
     model = make_model(input_tensor_shape)
     model.save(export_onnx_path)
     model = ModelWrapper(export_onnx_path)
-    model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())

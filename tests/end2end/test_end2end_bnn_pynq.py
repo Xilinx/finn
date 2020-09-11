@@ -66,7 +66,6 @@ from finn.util.test import (
 )
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
@@ -211,7 +210,6 @@ class TestEnd2End:
     def test_import_and_tidy(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "export")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        model = model.transform(DoubleToSingleFloat())
         model = model.transform(InferShapes())
         model = model.transform(FoldConstants())
         model = model.transform(GiveUniqueNodeNames())
