@@ -450,9 +450,7 @@ class TestEnd2End:
         oname = parent_model.graph.output[0].name
         sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
         sdp_node = getCustomOp(sdp_node)
-        sdp_chkpt = get_checkpoint_name(topology, wbits, abits, "deploy")
-        load_test_checkpoint_or_skip(sdp_chkpt)
-        sdp_node.set_nodeattr("model", sdp_chkpt)
+        sdp_node.set_nodeattr("model", prev_chkpt_name)
         ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
         y = ret[oname]
         assert np.isclose(y, output_tensor_npy).all()
