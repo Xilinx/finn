@@ -68,7 +68,10 @@ from finn.transformation.fpgadataflow.annotate_resources import AnnotateResource
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.transformation.streamline.reorder import (
+    MakeMaxPoolNHWC,
+    MoveScalarLinearPastInvariants,
+)
 import warnings
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -84,6 +87,10 @@ from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.modelwrapper import ModelWrapper
 from scipy.stats import linregress
 from finn.core.throughput_test import throughput_test_remote, throughput_test_rtlsim
+from finn.util.pytorch import ToTensor
+from finn.transformation.merge_onnx_models import MergeONNXModels
+from finn.transformation.insert_topk import InsertTopK
+from finn.core.datatype import DataType
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 target_clk_ns = 10
@@ -218,9 +225,33 @@ class TestEnd2End:
         model = model.transform(RemoveStaticGraphInputs())
         model.save(get_checkpoint_name(topology, wbits, abits, "import_and_tidy"))
 
-    def test_streamline(self, topology, wbits, abits):
+    def test_add_pre_and_postproc(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "import_and_tidy")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        global_inp_name = model.graph.input[0].name
+        ishape = model.get_tensor_shape(global_inp_name)
+        # preprocessing: torchvision's ToTensor divides uint8 inputs by 255
+        totensor_pyt = ToTensor()
+        chkpt_preproc_name = get_checkpoint_name(topology, wbits, abits, "preproc")
+        bo.export_finn_onnx(totensor_pyt, ishape, chkpt_preproc_name)
+        assert os.path.isfile(chkpt_preproc_name)
+        # join preprocessing and core model
+        pre_model = ModelWrapper(chkpt_preproc_name)
+        model = model.transform(MergeONNXModels(pre_model))
+        # add input quantization annotation: UINT8 for all BNN-PYNQ models
+        global_inp_name = model.graph.input[0].name
+        model.set_tensor_datatype(global_inp_name, DataType.UINT8)
+        # postprocessing: insert Top-1 node at the end
+        model = model.transform(InsertTopK(k=1))
+        chkpt_name = get_checkpoint_name(topology, wbits, abits, "pre_post")
+        model.save(chkpt_name)
+        assert os.path.isfile(chkpt_name)
+
+    def test_streamline(self, topology, wbits, abits):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "pre_post")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        # move past any reshapes to be able to streamline input scaling
+        model = model.transform(MoveScalarLinearPastInvariants())
         model = model.transform(Streamline())
         if "fc" not in topology:
             model = model.transform(LowerConvsToMatMul())
@@ -228,6 +259,9 @@ class TestEnd2End:
             model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
         model = model.transform(ConvertBipolarMatMulToXnorPopcount())
         model = model.transform(Streamline())
+        # absorb final add-mul nodes into TopK
+        model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
+        model = model.transform(InferDataLayouts())
         model = model.transform(RemoveUnusedTensors())
         model.save(get_checkpoint_name(topology, wbits, abits, "streamline"))
 
@@ -238,6 +272,10 @@ class TestEnd2End:
         model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
         # needed for non-bipolar MatMul layers
         model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
+        # TopK to LabelSelect
+        model = model.transform(to_hls.InferLabelSelectLayer())
+        # input quantization (if any) to standalone thresholding
+        model = model.transform(to_hls.InferThresholdingLayer())
         # needed for convolutions
         if "fc" not in topology:
             model = model.transform(to_hls.InferConvInpGen())
