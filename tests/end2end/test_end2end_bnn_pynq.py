@@ -195,10 +195,12 @@ def get_folding_function(topology, wbits, abits):
         raise Exception("Unknown topology/quantization combo for predefined folding")
 
 
-def get_golden_io_pair(topology, wbits, abits, return_topk=None):
+def get_golden_io_pair(topology, wbits, abits, preproc=ToTensor(), return_topk=None):
     (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
     input_tensor_npy = get_example_input(topology)
     input_tensor_torch = torch.from_numpy(input_tensor_npy).float()
+    if preproc is not None:
+        input_tensor_torch = preproc.forward(input_tensor_torch).detach()
     output_tensor_npy = model.forward(input_tensor_torch).detach().numpy()
     if return_topk is not None:
         output_tensor_npy = get_topk(output_tensor_npy, k=return_topk)
@@ -284,6 +286,8 @@ class TestEnd2End:
             model = model.transform(to_hls.InferConvInpGen())
             model = model.transform(to_hls.InferStreamingMaxPool())
             model = model.transform(RemoveCNVtoFCFlatten())
+        # get rid of Tranpose -> Tranpose identity seq
+        model = model.transform(absorb.AbsorbConsecutiveTransposes())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(InferDataLayouts())
         model.save(get_checkpoint_name(topology, wbits, abits, "convert_to_hls_layers"))

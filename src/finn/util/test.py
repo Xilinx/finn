@@ -145,7 +145,6 @@ def get_example_input(topology):
     elif topology == "cnv":
         fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
         input_tensor = np.load(fn)["arr_0"].astype(np.float32)
-        input_tensor = input_tensor / 255
         return input_tensor
     else:
         raise Exception("Unknown topology, can't return example input")
