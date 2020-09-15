@@ -54,7 +54,7 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns=10.0, ip_name="finn_design", vitis=False):
+    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
