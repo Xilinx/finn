@@ -358,10 +358,8 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    @pytest.mark.parametrize("kind", ["zynq"])
     def test_ipstitch_rtlsim(self, topology, wbits, abits, kind):
-        if kind == "alveo" and ("VITIS_PATH" not in os.environ):
-            pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(kind, target_clk_ns)["part"]
@@ -423,10 +421,8 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    @pytest.mark.parametrize("kind", ["zynq"])
     def test_throughput_rtlsim(self, topology, wbits, abits, kind):
-        if kind == "alveo" and ("VITIS_PATH" not in os.environ):
-            pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, "ipstitch_rtlsim_" + kind
         )
@@ -483,7 +479,7 @@ class TestEnd2End:
         model.save(get_checkpoint_name(topology, wbits, abits, "deploy_" + kind))
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    def test_run_on_pynq(self, topology, wbits, abits, kind):
+    def test_run_on_hw(self, topology, wbits, abits, kind):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "deploy_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)  # NOQA
         cfg = get_build_env(kind, target_clk_ns)
