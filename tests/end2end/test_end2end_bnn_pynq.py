@@ -341,21 +341,23 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    def test_ipgen(self, topology, wbits, abits):
+    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    def test_ipgen(self, topology, wbits, abits, kind):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        test_fpga_part = get_build_env("zynq", target_clk_ns)["part"]
+        test_fpga_part = get_build_env(kind, target_clk_ns)["part"]
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
-        model.save(get_checkpoint_name(topology, wbits, abits, "ipgen"))
+        model.save(get_checkpoint_name(topology, wbits, abits, "ipgen_" + kind))
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    def test_ipstitch_rtlsim(self, topology, wbits, abits):
-        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen")
+    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    def test_ipstitch_rtlsim(self, topology, wbits, abits, kind):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        test_fpga_part = get_build_env("zynq", target_clk_ns)["part"]
+        test_fpga_part = get_build_env(kind, target_clk_ns)["part"]
         model = model.transform(InsertDWC())
         model = model.transform(InsertFIFO())
         model = model.transform(GiveUniqueNodeNames())
@@ -373,7 +375,7 @@ class TestEnd2End:
                 "rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits)
             )
             os.environ["RTLSIM_TRACE_DEPTH"] = "3"
-        rtlsim_chkpt = get_checkpoint_name(topology, wbits, abits, "ipstitch_rtlsim")
+        rtlsim_chkpt = get_checkpoint_name(topology, wbits, abits, "ipstitch_rtlsim_" + kind)
         model.save(rtlsim_chkpt)
         parent_chkpt = get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
         (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
@@ -387,8 +389,9 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    def test_throughput_rtlsim(self, topology, wbits, abits):
-        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipstitch_rtlsim")
+    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    def test_throughput_rtlsim(self, topology, wbits, abits, kind):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipstitch_rtlsim_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         n_nodes = len(model.graph.node)
         perf_est = model.analysis(dataflow_performance)
@@ -407,7 +410,7 @@ class TestEnd2End:
     def test_build(self, topology, wbits, abits, kind):
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
-        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen")
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
