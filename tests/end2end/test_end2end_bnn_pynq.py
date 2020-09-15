@@ -397,6 +397,8 @@ class TestEnd2End:
     @pytest.mark.slow
     @pytest.mark.parametrize("kind", ["zynq"])
     def test_rtlsim_top1(self, topology, wbits, abits, kind):
+        if "TEST_RTLSIM_TOP1" not in os.environ:
+            pytest.skip("TEST_RTLSIM_TOP1 not set")
         if "fc" not in topology:
             pytest.skip("Top-1 rtlsim test currently for MNIST only")
         rtlsim_chkpt = get_checkpoint_name(
