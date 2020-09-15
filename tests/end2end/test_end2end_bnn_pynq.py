@@ -119,6 +119,10 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("inFIFODepth", ififo)
         fcl_inst.set_nodeattr("outFIFODepth", ofifo)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
+    # set parallelism for input quantizer to be same as first layer's SIMD
+    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
+    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt.set_nodeattr("PE", 49)
     return model
 
 
