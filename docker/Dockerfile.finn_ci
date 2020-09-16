@@ -65,7 +65,7 @@ RUN apt update; apt install nano
 RUN pip install pytest-dependency
 RUN pip install pytest-xdist
 RUN pip install pytest-parallel
-RUN pip install mnist
+RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
