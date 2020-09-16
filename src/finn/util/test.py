@@ -162,7 +162,7 @@ def get_trained_network_and_ishape(topology, wbits, abits):
     return (model, ishape)
 
 
-def execute_parent(parent_path, child_path, input_tensor_npy):
+def execute_parent(parent_path, child_path, input_tensor_npy, return_full_ctx=False):
     """Execute parent model containing a single StreamingDataflowPartition by
     replacing it with the model at child_path and return result."""
 
@@ -173,5 +173,7 @@ def execute_parent(parent_path, child_path, input_tensor_npy):
     sdp_node = getCustomOp(sdp_node)
     sdp_node.set_nodeattr("model", child_path)
     ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
-    y = ret[oname]
-    return y
+    if return_full_ctx:
+        return ret
+    else:
+        return ret[oname]
