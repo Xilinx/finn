@@ -118,6 +118,11 @@ class LabelSelect_Batch(HLSCustomOp):
         )
 
     def infer_node_datatype(self, model):
+        node = self.onnx_node
+        # check input datatype against property
+        idt = model.get_tensor_datatype(node.input[0])
+        self.set_nodeattr("inputDataType", idt.name)
+
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
 
