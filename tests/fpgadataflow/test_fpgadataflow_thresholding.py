@@ -48,7 +48,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
-def make_single_thresholding_modelwrapper(T, pe, idt, odt):
+def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval):
     NumChannels = T.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, NumChannels])
@@ -66,6 +66,7 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt):
         PE=pe,
         inputDataType=idt.name,
         outputDataType=odt.name,
+        ActVal=actval,
     )
     graph = helper.make_graph(
         nodes=[Thresholding_node],
@@ -112,7 +113,12 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     # provide non-decreasing thresholds
     T = np.sort(T, axis=1)
 
-    model = make_single_thresholding_modelwrapper(T, pe, idt, odt)
+    if odt == DataType.BIPOLAR:
+        actval = 0
+    else:
+        actval = odt.min()
+
+    model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
