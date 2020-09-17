@@ -305,6 +305,8 @@ def gen_finn_dt_tensor(finn_dt, tensor_shape):
         tensor_values = np.random.randint(
             finn_dt.min(), high=finn_dt.max() + 1, size=tensor_shape
         )
+    elif finn_dt == DataType.FLOAT32:
+        tensor_values = np.random.randn(*tensor_shape)
     else:
         raise ValueError(
             "Datatype {} is not supported, no tensor could be generated".format(finn_dt)
