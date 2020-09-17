@@ -52,6 +52,11 @@ if [ ! -z "$VITIS_PATH" ];then
   source $VITIS_PATH/settings64.sh
 fi
 if [ ! -z "$XILINX_XRT" ];then
+  # TODO install XRT dependencies?
+  # wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh
+  # apt-get update
+  # bash xrtdeps.sh
+  # rm xrtdeps.sh
   # source XRT
   source $XILINX_XRT/setup.sh
 fi
