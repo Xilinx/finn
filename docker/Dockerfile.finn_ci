@@ -38,6 +38,7 @@ RUN apt-get -y upgrade
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
 RUN apt-get install -y verilator zsh
 RUN apt-get -y install sshpass wget unzip
+RUN apt-get -y install libsndfile1
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # install XRT dependencies

@@ -1,11 +1,16 @@
 bitstring==3.1.7
 docrep==0.2.7
 future==0.18.2
+inflect==4.1.0
+librosa==0.8.0
 numpy==1.18.0
 onnx==1.6.0
 onnxruntime==1.2.0
 pre-commit==2.6.0
+ruamel.yaml==0.16.12
 scipy==1.5.2
 toposort==1.5
+torch-stft==0.1.4
+unidecode==1.1.1
 vcdvcd==1.0.5
 wget==3.2
