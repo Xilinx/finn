@@ -84,3 +84,6 @@ MANIFEST
 
 # PYNQ board files
 /board_files/
+
+# datasets for testing
+/dataset/
