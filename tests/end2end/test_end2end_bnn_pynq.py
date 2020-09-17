@@ -233,7 +233,7 @@ def measure_top1_accuracy(model_chkpt, dataset, parent_chkpt=None):
     else:
         parent_model = ModelWrapper(parent_chkpt)
         parent_iname = parent_model.graph.input[0].name
-        ishape = model.get_tensor_shape(parent_iname)
+        ishape = parent_model.get_tensor_shape(parent_iname)
     ok = 0
     nok = 0
     n_batches = testx.shape[0]
