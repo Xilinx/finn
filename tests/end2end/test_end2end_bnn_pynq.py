@@ -94,6 +94,7 @@ from finn.transformation.insert_topk import InsertTopK
 from finn.core.datatype import DataType
 from dataset_loading import mnist, cifar
 from datetime import datetime
+import subprocess
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 target_clk_ns = 10
@@ -290,6 +291,11 @@ class TestEnd2End:
         bo.export_finn_onnx(model, ishape, chkpt_name)
         dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         update_dashboard_data(topology, wbits, abits, "datetime", dtstr)
+        finn_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd="/workspace/finn"
+        )
+        finn_commit = finn_commit.decode("utf-8").strip()
+        update_dashboard_data(topology, wbits, abits, "finn-commit", finn_commit)
         assert os.path.isfile(chkpt_name)
 
     def test_import_and_tidy(self, topology, wbits, abits):
