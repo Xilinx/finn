@@ -93,6 +93,7 @@ from finn.transformation.merge_onnx_models import MergeONNXModels
 from finn.transformation.insert_topk import InsertTopK
 from finn.core.datatype import DataType
 from dataset_loading import mnist, cifar
+from datetime import datetime
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 target_clk_ns = 10
@@ -102,6 +103,18 @@ rtlsim_trace = False
 
 def get_checkpoint_name(topology, wbits, abits, step):
     return build_dir + "/end2end_%s_w%da%d_%s.onnx" % (topology, wbits, abits, step)
+
+
+def update_dashboard_data(topology, wbits, abits, key, val):
+    stats_file = build_dir + "/end2end_%s_w%da%d.txt" % (topology, wbits, abits)
+    stats_dict = dict()
+    if os.path.isfile(stats_file):
+        with open(stats_file, "r") as f:
+            stats_dict_txt = f.read()
+        stats_dict = eval(stats_dict_txt)
+    stats_dict[key] = val
+    with open(stats_file, "w") as f:
+        f.write(str(stats_dict))
 
 
 def fold_tfc(model):
@@ -275,6 +288,8 @@ class TestEnd2End:
         (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
         chkpt_name = get_checkpoint_name(topology, wbits, abits, "export")
         bo.export_finn_onnx(model, ishape, chkpt_name)
+        dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        update_dashboard_data(topology, wbits, abits, "datetime", dtstr)
         assert os.path.isfile(chkpt_name)
 
     def test_import_and_tidy(self, topology, wbits, abits):
@@ -450,7 +465,9 @@ class TestEnd2End:
         y = execute_parent(parent_chkpt, rtlsim_chkpt, input_tensor_npy)
         model = ModelWrapper(rtlsim_chkpt)
         perf["cycles_rtlsim"] = model.get_metadata_prop("cycles_rtlsim")
-        warnings.warn("Estimated & rtlsim performance: " + str(perf))
+        # warnings.warn("Estimated & rtlsim performance: " + str(perf))
+        for (k, v) in perf.items():
+            update_dashboard_data(topology, wbits, abits, k, v)
         assert np.isclose(y, output_tensor_npy).all()
 
     @pytest.mark.slow
@@ -502,14 +519,17 @@ class TestEnd2End:
         cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
         model = model.transform(AnnotateResources("synth"))
-        warnings.warn(
-            "Post-synthesis resources (excluding shell): "
-            + model.get_metadata_prop("res_total_synth")
-        )
-        warnings.warn(
-            "Post-synthesis resources (all inclusive): "
-            + model.get_metadata_prop("res_total_top_synth")
-        )
+        # warnings.warn(
+        #     "Post-synthesis resources (excluding shell): "
+        #     + model.get_metadata_prop("res_total_synth")
+        # )
+        # warnings.warn(
+        #     "Post-synthesis resources (all inclusive): "
+        #     + model.get_metadata_prop("res_total_top_synth")
+        # )
+        synth_dct = eval(model.get_metadata_prop("res_total_top_synth"))
+        for (k, v) in synth_dct.items():
+            update_dashboard_data(topology, wbits, abits, k, v)
         model.save(get_checkpoint_name(topology, wbits, abits, "build_" + kind))
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
@@ -599,3 +619,14 @@ class TestEnd2End:
             )
         ret_str += "\n" + "-----------------------------"
         warnings.warn(ret_str)
+        largest_bsize = bsize_range[-1]
+        update_dashboard_data(
+            topology, wbits, abits, "fclk[mhz]", ret[largest_bsize]["fclk[mhz]"]
+        )
+        update_dashboard_data(
+            topology,
+            wbits,
+            abits,
+            "throughput[images/s]",
+            ret[largest_bsize]["throughput[images/s]"],
+        )
