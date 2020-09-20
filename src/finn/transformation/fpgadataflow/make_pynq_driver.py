@@ -124,6 +124,13 @@ class MakePYNQDriver(Transformation):
 
         with open(driver_py, "w") as f:
             f.write(driver)
+
+        # add validate.py to run full top-1 test (only for suitable networks)
+        validate_py = pynq_driver_dir + "/validate.py"
+        validate_src = templates.pynq_validation_template
+        with open(validate_py, "w") as f:
+            f.write(validate_src)
+
         # copy all the dependencies into the driver folder
         shutil.copytree(
             get_finn_root() + "/src/finn/util", pynq_driver_dir + "/finn/util"
