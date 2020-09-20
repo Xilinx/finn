@@ -95,6 +95,8 @@ from finn.core.datatype import DataType
 from dataset_loading import mnist, cifar
 from datetime import datetime
 import subprocess
+from finn.util.gdrive import upload_to_end2end_dashboard
+from collections import OrderedDict
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 target_clk_ns = 10
@@ -106,14 +108,20 @@ def get_checkpoint_name(topology, wbits, abits, step):
     return build_dir + "/end2end_%s_w%da%d_%s.onnx" % (topology, wbits, abits, step)
 
 
-def update_dashboard_data(topology, wbits, abits, key, val):
+def get_dashboard_data(topology, wbits, abits):
     stats_file = build_dir + "/end2end_%s_w%da%d.txt" % (topology, wbits, abits)
-    stats_dict = dict()
+    stats_dict = OrderedDict()
     if os.path.isfile(stats_file):
         with open(stats_file, "r") as f:
             stats_dict_txt = f.read()
         stats_dict = eval(stats_dict_txt)
+    return stats_dict
+
+
+def update_dashboard_data(topology, wbits, abits, key, val):
+    stats_dict = get_dashboard_data(topology, wbits, abits)
     stats_dict[key] = val
+    stats_file = build_dir + "/end2end_%s_w%da%d.txt" % (topology, wbits, abits)
     with open(stats_file, "w") as f:
         f.write(str(stats_dict))
 
@@ -289,6 +297,8 @@ class TestEnd2End:
         (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
         chkpt_name = get_checkpoint_name(topology, wbits, abits, "export")
         bo.export_finn_onnx(model, ishape, chkpt_name)
+        nname = "%s_w%da%d" % (topology, wbits, abits)
+        update_dashboard_data(topology, wbits, abits, "network", nname)
         dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         update_dashboard_data(topology, wbits, abits, "datetime", dtstr)
         finn_commit = subprocess.check_output(
@@ -472,8 +482,11 @@ class TestEnd2End:
         model = ModelWrapper(rtlsim_chkpt)
         perf["cycles_rtlsim"] = model.get_metadata_prop("cycles_rtlsim")
         # warnings.warn("Estimated & rtlsim performance: " + str(perf))
-        for (k, v) in perf.items():
-            update_dashboard_data(topology, wbits, abits, k, v)
+        # for (k, v) in perf.items():
+        #    update_dashboard_data(topology, wbits, abits, k, v)
+        update_dashboard_data(
+            topology, wbits, abits, "cycles_rtlsim", perf["cycles_rtlsim"]
+        )
         assert np.isclose(y, output_tensor_npy).all()
 
     @pytest.mark.slow
@@ -525,17 +538,10 @@ class TestEnd2End:
         cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
         model = model.transform(AnnotateResources("synth"))
-        # warnings.warn(
-        #     "Post-synthesis resources (excluding shell): "
-        #     + model.get_metadata_prop("res_total_synth")
-        # )
-        # warnings.warn(
-        #     "Post-synthesis resources (all inclusive): "
-        #     + model.get_metadata_prop("res_total_top_synth")
-        # )
         synth_dct = eval(model.get_metadata_prop("res_total_top_synth"))
         for (k, v) in synth_dct.items():
             update_dashboard_data(topology, wbits, abits, k, v)
+        update_dashboard_data(topology, wbits, abits, "board", cfg["board"])
         model.save(get_checkpoint_name(topology, wbits, abits, "build_" + kind))
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
@@ -636,3 +642,10 @@ class TestEnd2End:
             "throughput[images/s]",
             ret[largest_bsize]["throughput[images/s]"],
         )
+
+    def test_upload_results_to_dashboard(self, topology, wbits, abits):
+        dashboard_data = get_dashboard_data(topology, wbits, abits)
+        if len(dashboard_data.keys()) > 0:
+            upload_to_end2end_dashboard(dashboard_data)
+        else:
+            pytest.skip("No data to upload to dashboard")
