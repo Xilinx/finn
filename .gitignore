@@ -88,3 +88,6 @@ MANIFEST
 # datasets for testing
 /dataset/
 /data/
+
+# Google Drive key for dashboard
+/gdrive-key/
