@@ -106,9 +106,6 @@ class MergeONNXModels(Transformation):
             output_a_shape == input_b_shape
         ), "Models can't be merged! Shapes don't match."
 
-        pre_model.save("pre.onnx")
-        post_model.save("post.onnx")
-
         # connect output of one model to input of the other
         for n in pre_model.graph.node:
             if output_model_a == n.output[0]:
