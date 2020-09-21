@@ -4,33 +4,23 @@
 Example Networks
 ****************
 
-FINN uses `several pre-trained QNNs <https://github.com/Xilinx/brevitas/tree/master/brevitas_examples/bnn_pynq>`_ that serve as examples and testcases.
-You can find a status summary below for each network.
+FINN uses <a href="https://github.com/Xilinx/brevitas/tree/master/brevitas_examples/bnn_pynq">
+several pre-trained QNNs</a>
+that serve as examples and testcases.
 
 * TFC, SFC, LFC... are fully-connected networks trained on the MNIST dataset
 * CNV is a convolutional network trained on the CIFAR-10 dataset
 * w\_a\_ refers to the quantization used for the weights (w) and activations (a) in bits
 
-The rows in the table are different steps of the FINN end-to-end flow.
-If a particular network is supported for a particular step in the current FINN
-version, this is indicated by an x mark in the table.
+These networks are built end-to-end as part of the <a href="https://github.com/Xilinx/finn/blob/master/tests/end2end/test_end2end_bnn_pynq.py">FINN integration tests</a>,
+and the key performance indicators (FPGA resource, frames per second...) are
+automatically posted to the dashboard below.
+To implement a new network, you can use the <a href="https://github.com/Xilinx/finn/blob/dev/tests/end2end/test_end2end_bnn_pynq.py">
+integration test code</a> as a starting point, as well as the relevant
+<a href="https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example">
+Jupyter notebooks.</a>
 
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
-| FINN step             | Basic test | TFC-w1a1 | TFC-w1a2 | TFC-w2a2 | CNV-w1a1 | CNV-w1a2 | CNV-w2a2 |
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
-| Export/Import         | x          | x        | x        | x        | x        |    x     |     x    |
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
-| Streamlining          | x          | x        | x        | x        | x        |          |     x    |
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
-| Convert to HLS layers | x          | x        | x        | x        | x        |          |     x    |
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
-| Stitched IP           | x          | x        | x        | x        | x        |          |     x    |
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
-| Hardware test         | x          | x        | x        |          | x        |          |     x    |
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
-| cppsim                | x          | x        | x        | x        | x        |          |     x    |
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
-| rtlsim node-by-node   | x          | x        | x        | x        | x        |          |     x    |
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
-| rtlsim stitched IP    | x          | x        | x        | x        | x        |          |     x    |
-+-----------------------+------------+----------+----------+----------+----------+----------+----------+
+<a href="https://bit.ly/finn-end2end-dashboard">
+  <img src="https://firebasestorage.googleapis.com/v0/b/drive-assets.google.com.a.appspot.com/o/Asset%20-%20Drive%20Icon512.png?alt=media" width="50" align="center" />
+  FINN end-to-end dashboard on Google Drive
+</a>
