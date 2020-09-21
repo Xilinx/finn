@@ -19,7 +19,7 @@ as a starting point, as well as the `relevant Jupyter notebooks
 <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example>`_.
 
 .. image:: https://firebasestorage.googleapis.com/v0/b/drive-assets.google.com.a.appspot.com/o/Asset%20-%20Drive%20Icon512.png?alt=media
-  :scale: 10%
+  :width: 50
   :align: left
 
 `FINN end-to-end dashboard on Google Drive <https://bit.ly/finn-end2end-dashboard>`_
