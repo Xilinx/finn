@@ -21,7 +21,7 @@ UltraScale+ platforms.
 You can read more about the new hardware build transformations
 <a href="https://finn.readthedocs.io/en/latest/hw_build.html">here</a>.
 
-<img src="https://xilinx.github.io/finn/img/finn-dashboard.png" width="300" align="center"/>
+<img src="https://xilinx.github.io/finn/img/finn-dashboard.png" width="450" align="center"/>
 
 **Fully-accelerated end-to-end examples + dashboard.** The FINN end-to-end example networks
 are now fully accelerated on the FPGA, allowing raw images to be directly fed in
@@ -32,16 +32,16 @@ examples, including FPGA resources and performance.
 This also enables running full-performance accuracy validation on hardware,
 which is now incorporated into the <a href="https://github.com/Xilinx/finn/blob/master/notebooks/end2end_example/tfc_end2end_example.ipynb#validation">end-to-end notebooks</a>.
 
-<img src="https://xilinx.github.io/finn/img/finn-brevitas-debug.png" width="300" align="center"/>
+<img src="https://xilinx.github.io/finn/img/finn-brevitas-debug.png" width="450" align="center"/>
 
 **Brevitas-FINN co-debug support.** We can now export graphs from Brevitas with special DebugMarker nodes (like above) and PyTorch forward hooks to compare intermediate activations between the Brevitas version and FINN-ONNX exported version. This is handy for debugging especially larger networks when they don't export correctly. <a href="https://github.com/Xilinx/finn/blob/dev/tests/brevitas/test_brevitas_debug.py">Here</a> is an example of how to use this.
 
-<img src="https://xilinx.github.io/finn/img/accumulator-minimization.png" width="300" align="center"/>
+<img src="https://xilinx.github.io/finn/img/accumulator-minimization.png" width="450" align="center"/>
 
 **Accumulator minimization.** When converting to HLS layers, FINN will now automatically try to pick a minimal bitwidth for each accumulator, based on the precision and size of the dot product it accumulates over. While prior accumulators were at a fixed bitwidth like
 32-bits, the new approach can significantly save on resources by picking e.g. 10-bit accumulators (as per above) where possible. We've also expanded the range of DataTypes available in FINN to cover everything between 1-32 bits to provide more flexibility.
 
-<img src="https://xilinx.github.io/finn/img/finn-cycle-estimate.png" width="300" align="center"/>
+<img src="https://xilinx.github.io/finn/img/finn-cycle-estimate.png" width="450" align="center"/>
 
 **New layers and cycle estimation.** We've been working on supporting more of the finn-hlslib layers in FINN and
 <a href="https://github.com/Xilinx/finn/tree/dev/src/finn/custom_op/fpgadataflow">the list</a>  has expanded significantly.
