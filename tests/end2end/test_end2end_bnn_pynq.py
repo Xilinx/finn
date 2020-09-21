@@ -63,12 +63,16 @@ from finn.util.test import (
     get_example_input,
     get_trained_network_and_ishape,
     execute_parent,
+    get_topk,
 )
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.transformation.streamline.reorder import (
+    MakeMaxPoolNHWC,
+    MoveScalarLinearPastInvariants,
+)
 import warnings
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -85,6 +89,15 @@ from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.modelwrapper import ModelWrapper
 from scipy.stats import linregress
 from finn.core.throughput_test import throughput_test_remote, throughput_test_rtlsim
+from finn.util.pytorch import ToTensor
+from finn.transformation.merge_onnx_models import MergeONNXModels
+from finn.transformation.insert_topk import InsertTopK
+from finn.core.datatype import DataType
+from dataset_loading import mnist, cifar
+from datetime import datetime
+import subprocess
+from finn.util.gdrive import upload_to_end2end_dashboard
+from collections import OrderedDict
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 target_clk_ns = 10
@@ -94,6 +107,24 @@ rtlsim_trace = False
 
 def get_checkpoint_name(topology, wbits, abits, step):
     return build_dir + "/end2end_%s_w%da%d_%s.onnx" % (topology, wbits, abits, step)
+
+
+def get_dashboard_data(topology, wbits, abits):
+    stats_file = build_dir + "/end2end_%s_w%da%d.txt" % (topology, wbits, abits)
+    stats_dict = OrderedDict()
+    if os.path.isfile(stats_file):
+        with open(stats_file, "r") as f:
+            stats_dict_txt = f.read()
+        stats_dict = eval(stats_dict_txt)
+    return stats_dict
+
+
+def update_dashboard_data(topology, wbits, abits, key, val):
+    stats_dict = get_dashboard_data(topology, wbits, abits)
+    stats_dict[key] = val
+    stats_file = build_dir + "/end2end_%s_w%da%d.txt" % (topology, wbits, abits)
+    with open(stats_file, "w") as f:
+        f.write(str(stats_dict))
 
 
 def fold_tfc(model):
@@ -112,6 +143,10 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("inFIFODepth", ififo)
         fcl_inst.set_nodeattr("outFIFODepth", ofifo)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
+    # set parallelism for input quantizer to be same as first layer's SIMD
+    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
+    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt.set_nodeattr("PE", 49)
     return model
 
 
@@ -188,12 +223,69 @@ def get_folding_function(topology, wbits, abits):
         raise Exception("Unknown topology/quantization combo for predefined folding")
 
 
-def get_golden_io_pair(topology, wbits, abits):
+def get_golden_io_pair(topology, wbits, abits, preproc=ToTensor(), return_topk=None):
     (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
     input_tensor_npy = get_example_input(topology)
     input_tensor_torch = torch.from_numpy(input_tensor_npy).float()
+    if preproc is not None:
+        input_tensor_torch = preproc.forward(input_tensor_torch).detach()
     output_tensor_npy = model.forward(input_tensor_torch).detach().numpy()
+    if return_topk is not None:
+        output_tensor_npy = get_topk(output_tensor_npy, k=return_topk)
     return (input_tensor_npy, output_tensor_npy)
+
+
+def measure_top1_accuracy(model_chkpt, dataset, parent_chkpt=None):
+    if dataset == "cifar10":
+        trainx, trainy, testx, testy, valx, valy = cifar.load_cifar_data(
+            "/workspace/finn/dataset", download=True, one_hot=False
+        )
+    elif dataset == "mnist":
+        trainx, trainy, testx, testy, valx, valy = mnist.load_mnist_data(
+            "/workspace/finn/dataset", download=True, one_hot=False
+        )
+    else:
+        raise Exception("Unrecognized dataset")
+    # move from dataset_loader layout to ONNX layout: NHWC -> NCHW
+    testx = testx.transpose(0, 3, 1, 2)
+    model = ModelWrapper(model_chkpt)
+    iname = model.graph.input[0].name
+    oname = model.graph.output[0].name
+    if parent_chkpt is None:
+        ishape = model.get_tensor_shape(iname)
+    else:
+        parent_model = ModelWrapper(parent_chkpt)
+        parent_iname = parent_model.graph.input[0].name
+        ishape = parent_model.get_tensor_shape(parent_iname)
+    ok = 0
+    nok = 0
+    n_batches = testx.shape[0]
+    for i in range(n_batches):
+        tdata = testx[i].reshape(ishape).astype(np.float32)
+        exp = testy[i].item()
+        if parent_chkpt is not None:
+            y = execute_parent(parent_chkpt, model_chkpt, tdata)
+        else:
+            y = execute_onnx(model, {iname: tdata}, False)[oname]
+        ret = y.item()
+        if ret == exp:
+            ok += 1
+        else:
+            nok += 1
+        if i % 10 == 0:
+            print("%d : OK %d NOK %d " % (i, ok, nok))
+    acc_top1 = ok * 100.0 / (ok + nok)
+    warnings.warn("Final OK %d NOK %d top-1 %f" % (ok, nok, acc_top1))
+    return acc_top1
+
+
+def topology2dataset(topology):
+    if "fc" in topology:
+        return "mnist"
+    elif "cnv" in topology:
+        return "cifar10"
+    else:
+        raise Exception("Unrecognized topology")
 
 
 @pytest.mark.parametrize("wbits", [1, 2])
@@ -206,6 +298,15 @@ class TestEnd2End:
         (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
         chkpt_name = get_checkpoint_name(topology, wbits, abits, "export")
         bo.export_finn_onnx(model, ishape, chkpt_name)
+        nname = "%s_w%da%d" % (topology, wbits, abits)
+        update_dashboard_data(topology, wbits, abits, "network", nname)
+        dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        update_dashboard_data(topology, wbits, abits, "datetime", dtstr)
+        finn_commit = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd="/workspace/finn"
+        )
+        finn_commit = finn_commit.decode("utf-8").strip()
+        update_dashboard_data(topology, wbits, abits, "finn-commit", finn_commit)
         assert os.path.isfile(chkpt_name)
 
     def test_import_and_tidy(self, topology, wbits, abits):
@@ -217,11 +318,43 @@ class TestEnd2End:
         model = model.transform(GiveReadableTensorNames())
         model = model.transform(InferDataTypes())
         model = model.transform(RemoveStaticGraphInputs())
-        model.save(get_checkpoint_name(topology, wbits, abits, "import_and_tidy"))
+        chkpt = get_checkpoint_name(topology, wbits, abits, "import_and_tidy")
+        model.save(chkpt)
 
-    def test_streamline(self, topology, wbits, abits):
+    def test_add_pre_and_postproc(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "import_and_tidy")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        global_inp_name = model.graph.input[0].name
+        ishape = model.get_tensor_shape(global_inp_name)
+        # preprocessing: torchvision's ToTensor divides uint8 inputs by 255
+        totensor_pyt = ToTensor()
+        chkpt_preproc_name = get_checkpoint_name(topology, wbits, abits, "preproc")
+        bo.export_finn_onnx(totensor_pyt, ishape, chkpt_preproc_name)
+        assert os.path.isfile(chkpt_preproc_name)
+        # join preprocessing and core model
+        pre_model = ModelWrapper(chkpt_preproc_name)
+        model = model.transform(MergeONNXModels(pre_model))
+        # add input quantization annotation: UINT8 for all BNN-PYNQ models
+        global_inp_name = model.graph.input[0].name
+        model.set_tensor_datatype(global_inp_name, DataType.UINT8)
+        # postprocessing: insert Top-1 node at the end
+        model = model.transform(InsertTopK(k=1))
+        chkpt_name = get_checkpoint_name(topology, wbits, abits, "pre_post")
+        # tidy-up again
+        model = model.transform(InferShapes())
+        model = model.transform(FoldConstants())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(InferDataTypes())
+        model = model.transform(RemoveStaticGraphInputs())
+        model.save(chkpt_name)
+        assert os.path.isfile(chkpt_name)
+
+    def test_streamline(self, topology, wbits, abits):
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "pre_post")
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        # move past any reshapes to be able to streamline input scaling
+        model = model.transform(MoveScalarLinearPastInvariants())
         model = model.transform(Streamline())
         if "fc" not in topology:
             model = model.transform(LowerConvsToMatMul())
@@ -229,6 +362,9 @@ class TestEnd2End:
             model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
         model = model.transform(ConvertBipolarMatMulToXnorPopcount())
         model = model.transform(Streamline())
+        # absorb final add-mul nodes into TopK
+        model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
+        model = model.transform(InferDataLayouts())
         model = model.transform(RemoveUnusedTensors())
         model.save(get_checkpoint_name(topology, wbits, abits, "streamline"))
 
@@ -239,11 +375,17 @@ class TestEnd2End:
         model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
         # needed for non-bipolar MatMul layers
         model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
+        # TopK to LabelSelect
+        model = model.transform(to_hls.InferLabelSelectLayer())
+        # input quantization (if any) to standalone thresholding
+        model = model.transform(to_hls.InferThresholdingLayer())
         # needed for convolutions
         if "fc" not in topology:
             model = model.transform(to_hls.InferConvInpGen())
             model = model.transform(to_hls.InferStreamingMaxPool())
             model = model.transform(RemoveCNVtoFCFlatten())
+        # get rid of Tranpose -> Tranpose identity seq
+        model = model.transform(absorb.AbsorbConsecutiveTransposes())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(InferDataLayouts())
         model.save(get_checkpoint_name(topology, wbits, abits, "convert_to_hls_layers"))
@@ -286,7 +428,7 @@ class TestEnd2End:
         model.save(cppsim_chkpt)
         parent_chkpt = get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
         (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
-            topology, wbits, abits
+            topology, wbits, abits, return_topk=1
         )
         y = execute_parent(parent_chkpt, cppsim_chkpt, input_tensor_npy)
         assert np.isclose(y, output_tensor_npy).all()
@@ -295,6 +437,8 @@ class TestEnd2End:
     @pytest.mark.vivado
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_ipgen(self, topology, wbits, abits, kind):
+        if kind == "alveo" and ("VITIS_PATH" not in os.environ):
+            pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fold")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(kind, target_clk_ns)["part"]
@@ -315,7 +459,7 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    @pytest.mark.parametrize("kind", ["zynq"])
     def test_ipstitch_rtlsim(self, topology, wbits, abits, kind):
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, "fifodepth_" + kind
@@ -345,17 +489,22 @@ class TestEnd2End:
         model.save(rtlsim_chkpt)
         parent_chkpt = get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
         (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
-            topology, wbits, abits
+            topology, wbits, abits, return_topk=1
         )
         y = execute_parent(parent_chkpt, rtlsim_chkpt, input_tensor_npy)
         model = ModelWrapper(rtlsim_chkpt)
         perf["cycles_rtlsim"] = model.get_metadata_prop("cycles_rtlsim")
-        warnings.warn("Estimated & rtlsim performance: " + str(perf))
+        # warnings.warn("Estimated & rtlsim performance: " + str(perf))
+        # for (k, v) in perf.items():
+        #    update_dashboard_data(topology, wbits, abits, k, v)
+        update_dashboard_data(
+            topology, wbits, abits, "cycles_rtlsim", perf["cycles_rtlsim"]
+        )
         assert np.isclose(y, output_tensor_npy).all()
 
     @pytest.mark.slow
     @pytest.mark.vivado
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    @pytest.mark.parametrize("kind", ["zynq"])
     def test_throughput_rtlsim(self, topology, wbits, abits, kind):
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, "ipstitch_rtlsim_" + kind
@@ -373,6 +522,25 @@ class TestEnd2End:
 
     @pytest.mark.slow
     @pytest.mark.vivado
+    @pytest.mark.parametrize("kind", ["zynq"])
+    def test_validate_top1(self, topology, wbits, abits, kind):
+        if "TEST_END2END_VALIDATE_TOP1" not in os.environ:
+            pytest.skip("TEST_END2END_VALIDATE_TOP1 not set")
+        prepostproc_chkpt = get_checkpoint_name(topology, wbits, abits, "pre_post")
+        streamline_chkpt = get_checkpoint_name(topology, wbits, abits, "streamline")
+        parent_chkpt = get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
+        cppsim_chkpt = get_checkpoint_name(topology, wbits, abits, "cppsim")
+        rtlsim_chkpt = get_checkpoint_name(
+            topology, wbits, abits, "ipstitch_rtlsim_" + kind
+        )
+        dataset = topology2dataset(topology)
+        assert measure_top1_accuracy(prepostproc_chkpt, dataset) > 80
+        assert measure_top1_accuracy(streamline_chkpt, dataset) > 80
+        assert measure_top1_accuracy(cppsim_chkpt, dataset, parent_chkpt) > 80
+        assert measure_top1_accuracy(rtlsim_chkpt, dataset, parent_chkpt) > 80
+
+    @pytest.mark.slow
+    @pytest.mark.vivado
     @pytest.mark.vitis
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_build(self, topology, wbits, abits, kind):
@@ -385,14 +553,10 @@ class TestEnd2End:
         cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
         model = model.transform(AnnotateResources("synth"))
-        warnings.warn(
-            "Post-synthesis resources (excluding shell): "
-            + model.get_metadata_prop("res_total_synth")
-        )
-        warnings.warn(
-            "Post-synthesis resources (all inclusive): "
-            + model.get_metadata_prop("res_total_top_synth")
-        )
+        synth_dct = eval(model.get_metadata_prop("res_total_top_synth"))
+        for (k, v) in synth_dct.items():
+            update_dashboard_data(topology, wbits, abits, k, v)
+        update_dashboard_data(topology, wbits, abits, "board", cfg["board"])
         model.save(get_checkpoint_name(topology, wbits, abits, "build_" + kind))
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
@@ -415,14 +579,14 @@ class TestEnd2End:
         model.save(get_checkpoint_name(topology, wbits, abits, "deploy_" + kind))
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    def test_run_on_pynq(self, topology, wbits, abits, kind):
+    def test_run_on_hw(self, topology, wbits, abits, kind):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "deploy_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)  # NOQA
         cfg = get_build_env(kind, target_clk_ns)
         if cfg["ip"] == "":
             pytest.skip("PYNQ board IP address not specified")
         (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
-            topology, wbits, abits
+            topology, wbits, abits, return_topk=1
         )
         parent_model = load_test_checkpoint_or_skip(
             get_checkpoint_name(topology, wbits, abits, "dataflow_parent")
@@ -431,9 +595,7 @@ class TestEnd2End:
         oname = parent_model.graph.output[0].name
         sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
         sdp_node = getCustomOp(sdp_node)
-        sdp_chkpt = get_checkpoint_name(topology, wbits, abits, "deploy")
-        load_test_checkpoint_or_skip(sdp_chkpt)
-        sdp_node.set_nodeattr("model", sdp_chkpt)
+        sdp_node.set_nodeattr("model", prev_chkpt_name)
         ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
         y = ret[oname]
         assert np.isclose(y, output_tensor_npy).all()
@@ -484,3 +646,21 @@ class TestEnd2End:
             )
         ret_str += "\n" + "-----------------------------"
         warnings.warn(ret_str)
+        largest_bsize = bsize_range[-1]
+        update_dashboard_data(
+            topology, wbits, abits, "fclk[mhz]", ret[largest_bsize]["fclk[mhz]"]
+        )
+        update_dashboard_data(
+            topology,
+            wbits,
+            abits,
+            "throughput[images/s]",
+            ret[largest_bsize]["throughput[images/s]"],
+        )
+
+    def test_upload_results_to_dashboard(self, topology, wbits, abits):
+        dashboard_data = get_dashboard_data(topology, wbits, abits)
+        if len(dashboard_data.keys()) > 0:
+            upload_to_end2end_dashboard(dashboard_data)
+        else:
+            pytest.skip("No data to upload to dashboard")

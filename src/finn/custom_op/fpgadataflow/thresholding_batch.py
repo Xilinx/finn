@@ -73,6 +73,8 @@ class Thresholding_Batch(HLSCustomOp):
             # [4] is four vectors (like a FC layer with batch=4)
             # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
             "numInputVectors": ("ints", False, [1]),
+            # initialization value for the thresholding accumulator
+            "ActVal": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -321,7 +323,7 @@ class Thresholding_Batch(HLSCustomOp):
                 threshold_tensor.shape[-1],
                 tdt_hls,
                 odt_hls,
-                export_odt.min(),
+                self.get_nodeattr("ActVal"),
                 "std::less_equal<%s>" % tdt_hls,
             )
         )

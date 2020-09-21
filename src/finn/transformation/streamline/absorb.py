@@ -424,8 +424,9 @@ class AbsorbTransposeIntoFlatten(Transformation):
         return (model, graph_modified)
 
 
-class AbsorbScalarMulIntoTopK(Transformation):
-    """Absorb a mul node into a suceeding topk node if the mul is scalar."""
+class AbsorbScalarMulAddIntoTopK(Transformation):
+    """Remove mul/add node prior to topk node if the op is scalar. Note that
+    the TopK output probabilities will change, but the indices won't."""
 
     def apply(self, model):
         graph = model.graph
@@ -435,14 +436,17 @@ class AbsorbScalarMulIntoTopK(Transformation):
             node_ind += 1
             if n.op_type == "TopK":
                 prod = model.find_producer(n.input[0])
-                if prod is not None and prod.op_type == "Mul":
+                if prod is not None and (prod.op_type in ["Mul", "Add"]):
                     prod_input = prod.input[0]
                     param_name = prod.input[1]
                     A = model.get_initializer(param_name)
                     if A is None:
                         warnings.warn("Param is not constant, skipping")
                         continue
-                    if all(x == 1 for x in A.shape) and A > 0:
+                    is_scalar = all(x == 1 for x in A.shape)
+                    is_scalar_pos_mul = is_scalar and (prod.op_type == "Mul") and A > 0
+                    is_scalar_add = is_scalar and (prod.op_type == "Add")
+                    if is_scalar_pos_mul or is_scalar_add:
                         # if the mul is scalar and positive, we can just delete the
                         # mul node and rewire the top k node. Because the top k node
                         # works with probabilities and their relation to each other
