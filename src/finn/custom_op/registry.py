@@ -31,6 +31,7 @@
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
 )
+from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.streamingfclayer_batch import StreamingFCLayer_Batch
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
@@ -43,11 +44,26 @@ from finn.custom_op.maxpoolnhwc import MaxPoolNHWC
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
+from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
+from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
+from finn.custom_op.fpgadataflow.fmpadding_batch import FMPadding_Batch
+from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
+from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
+from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
+from finn.custom_op.quantavgpool2d import QuantAvgPool2d
+from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
+from finn.custom_op.fpgadataflow.vector_vector_activate_batch import (
+    Vector_Vector_Activate_Batch,
+)
+from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
+from finn.custom_op.fpgadataflow.iodma import IODMA
+from finn.custom_op.debugmarker import DebugMarker
 
 # create a mapping of all known CustomOp names and classes
 custom_op = {}
 
 custom_op["MultiThreshold"] = MultiThreshold
+custom_op["DownSampler"] = DownSampler
 custom_op["XnorPopcountMatMul"] = XnorPopcountMatMul
 custom_op["Im2Col"] = Im2Col
 custom_op["StreamingMaxPool_Batch"] = StreamingMaxPool_Batch
@@ -58,6 +74,18 @@ custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 custom_op["MaxPoolNHWC"] = MaxPoolNHWC
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
 custom_op["StreamingFIFO"] = StreamingFIFO
+custom_op["GlobalAccPool_Batch"] = GlobalAccPool_Batch
+custom_op["Pool_Batch"] = Pool_Batch
+custom_op["FMPadding_Batch"] = FMPadding_Batch
+custom_op["Thresholding_Batch"] = Thresholding_Batch
+custom_op["AddStreams_Batch"] = AddStreams_Batch
+custom_op["LabelSelect_Batch"] = LabelSelect_Batch
+custom_op["QuantAvgPool2d"] = QuantAvgPool2d
+custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
+custom_op["Vector_Vector_Activate_Batch"] = Vector_Vector_Activate_Batch
+custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
+custom_op["IODMA"] = IODMA
+custom_op["DebugMarker"] = DebugMarker
 
 
 def getCustomOp(node):

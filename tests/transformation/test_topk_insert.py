@@ -1,3 +1,4 @@
+import os
 import onnx
 from finn.util.test import get_test_model_trained
 import brevitas.onnx as bo
@@ -17,10 +18,10 @@ from pkgutil import get_data
 
 import pytest
 
-export_onnx_path = "test_output_lfc.onnx"
+export_onnx_path = "test_topk_insert.onnx"
 
 
-@pytest.mark.parametrize("k", [1, 5, 10])
+@pytest.mark.parametrize("k", [1, 2])
 def test_topk_insert(k):
     tfc = get_test_model_trained("TFC", 1, 1)
     bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
@@ -56,3 +57,4 @@ def test_topk_insert(k):
     output_pysim_topk = output_pysim_topk.astype(np.int).flatten()
 
     assert np.array_equal(output_golden_topk, output_pysim_topk)
+    os.remove(export_onnx_path)

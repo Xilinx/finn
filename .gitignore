@@ -76,13 +76,18 @@ MANIFEST
 # Per-project virtualenvs
 .venv*/
 
-# Cloned dependencies for Docker
-/brevitas/
-/brevitas_cnv_lfc/
-/cnpy/
-/finn-hlslib/
-/pyverilator/
-/PYNQ-HelloWorld/
-
 # Jenkins cfg dir
 /docker/jenkins_home
+
+# SSH key dir mounted into Docker
+/ssh_keys/
+
+# PYNQ board files
+/board_files/
+
+# datasets for testing
+/dataset/
+/data/
+
+# Google Drive key for dashboard
+/gdrive-key/

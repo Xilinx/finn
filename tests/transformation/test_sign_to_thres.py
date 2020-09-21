@@ -40,12 +40,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import ConvertSignToThres
 from finn.util.test import get_test_model_trained
 
-export_onnx_path = "test_output_lfc.onnx"
-transformed_onnx_path = "test_output_lfc_transformed.onnx"
-# TODO get from config instead, hardcoded to Docker path for now
-trained_lfc_checkpoint = (
-    "/workspace/brevitas_cnv_lfc/pretrained_models/LFC_1W1A/checkpoints/best.tar"
-)
+export_onnx_path = "test_sign_to_thres.onnx"
 
 
 def test_sign_to_thres():

@@ -34,7 +34,7 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-
+import pytest
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -52,10 +52,10 @@ from finn.transformation.streamline.round_thresholds import RoundAndClipThreshol
 from finn.util.test import get_test_model_trained
 
 
-export_onnx_path = "test_output_tfc.onnx"
-export_onnx_path_cnv = "test_output_cnv.onnx"
+export_onnx_path = "test_convert_to_hls_layers_fc.onnx"
 
 
+@pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a1():
     tfc = get_test_model_trained("TFC", 1, 1)
     bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
@@ -89,7 +89,6 @@ def test_convert_to_hls_layers_tfc_w1a1():
     assert fc3.op_type == "StreamingFCLayer_Batch"
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
-    os.remove(export_onnx_path)
 
     fc0w = getCustomOp(fc0)
     fc0w.set_nodeattr("SIMD", 784)
@@ -123,8 +122,10 @@ def test_convert_to_hls_layers_tfc_w1a1():
     # do forward pass in PyTorch/Brevitas
     expected = tfc.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
+    os.remove(export_onnx_path)
 
 
+@pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a2():
     tfc = get_test_model_trained("TFC", 1, 2)
     bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)

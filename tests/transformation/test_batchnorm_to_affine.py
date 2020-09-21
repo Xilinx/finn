@@ -41,7 +41,6 @@ from finn.transformation.batchnorm_to_affine import BatchNormToAffine
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
 
 export_onnx_path = "test_output_bn2affine.onnx"
 
@@ -50,7 +49,6 @@ def test_batchnorm_to_affine_cnv_w1a1():
     lfc = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(lfc, (1, 3, 32, 32), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
-    model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")

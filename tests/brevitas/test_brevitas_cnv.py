@@ -38,11 +38,10 @@ import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
+from finn.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
 from finn.util.test import get_test_model_trained
 
-export_onnx_path = "test_output_cnv.onnx"
+export_onnx_path = "test_brevitas_cnv.onnx"
 
 
 @pytest.mark.parametrize("abits", [1, 2])
@@ -54,9 +53,11 @@ def test_brevitas_cnv_export_exec(wbits, abits):
     bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
+    model = model.transform(RemoveStaticGraphInputs())
+    assert len(model.graph.input) == 1
+    assert len(model.graph.output) == 1
     fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
     input_tensor = input_tensor / 255

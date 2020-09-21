@@ -56,8 +56,15 @@ class CustomOp(ABC):
                     ret = ret.decode("utf-8")
                 return ret
             else:
-                # not set, return default value
-                return def_val
+                if req:
+                    raise Exception(
+                        """Required attribute %s unspecified in
+                    a %s node"""
+                        % (name, self.onnx_node.op_type)
+                    )
+                else:
+                    # not set, return default value
+                    return def_val
         except KeyError:
             raise AttributeError("Op has no such attribute: " + name)
 

@@ -27,13 +27,36 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m' # No Color
+
+# green echo
+gecho () {
+  echo -e "${GREEN}$1${NC}"
+}
+
+# red echo
+recho () {
+  echo -e "${RED}$1${NC}"
+}
+
 if [ -z "$VIVADO_PATH" ];then
-        echo "For correct implementation please set an environment variable VIVADO_PATH that contains the path to your vivado installation directory"
-        exit 1
+        recho "Please set the VIVADO_PATH that contains the path to your Vivado installation directory."
+        recho "FINN functionality depending on Vivado or Vivado HLS will not be available."
 fi
 
 if [ -z "$PYNQ_IP" ];then
-        echo "Please set the PYNQ_IP env.var. to enable PYNQ deployment tests."
+        recho "Please set the PYNQ_IP env.var. to enable PYNQ deployment tests."
+fi
+
+if [ -z "$VITIS_PATH" ];then
+        recho "Please set the VITIS_PATH that contains the path to your Vitis installation directory."
+        recho "FINN functionality depending on Vitis will not be available."
+else
+    if [ -z "$PLATFORM_REPO_PATHS" ];then
+            recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
+    fi
 fi
 
 DOCKER_GID=$(id -g)
@@ -51,6 +74,11 @@ DOCKER_INST_NAME="finn_dev_${DOCKER_UNAME}"
 # ensure Docker tag and inst. name are all lowercase
 DOCKER_TAG=$(echo "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')
 DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
+# Absolute path to this script, e.g. /home/user/bin/foo.sh
+SCRIPT=$(readlink -f "$0")
+# Absolute path this script is in, thus /home/user/bin
+SCRIPTPATH=$(dirname "$SCRIPT")
+
 # the settings below will be taken from environment variables if available,
 # otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
@@ -60,11 +88,13 @@ DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
 : ${PYNQ_BOARD="Pynq-Z1"}
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 : ${NUM_DEFAULT_WORKERS=1}
-
-# Absolute path to this script, e.g. /home/user/bin/foo.sh
-SCRIPT=$(readlink -f "$0")
-# Absolute path this script is in, thus /home/user/bin
-SCRIPTPATH=$(dirname "$SCRIPT")
+: ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
+: ${ALVEO_USERNAME="alveo_user"}
+: ${ALVEO_PASSWORD=""}
+: ${ALVEO_BOARD="U250"}
+: ${ALVEO_TARGET_DIR="/tmp"}
+: ${XILINX_XRT="/opt/xilinx/xrt"}
+: ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 
 BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
@@ -73,24 +103,32 @@ VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
 # ensure build dir exists locally
 mkdir -p $BUILD_LOCAL
 mkdir -p $VIVADO_IP_CACHE
+mkdir -p $FINN_SSH_KEY_DIR
 
-echo "Instance is named as $DOCKER_INST_NAME"
-echo "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
-echo "Mounting $VIVADO_PATH into $VIVADO_PATH"
-echo "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
-echo "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
-echo "Vivado IP cache dir is at $VIVADO_IP_CACHE"
-echo "Using default PYNQ board $PYNQ_BOARD"
+gecho "Instance is named as $DOCKER_INST_NAME"
+gecho "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
+gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
+gecho "Mounting $VITIS_PATH into $VITIS_PATH"
+gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
+gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
+gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
+gecho "Using default PYNQ board $PYNQ_BOARD"
+
+DOCKER_INTERACTIVE=""
 
 if [ "$1" = "test" ]; then
-        echo "Running test suite"
+        gecho "Running test suite (all tests)"
         DOCKER_CMD="python setup.py test"
+elif [ "$1" = "quicktest" ]; then
+        gecho "Running test suite (non-Vivado, non-slow tests)"
+        DOCKER_CMD="quicktest.sh"
 elif [ "$1" = "notebook" ]; then
-        echo "Running Jupyter notebook server"
+        gecho "Running Jupyter notebook server"
         DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
 else
-        echo "Running container only"
+        gecho "Running container only"
         DOCKER_CMD="bash"
+        DOCKER_INTERACTIVE="-it"
 fi
 
 # Build the FINN Docker image
@@ -106,23 +144,49 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-docker run -t --rm --name $DOCKER_INST_NAME -it --init \
---hostname $DOCKER_INST_NAME \
--e "XILINX_VIVADO=$VIVADO_PATH" \
--e "SHELL=/bin/bash" \
--v $SCRIPTPATH:/workspace/finn \
--v $BUILD_LOCAL:$BUILD_LOCAL \
--v $VIVADO_PATH:$VIVADO_PATH \
--e VIVADO_PATH=$VIVADO_PATH \
--e FINN_INST_NAME=$DOCKER_INST_NAME \
--e FINN_ROOT="/workspace/finn" \
--e VIVADO_IP_CACHE="$VIVADO_IP_CACHE" \
--e PYNQ_BOARD=$PYNQ_BOARD \
--e PYNQ_IP=$PYNQ_IP \
--e PYNQ_USERNAME=$PYNQ_USERNAME \
--e PYNQ_PASSWORD=$PYNQ_PASSWORD \
--e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR \
--e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS \
--p $JUPYTER_PORT:$JUPYTER_PORT \
--p $NETRON_PORT:$NETRON_PORT \
-$DOCKER_TAG $DOCKER_CMD
+DOCKER_EXEC="docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --init "
+DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
+DOCKER_EXEC+="-e SHELL=/bin/bash "
+DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
+DOCKER_EXEC+="-v $BUILD_LOCAL:$BUILD_LOCAL "
+DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/home/$DOCKER_UNAME/.ssh "
+DOCKER_EXEC+="-e FINN_INST_NAME=$DOCKER_INST_NAME "
+DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
+DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
+DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "
+DOCKER_EXEC+="-e PYNQ_IP=$PYNQ_IP "
+DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
+DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
+DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
+DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
+DOCKER_EXEC+="-p $JUPYTER_PORT:$JUPYTER_PORT "
+DOCKER_EXEC+="-p $NETRON_PORT:$NETRON_PORT "
+if [ ! -z "$VIVADO_PATH" ];then
+  DOCKER_EXEC+="-e "XILINX_VIVADO=$VIVADO_PATH" "
+  DOCKER_EXEC+="-v $VIVADO_PATH:$VIVADO_PATH "
+  DOCKER_EXEC+="-e VIVADO_PATH=$VIVADO_PATH "
+fi
+if [ ! -z "$VITIS_PATH" ];then
+  if [ -z "$PLATFORM_REPO_PATHS" ];then
+          recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
+          exit -1
+  fi
+  if [ -z "$XILINX_XRT" ];then
+          recho "XILINX_XRT must be set for Vitis/Alveo flows"
+          exit -1
+  fi
+  DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
+  DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
+  DOCKER_EXEC+="-v $XILINX_XRT:$XILINX_XRT "
+  DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
+  DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
+  DOCKER_EXEC+="-e XILINX_XRT=$XILINX_XRT "
+  DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
+  DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
+  DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
+  DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
+  DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
+fi
+DOCKER_EXEC+="$DOCKER_TAG $DOCKER_CMD"
+
+$DOCKER_EXEC

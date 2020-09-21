@@ -26,32 +26,23 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import subprocess
-
-from finn.transformation import Transformation
+import finn.custom_op.registry as registry
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
-class SynthPYNQProject(Transformation):
-    """Run synthesis for the PYNQ project for this graph. The MakePYNQProject
-    transformation must be applied prior to this transformation."""
+def exp_cycles_per_layer(model):
+    """Estimates the number of cycles per sample for dataflow layers in the given model.
+    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
+    transformation) prior to calling this analysis pass to ensure all nodes are
+    visible in the results.
 
-    def __init__(self):
-        super().__init__()
+    Returns {node name : cycle estimation}."""
 
-    def apply(self, model):
-        vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
-        if vivado_pynq_proj_dir is None or (not os.path.isdir(vivado_pynq_proj_dir)):
-            raise Exception("No synthesis project, apply MakePYNQProject first.")
-        synth_project_sh = vivado_pynq_proj_dir + "/synth_project.sh"
-        if not os.path.isfile(synth_project_sh):
-            raise Exception("No synthesis script, apply MakePYNQProject first.")
-        bash_command = ["bash", synth_project_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
-        # set bitfile attribute
-        model.set_metadata_prop(
-            "vivado_pynq_bitfile", vivado_pynq_proj_dir + "/resizer.bit"
-        )
-        # TODO pull out synthesis statistics and put them in as attributes
-        return (model, False)
+    cycle_dict = {}
+    for node in model.graph.node:
+        if is_fpgadataflow_node(node) is True:
+            op_type = node.op_type
+            inst = registry.custom_op[op_type](node)
+            cycle_dict[node.name] = inst.get_exp_cycles()
+
+    return cycle_dict

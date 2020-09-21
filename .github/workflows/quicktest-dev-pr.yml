@@ -1,0 +1,23 @@
+name: QuicktestPRAgainstDev
+
+on:
+  pull_request:
+    branches: [ dev ]
+  push:
+    branches: [ dev ]
+
+
+jobs:
+
+  test:
+    name: Run quicktest on PR branch
+    runs-on: ubuntu-16.04
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v2
+
+      - name: DockerRunQuicktest
+        run: |
+          docker build -t finn_gha -f docker/Dockerfile.finn_ci --build-arg BUILD_PATH=/tmp/finn_gha .
+          docker run --init --hostname finn_gha -v $(pwd):/workspace/finn -e FINN_INST_NAME=finn_gha finn_gha quicktest.sh

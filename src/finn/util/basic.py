@@ -31,6 +31,7 @@ import random
 import string
 import subprocess
 import tempfile
+import warnings
 
 import numpy as np
 
@@ -41,7 +42,29 @@ pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
 pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
 pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
+pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
 pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
+
+# native AXI HP port width (in bits) for PYNQ boards
+pynq_native_port_width = dict()
+pynq_native_port_width["Pynq-Z1"] = 64
+pynq_native_port_width["Pynq-Z2"] = 64
+pynq_native_port_width["Ultra96"] = 128
+pynq_native_port_width["ZCU102"] = 128
+pynq_native_port_width["ZCU104"] = 128
+
+# Alveo device and platform mappings
+alveo_part_map = dict()
+alveo_part_map["U50"] = "xcu50-fsvh2104-2L-e"
+alveo_part_map["U200"] = "xcu200-fsgd2104-2-e"
+alveo_part_map["U250"] = "xcu250-figd2104-2L-e"
+alveo_part_map["U280"] = "xcu280-fsvh2892-2L-e"
+
+alveo_default_platform = dict()
+alveo_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_201920_3"
+alveo_default_platform["U200"] = "xilinx_u200_xdma_201830_2"
+alveo_default_platform["U250"] = "xilinx_u250_xdma_201830_2"
+alveo_default_platform["U280"] = "xilinx_u280_xdma_201920_3"
 
 
 def get_rtlsim_trace_depth():
@@ -49,12 +72,28 @@ def get_rtlsim_trace_depth():
     via the RTLSIM_TRACE_DEPTH environment variable. If the env.var. is
     undefined, the default value of 1 is returned. A trace depth of 1
     will only show top-level signals and yield smaller .vcd files.
+
+    The following depth values are of interest for whole-network stitched IP
+    rtlsim:
+    - level 1 shows top-level input/output streams
+    - level 2 shows per-layer input/output streams
+    - level 3 shows per full-layer I/O including FIFO count signals
     """
 
     try:
         return int(os.environ["RTLSIM_TRACE_DEPTH"])
     except KeyError:
         return 1
+
+
+def get_remote_vivado():
+    """Return the address of the remote Vivado synthesis server as set by the,
+    REMOTE_VIVADO environment variable, otherwise return None"""
+
+    try:
+        return os.environ["REMOTE_VIVADO"]
+    except KeyError:
+        return None
 
 
 def get_num_default_workers():
@@ -82,6 +121,25 @@ def get_finn_root():
         )
 
 
+def get_execution_error_thresh():
+    "Return the max error that is allowed for rounding in FINN execution."
+    try:
+        return float(os.environ["ERROR_THRESH"])
+    except KeyError:
+        return 1e-2
+
+
+def get_sanitize_quant_tensors():
+    """Return whether tensors with quantization annotations should be sanitized.
+    Enabled by default, disabling will yield faster ONNX execution but may give
+    incorrect results. Use with caution."""
+    try:
+        return int(os.environ["SANITIZE_QUANT_TENSORS"])
+    except KeyError:
+        # enabled by default
+        return 1
+
+
 def make_build_dir(prefix=""):
     """Creates a temporary folder with given prefix to be used as a build dir.
     Use this function instead of tempfile.mkdtemp to ensure any generated files
@@ -98,13 +156,19 @@ def make_build_dir(prefix=""):
 
 
 def get_by_name(container, name, name_field="name"):
-    """Return item from container by .name field if it exists, None otherwise"""
+    """Return item from container by .name field if it exists, None otherwise.
+    Will throw an Exception if multiple items are found, since this violates the
+    ONNX standard."""
     names = [getattr(x, name_field) for x in container]
-    try:
-        ind = names.index(name)
-        return container[ind]
-    except ValueError:
+
+    inds = [i for i, e in enumerate(names) if e == name]
+    if len(inds) > 1:
+        raise Exception("Found multiple get_by_name matches, undefined behavior")
+    elif len(inds) == 0:
         return None
+    else:
+        ind = inds[0]
+        return container[ind]
 
 
 def remove_by_name(container, name, name_field="name"):
@@ -201,6 +265,33 @@ def pad_tensor_to_multiple_of(ndarray, pad_to_dims, val=0, distr_pad=False):
     return ret
 
 
+def calculate_matvec_accumulator_range(matrix, vec_dt):
+    """Calculate the minimum and maximum possible result (accumulator) values
+    for a dot product x * A, given matrix A of dims (MW, MH), and vector (1, MW)
+    with datatype vec_dt. Returns (acc_min, acc_max).
+    """
+    min_weight = matrix.min()
+    max_weight = matrix.max()
+    perceptive_field_elems = matrix.shape[0]
+    min_input = vec_dt.min()
+    max_input = vec_dt.max()
+    # calculate minimum and maximum values of accumulator
+    # assume inputs span the whole range of the input datatype
+    acc_min = perceptive_field_elems * min(
+        min_weight * max_input,
+        min_weight * min_input,
+        max_weight * max_input,
+        max_weight * min_input,
+    )
+    acc_max = perceptive_field_elems * max(
+        min_weight * max_input,
+        min_weight * min_input,
+        max_weight * max_input,
+        max_weight * min_input,
+    )
+    return (acc_min, acc_max)
+
+
 def gen_finn_dt_tensor(finn_dt, tensor_shape):
     """Generates random tensor in given shape and with given FINN DataType."""
     if type(tensor_shape) == list:
@@ -239,6 +330,69 @@ def calculate_signed_dot_prod_range(dt_a, dt_b, len):
             if prod > max_prod:
                 max_prod = prod
     return (min_prod, max_prod)
+
+
+def sanitize_quant_values(model, node_tensors, execution_context, check_values=False):
+    """ Sanitize given list of tensors in execution_context by rounding values
+    that are supposed to be integers (as indicated by their quantization
+    annotation). Will raise an assertion if the amount of rounding is too large.
+    Returns the sanitized execution context.
+
+    If check_values is specified, an extra DataType.allowed() check will be
+    performed on any rounded tensors.
+
+    Background:
+    FINN uses floating point tensors as a carrier data type to represent
+    integers. Floating point arithmetic can introduce rounding errors, e.g.
+    (int_num * float_scale) / float_scale is not always equal to int_num.
+    We use this function to ensure that the values that are supposed to be
+    integers are indeed integers.
+    """
+
+    for tensor in node_tensors:
+        dtype = model.get_tensor_datatype(tensor)
+        # floats don't need sanitization, skip to next
+        # introduces less quicker runtime
+        if dtype == DataType.FLOAT32:
+            continue
+        current_values = execution_context[tensor]
+        updated_values = current_values
+        has_to_be_rounded = False
+        # TODO: vectorize with numpy
+        for value in np.nditer(current_values):
+            if not dtype.allowed(value):
+                has_to_be_rounded = True
+                break
+        if has_to_be_rounded:
+            updated_values = np.round(current_values)
+            warnings.warn(
+                "The values of tensor {} can't be represented "
+                "with the set FINN datatype ({}), they will be rounded to match the "
+                "FINN datatype.".format(tensor, dtype)
+            )
+        # check if rounded values are not too far from original values
+        max_error = max(np.abs(current_values - updated_values).flatten())
+        if max_error <= get_execution_error_thresh():
+            if check_values is True:
+                # check again if values can now be represented with set finn datatype
+                # TODO: vectorize with numpy
+                for value in np.nditer(updated_values):
+                    if not dtype.allowed(value):
+                        raise Exception(
+                            """Values can't be represented with set
+                                finn datatype ({}) for input {}""".format(
+                                dtype, tensor
+                            )
+                        )
+            execution_context[tensor] = updated_values
+        else:
+            raise Exception(
+                """Rounding error is too high to match set FINN
+            datatype ({}) for input {}""".format(
+                    dtype, tensor
+                )
+            )
+    return execution_context
 
 
 class CppBuilder:

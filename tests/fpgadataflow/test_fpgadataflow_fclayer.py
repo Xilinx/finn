@@ -46,9 +46,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -134,7 +132,7 @@ def prepare_inputs(input_tensor, idt, wdt):
 
 
 # mem_mode: const or decoupled
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled", "external"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT4])
 # weight datatype
@@ -149,6 +147,8 @@ def prepare_inputs(input_tensor, idt, wdt):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
@@ -219,7 +219,7 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 
 
 # mem_mode: const or decoupled
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled", "external"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT4])
 # weight datatype
@@ -234,6 +234,8 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
@@ -299,13 +301,20 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
+
+    node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+    inst = getCustomOp(node)
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    exp_cycles = exp_cycles_dict[node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+    assert exp_cycles != 0
 
 
 # mem_mode: const or decoupled
@@ -324,7 +333,8 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
-def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
+@pytest.mark.vivado
+def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh
 ):
     if nf == -1:
@@ -391,10 +401,17 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode(
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
     model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
+
+    node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+    inst = getCustomOp(node)
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    exp_cycles = exp_cycles_dict[node.name]
+    assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+    assert exp_cycles != 0

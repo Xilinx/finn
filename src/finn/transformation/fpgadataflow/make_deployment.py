@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import warnings
 import os
 import subprocess
 from distutils.dir_util import copy_tree
@@ -33,6 +34,7 @@ from shutil import copy
 
 from finn.transformation import Transformation
 from finn.util.basic import make_build_dir
+import finn.transformation.fpgadataflow.templates as templates
 
 
 class DeployToPYNQ(Transformation):
@@ -64,35 +66,54 @@ class DeployToPYNQ(Transformation):
 
         # get and copy necessary files
         # .bit and .hwh file
-        vivado_pynq_proj = model.get_metadata_prop("vivado_pynq_proj")
-        for file in os.listdir(vivado_pynq_proj):
-            if file.endswith(".bit"):
-                bitfile = os.path.join(vivado_pynq_proj, file)
-            elif file.endswith(".hwh"):
-                hwhfile = os.path.join(vivado_pynq_proj, file)
-        copy(bitfile, deployment_dir)
-        copy(hwhfile, deployment_dir)
+        bitfile = model.get_metadata_prop("bitfile")
+        hwh_file = model.get_metadata_prop("hw_handoff")
+        deploy_files = [bitfile, hwh_file]
+
+        for dfile in deploy_files:
+            if dfile is not None:
+                copy(dfile, deployment_dir)
+
+        # helper script for Alveo
+        platform = model.get_metadata_prop("platform")
+        if platform == "alveo":
+            alveo_run_sh = templates.alveo_run_sh_template
+            fill_dict = {
+                "$REMOTE_DEPLOY_DIR$": self.target_dir
+                + "/"
+                + os.path.basename(deployment_dir),
+                "$CONDA_ENV_NAME$": "finn-pynq-alveo",
+                "$REMOTE_XRT$": os.environ["XILINX_XRT"],
+                "$REMOTE_PLATFORM_REPO_PATHS$": os.environ["PLATFORM_REPO_PATHS"],
+                "$BITFILE$": os.path.basename(bitfile),
+            }
+            for key, value in fill_dict.items():
+                alveo_run_sh = alveo_run_sh.replace(key, value)
+            alveo_run_sh_path = deployment_dir + "/alveo_run.sh"
+            with open(alveo_run_sh_path, "w") as f:
+                f.write(alveo_run_sh)
 
         # driver.py and python libraries
         pynq_driver_dir = model.get_metadata_prop("pynq_driver_dir")
         copy_tree(pynq_driver_dir, deployment_dir)
         model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
         model.set_metadata_prop("exec_mode", "remote_pynq")
+        if self.password == "":
+            prefix = ""  # assume we are using an ssh key
+            warnings.warn("Empty password, make sure you've set up an ssh key")
+        else:
+            prefix = "sshpass -p %s " % self.password
+
         # create target directory on PYNQ board
-        cmd = 'sshpass -p {} ssh {}@{} -p {} "mkdir -p {}"'.format(
-            self.password, self.username, self.ip, self.port, self.target_dir
+        cmd = prefix + 'ssh {}@{} -p {} "mkdir -p {}"'.format(
+            self.username, self.ip, self.port, self.target_dir
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         # copy directory to PYNQ board using scp and sshpass
-        cmd = "sshpass -p {} scp -P{} -r {} {}@{}:{}".format(
-            self.password,
-            self.port,
-            deployment_dir,
-            self.username,
-            self.ip,
-            self.target_dir,
+        cmd = prefix + "scp -P{} -r {} {}@{}:{}".format(
+            self.port, deployment_dir, self.username, self.ip, self.target_dir,
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)

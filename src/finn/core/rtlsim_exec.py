@@ -66,6 +66,11 @@ def rtlsim_exec(model, execution_context):
     i_stream_w = first_node.get_instream_width()
     # convert input into time multiplexed shape
     i_folded_shape = first_node.get_folded_input_shape()
+    batchsize = i_tensor.shape[0]
+    # override batch size for input
+    i_folded_shape = list(i_folded_shape)
+    i_folded_shape[0] = batchsize
+    i_folded_shape = tuple(i_folded_shape)
     # TODO any other layout transformations need to happen here!
     i_tensor = i_tensor.reshape(i_folded_shape)
     # extract output shape
@@ -74,24 +79,30 @@ def rtlsim_exec(model, execution_context):
     o_dt = model.get_tensor_datatype(o_name)
     last_node = getCustomOp(model.find_producer(o_name))
     o_folded_shape = last_node.get_folded_output_shape()
+    # override batch size from actual input
+    o_shape = list(o_shape)
+    o_shape[0] = batchsize
+    o_shape = tuple(o_shape)
+    o_folded_shape = list(o_folded_shape)
+    o_folded_shape[0] = batchsize
+    o_folded_shape = tuple(o_folded_shape)
     o_stream_w = last_node.get_outstream_width()
     packedBits = o_stream_w
     targetBits = o_dt.bitwidth()
     # pack input
     packed_input = npy_to_rtlsim_input(i_tensor, i_dt, i_stream_w)
     num_out_values = last_node.get_number_output_values()
+    num_out_values *= batchsize
     # prepare pyverilator model
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
     if (rtlsim_so is None) or (not os.path.isfile(rtlsim_so)):
         sim = pyverilate_stitched_ip(model)
         model.set_metadata_prop("rtlsim_so", sim.lib._name)
     else:
-        sim = PyVerilator(rtlsim_so)
-    _reset_rtlsim(sim)
-    _toggle_clk(sim)
+        sim = PyVerilator(rtlsim_so, auto_eval=False)
     ret = _run_rtlsim(sim, packed_input, num_out_values, trace_file)
     packed_output = ret[0]
-    model.set_metadata_prop("sim_cycles", str(ret[1]))
+    model.set_metadata_prop("cycles_rtlsim", str(ret[1]))
     # unpack output and put into context
     o_folded_tensor = rtlsim_output_to_npy(
         packed_output, None, o_dt, o_folded_shape, packedBits, targetBits
@@ -103,19 +114,23 @@ def rtlsim_exec(model, execution_context):
 def _reset_rtlsim(sim):
     """Sets reset input in pyverilator to zero, toggles the clock and set it
     back to one"""
-    sim.io.ap_rst_n_0 = 0
-    sim.io.ap_clk_0 = 1
-    sim.io.ap_clk_0 = 0
-    sim.io.ap_rst_n_0 = 1
+    sim.io.ap_rst_n = 0
+    _toggle_clk(sim)
+    _toggle_clk(sim)
+    sim.io.ap_rst_n = 1
+    _toggle_clk(sim)
+    _toggle_clk(sim)
 
 
 def _toggle_clk(sim):
     """Toggles the clock input in pyverilator once."""
-    sim.io.ap_clk_0 = 1
-    sim.io.ap_clk_0 = 0
+    sim.io.ap_clk = 0
+    sim.eval()
+    sim.io.ap_clk = 1
+    sim.eval()
 
 
-def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
+def _run_rtlsim(sim, inp, num_out_values, trace_file=None, reset=True):
     """Runs the pyverilator simulation by passing the input values to the simulation,
     toggle the clock and observing the execution time. Argument num_out_values contains
     the number of expected output values, so the simulation is closed after all
@@ -125,7 +140,7 @@ def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
     from finn.util.fpgadataflow)"""
     inputs = inp
     outputs = []
-    sim.io.out_r_0_tready = 1
+    sim.io.m_axis_0_tready = 1
 
     # observe if output is completely calculated
     # observation_count will contain the number of cycles the calculation ran
@@ -140,22 +155,23 @@ def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
 
     if trace_file is not None:
         sim.start_vcd_trace(trace_file)
+    if reset:
+        _reset_rtlsim(sim)
 
     while not (output_observed):
-        sim.io.in0_V_V_0_tvalid = 1 if len(inputs) > 0 else 0
-        sim.io.in0_V_V_0_tdata = inputs[0] if len(inputs) > 0 else 0
-        if sim.io.in0_V_V_0_tready == 1 and sim.io.in0_V_V_0_tvalid == 1:
+        sim.io.s_axis_0_tvalid = 1 if len(inputs) > 0 else 0
+        sim.io.s_axis_0_tdata = inputs[0] if len(inputs) > 0 else 0
+        if sim.io.s_axis_0_tready == 1 and sim.io.s_axis_0_tvalid == 1:
             inputs = inputs[1:]
-        if sim.io.out_r_0_tvalid == 1 and sim.io.out_r_0_tready == 1:
-            outputs = outputs + [sim.io.out_r_0_tdata]
-        sim.io.ap_clk_0 = 1
-        sim.io.ap_clk_0 = 0
+        if sim.io.m_axis_0_tvalid == 1 and sim.io.m_axis_0_tready == 1:
+            outputs = outputs + [sim.io.m_axis_0_tdata]
+        _toggle_clk(sim)
 
         observation_count = observation_count + 1
         no_change_count = no_change_count + 1
 
         if len(outputs) == num_out_values:
-            sim_cycles = observation_count
+            cycles_rtlsim = observation_count
             output_observed = True
 
         if no_change_count == liveness_threshold:
@@ -175,4 +191,4 @@ def _run_rtlsim(sim, inp, num_out_values, trace_file=None):
         sim.flush_vcd_trace()
         sim.stop_vcd_trace()
 
-    return (outputs, sim_cycles)
+    return (outputs, cycles_rtlsim)

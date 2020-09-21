@@ -83,14 +83,28 @@ def pyverilate_stitched_ip(model):
     def file_to_dir(x):
         return os.path.dirname(os.path.realpath(x))
 
+    def file_to_basename(x):
+        return os.path.basename(os.path.realpath(x))
+
     all_verilog_dirs = list(map(file_to_dir, all_verilog_srcs))
-    top_verilog = model.get_metadata_prop("wrapper_filename")
+    all_verilog_files = list(
+        set(
+            filter(
+                lambda x: x.endswith(".v"),
+                list(map(file_to_basename, all_verilog_srcs)),
+            )
+        )
+    )
+    top_module_name = model.get_metadata_prop("wrapper_filename")
+    top_module_name = file_to_basename(top_module_name).strip(".v")
     build_dir = make_build_dir("pyverilator_ipstitched_")
     sim = PyVerilator.build(
-        top_verilog,
+        all_verilog_files,
         verilog_path=all_verilog_dirs,
         build_dir=build_dir,
         trace_depth=get_rtlsim_trace_depth(),
+        top_module_name=top_module_name,
+        auto_eval=False,
     )
     return sim
 
@@ -114,3 +128,91 @@ def is_fpgadataflow_node(node):
                     is_node = True
 
     return is_node
+
+
+def rtlsim_multi_io(sim, io_dict, num_out_values, trace_file=""):
+    """Runs the pyverilator simulation by passing the input values to the simulation,
+    toggle the clock and observing the execution time. Function contains also an
+    observation loop that can abort the simulation if no output value is produced
+    after a set number of cycles. Can handle multiple i/o streams. See function
+    implementation for details on how the top-level signals should be named.
+
+    sim: the PyVerilator object for simulation
+    io_dict: a dict of dicts in the following format:
+            {"inputs" : {"in0" : <input_data>, "in1" : <input_data>},
+             "outputs" : {"out0" : [], "out1" : []} }
+            <input_data> is a list of Python arbitrary-precision ints indicating
+            what data to push into the simulation, and the output lists are
+            similarly filled when the simulation is complete
+    num_out_values: number of total values to be read from the simulation to
+                    finish the simulation and return.
+
+    returns: number of clock cycles elapsed for completion
+
+    """
+
+    if trace_file != "":
+        sim.start_vcd_trace(trace_file)
+
+    for outp in io_dict["outputs"]:
+        sim.io[outp + "_V_V_TREADY"] = 1
+
+    # observe if output is completely calculated
+    # total_cycle_count will contain the number of cycles the calculation ran
+    output_done = False
+    total_cycle_count = 0
+    output_count = 0
+    old_output_count = 0
+
+    # avoid infinite looping of simulation by aborting when there is no change in
+    # output values after 100 cycles
+    no_change_count = 0
+    liveness_threshold = pyverilate_get_liveness_threshold_cycles()
+
+    while not (output_done):
+        for inp in io_dict["inputs"]:
+            inputs = io_dict["inputs"][inp]
+            sim.io[inp + "_V_V_TVALID"] = 1 if len(inputs) > 0 else 0
+            sim.io[inp + "_V_V_TDATA"] = inputs[0] if len(inputs) > 0 else 0
+            if sim.io[inp + "_V_V_TREADY"] == 1 and sim.io[inp + "_V_V_TVALID"] == 1:
+                inputs = inputs[1:]
+            io_dict["inputs"][inp] = inputs
+
+        for outp in io_dict["outputs"]:
+            outputs = io_dict["outputs"][outp]
+            if sim.io[outp + "_V_V_TVALID"] == 1 and sim.io[outp + "_V_V_TREADY"] == 1:
+                outputs = outputs + [sim.io[outp + "_V_V_TDATA"]]
+                output_count += 1
+            io_dict["outputs"][outp] = outputs
+
+        sim.io.ap_clk = 1
+        sim.io.ap_clk = 0
+
+        total_cycle_count = total_cycle_count + 1
+
+        if output_count == old_output_count:
+            no_change_count = no_change_count + 1
+        else:
+            no_change_count = 0
+            old_output_count = output_count
+
+        # check if all expected output words received
+        if output_count == num_out_values:
+            output_done = True
+
+        # end sim on timeout
+        if no_change_count == liveness_threshold:
+            if trace_file != "":
+                sim.flush_vcd_trace()
+                sim.stop_vcd_trace()
+            raise Exception(
+                "Error in simulation! Takes too long to produce output. "
+                "Consider setting the LIVENESS_THRESHOLD env.var. to a "
+                "larger value."
+            )
+
+    if trace_file != "":
+        sim.flush_vcd_trace()
+        sim.stop_vcd_trace()
+
+    return total_cycle_count

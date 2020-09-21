@@ -37,28 +37,28 @@ ARG PASSWD
 ARG JUPYTER_PORT
 ARG NETRON_PORT
 
-EXPOSE $JUPYTER_PORT
-EXPOSE $NETRON_PORT
-
 WORKDIR /workspace
 
 RUN apt-get update
 RUN apt-get -y upgrade
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
-RUN apt-get install verilator
-RUN apt-get install nano
-RUN apt-get -y install sshpass
+RUN apt-get install -y verilator nano zsh rsync
+RUN apt-get -y install sshpass wget unzip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
-RUN pip install jupyter
+RUN pip install pygments==2.4.1
+RUN pip install jupyter==1.0.0
+RUN pip install matplotlib==3.3.1 --ignore-installed
+RUN pip install pytest-dependency==0.5.1
+RUN pip install sphinx==3.1.2
+RUN pip install sphinx_rtd_theme==0.5.0
+RUN pip install pytest-xdist==2.0.0
+RUN pip install pytest-parallel==0.1.0
 RUN pip install netron
-RUN pip install matplotlib --ignore-installed
-RUN pip install pytest-dependency
-RUN pip install sphinx
-RUN pip install sphinx_rtd_theme
+RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
 # switch user
 RUN groupadd -g $GID $GNAME
@@ -73,24 +73,21 @@ USER $UNAME
 # cloning dependency repos (as user)
 # Brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
-# Brevitas examples
-RUN git clone https://github.com/maltanar/brevitas_cnv_lfc.git /workspace/brevitas_cnv_lfc
 # CNPY
 RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
 # FINN hlslib
-RUN git clone https://github.com/maltanar/finn-hlslib.git /workspace/finn-hlslib
+RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
 # PyVerilator
 RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
-# PYNQ-HelloWorld
-RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
+# oh-my-xilinx
+RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
 
 # for this developer-oriented Docker container we assume the FINN repo is cloned and mounted from the host
 # at /workspace/finn -- see run-docker.sh for an example of how to do this.
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas_cnv_lfc/training_scripts"
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/brevitas"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
-ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
+ENV PATH "${PATH}:/workspace/oh-my-xilinx:/home/$UNAME/.local/bin"
+ENV OHMYXILINX "/workspace/oh-my-xilinx"
 
 WORKDIR /home/$UNAME/finn
 RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /home/$UNAME/.bashrc
@@ -99,8 +96,13 @@ RUN echo "source \$VIVADO_PATH/settings64.sh" >> /home/$UNAME/.bashrc
 # copy entrypoint script
 USER root
 COPY docker/finn_entrypoint.sh /usr/local/bin/
+COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
+RUN chmod 755 /usr/local/bin/quicktest.sh
 USER $UNAME
+
+EXPOSE $JUPYTER_PORT
+EXPOSE $NETRON_PORT
 
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]

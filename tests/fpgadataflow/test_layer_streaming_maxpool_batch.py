@@ -41,6 +41,9 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.custom_op.registry import getCustomOp
+import numpy as np
 
 
 def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt):
@@ -121,6 +124,8 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("ifm_ch", [1, 2])  # , 2, 3, 4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
     stride = k
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
@@ -152,3 +157,12 @@ def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
+
+    if exec_mode == "rtlsim":
+        node = model.get_nodes_by_op_type("StreamingMaxPool_Batch")[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+        assert exp_cycles != 0
