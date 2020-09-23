@@ -35,7 +35,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import GiveUniqueNodeNames, GiveReadableTensorNames
 from finn.transformation.insert_topk import InsertTopK
-from finn.transformation.streamline.absorb import AbsorbScalarMulIntoTopK
+from finn.transformation.streamline.absorb import AbsorbScalarMulAddIntoTopK
 import finn.core.onnx_exec as oxe
 
 # parameter to indicate if mul parameter is negative or positive
@@ -49,20 +49,24 @@ def test_absorb_mul_into_topk(mul_positive, scalar):
         shape = [1, 1, 1, 1000]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 1, 1, 1000])
     a0 = helper.make_tensor_value_info("a0", TensorProto.FLOAT, shape)
+    b0 = helper.make_tensor_value_info("b0", TensorProto.FLOAT, [1, 1, 1, 1000])
+    c0 = helper.make_tensor_value_info("c0", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, 1, 1, 1000])
 
-    mul_node = helper.make_node("Mul", ["inp", "a0"], ["outp"])
+    mul_node = helper.make_node("Mul", ["inp", "a0"], ["b0"])
+    add_node = helper.make_node("Add", ["b0", "c0"], ["outp"])
     mul_graph = helper.make_graph(
-        nodes=[mul_node],
+        nodes=[mul_node, add_node],
         name="mul-graph",
         inputs=[inp],
         outputs=[outp],
-        value_info=[a0],
+        value_info=[a0, b0, c0],
     )
 
     model = helper.make_model(mul_graph, producer_name="mul_model")
     model = ModelWrapper(model)
     # initialize values
+    # for mul
     if mul_positive is True:
         a0_values = np.random.uniform(low=0.1, high=1, size=tuple(shape)).astype(
             np.float32
@@ -72,12 +76,17 @@ def test_absorb_mul_into_topk(mul_positive, scalar):
             np.float32
         )
     model.set_initializer("a0", a0_values)
+    # for add
+    c0_values = np.random.uniform(low=-1, high=-0.1, size=tuple(shape)).astype(
+        np.float32
+    )
+    model.set_initializer("c0", c0_values)
     model = model.transform(InsertTopK())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
-    model_transformed = model.transform(AbsorbScalarMulIntoTopK())
+    model_transformed = model.transform(AbsorbScalarMulAddIntoTopK())
 
     # compare execution results
     inp_values = np.random.uniform(low=-10, high=10, size=(1, 1, 1, 1000)).astype(
@@ -100,9 +109,5 @@ def test_absorb_mul_into_topk(mul_positive, scalar):
 
         # check for new order
         assert model.graph != model_transformed.graph
-        assert len(model.graph.node) - 1 == len(model_transformed.graph.node)
+        assert len(model.graph.node) - 2 == len(model_transformed.graph.node)
         assert model_transformed.graph.node[0].op_type == "TopK"
-
-    else:
-        assert (y_values == y_tr_values).all()
-        assert model.graph == model_transformed.graph

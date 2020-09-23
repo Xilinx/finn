@@ -26,68 +26,38 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# Temporary and binary files
-*~
-*.py[cod]
-*.so
-*.cfg
-!.isort.cfg
-!setup.cfg
-*.orig
-*.log
-*.pot
-__pycache__/*
-.cache/*
-.*.swp
-*/.ipynb_checkpoints/*
+import gspread
+import os
+import warnings
+from datetime import datetime
 
-# Project files
-.ropeproject
-.project
-.pydevproject
-.settings
-.idea
-tags
 
-# Package files
-*.egg
-*.eggs/
-.installed.cfg
-*.egg-info
-
-# Unittest and coverage
-htmlcov/*
-.coverage
-.tox
-junit.xml
-coverage.xml
-.pytest_cache/
-
-# Build and docs folder/files
-build/*
-dist/*
-sdist/*
-docs/api/*
-docs/_rst/*
-docs/_build/*
-cover/*
-MANIFEST
-
-# Per-project virtualenvs
-.venv*/
-
-# Jenkins cfg dir
-/docker/jenkins_home
-
-# SSH key dir mounted into Docker
-/ssh_keys/
-
-# PYNQ board files
-/board_files/
-
-# datasets for testing
-/dataset/
-/data/
-
-# Google Drive key for dashboard
-/gdrive-key/
+def upload_to_end2end_dashboard(data_dict):
+    gdrive_key = "/workspace/finn/gdrive-key/service_account.json"
+    if not os.path.isfile(gdrive_key):
+        warnings.warn("Google Drive key not found, skipping dashboard upload")
+        return
+    gc = gspread.service_account(filename=gdrive_key)
+    spreadsheet = gc.open("finn-end2end-dashboard")
+    worksheet = spreadsheet.get_worksheet(0)
+    keys = list(data_dict.keys())
+    vals = list(data_dict.values())
+    # check against existing header
+    existing_keys = worksheet.row_values(1)
+    if not set(existing_keys).issuperset(set(keys)):
+        # create new worksheet
+        dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        worksheet = spreadsheet.add_worksheet(
+            title="Dashboard " + dtstr, rows=10, cols=len(keys), index=0
+        )
+        # create header row with keys
+        worksheet.update("A1:1", [keys])
+        # freeze and make header bold
+        worksheet.freeze(rows=1)
+        worksheet.format("A1:1", {"textFormat": {"bold": True}})
+    # insert values into new row at appropriate positions
+    worksheet.insert_row([], index=2)
+    for i in range(len(keys)):
+        colind = existing_keys.index(keys[i])
+        col_letter = chr(ord("A") + colind)
+        worksheet.update("%s2" % col_letter, vals[i])

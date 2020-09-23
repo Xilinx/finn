@@ -533,7 +533,7 @@ class MoveScalarLinearPastInvariants(Transformation):
                 if prod0 is None:
                     continue
 
-                if prod0.op_type == "Mul" or prod0.op_type == "Add":
+                if prod0.op_type in ["Mul", "Add", "Div"]:
                     # check if second input of producer is an initializer
                     init0 = model.get_initializer(prod0.input[1])
                     # if either initializer is None, skip
