@@ -61,7 +61,7 @@ RUN pip install netron
 RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
 # switch user
-RUN groupadd -g $GID $GNAME
+RUN groupadd -g $GID $GNAME -f
 RUN useradd -M -u $UID $UNAME -g $GNAME
 RUN usermod -aG sudo $UNAME
 RUN echo "$UNAME:$PASSWD" | chpasswd
