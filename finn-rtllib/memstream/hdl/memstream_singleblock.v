@@ -192,6 +192,10 @@ initial begin
     $readmemh({MEM_INIT,"memblock_0.dat"}, singleval, 0, 0);
 end
 
+always @(posedge aclk)
+    if(config_ce & config_we)
+        singleval[0] <= config_d0;
+
 assign m_axis_0_tdata = singleval[0];
 assign m_axis_1_tdata = singleval[0];
 
