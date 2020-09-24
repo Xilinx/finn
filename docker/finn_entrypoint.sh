@@ -12,6 +12,7 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
+FINN_BASE_COMMIT=ef4a42c5d73ffcc10d2e7faa684b57a5cf5b414d
 BREVITAS_COMMIT=6ffefa8dbf37fdb0f44c994f34604c29fadb16b0
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=cfafe11a93b79ab1af7529d68f08886913a6466e
@@ -19,6 +20,11 @@ PYVERILATOR_COMMIT=c97a5ba41bbc7c419d6f25c74cdf3bdc3393174f
 OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
 
 gecho "Setting up known-good commit versions for FINN dependencies"
+# finn-base
+gecho "finn-base @ $FINN_BASE_COMMIT"
+git clone https://github.com/maltanar/finn-base.git /workspace/finn-base
+git -C /workspace/finn-base checkout $FINN_BASE_COMMIT --quiet
+pip install --user -e /workspace/finn-base
 # Brevitas
 gecho "brevitas @ $BREVITAS_COMMIT"
 git -C /workspace/brevitas pull --quiet
