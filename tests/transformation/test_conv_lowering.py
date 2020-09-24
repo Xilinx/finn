@@ -54,7 +54,7 @@ def test_conv_lowering_cnv_w1a1():
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
-    fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
+    fn = pk.resource_filename("finn.qnn-data", "cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
     input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)

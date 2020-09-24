@@ -44,12 +44,12 @@ export_onnx_path = "test_fold_constants.onnx"
 
 
 def test_const_folding():
-    raw_m = get_data("finn", "data/onnx/mnist-conv/model.onnx")
+    raw_m = get_data("finn.base-data", "onnx/mnist-conv/model.onnx")
     model = ModelWrapper(raw_m)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
-    raw_o = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/output_0.pb")
+    raw_i = get_data("finn.base-data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_o = get_data("finn.base-data", "onnx/mnist-conv/test_data_set_0/output_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     output_tensor = onnx.load_tensor_from_string(raw_o)
     input_dict = {"Input3": np_helper.to_array(input_tensor)}

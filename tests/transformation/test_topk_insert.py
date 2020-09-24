@@ -36,7 +36,7 @@ def test_topk_insert(k):
 
     # verification: generate random input, run through net, streamline,
     # run again, check that output is top-k
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("finn.base-data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     input_brevitas = torch.from_numpy(nph.to_array(input_tensor)).float()
     output_golden = tfc.forward(input_brevitas).detach().numpy()

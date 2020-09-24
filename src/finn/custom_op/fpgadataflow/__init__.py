@@ -325,7 +325,7 @@ class HLSCustomOp(CustomOp):
         builder = CppBuilder()
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
-        builder.append_includes("-I/workspace/finn/src/finn/data/cpp")
+        builder.append_includes("-I/workspace/finn/src/finn/qnn-data/cpp")
         builder.append_includes("-I/workspace/cnpy/")
         builder.append_includes("-I/workspace/finn-hlslib")
         builder.append_includes("-I{}/include".format(os.environ["VIVADO_PATH"]))

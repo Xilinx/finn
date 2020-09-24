@@ -95,7 +95,7 @@ def test_npy2apintstream(test_shape, dtype):
         f.write("\n".join(test_app_string))
     cmd_compile = """
 g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
--I/workspace/cnpy/ -I{}/include -I/workspace/finn/src/finn/data/cpp \
+-I/workspace/cnpy/ -I{}/include -I/workspace/finn/src/finn/qnn-data/cpp \
 --std=c++11 -lz""".format(
         os.environ["VIVADO_PATH"]
     )
