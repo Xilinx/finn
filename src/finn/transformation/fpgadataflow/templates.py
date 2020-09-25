@@ -214,7 +214,7 @@ class FINNAccelDriver():
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Set exec mode, batchsize N, bitfile name, inputfile name and outputfile name')
     parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
-    parser.add_argument('--platform', help='Target platform: zynq-iodma alveo', default="zynq")
+    parser.add_argument('--platform', help='Target platform: zynq-iodma alveo', default="$PLATFORM$")
     parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
     parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
     parser.add_argument('--inputfile', help='name of input npy file (i.e. "input.npy")', default="input.npy")
