@@ -72,7 +72,7 @@ def test_streamline_fc(size, wbits, abits):
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(RemoveStaticGraphInputs())
     # load one of the test vectors
-    raw_i = get_data("finn.base-data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {"global_in": nph.to_array(input_tensor)}

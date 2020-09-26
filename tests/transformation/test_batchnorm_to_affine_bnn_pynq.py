@@ -77,7 +77,7 @@ def test_batchnorm_to_affine_lfc_w1a1():
     model = model.transform(FoldConstants())
     new_model = model.transform(BatchNormToAffine())
     # load one of the test vectors
-    raw_i = get_data("finn.base-data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     input_dict = {"0": nph.to_array(input_tensor)}
     assert oxe.compare_execution(model, new_model, input_dict)
