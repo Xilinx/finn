@@ -49,6 +49,7 @@ RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
+RUN pip install pygments==2.4.1
 RUN pip install jupyter==1.0.0
 RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1

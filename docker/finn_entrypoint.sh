@@ -46,20 +46,6 @@ if [ ! -z "$VIVADO_PATH" ];then
   export XILINX_VIVADO=$VIVADO_PATH
   source $VIVADO_PATH/settings64.sh
 fi
-if [ ! -z "$VITIS_PATH" ];then
-  # source Vitis env.vars
-  export XILINX_VITIS=$VITIS_PATH
-  source $VITIS_PATH/settings64.sh
-fi
-if [ ! -z "$XILINX_XRT" ];then
-  # TODO install XRT dependencies?
-  # wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh
-  # apt-get update
-  # bash xrtdeps.sh
-  # rm xrtdeps.sh
-  # source XRT
-  source $XILINX_XRT/setup.sh
-fi
 
 # download PYNQ board files if not already there
 if [ ! -d "/workspace/finn/board_files" ]; then
@@ -79,5 +65,17 @@ if [ ! -d "/workspace/finn/board_files/ultra96v1" ]; then
     git clone https://github.com/Avnet/bdf.git
     mv /workspace/finn/bdf/* /workspace/finn/board_files/
     rm -rf /workspace/finn/bdf
+fi
+if [ ! -z "$VITIS_PATH" ];then
+  # source Vitis env.vars
+  export XILINX_VITIS=$VITIS_PATH
+  source $VITIS_PATH/settings64.sh
+  if [ ! -z "$XILINX_XRT" ];then
+    gecho "For VitisBuild, please ensure the XRT dependencies are correctly installed"
+    gecho "by downloading and running:"
+    gecho "https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh"
+    # source XRT
+    source $XILINX_XRT/setup.sh
+  fi
 fi
 exec "$@"

@@ -463,7 +463,11 @@ class ModelWrapper:
             self.model.metadata_props.append(metadata_prop)
         else:
             metadata_prop.value = value
-
+            
+    def get_nodes_by_name(self, op_name):
+        """Returns a list of nodes with specified name."""
+        return list(filter(lambda x: x.name == op_name, self.graph.node))
+    
     def get_nodes_by_op_type(self, op_type):
         """Returns a list of nodes with specified op_type."""
         return list(filter(lambda x: x.op_type == op_type, self.graph.node))

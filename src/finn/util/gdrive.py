@@ -44,7 +44,7 @@ def upload_to_end2end_dashboard(data_dict):
     vals = list(data_dict.values())
     # check against existing header
     existing_keys = worksheet.row_values(1)
-    if existing_keys != keys:
+    if not set(existing_keys).issuperset(set(keys)):
         # create new worksheet
         dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         worksheet = spreadsheet.add_worksheet(
@@ -55,6 +55,9 @@ def upload_to_end2end_dashboard(data_dict):
         # freeze and make header bold
         worksheet.freeze(rows=1)
         worksheet.format("A1:1", {"textFormat": {"bold": True}})
-    # insert values into new row
+    # insert values into new row at appropriate positions
     worksheet.insert_row([], index=2)
-    worksheet.update("A2:2", [vals])
+    for i in range(len(keys)):
+        colind = existing_keys.index(keys[i])
+        col_letter = chr(ord("A") + colind)
+        worksheet.update("%s2" % col_letter, vals[i])
