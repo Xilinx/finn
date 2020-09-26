@@ -86,21 +86,40 @@ def pyverilate_stitched_ip(model):
     def file_to_basename(x):
         return os.path.basename(os.path.realpath(x))
 
-    all_verilog_dirs = list(map(file_to_dir, all_verilog_srcs))
-    all_verilog_files = list(
-        set(
-            filter(
-                lambda x: x.endswith(".v"),
-                list(map(file_to_basename, all_verilog_srcs)),
-            )
-        )
-    )
-    top_module_name = model.get_metadata_prop("wrapper_filename")
-    top_module_name = file_to_basename(top_module_name).strip(".v")
+    top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
+    top_module_name = top_module_file_name.strip(".v")
     build_dir = make_build_dir("pyverilator_ipstitched_")
+
+    # dump all Verilog code to a single file
+    # this is because large models with many files require
+    # a verilator command line too long for bash on most systems
+    # NOTE: there are duplicates in this list, and some files
+    # are identical but in multiple directories (regslice_core.v)
+
+    # remove duplicates from list by doing list -> set -> list
+    all_verilog_files = list(set(filter(lambda x: x.endswith(".v"), all_verilog_srcs)))
+
+    # remove all but one instances of regslice_core.v
+    filtered_verilog_files = []
+    remove_entry = False
+    for vfile in all_verilog_files:
+        if "regslice_core" in vfile:
+            if not remove_entry:
+                filtered_verilog_files.append(vfile)
+            remove_entry = True
+        else:
+            filtered_verilog_files.append(vfile)
+
+    # concatenate all verilog code into a single file
+    with open(vivado_stitch_proj_dir + "/" + top_module_file_name, "w") as wf:
+        for vfile in filtered_verilog_files:
+            with open(vfile) as rf:
+                wf.write("//Added from " + vfile + "\n\n")
+                wf.write(rf.read())
+
     sim = PyVerilator.build(
-        all_verilog_files,
-        verilog_path=all_verilog_dirs,
+        top_module_file_name,
+        verilog_path=[vivado_stitch_proj_dir],
         build_dir=build_dir,
         trace_depth=get_rtlsim_trace_depth(),
         top_module_name=top_module_name,
