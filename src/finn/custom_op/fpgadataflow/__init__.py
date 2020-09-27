@@ -34,7 +34,7 @@ from abc import abstractmethod
 import numpy as np
 import os
 import subprocess
-from finn.custom_op.custom_op import CustomOp
+from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
     make_build_dir,
