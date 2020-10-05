@@ -76,15 +76,3 @@ custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
 custom_op["Vector_Vector_Activate_Batch"] = Vector_Vector_Activate_Batch
 custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
 custom_op["IODMA"] = IODMA
-
-
-def getCustomOp(node):
-    "Return a FINN CustomOp instance for the given ONNX node, if it exists."
-    op_type = node.op_type
-    try:
-        # lookup op_type in registry of CustomOps
-        inst = custom_op[op_type](node)
-        return inst
-    except KeyError:
-        # exception if op_type is not supported
-        raise Exception("Custom op_type %s is currently not supported." % op_type)
