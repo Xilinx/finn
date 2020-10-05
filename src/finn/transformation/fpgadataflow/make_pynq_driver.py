@@ -28,7 +28,7 @@
 
 
 import shutil
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.util.basic import gen_finn_dt_tensor, make_build_dir
 import finn.util.data_packing as dpk
 import finn.core.datatype as dtp

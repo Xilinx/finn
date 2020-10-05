@@ -30,7 +30,7 @@ from pkgutil import extend_path
 
 __path__ = extend_path(__path__, __name__)
 
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import (
     ConvertSubToAdd,

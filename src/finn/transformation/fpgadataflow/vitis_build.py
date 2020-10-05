@@ -30,7 +30,7 @@ import os
 import subprocess
 
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.custom_op.registry import getCustomOp
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
