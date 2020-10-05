@@ -139,11 +139,13 @@ def get_example_input(topology):
     "Get example numpy input tensor for given topology."
 
     if "fc" in topology:
-        raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+        raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
         onnx_tensor = onnx.load_tensor_from_string(raw_i)
         return nph.to_array(onnx_tensor)
     elif topology == "cnv":
-        fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
+        fn = pk.resource_filename(
+            "finn.qnn-data", "cifar10/cifar10-test-data-class3.npz"
+        )
         input_tensor = np.load(fn)["arr_0"].astype(np.float32)
         return input_tensor
     else:

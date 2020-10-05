@@ -31,7 +31,7 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.transformation import NodeLocalTransformation
+from finn.transformation.base import NodeLocalTransformation
 
 try:
     from pyverilator import PyVerilator

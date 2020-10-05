@@ -25,12 +25,16 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# namespace package, extend path
+from pkgutil import extend_path
+
+__path__ = extend_path(__path__, __name__)
 
 from abc import abstractmethod
 import numpy as np
 import os
 import subprocess
-from finn.custom_op import CustomOp
+from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
     make_build_dir,
@@ -321,7 +325,7 @@ class HLSCustomOp(CustomOp):
         builder = CppBuilder()
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
-        builder.append_includes("-I/workspace/finn/src/finn/data/cpp")
+        builder.append_includes("-I/workspace/finn/src/finn/qnn-data/cpp")
         builder.append_includes("-I/workspace/cnpy/")
         builder.append_includes("-I/workspace/finn-hlslib")
         builder.append_includes("-I{}/include".format(os.environ["VIVADO_PATH"]))

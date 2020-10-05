@@ -41,7 +41,7 @@ from finn.util.test import get_test_model_trained
 export_onnx_path = "test_infer_datatypes.onnx"
 
 
-def test_infer_datatypes():
+def test_infer_datatypes_lfc():
     lfc = get_test_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)

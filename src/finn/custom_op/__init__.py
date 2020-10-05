@@ -26,101 +26,53 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from abc import ABC, abstractmethod
-from finn.util.basic import get_by_name
-import onnx.helper as helper
+from pkgutil import extend_path
+
+__path__ = extend_path(__path__, __name__)
+
+from finn.custom_op.registry import custom_op
+
+# make sure new CustomOp subclasses are imported here so that they get
+# registered and plug in correctly into the infrastructure
+from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
+    ConvolutionInputGenerator,
+)
+from finn.custom_op.fpgadataflow.downsampler import DownSampler
+from finn.custom_op.fpgadataflow.streamingfclayer_batch import StreamingFCLayer_Batch
+from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
+from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
+from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
+from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
+    StreamingDataWidthConverter_Batch,
+)
+from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
+from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
+from finn.custom_op.fpgadataflow.fmpadding_batch import FMPadding_Batch
+from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
+from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
+from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
+from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
+from finn.custom_op.fpgadataflow.vector_vector_activate_batch import (
+    Vector_Vector_Activate_Batch,
+)
+from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
+from finn.custom_op.fpgadataflow.iodma import IODMA
 
 
-class CustomOp(ABC):
-    """CustomOp class all custom op nodes are based on. Contains different functions
-    every custom node should have. Some as abstract methods, these have to be
-    filled when writing a new custom op node."""
-
-    def __init__(self, onnx_node):
-        super().__init__()
-        self.onnx_node = onnx_node
-
-    def get_nodeattr(self, name):
-        """Get a node attribute by name. Data is stored inside the ONNX node's
-        AttributeProto container. Attribute must be part of get_nodeattr_types.
-        Default value is returned if attribute is not set."""
-        try:
-            (dtype, req, def_val) = self.get_nodeattr_types()[name]
-            attr = get_by_name(self.onnx_node.attribute, name)
-            if attr is not None:
-                # dtype indicates which ONNX Attribute member to use
-                # (such as i, f, s...)
-                ret = attr.__getattribute__(dtype)
-                if dtype == "s":
-                    # decode string attributes
-                    ret = ret.decode("utf-8")
-                return ret
-            else:
-                if req:
-                    raise Exception(
-                        """Required attribute %s unspecified in
-                    a %s node"""
-                        % (name, self.onnx_node.op_type)
-                    )
-                else:
-                    # not set, return default value
-                    return def_val
-        except KeyError:
-            raise AttributeError("Op has no such attribute: " + name)
-
-    def set_nodeattr(self, name, value):
-        """Set a node attribute by name. Data is stored inside the ONNX node's
-        AttributeProto container. Attribute must be part of get_nodeattr_types."""
-        try:
-            (dtype, req, def_val) = self.get_nodeattr_types()[name]
-            attr = get_by_name(self.onnx_node.attribute, name)
-            if attr is not None:
-                # dtype indicates which ONNX Attribute member to use
-                # (such as i, f, s...)
-                if dtype == "s":
-                    # encode string attributes
-                    value = value.encode("utf-8")
-                attr.__setattr__(dtype, value)
-            else:
-                # not set, create and insert AttributeProto
-                attr_proto = helper.make_attribute(name, value)
-                self.onnx_node.attribute.append(attr_proto)
-        except KeyError:
-            raise AttributeError("Op has no such attribute: " + name)
-
-    @abstractmethod
-    def get_nodeattr_types(self):
-        """Returns a dict of permitted attributes for node, where:
-            returned_dict[attribute_name] = (dtype, require, default_value)
-            - dtype indicates which member of the ONNX AttributeProto
-            will be utilized
-            - require indicates whether this attribute is required
-            - default_val indicates the default value that will be used if the
-            attribute is not set
-        """
-        pass
-
-    @abstractmethod
-    def make_shape_compatible_op(self, model):
-        """Returns a standard ONNX op which is compatible with this CustomOp
-        for performing shape inference."""
-        pass
-
-    @abstractmethod
-    def infer_node_datatype(self, model):
-        """Set the DataType annotations corresponding to the outputs of this
-        node."""
-        pass
-
-    @abstractmethod
-    def execute_node(self, context, graph):
-        """Execute this CustomOp instance, given the execution context and
-        ONNX graph."""
-        pass
-
-    @abstractmethod
-    def verify_node(self):
-        """Verifies that all attributes the node needs are there and
-        that particular attributes are set correctly. Also checks if
-        the number of inputs is equal to the expected number."""
-        pass
+custom_op["DownSampler"] = DownSampler
+custom_op["StreamingMaxPool_Batch"] = StreamingMaxPool_Batch
+custom_op["StreamingFCLayer_Batch"] = StreamingFCLayer_Batch
+custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
+custom_op["TLastMarker"] = TLastMarker
+custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
+custom_op["StreamingFIFO"] = StreamingFIFO
+custom_op["GlobalAccPool_Batch"] = GlobalAccPool_Batch
+custom_op["Pool_Batch"] = Pool_Batch
+custom_op["FMPadding_Batch"] = FMPadding_Batch
+custom_op["Thresholding_Batch"] = Thresholding_Batch
+custom_op["AddStreams_Batch"] = AddStreams_Batch
+custom_op["LabelSelect_Batch"] = LabelSelect_Batch
+custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
+custom_op["Vector_Vector_Activate_Batch"] = Vector_Vector_Activate_Batch
+custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
+custom_op["IODMA"] = IODMA

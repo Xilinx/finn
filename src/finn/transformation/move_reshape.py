@@ -1,4 +1,4 @@
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name
 
 

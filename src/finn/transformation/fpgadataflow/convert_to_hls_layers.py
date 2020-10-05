@@ -32,7 +32,7 @@ import numpy as np
 import warnings
 
 from finn.core.datatype import DataType
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes

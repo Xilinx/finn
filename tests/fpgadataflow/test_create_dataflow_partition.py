@@ -45,7 +45,7 @@ build_dir = make_build_dir("test_dataflow_partition_")
 def test_dataflow_partition_create():
     # load the onnx model
     raw_m = get_data(
-        "finn", "data/onnx/finn-hls-model/tfc_w1_a1_after_conv_to_hls.onnx"
+        "finn.qnn-data", "onnx/finn-hls-model/tfc_w1_a1_after_conv_to_hls.onnx"
     )
     model = ModelWrapper(raw_m)
     model = model.transform(CreateDataflowPartition())

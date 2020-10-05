@@ -30,7 +30,7 @@ import copy
 
 from onnx import helper
 
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name, make_build_dir
 
 

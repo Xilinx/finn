@@ -30,7 +30,7 @@ import os
 import subprocess
 
 from finn.custom_op.registry import getCustomOp
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.core.modelwrapper import ModelWrapper
 from finn.util.basic import get_by_name, make_build_dir
 from finn.util.basic import get_num_default_workers

@@ -71,6 +71,8 @@ RUN chown -R $UNAME:$GNAME /home/$UNAME
 USER $UNAME
 
 # cloning dependency repos (as user)
+# finn-base
+RUN git clone https://github.com/maltanar/finn-base.git /workspace/finn-base
 # Brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
 # CNPY

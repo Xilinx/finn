@@ -26,10 +26,18 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# predefined lists of strings to have a cannonical way of expresing data layout
-# annotations
 
-NHWC = ["N", "H", "W", "C"]
-NCHW = ["N", "C", "H", "W"]
-NC = ["N", "C"]
-UNKNOWN = []
+# IMPORTANT:
+# - do not move this file to subfolders
+#      pytest must discover it before other FINN tests, can be checked with:
+#        pytest --collect-only
+# - do not change the order of imports below
+# this is to workaround the onnx 1.6.0/pytorch bug
+# https://github.com/onnx/onnx/issues/2394#issuecomment-581638840
+
+import onnx  # noqa
+import torch  # noqa
+
+
+def test_enforce_import_order():
+    assert True

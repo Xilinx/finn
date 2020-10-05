@@ -31,7 +31,7 @@ import warnings
 from onnx import helper as oh
 from onnx import TensorProto
 
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 import finn.core.data_layout as DataLayout
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes

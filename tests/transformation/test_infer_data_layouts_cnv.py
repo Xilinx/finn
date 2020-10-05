@@ -46,7 +46,7 @@ import finn.core.data_layout as DataLayout
 export_onnx_path_cnv = "test_infer_data_layouts.onnx"
 
 
-def test_infer_data_layouts():
+def test_infer_data_layouts_cnv():
     cnv = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path_cnv)
     model = ModelWrapper(export_onnx_path_cnv)
