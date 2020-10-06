@@ -282,7 +282,7 @@ class VitisLink(Transformation):
                     " ".join(object_files),
                     self.f_mhz,
                     self.strategy.value,
-                    debug_commands,
+                    " ".join(debug_commands),
                 )
             )
             f.write("cd {}\n".format(working_dir))
