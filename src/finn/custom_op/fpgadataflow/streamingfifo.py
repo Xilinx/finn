@@ -30,6 +30,7 @@ import numpy as np
 from shutil import copy
 import subprocess
 import math
+import warnings
 
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from finn.core.datatype import DataType
@@ -178,14 +179,11 @@ class StreamingFIFO(HLSCustomOp):
         depth = self.get_nodeattr("depth")
         # depth has to be between 2 and 256 with the current
         # StreamingFIFO implementation
-        assert (
-            depth >= 2
-        ), """Depth is too low. Please set node attribute "depth" to a value
-        between 2 and 256"""
-        assert (
-            depth <= 256
-        ), """Depth is too high. Please set node attribute "depth" to a value
-        between 2 and 256"""
+        assert depth >= 2, """Depth is too low"""
+        if depth > 256 and self.get_nodeattr("impl_style") == "rtl":
+            warnings.warn(
+                "Depth is high, set between 2 and 256 for efficient SRL implementation"
+            )
         # derive normal shape from folded shape
         # StreamingFIFOs are inserted in between fpgadataflow nodes
         # the folded shape could be for example (1, nf, pe)
@@ -424,7 +422,6 @@ class StreamingFIFO(HLSCustomOp):
         else:
             return (math.ceil(depth / 4096)) * (math.ceil(W / 72))
 
-
     def bram_efficiency_estimation(self):
         depth = self.get_nodeattr("depth")
         W = self.get_instream_width()
@@ -450,4 +447,3 @@ class StreamingFIFO(HLSCustomOp):
             ram_luts = 0
 
         return int(address_luts + ram_luts)
-
