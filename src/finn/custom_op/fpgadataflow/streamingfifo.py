@@ -447,3 +447,10 @@ class StreamingFIFO(HLSCustomOp):
             ram_luts = 0
 
         return int(address_luts + ram_luts)
+
+    def prepare_rtlsim(self):
+        assert self.get_nodeattr("impl_style") != "vivado", (
+            "StreamingFIFO impl_style "
+            "cannot be vivado for rtlsim. Only impl_style=rtl supported."
+        )
+        super().prepare_rtlsim()
