@@ -84,7 +84,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.transformation.fpgadataflow.set_fifo_depths import SetFIFODepths
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.modelwrapper import ModelWrapper
 from scipy.stats import linregress
@@ -454,7 +454,7 @@ class TestEnd2End:
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "ipgen_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(kind, target_clk_ns)["part"]
-        model = model.transform(SetFIFODepths(test_fpga_part, target_clk_ns))
+        model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
         model.save(get_checkpoint_name(topology, wbits, abits, "fifodepth_" + kind))
 
     @pytest.mark.slow

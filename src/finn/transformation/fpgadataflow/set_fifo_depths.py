@@ -43,7 +43,7 @@ from finn.core.rtlsim_exec import (
     _reset_rtlsim,
     _toggle_clk,
 )
-from finn.util.fpgadataflow import pyverilate_stitched_ip
+from finn.util.fpgadataflow import pyverilate_stitched_ip, is_fpgadataflow_node
 
 
 def reset_implementation(node):
@@ -76,12 +76,26 @@ def optimize_depth(depth):
     return int(math.ceil(depth / 1024) * 1024)
 
 
-class SetFIFODepths(Transformation):
-    """Determines minimum depths of StreamingFIFOs through RTLSim.
-    We assume we get a dataflow partition (all nodes are dataflow, no FIFOs)
-    We set initial depths very high (16k), run sim with multiple
-    images on input (random/constant data) and keep track of maximum
-    occupancy counts in each FIFO."""
+class InsertAndSetFIFODepths(Transformation):
+    """Insert appropriate-depth StreamingFIFOs through RTLSim that preserve
+    throughput in the created accelerator.
+
+    Assumed input graph properties:
+    - all nodes are fpgadataflow nodes
+    - no FIFOs inserted,
+    - (inFIFODepth/outFIFODepth attrs will be ignored)
+
+    Output:
+    - graph with appropriate-depth FIFOs inserted
+
+    How it works:
+    - insert very deep (default 16k deep) FIFOs between all fpgadataflow nodes
+    - create stitched design
+    - run through rtlsim with stream of multiple random input images (to fill pipeline)
+    - keep track of observed maximum occupancy for each FIFO during rtlsim
+    - when sim finished, update each FIFO depth to maximum observed occupancy
+      and set inFIFODepth/outFIFODepth attrs to 0 on relevant nodes
+    """
 
     def __init__(self, fpgapart, clk_ns=10.0, max_qsrl_depth=256, max_depth=2 ** 14):
         super().__init__()
@@ -91,11 +105,15 @@ class SetFIFODepths(Transformation):
         self.max_depth = max_depth
 
     def apply(self, model):
-
         # change external to decoupled and warn user
         # this way we are sure we have exactly one input/output
         modified_fc_nodes = []
         for node in model.graph.node:
+            # verify assumptions
+            assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(
+                node
+            )
+            assert node.op_type != "StreamingFIFO", "Found existing StreamingFIFO node"
             node = getCustomOp(node)
             node.set_nodeattr("inFIFODepth", self.max_depth)
             node.set_nodeattr("outFIFODepth", self.max_depth)
