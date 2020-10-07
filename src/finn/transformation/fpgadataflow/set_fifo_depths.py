@@ -71,9 +71,7 @@ def optimize_depth(depth):
         return 2
     if depth <= 32:
         return 32
-    if depth <= 1024:
-        return int(2 ** math.ceil(math.log2(depth)))
-    return int(math.ceil(depth / 1024) * 1024)
+    return int(2 ** math.ceil(math.log2(depth)))
 
 
 class InsertAndSetFIFODepths(Transformation):
