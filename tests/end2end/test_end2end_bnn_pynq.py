@@ -455,6 +455,14 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(kind, target_clk_ns)["part"]
         model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
+        fifo_layers = model.get_nodes_by_op_type("StreamingFIFO")
+        assert len(fifo_layers) > 0
+        hls_layers = model.get_finn_nodes()
+        for node in hls_layers:
+            if node.op_type != "StreamingFIFO":
+                op_inst = getCustomOp(node)
+                assert op_inst.get_nodeattr("inFIFODepth") == 0
+                assert op_inst.get_nodeattr("outFIFODepth") == 0
         model.save(get_checkpoint_name(topology, wbits, abits, "fifodepth_" + kind))
 
     @pytest.mark.slow
