@@ -70,13 +70,86 @@ def optimize_depth(depth):
     if depth <= 2:
         return 2
     if depth <= 32:
+        # Q_srl FIFOs do not benefit from size < 32
+        # add some slack
         return 32
+    # round to nearest power of two for Vivado IP FIFO implementation
     return int(2 ** math.ceil(math.log2(depth)))
+
+
+class CapConvolutionFIFODepths(Transformation):
+    """Make the size of FIFOs for convolution layers smaller where possible.
+    Will be automatically called from InsertAndSetFIFODepths if the appropriate
+    constructor flag is set.
+
+    Constructor arguments:
+    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
+                       Verilog FIFOs (Q_srl.v)
+
+    Assumed input graph properties:
+    - all nodes are fpgadataflow nodes
+    - FIFOs inserted with InsertAndSetFIFODepths
+
+    Output:
+    - graph with smaller-depth FIFOs for convolutions
+
+    Background:
+    The simulation-based rtlsim_exec tends to overestimate the required depth
+    of FIFOs between the ConvolutionInputGenerator (here called SWG) and the
+    StreamingFCLayer (here called MVAU). As the SWG has an internal buffer of 1
+    image row, we use this as a rule of thumb to set FIFO depth to be no larger
+    than 1 row.
+    """
+
+    def __init__(self, max_qsrl_depth=256):
+        super().__init__()
+        self.max_qsrl_depth = max_qsrl_depth
+
+    def apply(self, model):
+        # TODO move this to own transformation
+        for node in model.graph.node:
+            # look for following pattern:
+            # ConvolutionInputGenerator -> StreamingFIFO -> StreamingFCLayer
+            if node.op_type == "StreamingFIFO":
+                fifo_prod = model.find_producer(node.input[0])
+                fifo_cons = model.find_consumer(node.output[0])
+                if fifo_prod is None:
+                    continue
+                if fifo_prod.op_type != "ConvolutionInputGenerator":
+                    continue
+                if fifo_cons is None:
+                    continue
+                if fifo_cons.op_type != "StreamingFCLayer_Batch":
+                    continue
+                op_inst = getCustomOp(node)
+                depth = op_inst.get_nodeattr("depth")
+                # SWG has an internal buffer of 1 row, so we use this as a
+                # rule of thumb to set FIFO depth to be no larger than 1 row
+                (bs, h, w, ifold, simd) = op_inst.get_folded_input_shape()
+                new_depth = optimize_depth(w * ifold)
+                new_depth = min(new_depth, depth)
+                op_inst.set_nodeattr("depth", new_depth)
+                # Set FIFO implementation/ram styles
+                if new_depth > self.max_qsrl_depth:
+                    op_inst.set_nodeattr("impl_style", "vivado")
+                    op_inst.set_nodeattr("ram_style", "auto")
+                else:
+                    op_inst.set_nodeattr("impl_style", "rtl")
+
+        return (model, False)
 
 
 class InsertAndSetFIFODepths(Transformation):
     """Insert appropriate-depth StreamingFIFOs through RTLSim that preserve
     throughput in the created accelerator.
+
+    Constructor arguments:
+    - clk_ns : clock period (used for IP preparation)
+    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
+                       Verilog FIFOs (Q_srl.v)
+    - max_depth : how deep the "max"-sized FIFOs initially inserted will be
+    - swg_exception : call CapConvolutionFIFODepths to make convolution FIFOs
+                        smaller where appropriate
 
     Assumed input graph properties:
     - all nodes are fpgadataflow nodes
@@ -86,7 +159,11 @@ class InsertAndSetFIFODepths(Transformation):
     Output:
     - graph with appropriate-depth FIFOs inserted
 
-    How it works:
+    Background:
+    Even with all FINN HLS fpgadatflow layers appropriately parallelized, it is
+    necessary to insert FIFOs between them to prevent stalls due to bursty
+    behavior. The sizes of those FIFOs are hard to predict analytically, so
+    we do the following:
     - insert very deep (default 16k deep) FIFOs between all fpgadataflow nodes
     - create stitched design
     - run through rtlsim with stream of multiple random input images (to fill pipeline)
@@ -95,12 +172,20 @@ class InsertAndSetFIFODepths(Transformation):
       and set inFIFODepth/outFIFODepth attrs to 0 on relevant nodes
     """
 
-    def __init__(self, fpgapart, clk_ns=10.0, max_qsrl_depth=256, max_depth=2 ** 14):
+    def __init__(
+        self,
+        fpgapart,
+        clk_ns=10.0,
+        max_qsrl_depth=256,
+        max_depth=2 ** 14,
+        swg_exception=True,
+    ):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
         self.max_qsrl_depth = max_qsrl_depth
         self.max_depth = max_depth
+        self.swg_exception = swg_exception
 
     def apply(self, model):
         # change external to decoupled and warn user
@@ -256,7 +341,14 @@ class InsertAndSetFIFODepths(Transformation):
             len(modified_fc_nodes) == 0 and len(fifos.keys()) == 0
         ), "FIFO/FC nodes left untouched after model reconfiguration"
 
+        # handle custom sizing for SWG FIFOs if desired
+        if self.swg_exception:
+            model = model.transform(
+                CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth)
+            )
+
         # Remove FIFOs which have depth <= 2
+        # TODO move this to own transformation
         shallow_fifos = []
         # First, bypass them
         for node in model.graph.node:
