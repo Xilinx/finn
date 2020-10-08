@@ -82,7 +82,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
@@ -129,19 +128,17 @@ def update_dashboard_data(topology, wbits, abits, key, val):
 
 def fold_tfc(model):
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    # (PE, SIMD, in_fifo_depth, out_fifo_depth, ramstyle) for each layer
+    # (PE, SIMD, ramstyle) for each layer
     config = [
-        (16, 49, 16, 64, "block"),
-        (8, 8, 64, 64, "auto"),
-        (8, 8, 64, 64, "auto"),
-        (10, 8, 64, 10, "distributed"),
+        (16, 49, "block"),
+        (8, 8, "auto"),
+        (8, 8, "auto"),
+        (10, 8, "distributed"),
     ]
-    for fcl, (pe, simd, ififo, ofifo, ramstyle) in zip(fc_layers, config):
+    for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
-        fcl_inst.set_nodeattr("inFIFODepth", ififo)
-        fcl_inst.set_nodeattr("outFIFODepth", ofifo)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
@@ -152,62 +149,56 @@ def fold_tfc(model):
 
 def fold_cnv_large(model):
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    # each tuple is (PE, SIMD, in_fifo_depth) for a layer
+    # each tuple is (PE, SIMD) for a layer
     folding = [
-        (16, 3, 256),
-        (32, 32, 256),
-        (16, 32, 256),
-        (16, 32, 256),
-        (4, 32, 214),
-        (1, 32, 2),
-        (1, 4, 126),
-        (1, 8, 62),
-        (5, 1, 6),
+        (16, 3),
+        (32, 32),
+        (16, 32),
+        (16, 32),
+        (4, 32),
+        (1, 32),
+        (1, 4),
+        (1, 8),
+        (5, 1),
     ]
-    for fcl, (pe, simd, ififodepth) in zip(fc_layers, folding):
+    for fcl, (pe, simd) in zip(fc_layers, folding):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
-        fcl_inst.set_nodeattr("inFIFODepth", ififodepth)
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator")
-    swg_idepth = [2, 51, 9, 106, 2, 2]
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
         swg_inst.set_nodeattr("SIMD", simd)
-        swg_inst.set_nodeattr("inFIFODepth", swg_idepth[i])
     return model
 
 
 def fold_cnv_small(model):
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    # each tuple is (PE, SIMD, in_fifo_depth) for a layer
+    # each tuple is (PE, SIMD) for a layer
     folding = [
-        (8, 3, 256, "auto"),
-        (16, 16, 256, "auto"),
-        (8, 16, 256, "auto"),
-        (8, 16, 256, "block"),
-        (4, 8, 214, "auto"),
-        (1, 8, 2, "auto"),
-        (1, 2, 126, "distributed"),
-        (2, 2, 62, "block"),
-        (5, 1, 6, "distributed"),
+        (8, 3, "auto"),
+        (16, 16, "auto"),
+        (8, 16, "auto"),
+        (8, 16, "block"),
+        (4, 8, "auto"),
+        (1, 8, "auto"),
+        (1, 2, "distributed"),
+        (2, 2, "block"),
+        (5, 1, "distributed"),
     ]
-    for fcl, (pe, simd, ififodepth, ramstyle) in zip(fc_layers, folding):
+    for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
-        fcl_inst.set_nodeattr("inFIFODepth", ififodepth)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
 
     swg_layers = model.get_nodes_by_op_type("ConvolutionInputGenerator")
-    swg_idepth = [2, 51, 9, 106, 2, 2]
     for i in range(len(swg_layers)):
         swg_inst = getCustomOp(swg_layers[i])
         simd = folding[i][1]
         swg_inst.set_nodeattr("SIMD", simd)
-        swg_inst.set_nodeattr("inFIFODepth", swg_idepth[i])
     return model
 
 
@@ -475,7 +466,6 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(kind, target_clk_ns)["part"]
         model = model.transform(InsertDWC())
-        model = model.transform(InsertFIFO())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
         perf = model.analysis(dataflow_performance)
