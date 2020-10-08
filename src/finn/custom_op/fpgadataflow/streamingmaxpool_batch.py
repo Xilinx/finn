@@ -99,7 +99,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         # derived from StreamingMaxPool_Batch loop nest
         k = self.get_nodeattr("PoolDim")
         ifm_dim = self.get_nodeattr("ImgDim")
-        return ifm_dim * (ifm_dim + (ifm_dim / k))
+        return int(ifm_dim * (ifm_dim + (ifm_dim / k)))
 
     def get_instream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()

@@ -187,7 +187,7 @@ class GlobalAccPool_Batch(HLSCustomOp):
         ch = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         folds = int(ch / pe)
-        return np.prod(self.get_folded_input_shape()[:-1]) + folds
+        return int(np.prod(self.get_folded_input_shape()[:-1]) + folds)
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

@@ -1,0 +1,392 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+import math
+import numpy as np
+import warnings
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.transformation.general import GiveUniqueNodeNames, GiveReadableTensorNames
+from finn.core.rtlsim_exec import (
+    _reset_rtlsim,
+    _toggle_clk,
+)
+from finn.util.fpgadataflow import pyverilate_stitched_ip, is_fpgadataflow_node
+
+
+def reset_implementation(node):
+    node.set_nodeattr("code_gen_dir_ipgen", "")
+    node.set_nodeattr("ipgen_path", "")
+    node.set_nodeattr("ip_path", "")
+
+
+def set_signal(sim, keyw, value):
+    for i in range(len(sim.inputs)):
+        input_name = sim.inputs[i][0]
+        if keyw in input_name:
+            sim.io[input_name] = value
+
+
+def get_signal(sim, keyw):
+    for i in range(len(sim.outputs)):
+        output_name = sim.outputs[i][0]
+        if keyw in output_name:
+            return sim.io[output_name]
+
+
+def optimize_depth(depth):
+    if depth <= 2:
+        return 2
+    if depth <= 32:
+        # Q_srl FIFOs do not benefit from size < 32
+        # add some slack
+        return 32
+    # round to nearest power of two for Vivado IP FIFO implementation
+    return int(2 ** math.ceil(math.log2(depth)))
+
+
+class RemoveShallowFIFOs(Transformation):
+    """Remove small FIFOs as the streaming components have depth-2 FIFOs on the
+    input/outputs by default."""
+
+    # TODO add unit test
+
+    def __init__(self, shallow_threshold=2):
+        self.shallow_threshold = shallow_threshold
+
+    def apply(self, model):
+        shallow_fifos = []
+        for node in model.graph.node:
+            if (
+                node.op_type == "StreamingFIFO"
+                and getCustomOp(node).get_nodeattr("depth") <= self.shallow_threshold
+            ):
+                # bypass shallow fifos
+                shallow_fifos.append(node)
+                consumers = model.find_consumers(node.output[0])
+                if consumers is None:
+                    producer = model.find_producer(node.input[0])
+                    for idx, inp in enumerate(producer.output):
+                        if inp == node.input[0]:
+                            producer.output[idx] = node.output[0]
+                else:
+                    assert len(consumers) == 1, "Fanout detected from FIFO output"
+                    consumer = consumers[0]
+                    # set fifo input tensor as new input tensor of second node
+                    for idx, inp in enumerate(consumer.input):
+                        if inp == node.output[0]:
+                            consumer.input[idx] = node.input[0]
+        # now filter out
+        for node_to_remove in shallow_fifos:
+            model.graph.node.remove(node_to_remove)
+
+        return (model, False)
+
+
+class CapConvolutionFIFODepths(Transformation):
+    """Make the size of FIFOs for convolution layers smaller where possible.
+    Will be automatically called from InsertAndSetFIFODepths if the appropriate
+    constructor flag is set.
+
+    Constructor arguments:
+    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
+                       Verilog FIFOs (Q_srl.v)
+
+    Assumed input graph properties:
+    - all nodes are fpgadataflow nodes
+    - FIFOs inserted with InsertAndSetFIFODepths
+
+    Output:
+    - graph with smaller-depth FIFOs for convolutions
+
+    Background:
+    The simulation-based rtlsim_exec tends to overestimate the required depth
+    of FIFOs between the ConvolutionInputGenerator (here called SWG) and the
+    StreamingFCLayer (here called MVAU). As the SWG has an internal buffer of 1
+    image row, we use this as a rule of thumb to set FIFO depth to be no larger
+    than 1 row.
+    """
+
+    # TODO add unit test
+
+    def __init__(self, max_qsrl_depth=256):
+        super().__init__()
+        self.max_qsrl_depth = max_qsrl_depth
+
+    def apply(self, model):
+        # TODO move this to own transformation
+        for node in model.graph.node:
+            # look for following pattern:
+            # ConvolutionInputGenerator -> StreamingFIFO -> StreamingFCLayer
+            if node.op_type == "StreamingFIFO":
+                fifo_prod = model.find_producer(node.input[0])
+                fifo_cons = model.find_consumer(node.output[0])
+                if fifo_prod is None:
+                    continue
+                if fifo_prod.op_type != "ConvolutionInputGenerator":
+                    continue
+                if fifo_cons is None:
+                    continue
+                if fifo_cons.op_type != "StreamingFCLayer_Batch":
+                    continue
+                op_inst = getCustomOp(node)
+                depth = op_inst.get_nodeattr("depth")
+                # SWG has an internal buffer of 1 row, so we use this as a
+                # rule of thumb to set FIFO depth to be no larger than 1 row
+                (bs, h, w, ifold, simd) = op_inst.get_folded_input_shape()
+                new_depth = optimize_depth(w * ifold)
+                new_depth = min(new_depth, depth)
+                op_inst.set_nodeattr("depth", new_depth)
+                # Set FIFO implementation/ram styles
+                if new_depth > self.max_qsrl_depth:
+                    op_inst.set_nodeattr("impl_style", "vivado")
+                    op_inst.set_nodeattr("ram_style", "auto")
+                else:
+                    op_inst.set_nodeattr("impl_style", "rtl")
+
+        return (model, False)
+
+
+class InsertAndSetFIFODepths(Transformation):
+    """Insert appropriate-depth StreamingFIFOs through RTLSim that preserve
+    throughput in the created accelerator.
+
+    Constructor arguments:
+    - clk_ns : clock period (used for IP preparation)
+    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
+                       Verilog FIFOs (Q_srl.v)
+    - max_depth : how deep the "max"-sized FIFOs initially inserted will be
+    - swg_exception : call CapConvolutionFIFODepths to make convolution FIFOs
+                        smaller where appropriate
+
+    Assumed input graph properties:
+    - all nodes are fpgadataflow nodes
+    - no FIFOs inserted,
+    - (inFIFODepth/outFIFODepth attrs will be ignored)
+
+    Output:
+    - graph with appropriate-depth FIFOs inserted
+
+    Background:
+    Even with all FINN HLS fpgadatflow layers appropriately parallelized, it is
+    necessary to insert FIFOs between them to prevent stalls due to bursty
+    behavior. The sizes of those FIFOs are hard to predict analytically, so
+    we do the following:
+    - insert very deep (default 16k deep) FIFOs between all fpgadataflow nodes
+    - create stitched design
+    - run through rtlsim with stream of multiple random input images (to fill pipeline)
+    - keep track of observed maximum occupancy for each FIFO during rtlsim
+    - when sim finished, update each FIFO depth to maximum observed occupancy
+      and set inFIFODepth/outFIFODepth attrs to 0 on relevant nodes
+    """
+
+    def __init__(
+        self,
+        fpgapart,
+        clk_ns=10.0,
+        max_qsrl_depth=256,
+        max_depth=2 ** 14,
+        swg_exception=True,
+    ):
+        super().__init__()
+        self.fpgapart = fpgapart
+        self.clk_ns = clk_ns
+        self.max_qsrl_depth = max_qsrl_depth
+        self.max_depth = max_depth
+        self.swg_exception = swg_exception
+
+    def apply(self, model):
+        # change external to decoupled and warn user
+        # this way we are sure we have exactly one input/output
+        modified_fc_nodes = []
+        for node in model.graph.node:
+            # verify assumptions
+            assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(
+                node
+            )
+            assert node.op_type != "StreamingFIFO", "Found existing StreamingFIFO node"
+            node = getCustomOp(node)
+            node.set_nodeattr("inFIFODepth", self.max_depth)
+            node.set_nodeattr("outFIFODepth", self.max_depth)
+            if node.onnx_node.op_type == "StreamingFCLayer_Batch":
+                mmode = node.get_nodeattr("mem_mode")
+                if mmode == "external":
+                    modified_fc_nodes.append(node.onnx_node.name)
+                    node.set_nodeattr("mem_mode", "decoupled")
+                    reset_implementation(node)
+                    warnings.warn(
+                        "Changed mem_mode from external to decoupled for "
+                        + node.onnx_node.name
+                    )
+
+        # insert stream infrastructure (DWC/FIFO)
+        model = model.transform(InsertDWC())
+        model = model.transform(InsertFIFO())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+
+        # gather FIFO names, check they are of expected depth
+        fifos = {}
+        for node in model.graph.node:
+            if node.op_type == "StreamingFIFO":
+                fifos[node.name] = 0
+                node = getCustomOp(node)
+                # check depths and fix as necessary
+                if node.get_nodeattr("depth") != self.max_depth:
+                    node.set_nodeattr("depth", self.max_depth)
+
+        # insert FIFOs and do all transformations for RTLsim
+        model = model.transform(AnnotateCycles())
+        perf = model.analysis(dataflow_performance)
+        latency = perf["critical_path_cycles"]
+        max_cycles = perf["max_cycles"]
+        model = model.transform(PrepareIP(self.fpgapart, self.clk_ns))
+        model = model.transform(HLSSynthIP())
+        model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
+        model.set_metadata_prop("exec_mode", "rtlsim")
+
+        # calculate input frequency (number of cycles for each input word)
+        first_node = getCustomOp(model.graph.node[0])
+        ncycles_per_input = max(
+            1,
+            int(
+                math.ceil(
+                    perf["max_cycles"]
+                    / (
+                        np.prod(first_node.get_folded_input_shape())
+                        / first_node.get_folded_input_shape()[-1]
+                    )
+                )
+            ),
+        )
+
+        # set sufficiently large threshold for 1 image to  fully execute and exit
+        ncycles = int(latency + max_cycles)
+
+        # prepare pyverilator model
+        sim = pyverilate_stitched_ip(model)
+
+        _reset_rtlsim(sim)
+        _toggle_clk(sim)
+
+        # set all input valids to 0 and output readies to 1
+        # set input data to some constant
+        set_signal(sim, "tvalid", 0)
+        set_signal(sim, "tready", 1)
+        set_signal(sim, "tdata", 0)
+
+        output_detected = False
+        while ncycles > 0:
+            _toggle_clk(sim)
+            # set/unset valids
+            if ncycles % ncycles_per_input == 0:
+                set_signal(sim, "tvalid", 1)
+            else:
+                set_signal(sim, "tvalid", 0)
+
+            # check/update all fifo counts
+            for key in fifos:
+                current_state = sim.internals["finn_design_i"][key]["inst"][
+                    key + "_" + key
+                ]["state"]
+                current_addr = sim.internals["finn_design_i"][key]["inst"][
+                    key + "_" + key
+                ]["addr"]
+                if current_state == 2:
+                    current_count = current_addr + 2
+                else:
+                    current_count = current_state
+                if current_count > fifos[key]:
+                    fifos[key] = current_count
+
+            # since latency estimation is very pessimistic, detect first output
+            # and fast-forward the sim
+            if get_signal(sim, "tvalid") != 0 and not output_detected:
+                ncycles = max_cycles
+                output_detected = True
+            else:
+                ncycles = ncycles - 1
+
+        if not output_detected:
+            warnings.warn(
+                "No output detected, calculated FIFO depths may not be correct"
+            )
+
+        # Apply depths back into the model;
+        # also set in/outFIFODepth to zero for non-FIFO
+        # nodes, preventing further FIFO insertion
+        for node in model.graph.node:
+            # set FIFO depth, reset FIFO implementation,
+            # and set implementation/ram styles
+            if node.op_type == "StreamingFIFO":
+                assert node.name in fifos, "FIFO node not found in size dictionary"
+                # set depth of FIFO
+                depth = optimize_depth(fifos[node.name])
+                node_inst = getCustomOp(node)
+                node_inst.set_nodeattr("depth", depth)
+                # Set FIFO implementation/ram styles
+                if depth > self.max_qsrl_depth:
+                    node_inst.set_nodeattr("impl_style", "vivado")
+                    node_inst.set_nodeattr("ram_style", "auto")
+                else:
+                    node_inst.set_nodeattr("impl_style", "rtl")
+                # reset implementation
+                reset_implementation(node_inst)
+                del fifos[node.name]
+            else:
+                getCustomOp(node).set_nodeattr("inFIFODepth", 0)
+                getCustomOp(node).set_nodeattr("outFIFODepth", 0)
+                # for every FC node we changed from external to decoupled,
+                # change back and reset implementation
+                if node.op_type == "StreamingFCLayer_Batch":
+                    if node.name in modified_fc_nodes:
+                        node_inst = getCustomOp(node)
+                        node_inst.set_nodeattr("mem_mode", "external")
+                        reset_implementation(node_inst)
+                        modified_fc_nodes.remove(node.name)
+
+        assert (
+            len(modified_fc_nodes) == 0 and len(fifos.keys()) == 0
+        ), "FIFO/FC nodes left untouched after model reconfiguration"
+
+        # handle custom sizing for SWG FIFOs if desired
+        if self.swg_exception:
+            model = model.transform(
+                CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth)
+            )
+        # remove shallow FIFOs
+        model = model.transform(RemoveShallowFIFOs())
+
+        return (model, False)
