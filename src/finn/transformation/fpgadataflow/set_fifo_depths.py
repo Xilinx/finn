@@ -39,11 +39,8 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.general import GiveUniqueNodeNames, GiveReadableTensorNames
-from finn.core.rtlsim_exec import (
-    _reset_rtlsim,
-    _toggle_clk,
-)
 from finn.util.fpgadataflow import pyverilate_stitched_ip, is_fpgadataflow_node
+from finn.util.pyverilator import reset_rtlsim, toggle_clk
 
 
 def reset_implementation(node):
@@ -298,8 +295,8 @@ class InsertAndSetFIFODepths(Transformation):
         # prepare pyverilator model
         sim = pyverilate_stitched_ip(model)
 
-        _reset_rtlsim(sim)
-        _toggle_clk(sim)
+        reset_rtlsim(sim)
+        toggle_clk(sim)
 
         # set all input valids to 0 and output readies to 1
         # set input data to some constant
@@ -309,7 +306,7 @@ class InsertAndSetFIFODepths(Transformation):
 
         output_detected = False
         while ncycles > 0:
-            _toggle_clk(sim)
+            toggle_clk(sim)
             # set/unset valids
             if ncycles % ncycles_per_input == 0:
                 set_signal(sim, "tvalid", 1)
