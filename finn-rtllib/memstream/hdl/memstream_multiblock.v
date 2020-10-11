@@ -74,6 +74,7 @@ module memstream_multiblock
 	input config_we,
 	input [31:0] config_d0,
 	output [31:0] config_q0,
+    output config_rack,
 
     //multiple output AXI Streams, TDATA width rounded to multiple of 8 bits
     input m_axis_0_afull,
@@ -466,6 +467,8 @@ always @(posedge aclk) begin
     end
 end
 
+//dummy read, for now
 assign config_q0 = 0;
+assign config_rack = config_ce & ~config_we;
 
 endmodule
