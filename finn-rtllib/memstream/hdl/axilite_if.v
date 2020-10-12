@@ -166,13 +166,13 @@ end else begin: fold
     reg [NFOLDS_LOG-1:0] internal_rfold;
     assign write_to_last_fold = internal_wen & (internal_waddr[NFOLDS_LOG-1:0] == {(NFOLDS_LOG){1'b1}});
     assign internal_rdata = ip_rdata >> (internal_rfold*DATA_WIDTH);
+    always @(posedge aclk)
+        if(internal_ren)
+            internal_rfold <= internal_raddr[NFOLDS_LOG-1:0];
     for(i=0; i<(1<<NFOLDS_LOG); i = i+1) begin: gen_wdata
-        always @(posedge aclk) begin
+        always @(posedge aclk)
             if(internal_waddr[NFOLDS_LOG-1:0] == i)
                 ip_wdata_wide[(i+1)*DATA_WIDTH-1:i*DATA_WIDTH] <= internal_wdata;
-            if(internal_ren)
-                internal_rfold <= internal_raddr[NFOLDS_LOG-1:0];
-        end
     end
 end
 endgenerate
