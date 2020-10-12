@@ -128,7 +128,8 @@ class CreateStitchedIP(Transformation):
                 "[get_bd_intf_pins %s/%s]" % (inst_name, axilite_intf_name[0])
             )
             self.connect_cmds.append(
-                "set_property name s_axi_control " "[get_bd_intf_ports s_axi_control_0]"
+                "set_property name s_axi_control "
+                "[get_bd_intf_ports %s_0]" % axilite_intf_name[0]
             )
             assert (
                 self.has_axilite is False
