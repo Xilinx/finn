@@ -87,9 +87,8 @@ reg                      internal_wack;
 reg [ADDR_WIDTH-1:0]     internal_raddr;
 reg [ADDR_WIDTH-1:0]     internal_waddr;
 reg [DATA_WIDTH-1:0]     internal_wdata;
-reg [IP_DATA_WIDTH-1:0]  internal_rdata;
+wire [DATA_WIDTH-1:0]    internal_rdata;
 reg                      internal_error = 0;
-reg [NFOLDS_LOG-1:0]     internal_rfold;
 
 //check DATA_WIDTH
 initial begin
@@ -146,24 +145,35 @@ always @(posedge aclk)
     arready <= internal_ren;
 
 wire write_to_last_fold;
-assign write_to_last_fold = internal_wen & (internal_waddr[NFOLDS_LOG-1:0] == {(NFOLDS_LOG){1'b1}});
 
 always @(posedge aclk) begin
     ip_wen <= write_to_last_fold;
     ip_en <= internal_ren | write_to_last_fold;
     if(internal_ren | write_to_last_fold)
         ip_addr <= internal_ren ? (internal_raddr >> NFOLDS_LOG) : (internal_waddr >> NFOLDS_LOG);
-    if(internal_ren)
-        internal_rfold <= internal_raddr[NFOLDS_LOG-1:0];
     internal_wack <= internal_wen;
 end
 
 genvar i;
 reg [(1<<NFOLDS_LOG)*DATA_WIDTH-1:0] ip_wdata_wide;
-generate for(i=0; i<(1<<NFOLDS_LOG); i = i+1) begin: gen_wdata
+generate
+if(NFOLDS_LOG == 0) begin: no_fold
+    assign write_to_last_fold = internal_wen;
+    assign internal_rdata = ip_rdata;
     always @(posedge aclk)
-        if(internal_waddr[NFOLDS_LOG-1:0] == i)
-            ip_wdata_wide[(i+1)*DATA_WIDTH-1:i*DATA_WIDTH] <= internal_wdata;
+        ip_wdata_wide <= internal_wdata;
+end else begin: fold
+    reg [NFOLDS_LOG-1:0] internal_rfold;
+    assign write_to_last_fold = internal_wen & (internal_waddr[NFOLDS_LOG-1:0] == {(NFOLDS_LOG){1'b1}});
+    assign internal_rdata = ip_rdata >> (internal_rfold*DATA_WIDTH);
+    always @(posedge aclk)
+        if(internal_ren)
+            internal_rfold <= internal_raddr[NFOLDS_LOG-1:0];
+    for(i=0; i<(1<<NFOLDS_LOG); i = i+1) begin: gen_wdata
+        always @(posedge aclk)
+            if(internal_waddr[NFOLDS_LOG-1:0] == i)
+                ip_wdata_wide[(i+1)*DATA_WIDTH-1:i*DATA_WIDTH] <= internal_wdata;
+    end
 end
 endgenerate
 assign ip_wdata = ip_wdata_wide[IP_DATA_WIDTH-1:0];
@@ -189,7 +199,7 @@ always @(posedge aclk or negedge aresetn)
         rresp <= RESP_OKAY;
     end else if(ip_rack) begin
         rvalid <= 1;
-        rdata <= ip_rdata >> (internal_rfold*DATA_WIDTH);
+        rdata <= internal_rdata;
         rresp <= internal_error ? RESP_SLVERR : RESP_OKAY;
     end else if(rready) begin
         rvalid <= 0;
