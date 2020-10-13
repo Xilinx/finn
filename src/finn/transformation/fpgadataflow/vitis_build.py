@@ -95,6 +95,15 @@ class CreateVitisXO(Transformation):
         # NOTE: this assumes the graph is Vitis-compatible: max one axi lite interface
         # developed from instructions in UG1393 (v2019.2) and package_xo documentation
         # package_xo is responsible for generating the kernel xml
+        ifnames = eval(model.set_metadata_prop("vivado_stitch_ifnames"))
+        assert (
+            len(ifnames["axilite"]) <= 1
+        ), "CreateVitisXO supports max 1 AXI lite interface"
+        if len(ifnames["axilite"]) == 1:
+            axilite_intf_name = ifnames["axilite"][0]
+        else:
+            axilite_intf_name = None
+
         for node in model.graph.node:
             node_inst = getCustomOp(node)
             arg_id = 0
@@ -117,8 +126,10 @@ class CreateVitisXO(Transformation):
                 # add a axilite port if dynamic
                 # add a count parameter if dynamic
                 if node_inst.get_nodeattr("DynIters") == 1:
+                    assert axilite_intf_name is not None
                     args_string.append(
-                        "{numReps:0:%s:s_axi_control:0x4:0x10:uint:0}" % str(arg_id)
+                        "{numReps:0:%s:%s:0x4:0x10:uint:0}"
+                        % (str(arg_id), axilite_intf_name)
                     )
                     arg_id += 1
             elif node.op_type == "IODMA":
@@ -131,7 +142,8 @@ class CreateVitisXO(Transformation):
                 )
                 arg_id += 1
                 args_string.append(
-                    "{numReps:0:%s:s_axi_control:0x4:0x1C:uint:0}" % str(arg_id)
+                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}"
+                    % (str(arg_id), axilite_intf_name)
                 )
                 arg_id += 1
 
@@ -175,8 +187,11 @@ class VitisLink(Transformation):
     """
 
     def __init__(
-        self, platform, f_mhz=200, strategy=VitisOptStrategy.PERFORMANCE,
-        enable_debug=False
+        self,
+        platform,
+        f_mhz=200,
+        strategy=VitisOptStrategy.PERFORMANCE,
+        enable_debug=False,
     ):
         super().__init__()
         self.platform = platform
@@ -316,9 +331,12 @@ class VitisBuild(Transformation):
     """Best-effort attempt at building the accelerator with Vitis."""
 
     def __init__(
-        self, fpga_part, period_ns, platform,
+        self,
+        fpga_part,
+        period_ns,
+        platform,
         strategy=VitisOptStrategy.PERFORMANCE,
-        enable_debug=False
+        enable_debug=False,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -372,8 +390,10 @@ class VitisBuild(Transformation):
         # Assemble design from kernels
         model = model.transform(
             VitisLink(
-                self.platform, round(1000 / self.period_ns), strategy=self.strategy,
-                enable_debug=self.enable_debug
+                self.platform,
+                round(1000 / self.period_ns),
+                strategy=self.strategy,
+                enable_debug=self.enable_debug,
             )
         )
         # set platform attribute for correct remote execution

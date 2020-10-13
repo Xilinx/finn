@@ -136,6 +136,15 @@ class MakeZYNQProject(Transformation):
             if clk_ns > global_clk_ns:
                 global_clk_ns = clk_ns
 
+            ifnames = eval(kernel_model.set_metadata_prop("vivado_stitch_ifnames"))
+            assert (
+                len(ifnames["axilite"]) <= 1
+            ), "MakeZYNQProject supports max 1 AXI lite interface"
+            if len(ifnames["axilite"]) == 1:
+                axilite_intf_name = ifnames["axilite"][0]
+            else:
+                axilite_intf_name = None
+
             # gather info on connectivity
             # assume each node connected to outputs/inputs is DMA:
             # has axis, aximm and axilite
@@ -162,10 +171,11 @@ class MakeZYNQProject(Transformation):
                     "[get_bd_intf_pins smartconnect_0/S%02d_AXI]"
                     % (instance_names[node.name], aximm_idx)
                 )
+                assert axilite_intf_name is not None
                 config.append(
-                    "connect_bd_intf_net [get_bd_intf_pins %s/s_axi_control] "
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                     "[get_bd_intf_pins axi_interconnect_0/M%02d_AXI]"
-                    % (instance_names[node.name], axilite_idx)
+                    % (axilite_intf_name, instance_names[node.name], axilite_idx)
                 )
                 idma_idx += 1
                 aximm_idx += 1
