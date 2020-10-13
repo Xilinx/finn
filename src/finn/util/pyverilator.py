@@ -27,22 +27,42 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+def _find_signal(sim, signal_name):
+    # handle both mixed caps and lowercase signal names
+    if signal_name in sim.io:
+        return signal_name
+    elif signal_name.lower() in sim.io:
+        return signal_name.lower()
+    else:
+        raise Exception("Signal not found: " + signal_name)
+
+
+def _read_signal(sim, signal_name):
+    signal_name = _find_signal(sim, signal_name)
+    return sim.io[signal_name]
+
+
+def _write_signal(sim, signal_name, signal_value):
+    signal_name = _find_signal(sim, signal_name)
+    sim.io[signal_name] = signal_value
+
+
 def reset_rtlsim(sim, rst_name="ap_rst_n", active_low=True):
     """Sets reset input in pyverilator to zero, toggles the clock and set it
     back to one"""
-    sim.io[rst_name] = 0 if active_low else 1
+    _write_signal(sim, rst_name, 0 if active_low else 1)
     toggle_clk(sim)
     toggle_clk(sim)
-    sim.io[rst_name] = 1 if active_low else 0
+    _write_signal(sim, rst_name, 1 if active_low else 0)
     toggle_clk(sim)
     toggle_clk(sim)
 
 
 def toggle_clk(sim, clk_name="ap_clk"):
     """Toggles the clock input in pyverilator once."""
-    sim.io[clk_name] = 0
+    _write_signal(sim, clk_name, 0)
     sim.eval()
-    sim.io[clk_name] = 1
+    _write_signal(sim, clk_name, 1)
     sim.eval()
 
 
@@ -62,11 +82,13 @@ def wait_for_handshake(sim, ifname, basename="s_axi_control_", dataname="DATA"):
     ret = None
     while 1:
         hs = (
-            sim.io[basename + ifname + "READY"] == 1
-            and sim.io[basename + ifname + "VALID"] == 1
+            _read_signal(sim, basename + ifname + "READY") == 1
+            and _read_signal(sim, basename + ifname + "VALID") == 1
         )
-        if basename + ifname + dataname in sim.io:
-            ret = sim.io[basename + ifname + dataname]
+        try:
+            ret = _read_signal(sim, basename + ifname + dataname)
+        except Exception:
+            ret = None
         toggle_clk(sim)
         if hs:
             break
@@ -83,23 +105,23 @@ def axilite_write(sim, addr, val, basename="s_axi_control_", wstrb=0xF):
     - basename : prefix for AXI lite interface name
     - wstrb : write strobe value to do partial writes, see AXI protocol reference
     """
-    sim.io[basename + "WSTRB"] = wstrb
-    sim.io[basename + "AWADDR"] = addr
-    sim.io[basename + "AWVALID"] = 1
+    _write_signal(sim, basename + "WSTRB", wstrb)
+    _write_signal(sim, basename + "AWADDR", addr)
+    _write_signal(sim, basename + "AWVALID", 1)
     wait_for_handshake(sim, "AW", basename=basename)
     # write request done
-    sim.io[basename + "AWVALID"] = 0
+    _write_signal(sim, basename + "AWVALID", 0)
     # write data
-    sim.io[basename + "WDATA"] = val
-    sim.io[basename + "WVALID"] = 1
+    _write_signal(sim, basename + "WDATA", val)
+    _write_signal(sim, basename + "WVALID", 1)
     wait_for_handshake(sim, "W", basename=basename)
     # write data OK
-    sim.io[basename + "WVALID"] = 0
+    _write_signal(sim, basename + "WVALID", 0)
     # wait for write response
-    sim.io[basename + "BREADY"] = 1
+    _write_signal(sim, basename + "BREADY", 1)
     wait_for_handshake(sim, "B", basename=basename)
     # write response OK
-    sim.io[basename + "BREADY"] = 0
+    _write_signal(sim, basename + "BREADY", 0)
 
 
 def axilite_read(sim, addr, basename="s_axi_control_"):
@@ -112,13 +134,13 @@ def axilite_read(sim, addr, basename="s_axi_control_"):
 
     Returns: read value from AXI lite interface at given addr
     """
-    sim.io[basename + "ARADDR"] = addr
-    sim.io[basename + "ARVALID"] = 1
+    _write_signal(sim, basename + "ARADDR", addr)
+    _write_signal(sim, basename + "ARVALID", 1)
     wait_for_handshake(sim, "AR", basename=basename)
     # read request OK
-    sim.io[basename + "ARVALID"] = 0
+    _write_signal(sim, basename + "ARVALID", 0)
     # wait for read response
-    sim.io[basename + "RREADY"] = 1
+    _write_signal(sim, basename + "RREADY", 1)
     ret_data = wait_for_handshake(sim, "R", basename=basename)
-    sim.io[basename + "RREADY"] = 0
+    _write_signal(sim, basename + "RREADY", 0)
     return ret_data
