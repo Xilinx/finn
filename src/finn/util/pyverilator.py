@@ -95,7 +95,29 @@ def wait_for_handshake(sim, ifname, basename="s_axi_control_", dataname="DATA"):
     return ret
 
 
-def axilite_write(sim, addr, val, basename="s_axi_control_", wstrb=0xF):
+def multi_handshake(sim, ifnames, basename="s_axi_control_"):
+    """Perform a handshake on list of interfaces given by ifnames. Will assert
+    VALID and de-assert after READY observed, in as few cycles as possible."""
+
+    done = []
+    for ifname in ifnames:
+        _write_signal(sim, basename + ifname + "VALID", 1)
+    while len(ifnames) > 0:
+        for ifname in ifnames:
+            if (
+                _read_signal(sim, basename + ifname + "READY") == 1
+                and _read_signal(sim, basename + ifname + "VALID") == 1
+            ):
+                done.append(ifname)
+        toggle_clk(sim)
+        for ifname in done:
+            ifnames.remove(ifname)
+            _write_signal(sim, basename + ifname + "VALID", 0)
+
+
+def axilite_write(
+    sim, addr, val, basename="s_axi_control_", wstrb=0xF, sim_addr_and_data=True
+):
     """Write val to addr on AXI lite interface given by basename.
 
     Arguments:
@@ -104,19 +126,23 @@ def axilite_write(sim, addr, val, basename="s_axi_control_", wstrb=0xF):
     - val : value to be written at addr
     - basename : prefix for AXI lite interface name
     - wstrb : write strobe value to do partial writes, see AXI protocol reference
+    - sim_addr_and_data : handshake AW and W channels simultaneously
     """
     _write_signal(sim, basename + "WSTRB", wstrb)
-    _write_signal(sim, basename + "AWADDR", addr)
-    _write_signal(sim, basename + "AWVALID", 1)
-    wait_for_handshake(sim, "AW", basename=basename)
-    # write request done
-    _write_signal(sim, basename + "AWVALID", 0)
-    # write data
     _write_signal(sim, basename + "WDATA", val)
-    _write_signal(sim, basename + "WVALID", 1)
-    wait_for_handshake(sim, "W", basename=basename)
-    # write data OK
-    _write_signal(sim, basename + "WVALID", 0)
+    _write_signal(sim, basename + "AWADDR", addr)
+    if sim_addr_and_data:
+        multi_handshake(sim, ["AW", "W"], basename=basename)
+    else:
+        _write_signal(sim, basename + "AWVALID", 1)
+        wait_for_handshake(sim, "AW", basename=basename)
+        # write request done
+        _write_signal(sim, basename + "AWVALID", 0)
+        # write data
+        _write_signal(sim, basename + "WVALID", 1)
+        wait_for_handshake(sim, "W", basename=basename)
+        # write data OK
+        _write_signal(sim, basename + "WVALID", 0)
     # wait for write response
     _write_signal(sim, basename + "BREADY", 1)
     wait_for_handshake(sim, "B", basename=basename)
