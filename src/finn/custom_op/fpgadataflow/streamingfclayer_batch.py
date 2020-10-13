@@ -96,6 +96,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # distributed -- use LUTRAM
             # see also https://www.xilinx.com/support/answers/38070.html
             "ram_style": ("s", False, "auto"),
+            # (mem_mode = decoupled only) whether weights will be writable through
+            # an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            "runtime_writeable_weights": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -1043,20 +1047,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
             node_name = self.onnx_node.name
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
             dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
             din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
-            axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
-            cmd.append(
-                "create_bd_intf_pin -mode Slave "
-                "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
-                % (node_name, axilite_name)
-            )
             cmd.append(
                 "create_bd_intf_pin -mode Master "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
@@ -1131,11 +1130,21 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 "[get_bd_intf_pins %s/%s/%s]"
                 % (node_name, dout_name, node_name, node_name, dout_name)
             )
-            cmd.append(
-                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
-                "[get_bd_intf_pins %s/%s/%s]"
-                % (node_name, axilite_name, node_name, strm_inst, axilite_name)
-            )
+            if runtime_writable:
+                # expose axi lite interface for writeable weights
+                axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
+                cmd.append(
+                    "create_bd_intf_pin -mode Slave "
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
+                    % (node_name, axilite_name)
+                )
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                    "[get_bd_intf_pins %s/%s/%s]"
+                    % (node_name, axilite_name, node_name, strm_inst, axilite_name)
+                )
+                # TODO calculate and pass in segment size here
+                cmd.append("assign_bd_address")
             cmd.append("save_bd_design")
         elif mem_mode == "const":
             # base class impl sufficient for const mode
@@ -1150,6 +1159,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         if mem_mode == "external":
             intf_names["s_axis"] = ["in0_V_V", "weights_V_V"]
         if mem_mode == "decoupled":
-            intf_names["axilite"] = ["s_axilite"]
-
+            # only expose axilite interface if attribute is set
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writable:
+                intf_names["axilite"] = ["s_axilite"]
         return intf_names
