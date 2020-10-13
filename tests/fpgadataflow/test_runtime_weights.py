@@ -36,14 +36,15 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.custom_op.registry import getCustomOp
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.util.basic import gen_finn_dt_tensor
-from finn.util.pyverilator import axilite_read, axilite_write
+from finn.util.pyverilator import axilite_write
 import numpy as np
-import os
+import pytest
 
 test_fpga_part = "xc7z020clg400-1"
 target_clk_ns = 5
 
 
+@pytest.mark.vivado
 def test_runtime_weights_single_layer():
     idt = DataType.UINT32
     wdt = DataType.UINT8
@@ -67,32 +68,18 @@ def test_runtime_weights_single_layer():
         op_inst = getCustomOp(fcl)
         op_inst.set_nodeattr("mem_mode", "decoupled")
         op_inst.set_nodeattr("runtime_writeable_weights", 1)
-    model.set_initializer("W_0", np.eye(mh).astype(np.float32))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model = model.transform(PrepareRTLSim())
     model.set_metadata_prop("exec_mode", "rtlsim")
-    os.environ["RTLSIM_TRACE_DEPTH"] = "5"
-    model.set_metadata_prop("rtlsim_trace", "trace.vcd")
-    in_tensor = np.asarray(range(mw), dtype=np.float32).reshape(1, mw)
+    in_tensor = np.asarray(range(mw), dtype=np.float32)
+    # add two copies of the input tensor as the first one is just used to
+    # "flush out" the pipeline (as mvau already starts receiving old weights while
+    # we write new ones)
+    in_tensor = np.tile(in_tensor, (2, 1))
     exec_ctx = {"act_0": in_tensor}
-    extracted_weights = np.zeros((mh, mw))
-
-    def read_weights(sim):
-        addr = 0
-        for w in range(mw):
-            for h in range(mh):
-                extracted_weights[h, w] = axilite_read(
-                    sim, addr, basename="s_axilite_0_"
-                )
-                addr += 4
-
-    rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
-    assert (extracted_weights == model.get_initializer("W_0")).all()
-    y = exec_ctx["act_1"]
-    assert (y == np.dot(in_tensor, extracted_weights.T)).all()
     new_weights = gen_finn_dt_tensor(wdt, (mh, mw))
 
     def write_weights(sim):
@@ -104,4 +91,6 @@ def test_runtime_weights_single_layer():
 
     rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
     y = exec_ctx["act_1"]
-    assert (y == np.dot(in_tensor, new_weights.T)).all()
+    # only use second batch element in output; first will be invalid due to
+    # old weights (see above)
+    assert (y[1] == np.dot(in_tensor[1], new_weights)).all()
