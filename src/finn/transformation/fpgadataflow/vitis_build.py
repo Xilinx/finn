@@ -28,6 +28,7 @@
 
 import os
 import subprocess
+import json
 
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.base import Transformation
@@ -38,14 +39,17 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.general import (
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    RemoveUnusedTensors,
+)
 from finn.util.basic import make_build_dir
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from . import templates
@@ -89,51 +93,40 @@ class CreateVitisXO(Transformation):
         _check_vitis_envvars()
         vivado_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         stitched_ip_dir = vivado_proj_dir + "/ip"
+        interfaces = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))
         args_string = []
-        m_axis_idx = 0
-        s_axis_idx = 0
+        arg_id = 0
         # NOTE: this assumes the graph is Vitis-compatible: max one axi lite interface
         # developed from instructions in UG1393 (v2019.2) and package_xo documentation
         # package_xo is responsible for generating the kernel xml
-        for node in model.graph.node:
-            node_inst = getCustomOp(node)
-            arg_id = 0
-            if node.op_type == "TLastMarker":
-                stream_width = node_inst.get_nodeattr("StreamWidth")
-                # add a stream input or output port, based on direction
-                if node_inst.get_nodeattr("Direction") == "in":
-                    args_string.append(
-                        "{in:4:%s:s_axis_%d:0x0:0x0:ap_uint&lt;%s>:0}"
-                        % (str(arg_id), s_axis_idx, str(stream_width))
-                    )
-                    s_axis_idx += 1
-                else:
-                    args_string.append(
-                        "{out:4:%s:m_axis_%d:0x0:0x0:ap_uint&lt;%s>:0}"
-                        % (str(arg_id), m_axis_idx, str(stream_width))
-                    )
-                    m_axis_idx += 1
-                arg_id += 1
-                # add a axilite port if dynamic
-                # add a count parameter if dynamic
-                if node_inst.get_nodeattr("DynIters") == 1:
-                    args_string.append(
-                        "{numReps:0:%s:s_axi_control:0x4:0x10:uint:0}" % str(arg_id)
-                    )
-                    arg_id += 1
-            elif node.op_type == "IODMA":
-                port_width = node_inst.get_nodeattr("intfWidth")
-                # add an address parameter
-                # add a count parameter
+        if len(interfaces["axilite"]) > 0:
+            if len(interfaces["aximm"]) > 0:
                 args_string.append(
-                    "{addr:1:%s:m_axi_gmem0:0x8:0x10:ap_uint&lt;%s>*:0}"
-                    % (str(arg_id), str(port_width))
+                    "{addr:1:%s:%s:0x8:0x10:ap_uint&lt;%s>*:0}"
+                    % (
+                        str(arg_id),
+                        interfaces["aximm"][0][0],
+                        str(interfaces["aximm"][0][1]),
+                    )
                 )
                 arg_id += 1
                 args_string.append(
                     "{numReps:0:%s:s_axi_control:0x4:0x1C:uint:0}" % str(arg_id)
                 )
                 arg_id += 1
+            else:
+                args_string.append(
+                    "{numReps:0:%s:s_axi_control:0x4:0x10:uint:0}" % str(arg_id)
+                )
+                arg_id += 1
+        for intf in interfaces["s_axis"] + interfaces["m_axis"]:
+            stream_width = intf[1]
+            stream_name = intf[0]
+            args_string.append(
+                "{%s:4:%s:%s:0x0:0x0:ap_uint&lt;%s>:0}"
+                % (stream_name, str(arg_id), stream_name, str(stream_width))
+            )
+            arg_id += 1
 
         # save kernel xml then run package_xo
         xo_name = self.ip_name + ".xo"
@@ -175,8 +168,11 @@ class VitisLink(Transformation):
     """
 
     def __init__(
-        self, platform, f_mhz=200, strategy=VitisOptStrategy.PERFORMANCE,
-        enable_debug=False
+        self,
+        platform,
+        f_mhz=200,
+        strategy=VitisOptStrategy.PERFORMANCE,
+        enable_debug=False,
     ):
         super().__init__()
         self.platform = platform
@@ -316,9 +312,12 @@ class VitisBuild(Transformation):
     """Best-effort attempt at building the accelerator with Vitis."""
 
     def __init__(
-        self, fpga_part, period_ns, platform,
+        self,
+        fpga_part,
+        period_ns,
+        platform,
         strategy=VitisOptStrategy.PERFORMANCE,
-        enable_debug=False
+        enable_debug=False,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -350,9 +349,7 @@ class VitisBuild(Transformation):
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_model = kernel_model.transform(InsertFIFO())
-            kernel_model = kernel_model.transform(
-                InsertTLastMarker(both=True, external=False, dynamic=False)
-            )
+            kernel_model = kernel_model.transform(RemoveUnusedTensors())
             kernel_model = kernel_model.transform(GiveUniqueNodeNames())
             kernel_model.save(dataflow_model_filename)
             kernel_model = kernel_model.transform(
@@ -372,8 +369,10 @@ class VitisBuild(Transformation):
         # Assemble design from kernels
         model = model.transform(
             VitisLink(
-                self.platform, round(1000 / self.period_ns), strategy=self.strategy,
-                enable_debug=self.enable_debug
+                self.platform,
+                round(1000 / self.period_ns),
+                strategy=self.strategy,
+                enable_debug=self.enable_debug,
             )
         )
         # set platform attribute for correct remote execution

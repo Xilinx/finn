@@ -319,12 +319,24 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         weightstream = self.get_weightstream_width()
         return max([weightstream, temp_value])
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         mw = self.get_nodeattr("MW")
+        mh = self.get_nodeattr("MH")
         simd = self.get_nodeattr("SIMD")
+        pe = self.get_nodeattr("PE")
         sf = mw // simd
+        nf = mh // pe
         vecs = list(self.get_nodeattr("numInputVectors"))
-        folded_input_shape = tuple(vecs + [sf, simd])
+
+        if ind == 0:
+            # calculate shape of input 0
+            folded_input_shape = tuple(vecs + [sf, simd])
+        elif ind == 1 and self.get_nodeattr("mem_mode") == "external":
+            # calculate shape of input 1 (weights)
+            folded_input_shape = tuple(vecs + [sf * nf, simd * pe])
+        else:
+            raise Exception("Undefined input shape for requested input")
+
         return folded_input_shape
 
     def get_folded_output_shape(self):
@@ -1046,8 +1058,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
-            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
-            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
+            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0][0]
+            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
@@ -1126,8 +1138,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 % (node_name, dout_name, node_name, node_name, dout_name)
             )
             cmd.append("save_bd_design")
-        elif mem_mode == "const":
-            # base class impl sufficient for const mode
+        elif mem_mode == "const" or mem_mode == "external":
+            # base class impl sufficient for const/external modes
             return super().code_generation_ipi()
         else:
             raise Exception("Unrecognized mem_mode for StreamingFCLayer")
@@ -1137,5 +1149,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "external":
-            intf_names["s_axis"] = ["in0_V_V", "weights_V_V"]
+            intf_names["s_axis"].append(
+                ("weights_V_V", self.get_weightstream_width_padded())
+            )
         return intf_names

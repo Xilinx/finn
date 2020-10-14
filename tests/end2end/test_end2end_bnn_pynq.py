@@ -560,6 +560,39 @@ class TestEnd2End:
         update_dashboard_data(topology, wbits, abits, "board", cfg["board"])
         model.save(get_checkpoint_name(topology, wbits, abits, "build_" + kind))
 
+    @pytest.mark.slow
+    @pytest.mark.vivado
+    @pytest.mark.vitis
+    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    def test_build_extweights(self, topology, wbits, abits, kind):
+        if "VITIS_PATH" not in os.environ:
+            pytest.skip("VITIS_PATH not set")
+        prev_chkpt_name = get_checkpoint_name(
+            topology, wbits, abits, "fifodepth_" + kind
+        )
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        # select some FC layers, erase their implementation
+        # and set them to external weights
+        num_extw_layers = 0
+        for node in model.graph.node:
+            if node.op_type == "StreamingFCLayer_Batch":
+                node_inst = getCustomOp(node)
+                simd = node_inst.get_nodeattr("SIMD")
+                pe = node_inst.get_nodeattr("PE")
+                # skip layers which require very large IODMA DWCs
+                if (512 % simd) != 0 or ((pe * simd) % 32) != 0:
+                    continue
+                node_inst.set_nodeattr("code_gen_dir_ipgen", "")
+                node_inst.set_nodeattr("ipgen_path", "")
+                node_inst.set_nodeattr("mem_mode", "external")
+                num_extw_layers += 1
+        if num_extw_layers == 0:
+            pytest.skip("No layers suitable for external weights")
+        # build
+        cfg = get_build_env(kind, target_clk_ns)
+        model = model.transform(cfg["build_fxn"])
+        # check list of interfaces
+
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_deploy(self, topology, wbits, abits, kind):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "build_" + kind)

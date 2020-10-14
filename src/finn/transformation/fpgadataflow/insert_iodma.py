@@ -48,6 +48,39 @@ class InsertIODMA(Transformation):
         ), "max_intfwidth must be a power of 2"
         self.max_intfwidth = max_intfwidth
 
+    def get_mem_init(self, weights, pe, simd):
+        """
+        Returns matrix ready for pack_innermost_dim_as_hex_string with
+        reverse=False (finn.util.data_packing) to return the memory init file
+        little endian packed.
+        That is, get_mem_init returns:
+        elem(pe,simd)
+        addr = 0: [(pe-1,simd-1),(pe-1,simd-2),...(0,1),(0,0)]
+        addr = 1: [(pe-1,simd*2-1),.......(0,simd+1),(0,simd)]
+        .
+        """
+        w_shape = weights.shape
+        assert len(w_shape) == 2, "weights withincorrect number of dims"
+        inp_w, out_w = w_shape
+
+        assert out_w % pe == 0, "Malformed weight matrix"
+        assert inp_w % simd == 0, "Malformed weight matrix"
+        reshaped_w = np.zeros(inp_w * out_w).reshape(-1, pe * simd)
+
+        addr = 0
+        for fr in range(out_w // pe):
+            for fc in range(inp_w // simd):
+                tile = weights[
+                    (fc * simd) : ((fc + 1) * simd), (fr * pe) : ((fr + 1) * pe)
+                ]
+                for p in range(pe):
+                    reshaped_w[addr, (p * simd) : ((p + 1) * simd)] = tile[
+                        :, p
+                    ].transpose()
+                addr += 1
+        reshaped_w = np.flip(reshaped_w, axis=-1)
+        return reshaped_w
+
     def apply(self, model):
         # only makes sense for a pure fpgadataflow graph -- so we check!
         all_nodes = list(model.graph.node)
@@ -171,21 +204,24 @@ class InsertIODMA(Transformation):
                 # calculate width of stream output from DMA
                 pe = get_by_name(fc_node.attribute, "PE").i
                 simd = get_by_name(fc_node.attribute, "SIMD").i
-                assert pe * simd == w_shape[0], "Malformed weight matrix"
                 streamWidth = simd * pe * w_dtype.bitwidth()
                 # make new buffer
+                W = model.get_initializer(fc_w_name)
+                iodma_mem = self.get_mem_init(W, pe, simd)
+                model.set_initializer(fc_w_name, iodma_mem)
+
                 fc_node_in = oh.make_tensor_value_info(
-                    model.make_new_valueinfo_name(), TensorProto.FLOAT, w_shape
+                    model.make_new_valueinfo_name(), TensorProto.FLOAT, iodma_mem.shape
                 )
                 model.graph.value_info.append(fc_node_in)
                 model.set_tensor_datatype(fc_node_in.name, w_dtype)
-                model.set_initializer(fc_node_in.name, model.get_initializer(fc_w_name))
+                model.set_initializer(fc_node_in.name, W)
                 dma_node = oh.make_node(
                     "IODMA",
                     [fc_w_name],
                     [fc_node_in.name],
-                    numInputVectors=[w_shape[1]],
-                    NumChannels=w_shape[0],
+                    numInputVectors=[iodma_mem.shape[0]],
+                    NumChannels=pe * simd,
                     dataType=str(w_dtype.name),
                     intfWidth=intfwidth,
                     streamWidth=streamWidth,

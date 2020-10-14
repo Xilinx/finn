@@ -29,6 +29,7 @@
 import os
 import warnings
 import subprocess
+import json
 
 from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name, make_build_dir
@@ -38,6 +39,31 @@ import multiprocessing as mp
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
+
+
+def is_external_input(model, node, i):
+    # indicate whether input i of node should be made external
+    # True only if input is unconnected and has no initializer
+    # Only esception is second input of FC layers when mem_mode is external
+    node_inst = getCustomOp(node)
+    producer = model.find_producer(node.input[i])
+    if producer is None:
+        if model.get_initializer(node.input[i]) is None:
+            return True
+        else:
+            if node.op_type == "StreamingFCLayer_Batch":
+                if node_inst.get_nodeattr("mem_mode") == "external":
+                    return True
+    return False
+
+
+def is_external_output(model, node, i):
+    # indicate whether output i of node should be made external
+    # True only if output is unconnected
+    consumers = model.find_consumers(node.output[i])
+    if consumers is None:
+        return True
+    return False
 
 
 class CreateStitchedIP(Transformation):
@@ -138,21 +164,24 @@ class CreateStitchedIP(Transformation):
         if len(aximm_intf_name) != 0:
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
-                % (inst_name, aximm_intf_name[0])
+                % (inst_name, aximm_intf_name[0][0])
             )
             self.connect_cmds.append(
                 "set_property name m_axi_gmem0 [get_bd_intf_ports m_axi_gmem_0]"
             )
-            self.intf_names["aximm"] = ["m_axi_gmem0"]
+            self.intf_names["aximm"] = [("m_axi_gmem0", aximm_intf_name[0][1])]
             assert self.has_aximm is False, "Currently limited to one AXI-MM interface"
             self.has_aximm = True
 
-    def connect_m_axis_external(self, node):
+    def connect_m_axis_external(self, node, idx=None):
         inst_name = node.name
         node_inst = getCustomOp(node)
         output_intf_names = node_inst.get_verilog_top_module_intf_names()["m_axis"]
         # make output axis external
-        for output_intf_name in output_intf_names:
+        for i in range(len(output_intf_names)):
+            if idx is not None and idx != i:
+                continue
+            output_intf_name = output_intf_names[i][0]
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                 % (inst_name, output_intf_name)
@@ -162,15 +191,20 @@ class CreateStitchedIP(Transformation):
                 % (self.m_axis_idx, output_intf_name)
             )
             self.has_m_axis = True
-            self.intf_names["m_axis"].append("m_axis_%d" % self.m_axis_idx)
+            self.intf_names["m_axis"].append(
+                ("m_axis_%d" % self.m_axis_idx, output_intf_names[i][1])
+            )
             self.m_axis_idx += 1
 
-    def connect_s_axis_external(self, node):
+    def connect_s_axis_external(self, node, idx=None):
         inst_name = node.name
         node_inst = getCustomOp(node)
         input_intf_names = node_inst.get_verilog_top_module_intf_names()["s_axis"]
         # make input axis external
-        for input_intf_name in input_intf_names:
+        for i in range(len(input_intf_names)):
+            if idx is not None and idx != i:
+                continue
+            input_intf_name = input_intf_names[i][0]
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                 % (inst_name, input_intf_name)
@@ -180,7 +214,9 @@ class CreateStitchedIP(Transformation):
                 % (self.s_axis_idx, input_intf_name)
             )
             self.has_s_axis = True
-            self.intf_names["s_axis"].append("s_axis_%d" % self.s_axis_idx)
+            self.intf_names["s_axis"].append(
+                ("s_axis_%d" % self.s_axis_idx, input_intf_names[i][1])
+            )
             self.s_axis_idx += 1
 
     def apply(self, model):
@@ -204,57 +240,30 @@ class CreateStitchedIP(Transformation):
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
             self.create_cmds += node_inst.code_generation_ipi()
-            my_producer = model.find_producer(node.input[0])
             self.connect_clk_rst(node)
             self.connect_axi(node)
-            if my_producer is None:
-                # first node in graph
-                self.connect_s_axis_external(node)
-                if node.op_type == "TLastMarker":
-                    assert (
-                        node_inst.get_nodeattr("Direction") == "in"
-                    ), """Output TLastMarker incorrect direction"""
-                elif node.op_type == "IODMA" and len(model.graph.node) != 1:
-                    # don't apply this check for a 1-node partition
-                    assert (
-                        node_inst.get_nodeattr("direction") == "in"
-                    ), """Input DMA incorrect direction"""
-            else:
-                # intermediate node
-                # wire up input(s) to previous node output(s)
-                # foreach input
-                #     find producer
-                #     find index of producer output connected to our target input
-                #     get names of hdl interfaces for input and producer output
-                #     issue a TCL directive to connect input to output
-                #     if FC layer with mode "decoupled", add a streamer on input 1
-                for i in range(len(node.input)):
+            for i in range(len(node.input)):
+                if is_external_input(model, node, i):
+                    self.connect_s_axis_external(node, idx=i)
+                else:
                     producer = model.find_producer(node.input[i])
                     if producer is None:
                         continue
                     j = list(producer.output).index(node.input[i])
                     src_intf_name = getCustomOp(
                         producer
-                    ).get_verilog_top_module_intf_names()["m_axis"][j]
+                    ).get_verilog_top_module_intf_names()["m_axis"][j][0]
                     dst_intf_name = node_inst.get_verilog_top_module_intf_names()[
                         "s_axis"
-                    ][i]
+                    ][i][0]
                     self.connect_cmds.append(
                         "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                         "[get_bd_intf_pins %s/%s]"
                         % (producer.name, src_intf_name, node.name, dst_intf_name)
                     )
-            if model.find_consumers(node.output[0]) is None:
-                # last node in graph
-                self.connect_m_axis_external(node)
-                if node.op_type == "TLastMarker":
-                    assert (
-                        node_inst.get_nodeattr("Direction") == "out"
-                    ), """Output TLastMarker incorrect direction"""
-                elif node.op_type == "IODMA" and len(model.graph.node) != 1:
-                    assert (
-                        node_inst.get_nodeattr("direction") == "out"
-                    ), """Output DMA incorrect direction"""
+            for i in range(len(node.output)):
+                if is_external_output(model, node, i):
+                    self.connect_m_axis_external(node, idx=i)
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
@@ -319,7 +328,7 @@ class CreateStitchedIP(Transformation):
         block_library = "finn"
         block_vlnv = "%s:%s:%s:1.0" % (block_vendor, block_library, block_name)
         model.set_metadata_prop("vivado_stitch_vlnv", block_vlnv)
-        model.set_metadata_prop("vivado_stitch_ifnames", str(self.intf_names))
+        model.set_metadata_prop("vivado_stitch_ifnames", json.dumps(self.intf_names))
         tcl.append(
             (
                 "ipx::package_project -root_dir %s/ip -vendor %s "
