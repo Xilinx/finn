@@ -99,6 +99,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
+            # see finn-rtllib/memstream/doc/README for more about the memory
+            # address map used for writable weights
+            # IMPORTANT: After using AXI lite to either read or write the weights,
+            # always "flush" the accelerator by first passing a dummy input
+            # vector through the accelerator. This will get rid of any old
+            # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())

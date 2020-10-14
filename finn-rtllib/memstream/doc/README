@@ -1,3 +1,7 @@
+IMPORTANT: After using AXI lite to either read or write the weights,
+always "flush" the accelerator by first passing a dummy input
+vector through the accelerator. This will get rid of any old
+weight data from the weight FIFOs.
 
 Memory Streamer Address Map
 
@@ -37,6 +41,5 @@ C        | N/A
 
 To perform a write to mem[0], the AXI master writes to AXI Addr 0,4,8 in any
 order, then writes to AXI Addr 0xC to commit the write. To read mem[1][63:32],
-the AXI master reads from AXI Addr 0x14. The words of mem can be written to or 
+the AXI master reads from AXI Addr 0x14. The words of mem can be written to or
 read from in any order.
-
