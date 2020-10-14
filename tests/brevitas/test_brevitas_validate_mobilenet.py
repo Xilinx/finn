@@ -4,7 +4,7 @@ import numpy as np
 import brevitas.onnx as bo
 import torch
 from finn.util.basic import make_build_dir
-from finn.util.pytorch import NormalizePreProc, BrevitasDebugHook
+from finn.util.pytorch import NormalizePreProc
 from finn.util.test import get_test_model_trained
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
@@ -91,8 +91,7 @@ def test_brevitas_compare_exported_mobilenet():
     finn_onnx = export_onnx_path + "/quant_mobilenet_v1_4b.onnx"
     mobilenet = get_test_model_trained("mobilenet", 4, 4)
     if debug_mode:
-        dbg_hook = BrevitasDebugHook()
-        bo.enable_debug(mobilenet, dbg_hook)
+        dbg_hook = bo.enable_debug(mobilenet)
     bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
@@ -102,7 +101,7 @@ def test_brevitas_compare_exported_mobilenet():
     # get initializer from Mul that will be absorbed into topk
 
     a0 = model.get_initializer(model.get_nodes_by_op_type("Mul")[-1].input[1])
-    model = model.transform(absorb.AbsorbScalarMulIntoTopK())
+    model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     model = model.transform(InferDataLayouts())
@@ -168,12 +167,14 @@ def test_brevitas_compare_exported_mobilenet():
             if ((not inds_ok) or (not probs_ok)) and debug_mode:
                 print("Results differ for %s" % img_path)
                 # check all tensors at debug markers
-                names_brevitas = set(dbg_hook.outputs.keys())
+                names_brevitas = set(dbg_hook.values.keys())
                 names_finn = set(odict.keys())
                 names_common = names_brevitas.intersection(names_finn)
                 for dbg_name in names_common:
                     if not np.isclose(
-                        dbg_hook.outputs[dbg_name], odict[dbg_name], atol=1e-3
+                        dbg_hook.values[dbg_name].detach().numpy(),
+                        odict[dbg_name],
+                        atol=1e-3,
                     ).all():
                         print("Tensor %s differs between Brevitas and FINN" % dbg_name)
         assert all_inds_ok and all_probs_ok

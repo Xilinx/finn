@@ -72,7 +72,7 @@ def test_brevitas_mobilenet():
     model = model.transform(InsertTopK())
     # get initializer from Mul that will be absorbed into topk
     a0 = model.get_initializer(model.graph.node[-2].input[1])
-    model = model.transform(absorb.AbsorbScalarMulIntoTopK())
+    model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     model = model.transform(InferDataLayouts())
