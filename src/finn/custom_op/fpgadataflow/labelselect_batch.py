@@ -34,6 +34,7 @@ from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.basic import roundup_to_integer_multiple
 
 
 class LabelSelect_Batch(HLSCustomOp):
@@ -46,6 +47,10 @@ class LabelSelect_Batch(HLSCustomOp):
             # If not provided compute min size
             labels = self.get_nodeattr("Labels")
             odt = DataType.get_smallest_possible(labels - 1)
+            # ensure a datatype divisible by 8-bits in case this is the last node
+            bw = roundup_to_integer_multiple(odt.bitwidth(), 8)
+            new_odt_name = odt.name.replace(str(odt.bitwidth()), str(bw))
+            odt = DataType[new_odt_name]
             odt_name = odt.name
             self.set_nodeattr("outputDataType", odt_name)
 
@@ -113,6 +118,11 @@ class LabelSelect_Batch(HLSCustomOp):
         )
 
     def infer_node_datatype(self, model):
+        node = self.onnx_node
+        # check input datatype against property
+        idt = model.get_tensor_datatype(node.input[0])
+        self.set_nodeattr("inputDataType", idt.name)
+
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
 

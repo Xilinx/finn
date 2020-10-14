@@ -42,7 +42,6 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.streamline import Streamline
 from finn.util.test import get_test_model_trained
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -61,7 +60,6 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     cnv = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path_cnv)
     model = ModelWrapper(export_onnx_path_cnv)
-    model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
@@ -75,7 +73,7 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     model = model.transform(InferDataLayouts())
     # model.save("golden.onnx")
     # load one of the test vectors
-    fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
+    fn = pk.resource_filename("finn.qnn-data", "cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
     input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)

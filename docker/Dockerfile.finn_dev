@@ -46,23 +46,19 @@ RUN apt-get install -y verilator nano zsh rsync
 RUN apt-get -y install sshpass wget unzip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
-# install XRT dependencies
-RUN wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh
-RUN apt-get update
-RUN bash xrtdeps.sh
-RUN rm xrtdeps.sh
-
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
+RUN pip install pygments==2.4.1
 RUN pip install jupyter==1.0.0
-RUN pip install matplotlib==3.3.1 --ignore-installed certifi
+RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1
 RUN pip install sphinx==3.1.2
 RUN pip install sphinx_rtd_theme==0.5.0
 RUN pip install pytest-xdist==2.0.0
 RUN pip install pytest-parallel==0.1.0
-RUN pip install netron==4.4.7
+RUN pip install netron
+RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
 # switch user
 RUN groupadd -g $GID $GNAME
@@ -75,6 +71,8 @@ RUN chown -R $UNAME:$GNAME /home/$UNAME
 USER $UNAME
 
 # cloning dependency repos (as user)
+# finn-base
+RUN git clone https://github.com/maltanar/finn-base.git /workspace/finn-base
 # Brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
 # CNPY
@@ -83,8 +81,6 @@ RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
 RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
 # PyVerilator
 RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
-# PYNQ-HelloWorld
-RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
 # oh-my-xilinx
 RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
 
@@ -92,7 +88,6 @@ RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-x
 # at /workspace/finn -- see run-docker.sh for an example of how to do this.
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
-ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
 ENV PATH "${PATH}:/workspace/oh-my-xilinx:/home/$UNAME/.local/bin"
 ENV OHMYXILINX "/workspace/oh-my-xilinx"
 

@@ -40,13 +40,15 @@ RUN apt-get install -y verilator zsh
 RUN apt-get -y install sshpass wget unzip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
-# install XRT dependencies
+# XRT deps
 RUN wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh
 RUN apt-get update
 RUN bash xrtdeps.sh
 RUN rm xrtdeps.sh
 
 # cloning dependency repos
+# finn-base
+RUN git clone https://github.com/maltanar/finn-base.git /workspace/finn-base
 # Brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
 # CNPY
@@ -55,8 +57,6 @@ RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
 RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
 # PyVerilator
 RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
-# PYNQ-HelloWorld
-RUN git clone https://github.com/maltanar/PYNQ-HelloWorld.git /workspace/PYNQ-HelloWorld
 # oh-my-xilinx
 RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
 
@@ -67,10 +67,10 @@ RUN apt update; apt install nano
 RUN pip install pytest-dependency
 RUN pip install pytest-xdist
 RUN pip install pytest-parallel
+RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
 ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
-ENV PYNQSHELL_PATH "/workspace/PYNQ-HelloWorld/boards"
 ENV VIVADO_IP_CACHE "$BUILD_PATH/vivado_ip_cache"
 ENV PATH "${PATH}:/workspace/oh-my-xilinx"
 ENV OHMYXILINX "/workspace/oh-my-xilinx"

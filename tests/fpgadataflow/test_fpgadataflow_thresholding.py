@@ -44,14 +44,11 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.custom_op.registry import getCustomOp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
-def make_single_thresholding_modelwrapper(T, pe, idt, odt):
+def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval):
     NumChannels = T.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, NumChannels])
@@ -69,6 +66,7 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt):
         PE=pe,
         inputDataType=idt.name,
         outputDataType=odt.name,
+        ActVal=actval,
     )
     graph = helper.make_graph(
         nodes=[Thresholding_node],
@@ -115,7 +113,12 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     # provide non-decreasing thresholds
     T = np.sort(T, axis=1)
 
-    model = make_single_thresholding_modelwrapper(T, pe, idt, odt)
+    if odt == DataType.BIPOLAR:
+        actval = 0
+    else:
+        actval = odt.min()
+
+    model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -126,7 +129,6 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP("xc7z020clg400-1", 5))
         model = model.transform(HLSSynthIP())
-        model = model.transform(ReplaceVerilogRelPaths())
         model = model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode")

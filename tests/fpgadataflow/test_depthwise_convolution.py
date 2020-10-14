@@ -51,9 +51,6 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 
 
 def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
@@ -243,7 +240,6 @@ def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(PrepareIP("xc7z020clg400-1", 5))
     new_model = new_model.transform(HLSSynthIP())
-    new_model = new_model.transform(ReplaceVerilogRelPaths())
     new_model = new_model.transform(PrepareRTLSim())
 
     assert oxe.compare_execution(model, new_model, input_dict)

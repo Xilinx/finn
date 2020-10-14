@@ -32,7 +32,7 @@ import numpy as np
 import warnings
 
 from finn.core.datatype import DataType
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
@@ -840,7 +840,19 @@ class InferThresholdingLayer(Transformation):
                 assert ifc % pe == 0, "Requirement IFC divisable by PE is violated."
 
                 odt = model.get_tensor_datatype(thl_output)
-                # create and insert new StreamingFCLayer node
+                scale = getCustomOp(node).get_nodeattr("out_scale")
+                assert (
+                    scale == 1.0
+                ), "MultiThreshold out_scale must be equal to 1.0 for HLS conversion."
+                actval = getCustomOp(node).get_nodeattr("out_bias")
+                assert (
+                    int(actval) == actval
+                ), "MultiThreshold out_bias must be integer for HLS conversion."
+                actval = int(actval)
+                assert (not odt.signed()) or (
+                    actval < 0
+                ), "Signed output requres actval < 0"
+                # create and insert new Thresholding_Batch node
                 new_node = helper.make_node(
                     "Thresholding_Batch",
                     [thl_input, thl_threshold],
@@ -852,6 +864,7 @@ class InferThresholdingLayer(Transformation):
                     inputDataType=idt.name,
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
+                    ActVal=actval,
                 )
                 graph.node.insert(insert_point, new_node)
                 # remove old node
@@ -1053,9 +1066,9 @@ class InferChannelwiseLinearLayer(Transformation):
         )
 
         if (0 <= vals).all():
-            return DataType.UINT32
+            return DataType.UINT64
         else:
-            return DataType.INT32
+            return DataType.INT64
 
     def apply(self, model):
         graph = model.graph

@@ -41,14 +41,12 @@ from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import RemoveStaticGraphInputs
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
-from finn.util.pytorch import BrevitasDebugHook
 
 
 def test_brevitas_debug():
     finn_onnx = "test_brevitas_debug.onnx"
     fc = get_test_model_trained("TFC", 2, 2)
-    dbg_hook = BrevitasDebugHook()
-    bo.enable_debug(fc, dbg_hook)
+    dbg_hook = bo.enable_debug(fc)
     bo.export_finn_onnx(fc, (1, 1, 28, 28), finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
@@ -57,7 +55,7 @@ def test_brevitas_debug():
     assert len(model.graph.input) == 1
     assert len(model.graph.output) == 1
     # load one of the test vectors
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {"0": nph.to_array(input_tensor)}
@@ -70,10 +68,12 @@ def test_brevitas_debug():
     expected = fc.forward(input_tensor).detach().numpy()
     assert np.isclose(produced, expected, atol=1e-3).all()
     # check all tensors at debug markers
-    names_brevitas = set(dbg_hook.outputs.keys())
+    names_brevitas = set(dbg_hook.values.keys())
     names_finn = set(output_dict.keys())
     names_common = names_brevitas.intersection(names_finn)
-    assert len(names_common) == 8
+    assert len(names_common) == 16
     for dbg_name in names_common:
-        assert (dbg_hook.outputs[dbg_name] == output_dict[dbg_name]).all()
+        tensor_pytorch = dbg_hook.values[dbg_name].detach().numpy()
+        tensor_finn = output_dict[dbg_name]
+        assert np.isclose(tensor_finn, tensor_pytorch, atol=1e-5).all()
     os.remove(finn_onnx)

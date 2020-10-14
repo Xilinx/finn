@@ -27,7 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import finn.custom_op.registry as registry
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.transformation.move_reshape import _is_fpgadataflow_node
 from finn.analysis.fpgadataflow.res_estimation import res_estimation
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation

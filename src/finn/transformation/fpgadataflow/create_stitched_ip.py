@@ -30,11 +30,14 @@ import os
 import warnings
 import subprocess
 
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name, make_build_dir
 from finn.custom_op.registry import getCustomOp
 from finn.util.basic import get_num_default_workers
 import multiprocessing as mp
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
 
 
 class CreateStitchedIP(Transformation):
@@ -51,7 +54,7 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns=10.0, ip_name="finn_design", vitis=False):
+    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -181,7 +184,11 @@ class CreateStitchedIP(Transformation):
             self.s_axis_idx += 1
 
     def apply(self, model):
+        # ensure non-relative readmemh .dat files
+        model = model.transform(ReplaceVerilogRelPaths())
         ip_dirs = ["list"]
+        # add RTL streamer IP
+        ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
         # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
             assert node.domain == "finn", 'Node domain is not set to "finn"'
@@ -196,10 +203,7 @@ class CreateStitchedIP(Transformation):
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
-            vlnv = node_inst.get_nodeattr("ip_vlnv")
-            inst_name = node.name
-            create_cmd = "create_bd_cell -type ip -vlnv %s %s" % (vlnv, inst_name)
-            self.create_cmds += [create_cmd]
+            self.create_cmds += node_inst.code_generation_ipi()
             my_producer = model.find_producer(node.input[0])
             self.connect_clk_rst(node)
             self.connect_axi(node)
@@ -223,6 +227,7 @@ class CreateStitchedIP(Transformation):
                 #     find index of producer output connected to our target input
                 #     get names of hdl interfaces for input and producer output
                 #     issue a TCL directive to connect input to output
+                #     if FC layer with mode "decoupled", add a streamer on input 1
                 for i in range(len(node.input)):
                     producer = model.find_producer(node.input[i])
                     if producer is None:
@@ -408,7 +413,10 @@ class CreateStitchedIP(Transformation):
         tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
         # export list of used Verilog files (for rtlsim later on)
-        tcl.append("set all_v_files [get_files -filter {FILE_TYPE == Verilog}]")
+        tcl.append(
+            "set all_v_files [get_files -filter {FILE_TYPE == Verilog "
+            + "&& USED_IN_SYNTHESIS == 1} ]"
+        )
         v_file_list = "%s/all_verilog_srcs.txt" % vivado_stitch_proj_dir
         tcl.append("set fp [open %s w]" % v_file_list)
         # write each verilog filename to all_verilog_srcs.txt

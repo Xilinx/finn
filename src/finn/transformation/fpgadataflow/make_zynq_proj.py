@@ -30,7 +30,7 @@ import os
 import subprocess
 
 from finn.custom_op.registry import getCustomOp
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.core.modelwrapper import ModelWrapper
 from finn.util.basic import get_by_name, make_build_dir
 from finn.util.basic import get_num_default_workers
@@ -44,9 +44,6 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
@@ -304,7 +301,6 @@ class ZynqBuild(Transformation):
                 PrepareIP(self.fpga_part, self.period_ns)
             )
             kernel_model = kernel_model.transform(HLSSynthIP())
-            kernel_model = kernel_model.transform(ReplaceVerilogRelPaths())
             kernel_model = kernel_model.transform(
                 CreateStitchedIP(
                     self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True

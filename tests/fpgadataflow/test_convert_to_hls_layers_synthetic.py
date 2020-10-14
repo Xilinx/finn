@@ -46,14 +46,13 @@ from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.util.basic import gen_finn_dt_tensor
 from finn.util.test import soft_verify_topk
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.insert_topk import InsertTopK
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.streamline.absorb import (
-    AbsorbScalarMulIntoTopK,
+    AbsorbScalarMulAddIntoTopK,
     AbsorbConsecutiveTransposes,
 )
 from finn.transformation.streamline.collapse_repeated import (
@@ -149,7 +148,6 @@ def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
     model = make_model(ch, ifmdim)
     model.save(export_onnx_path)
     model = ModelWrapper(export_onnx_path)
-    model = model.transform(DoubleToSingleFloat())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
@@ -194,7 +192,7 @@ def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
     model = model.transform(to_hls.InferGlobalAccPoolLayer())
     model = model.transform(MoveScalarLinearPastInvariants())
     model = model.transform(InsertTopK())
-    model = model.transform(AbsorbScalarMulIntoTopK())
+    model = model.transform(AbsorbScalarMulAddIntoTopK())
     model = model.transform(InferDataTypes())
     model = model.transform(to_hls.InferLabelSelectLayer())
     model = model.transform(AbsorbConsecutiveTransposes())

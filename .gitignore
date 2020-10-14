@@ -84,3 +84,10 @@ MANIFEST
 
 # PYNQ board files
 /board_files/
+
+# datasets for testing
+/dataset/
+/data/
+
+# Google Drive key for dashboard
+/gdrive-key/
