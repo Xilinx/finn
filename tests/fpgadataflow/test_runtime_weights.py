@@ -36,7 +36,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.custom_op.registry import getCustomOp
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.util.basic import gen_finn_dt_tensor
-from finn.util.pyverilator import axilite_write
+from finn.util.pyverilator import axilite_write, axilite_read
 import numpy as np
 import pytest
 
@@ -77,9 +77,28 @@ def test_runtime_weights_single_layer():
     in_tensor = np.asarray(range(mw), dtype=np.float32)
     # add two copies of the input tensor as the first one is just used to
     # "flush out" the pipeline (as mvau already starts receiving old weights while
-    # we write new ones)
+    # we read/write new ones and reads seem to cause a disturbance too)
     in_tensor = np.tile(in_tensor, (2, 1))
     exec_ctx = {"act_0": in_tensor}
+    extracted_weights = np.zeros((mh, mw))
+
+    def read_weights(sim):
+        addr = 0
+        for w in range(mw):
+            for h in range(mh):
+                extracted_weights[h, w] = axilite_read(
+                    sim, addr, basename="s_axilite_0_"
+                )
+                addr += 4
+
+    rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
+    expected_weights = model.get_initializer("W_0")
+    assert (extracted_weights == expected_weights).all()
+    y = exec_ctx["act_1"]
+    # only use second batch element in output; first will be invalid due to
+    # old weights (see above)
+    assert (y[1] == np.dot(in_tensor[1], expected_weights)).all()
+
     new_weights = gen_finn_dt_tensor(wdt, (mh, mw))
 
     def write_weights(sim):
