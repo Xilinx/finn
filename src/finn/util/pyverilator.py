@@ -111,7 +111,8 @@ def multi_handshake(sim, ifnames, basename="s_axi_control_"):
                 done.append(ifname)
         toggle_clk(sim)
         for ifname in done:
-            ifnames.remove(ifname)
+            if ifname in ifnames:
+                ifnames.remove(ifname)
             _write_signal(sim, basename + ifname + "VALID", 0)
 
 
