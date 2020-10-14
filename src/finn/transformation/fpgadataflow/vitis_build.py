@@ -95,7 +95,7 @@ class CreateVitisXO(Transformation):
         # NOTE: this assumes the graph is Vitis-compatible: max one axi lite interface
         # developed from instructions in UG1393 (v2019.2) and package_xo documentation
         # package_xo is responsible for generating the kernel xml
-        ifnames = eval(model.set_metadata_prop("vivado_stitch_ifnames"))
+        ifnames = eval(model.get_metadata_prop("vivado_stitch_ifnames"))
         assert (
             len(ifnames["axilite"]) <= 1
         ), "CreateVitisXO supports max 1 AXI lite interface"
