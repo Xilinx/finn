@@ -81,14 +81,17 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
-
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.core.onnx_exec import execute_onnx
-from finn.util.basic import pynq_part_map
+from finn.util.basic import alveo_part_map, alveo_default_platform
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
-test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
-test_fpga_part = pynq_part_map[test_pynq_board]
-target_clk_ns = 10
+
+test_board = "U250"
+test_platform = alveo_default_platform[test_board]
+test_fpga_part = alveo_part_map[test_board]
+target_clk_ns = 5
 mem_mode = "decoupled"
 
 
@@ -112,9 +115,7 @@ def test_end2end_mobilenet_export():
     # export mobilenet
     finn_onnx = build_dir + "/end2end_mobilenet_export.onnx"
     mobilenet = get_test_model_trained("mobilenet", 4, 4)
-    bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
-    model = ModelWrapper(finn_onnx)
-    model.save(build_dir + "/end2end_mobilenet_export.onnx")
+    # bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
 
     # calculate golden output with pytorch/brevitas and save as .npy
     # get single image as input and prepare image
@@ -142,6 +143,8 @@ def test_end2end_mobilenet_export():
     # save golden output values
     np.save(build_dir + "/end2end_mobilenet_golden_top5.npy", golden_top5)
     np.save(build_dir + "/end2end_mobilenet_golden_top5_prob.npy", golden_top5_prob)
+    assert os.path.isfile(finn_onnx)
+    assert os.path.isfile(build_dir + "/end2end_mobilenet_preproc.onnx")
 
 
 def test_end2end_mobilenet_tidy_and_merge_with_preproc():
@@ -155,7 +158,7 @@ def test_end2end_mobilenet_tidy_and_merge_with_preproc():
     # get initializer from Mul that will be absorbed into topk
     a0 = model.get_initializer(model.graph.node[-2].input[1])
     np.save(build_dir + "/end2end_mobilenet_topk_scale.npy", a0)
-    model = model.transform(absorb.AbsorbScalarMulIntoTopK())
+    model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     model = model.transform(InferDataLayouts())
@@ -224,28 +227,29 @@ def test_end2end_mobilenet_folding():
         build_dir + "/end2end_mobilenet_hls_layers.onnx"
     )
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
-    # each tuple is (PE, SIMD) for a layer
+    # each tuple is (PE, SIMD, ram_style) for a layer
     folding = [
-        (32, 3),
-        (16, 16),
-        (16, 16),
-        (32, 16),
-        (16, 16),
-        (32, 16),
-        (16, 16),
-        (32, 16),
-        (32, 16),
-        (32, 16),
-        (32, 16),
-        (32, 16),
-        (16, 16),
-        (32, 16),
-        (4, 4),
+        (32, 3, "block"),
+        (16, 16, "block"),
+        (16, 16, "block"),
+        (32, 16, "block"),
+        (16, 16, "block"),
+        (32, 16, "block"),
+        (16, 16, "block"),
+        (32, 16, "block"),
+        (32, 16, "block"),
+        (32, 16, "block"),
+        (32, 16, "block"),
+        (32, 16, "block"),
+        (16, 16, "block"),
+        (32, 16, "block"),
+        (4, 4, "block"),
     ]
-    for fcl, (pe, simd) in zip(fc_layers, folding):
+    for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
+        fcl_inst.set_nodeattr("ram_style", ramstyle)
 
     vvau_layers = model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")
     # each value is PE for a layer
@@ -362,3 +366,31 @@ def test_end2end_mobilenet_gen_hls_ip():
 
     model = model.transform(AnnotateResources("hls"))
     model.save(build_dir + "/end2end_mobilenet_ipgen.onnx")
+
+
+def test_end2end_mobilenet_set_fifo_depths():
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_ipgen.onnx")
+    parent_model = model.transform(CreateDataflowPartition())
+    parent_model.save(build_dir + "/end2end_mobilenet_dataflow_parent.onnx")
+    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
+    sdp_node = getCustomOp(sdp_node)
+    dataflow_model_filename = sdp_node.get_nodeattr("model")
+    model = ModelWrapper(dataflow_model_filename)
+
+    start = time.time()
+    model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
+    end = time.time()
+    elapsed_time = end - start
+    f = open(build_dir + "/end2end_mobilenet_fifoset_time.txt", "w+")
+    f.write("Execution time in seconds: " + str(elapsed_time))
+    f.close()
+    model.save(build_dir + "/end2end_mobilenet_fifodepth.onnx")
+
+
+def test_end2end_mobilenet_build():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_mobilenet_fifodepth.onnx"
+    )
+    model = model.transform(VitisBuild(test_fpga_part, target_clk_ns, test_platform))
+    model.save(build_dir + "/end2end_mobilenet_build.onnx")
+    model = model.transform(AnnotateResources("synth"))
