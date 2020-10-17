@@ -215,7 +215,7 @@ def test_end2end_mobilenet_convert_to_hls_layers():
     model = model.transform(to_hls.InferVVAU())
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     model = model.transform(to_hls.InferChannelwiseLinearLayer())
-    # model = model.transform(to_hls.InferLabelSelectLayer())
+    model = model.transform(to_hls.InferLabelSelectLayer())
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
@@ -353,7 +353,9 @@ def test_end2end_mobilenet_rtlsim():
 
 
 def test_end2end_mobilenet_gen_hls_ip():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_mobilenet_dataflow_model.onnx"
+    )
     start = time.time()
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
@@ -370,13 +372,6 @@ def test_end2end_mobilenet_gen_hls_ip():
 
 def test_end2end_mobilenet_set_fifo_depths():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_ipgen.onnx")
-    parent_model = model.transform(CreateDataflowPartition())
-    parent_model.save(build_dir + "/end2end_mobilenet_dataflow_parent.onnx")
-    sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-    sdp_node = getCustomOp(sdp_node)
-    dataflow_model_filename = sdp_node.get_nodeattr("model")
-    model = ModelWrapper(dataflow_model_filename)
-
     start = time.time()
     model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
     end = time.time()
