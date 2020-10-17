@@ -1219,6 +1219,7 @@ class InferLabelSelectLayer(Transformation):
                     continue
 
                 num_labels = int(fc_in_shape[-1])
+                num_inp_vecs = list(fc_in_shape[:-1])
                 # create node with no parallelization first
                 pe = 1
                 assert (
@@ -1238,6 +1239,7 @@ class InferLabelSelectLayer(Transformation):
                     PE=pe,
                     K=k,
                     inputDataType=idt.name,
+                    numInputVectors=num_inp_vecs,
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
