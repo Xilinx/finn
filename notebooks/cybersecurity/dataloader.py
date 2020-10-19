@@ -124,12 +124,13 @@ class UNSW_NB15(torch.utils.data.Dataset):
             column_df_encoded = one_hot_encoder.transform(column_df)
             #Create dataframe from the 2-d array
             column_df_encoded = pd.DataFrame(data=column_df_encoded, columns=one_hot_encoder.categories_[0])
-            self.one_hot_encoded_df = pd.concat([self.one_hot_encoded_df, column_df_encoded], axis=1, sort=False)
+            self.one_hot_encoded_df = pd.concat([column_df_encoded,self.one_hot_encoded_df], axis=1, sort=False)
 
         #delete proto,service and state columns
         self.one_hot_encoded_df = self.one_hot_encoded_df.drop(string_columns,1)
         #create tensor
         self.data = torch.FloatTensor(self.one_hot_encoded_df.values.astype('float'))
+
         print(self.data.shape)
        
     
@@ -225,7 +226,7 @@ class UNSW_NB15(torch.utils.data.Dataset):
             column_df_encoded = one_hot_encoder.transform(column_df)
             #Create dataframe from the 2-d array
             column_df_encoded = pd.DataFrame(data=column_df_encoded, columns=one_hot_encoder.categories_[0])
-            self.dataframe = pd.concat([self.dataframe, column_df_encoded], axis=1, sort=False)
+            self.dataframe = pd.concat([column_df_encoded, self.dataframe], axis=1, sort=False)
 
         #delete proto,service and state columns
         self.dataframe = self.dataframe.drop(string_columns,1)
