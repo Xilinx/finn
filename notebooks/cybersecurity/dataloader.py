@@ -85,30 +85,64 @@ class UNSW_NB15(torch.utils.data.Dataset):
                 self.maximums[key] = max(self.dataframe[key])
         
         #------------------------------------------------
-        self.dataframe = self.dataframe.drop(['id', 'attack_cat'],1)                  
+        self.dataframe = self.dataframe.drop(['id', 'attack_cat'],1)   
         
-    def get_tensor(self):
-        return self.tensor
+        # -------------APPLY 1HOT ENCODING
+        self.one_hot_encoded_df = self.dataframe
+        string_columns= ["proto","service","state"]
+        string_categories= [[['tcp', 'udp', 'arp', 'ospf', 'icmp', 'igmp', 'rtp', 'ddp',
+           'ipv6-frag', 'cftp', 'wsn', 'pvp', 'wb-expak', 'mtp', 'pri-enc',
+           'sat-mon', 'cphb', 'sun-nd', 'iso-ip', 'xtp', 'il', 'unas',
+           'mfe-nsp', '3pc', 'ipv6-route', 'idrp', 'bna', 'swipe',
+           'kryptolan', 'cpnx', 'rsvp', 'wb-mon', 'vmtp', 'ib', 'dgp',
+           'eigrp', 'ax.25', 'gmtp', 'pnni', 'sep', 'pgm', 'idpr-cmtp',
+           'zero', 'rvd', 'mobile', 'narp', 'fc', 'pipe', 'ipcomp', 'ipv6-no',
+           'sat-expak', 'ipv6-opts', 'snp', 'ipcv', 'br-sat-mon', 'ttp',
+           'tcf', 'nsfnet-igp', 'sprite-rpc', 'aes-sp3-d', 'sccopmce', 'sctp',
+           'qnx', 'scps', 'etherip', 'aris', 'pim', 'compaq-peer', 'vrrp',
+           'iatp', 'stp', 'l2tp', 'srp', 'sm', 'isis', 'smp', 'fire', 'ptp',
+           'crtp', 'sps', 'merit-inp', 'idpr', 'skip', 'any', 'larp', 'ipip',
+           'micp', 'encap', 'ifmp', 'tp++', 'a/n', 'ipv6', 'i-nlsp',
+           'ipx-n-ip', 'sdrp', 'tlsp', 'gre', 'mhrp', 'ddx', 'ippc', 'visa',
+           'secure-vmtp', 'uti', 'vines', 'crudp', 'iplt', 'ggp', 'ip',
+           'ipnip', 'st2', 'argus', 'bbn-rcc', 'egp', 'emcon', 'igp', 'nvp',
+           'pup', 'xnet', 'chaos', 'mux', 'dcn', 'hmp', 'prm', 'trunk-1',
+           'xns-idp', 'leaf-1', 'leaf-2', 'rdp', 'irtp', 'iso-tp4', 'netblt',
+           'trunk-2', 'cbt']],[['-', 'ftp', 'smtp', 'snmp', 'http', 'ftp-data', 'dns', 'ssh',
+           'radius', 'pop3', 'dhcp', 'ssl', 'irc']],[['FIN', 'INT', 'CON', 'ECO', 'REQ', 'RST', 'PAR', 'URN', 'no',
+           'ACC', 'CLO']]]
+    
+    
+        for column, categories in zip(string_columns, string_categories): 
+            
+            column_df = self.one_hot_encoded_df.loc[:, [column]]
+
+            one_hot_encoder = OneHotEncoder(sparse=False, categories = categories)
+            # Fit OneHotEncoder to dataframe
+            one_hot_encoder.fit(column_df)  
+            # Transform the dataframe
+            column_df_encoded = one_hot_encoder.transform(column_df)
+            #Create dataframe from the 2-d array
+            column_df_encoded = pd.DataFrame(data=column_df_encoded, columns=one_hot_encoder.categories_[0])
+            self.one_hot_encoded_df = pd.concat([self.one_hot_encoded_df, column_df_encoded], axis=1, sort=False)
+
+        #delete proto,service and state columns
+        self.one_hot_encoded_df = self.one_hot_encoded_df.drop(string_columns,1)
+        #create tensor
+        self.data = torch.FloatTensor(self.one_hot_encoded_df.values.astype('float'))
+        print(self.data.shape)
+       
     
     def get_dataframe(self):
         return self.dataframe
     
     def __len__(self):
-        return len(self.dataframe.index) - self.sequence_length
-    
+        return len(self.data)
+
     def __getitem__(self, index):
-        #TODO need error checking for out of bounds?
-        #TODO return x,y where y is the category of the example
-        #since none corresponds to "normal" data
-        
-        list_of_dicts = []
-        for i in range(index,index+self.sequence_length):
-            list_of_dicts.append(self.dataframe.loc[i, :].to_dict())
-        
-        if self.transform is not None:
-            return self.transform(self, list_of_dicts)
-        
-        return list_of_dicts
+        target = self.data[index][-1]
+        data_val = self.data[index] [:-1]
+        return data_val,target
     
     #get a list of all the unique labels in the dataset
     def get_labels(self):
