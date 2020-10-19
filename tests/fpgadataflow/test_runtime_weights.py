@@ -39,6 +39,7 @@ from finn.util.basic import gen_finn_dt_tensor
 from finn.util.pyverilator import axilite_write, axilite_read
 import numpy as np
 import pytest
+import os
 
 test_fpga_part = "xc7z020clg400-1"
 target_clk_ns = 5
@@ -64,10 +65,17 @@ def test_runtime_weights_single_layer():
     }
     layer_spec_list = [layer_spec]
     model = hls_random_mlp_maker(layer_spec_list)
-    for fcl in model.get_nodes_by_op_type("StreamingFCLayer_Batch"):
-        op_inst = getCustomOp(fcl)
-        op_inst.set_nodeattr("mem_mode", "decoupled")
-        op_inst.set_nodeattr("runtime_writeable_weights", 1)
+    fcl = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+    op_inst = getCustomOp(fcl)
+    op_inst.set_nodeattr("mem_mode", "decoupled")
+    op_inst.set_nodeattr("runtime_writeable_weights", 1)
+    old_weights = model.get_initializer(fcl.input[1])
+    op_inst.make_weight_file(old_weights, "decoupled_runtime", "old_weights.dat")
+    with open("old_weights.dat", "r") as f:
+        old_weight_stream = f.read().strip()
+    os.remove("old_weights.dat")
+    old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
+    old_weight_stream = list(old_weight_stream)
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
@@ -80,33 +88,36 @@ def test_runtime_weights_single_layer():
     # we read/write new ones and reads seem to cause a disturbance too)
     in_tensor = np.tile(in_tensor, (2, 1))
     exec_ctx = {"act_0": in_tensor}
-    extracted_weights = np.zeros((mh, mw))
+    extracted_weight_stream = []
 
     def read_weights(sim):
         addr = 0
-        for w in range(mw):
-            for h in range(mh):
-                extracted_weights[h, w] = axilite_read(
-                    sim, addr, basename="s_axilite_0_"
-                )
-                addr += 4
+        for i in range(len(old_weight_stream)):
+            extracted_weight_stream.append(
+                axilite_read(sim, addr, basename="s_axilite_0_")
+            )
+            addr += 4
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
-    expected_weights = model.get_initializer("W_0")
-    assert (extracted_weights == expected_weights).all()
+    assert extracted_weight_stream == old_weight_stream
     y = exec_ctx["act_1"]
     # only use second batch element in output; first will be invalid due to
     # old weights (see above)
-    assert (y[1] == np.dot(in_tensor[1], expected_weights)).all()
+    assert (y[1] == np.dot(in_tensor[1], old_weights)).all()
 
     new_weights = gen_finn_dt_tensor(wdt, (mh, mw))
+    op_inst.make_weight_file(new_weights, "decoupled_runtime", "new_weights.dat")
+    with open("new_weights.dat", "r") as f:
+        new_weight_stream = f.read().strip()
+    os.remove("new_weights.dat")
+    new_weight_stream = map(lambda x: int(x, 16), new_weight_stream.split("\n"))
+    new_weight_stream = list(new_weight_stream)
 
     def write_weights(sim):
         addr = 0
-        for w in range(mw):
-            for h in range(mh):
-                axilite_write(sim, addr, new_weights[h, w], basename="s_axilite_0_")
-                addr += 4
+        for nw in new_weight_stream:
+            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            addr += 4
 
     rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
     y = exec_ctx["act_1"]
