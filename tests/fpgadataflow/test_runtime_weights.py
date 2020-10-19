@@ -48,12 +48,12 @@ target_clk_ns = 5
 @pytest.mark.vivado
 def test_runtime_weights_single_layer():
     idt = DataType.UINT32
-    wdt = DataType.UINT8
+    wdt = DataType.UINT4
     act = None
-    mw = 4
-    mh = 4
-    pe = 1
-    simd = 1
+    mw = 64
+    mh = 32
+    pe = 4
+    simd = 16
     layer_spec = {
         "idt": idt,
         "wdt": wdt,
@@ -105,7 +105,7 @@ def test_runtime_weights_single_layer():
     # old weights (see above)
     assert (y[1] == np.dot(in_tensor[1], old_weights)).all()
 
-    new_weights = gen_finn_dt_tensor(wdt, (mh, mw))
+    new_weights = gen_finn_dt_tensor(wdt, (mw, mh))
     op_inst.make_weight_file(new_weights, "decoupled_runtime", "new_weights.dat")
     with open("new_weights.dat", "r") as f:
         new_weight_stream = f.read().strip()
