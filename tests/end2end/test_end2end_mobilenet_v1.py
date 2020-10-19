@@ -115,7 +115,7 @@ def test_end2end_mobilenet_export():
     # export mobilenet
     finn_onnx = build_dir + "/end2end_mobilenet_export.onnx"
     mobilenet = get_test_model_trained("mobilenet", 4, 4)
-    # bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
+    bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
 
     # calculate golden output with pytorch/brevitas and save as .npy
     # get single image as input and prepare image
