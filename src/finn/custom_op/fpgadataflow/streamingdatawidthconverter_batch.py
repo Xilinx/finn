@@ -217,8 +217,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         numInWords = int(np.prod(self.get_folded_input_shape()[:-1]))
         inWidth = self.get_nodeattr("inWidth")
         outWidth = self.get_nodeattr("outWidth")
-        if outWidth > inWidth:
-            numInWords = int(outWidth // inWidth)
         self.code_gen_dict["$DEFINES$"] = [
             "#define InWidth %d " % inWidth,
             "#define OutWidth %d " % outWidth,
