@@ -61,19 +61,40 @@ module memstream
 	parameter STRM2_OFFSET = 4608,
 	parameter STRM3_OFFSET = 6912,
 	parameter STRM4_OFFSET = 9216,
-	parameter STRM5_OFFSET = 11520
+	parameter STRM5_OFFSET = 11520,
+
+    parameter AXILITE_ADDR_WIDTH = 2+$clog2(MEM_DEPTH*(1<<$clog2((MEM_WIDTH+31)/32)))
 )
 
 (
     input aclk,
     input aresetn,
 
-    //optional configuration interface compatible with ap_memory
-	input [31:0] config_address,
-	input config_ce,
-	input config_we,
-	input [31:0] config_d0,
-	output [31:0] config_q0,
+    output awready,
+    input                       awvalid,
+    input [AXILITE_ADDR_WIDTH-1:0]      awaddr,
+    input [2:0]                 awprot,
+    //write data
+    output                  wready,
+    input                       wvalid,
+    input [31:0]      wdata,
+    input [3:0]  wstrb,
+    //burst response
+    input                       bready,
+    output                  bvalid,
+    output [1:0]            bresp,
+
+    //Read channels
+    //read address
+    output                  arready,
+    input                       arvalid,
+    input [AXILITE_ADDR_WIDTH-1:0]      araddr,
+    input [2:0]                 arprot,
+    //read data
+    input                       rready,
+    output                  rvalid,
+    output [1:0]            rresp,
+    output [31:0] rdata,
 
     //multiple output AXI Streams, TDATA width rounded to multiple of 8 bits
     input m_axis_0_afull,
@@ -108,6 +129,13 @@ module memstream
 
 
 );
+
+wire [31:0] config_address;
+wire config_ce;
+wire config_we;
+wire config_rack;
+wire [MEM_WIDTH-1:0] config_d0;
+wire [MEM_WIDTH-1:0] config_q0;
 
 generate
 if(NSTREAMS <= 2) begin: singleblock
@@ -144,6 +172,7 @@ mem
     .config_we(config_we),
     .config_d0(config_d0),
     .config_q0(config_q0),
+    .config_rack(config_rack),
 
     .m_axis_0_tready(m_axis_0_tready),
     .m_axis_0_tvalid(m_axis_0_tvalid),
@@ -245,5 +274,54 @@ mem
 
 end
 endgenerate
+
+axi4lite_if
+#(
+    .ADDR_WIDTH(AXILITE_ADDR_WIDTH),
+    .DATA_WIDTH(32),
+    .IP_DATA_WIDTH(MEM_WIDTH)
+)
+config_if
+(
+    //system signals
+    .aclk(aclk),
+    .aresetn(aresetn),
+
+    //Write channels
+    //write address
+    .awready(awready),
+    .awvalid(awvalid),
+    .awaddr(awaddr),
+    .awprot(awprot),
+    //write data
+    .wready(wready),
+    .wvalid(wvalid),
+    .wdata(wdata),
+    .wstrb(wstrb),
+    //burst response
+    .bready(bready),
+    .bvalid(bvalid),
+    .bresp(bresp),
+
+    //Read channels
+    //read address
+    .arready(arready),
+    .arvalid(arvalid),
+    .araddr(araddr),
+    .arprot(arprot),
+    //read data
+    .rready(rready),
+    .rvalid(rvalid),
+    .rresp(rresp),
+    .rdata(rdata),
+
+    //IP-side interface
+    .ip_en(config_ce),
+    .ip_wen(config_we),
+    .ip_addr(config_address),
+    .ip_wdata(config_d0),
+    .ip_rack(config_rack),
+    .ip_rdata(config_q0)
+);
 
 endmodule
