@@ -649,86 +649,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         code_gen_dir = path
         # weights, if not external
         weights = model.get_initializer(self.onnx_node.input[1])
-        # convert weights into hlslib-compatible format
-        weight_tensor = self.get_hls_compatible_weight_tensor(weights)
-        export_wdt = self.get_weight_datatype()
-        # we have converted bipolar weights to binary for export,
-        # so use it as such for weight generation
-        if self.get_weight_datatype() == DataType.BIPOLAR:
-            export_wdt = DataType.BINARY
-
         if mem_mode == "const":
-            """Saves weights into params.h"""
-            weight_hls_code = numpy_to_hls_code(
-                weight_tensor, export_wdt, "weights", True, True
-            )
-            # write weights into params.h
-            f_weights = open("{}/params.h".format(code_gen_dir), "w")
-
-            if export_wdt.bitwidth() != 1:
-                f_weights.write(
-                    "const FixedPointWeights<{},{},{},{}> weights = ".format(
-                        self.get_nodeattr("SIMD"),
-                        export_wdt.get_hls_datatype_str(),
-                        self.get_nodeattr("PE"),
-                        self.calc_wmem(),
-                    )
-                )
-            else:
-                f_weights.write(
-                    "const BinaryWeights<{},{},{}> weights = ".format(
-                        self.get_nodeattr("SIMD"),
-                        self.get_nodeattr("PE"),
-                        self.calc_wmem(),
-                    )
-                )
-            f_weights.write(weight_hls_code)
-            f_weights.close()
-
+            # save hlslib-compatible weights in params.h
+            weight_filename = "{}/params.h".format(code_gen_dir)
+            self.make_weight_file(weights, "hls_header", weight_filename)
         elif mem_mode == "decoupled" or mem_mode == "external":
-            """Saves weights in corresponding file format for cppsim or rtlsim"""
-            # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
-            weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
-
-            # reverse SIMD flip for saving weights in .npy
-            weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
-            # PE flip for saving weights in .dat
-            weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
-
-            # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
-            pe = self.get_nodeattr("PE")
-            simd = self.get_nodeattr("SIMD")
-            # simd_flipped
-            weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(
-                1, -1, pe * simd
-            )
-            weight_tensor_simd_flipped = weight_tensor_simd_flipped.copy()
-            # flipped
-            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(
-                1, -1, pe * simd
-            )
-            weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
-
-            """Saves weights into .npy file"""
-            np.save(
-                os.path.join(code_gen_dir, "weights.npy"), weight_tensor_simd_flipped
-            )
-
+            weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
+            # save decoupled weights for cppsim
+            self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
             if mem_mode == "decoupled":
-                """Saves weights into .dat file"""
-                # convert weight values into hexstring
-                weight_width = self.get_weightstream_width()
-                # pad to nearest 4 bits to get hex strings
-                weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+                # also save weights as Verilog .dat file
+                weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+                self.make_weight_file(
+                    weights, "decoupled_verilog_dat", weight_filename_rtl
                 )
-                # add zeroes to pad out file to 1024 entries
-                weight_stream = weight_tensor_pe_flipped.flatten()
-                weight_stream = weight_stream.copy()
-                with open("{}/memblock_0.dat".format(code_gen_dir), "a+") as f:
-                    for val in weight_stream:
-                        f.write(val + "\n")
         else:
             raise Exception(
                 """Please set mem_mode to "const", "decoupled", or "external",
