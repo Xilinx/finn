@@ -85,6 +85,7 @@ from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODep
 from finn.core.onnx_exec import execute_onnx
 from finn.util.basic import alveo_part_map, alveo_default_platform
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.core.throughput_test import throughput_test_rtlsim
 
 build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
 
@@ -283,74 +284,6 @@ def test_end2end_mobilenet_create_dataflow_partition():
     dataflow_model.save(build_dir + "/end2end_mobilenet_dataflow_model.onnx")
 
 
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_end2end_mobilenet_cppsim():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
-    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
-    inp_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
-    inp_dict = {inp_name: x}
-    start = time.time()
-    # cppsim
-    model = model.transform(PrepareCppSim())
-    model = model.transform(CompileCppSim())
-    model = model.transform(SetExecMode("cppsim"))
-    end = time.time()
-    elapsed_time = end - start
-    f = open(build_dir + "/end2end_mobilenet_compile_time.txt", "w+")
-    f.write("Execution time in seconds: " + str(elapsed_time))
-    f.close()
-    model.save(build_dir + "/end2end_mobilenet_cppsim.onnx")
-    ret_cppsim = execute_onnx(model, inp_dict, True)
-    res_cppsim = ret_cppsim[out_name]
-    np.save(build_dir + "/end2end_mobilenet_result_cppsim.npy", res_cppsim)
-    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
-    res_cppsim_prob = ret_cppsim[model.graph.node[-2].output[0]] * a0
-    np.save(build_dir + "/end2end_mobilenet_result_cppsim_prob.npy", res_cppsim_prob)
-
-    # check result with golden values
-    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
-    golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
-
-    assert (golden == res_cppsim).all()
-    assert np.isclose(golden_prob, res_cppsim_prob).all()
-
-
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_end2end_mobilenet_rtlsim():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_ipgen.onnx")
-    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
-    inp_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
-    inp_dict = {inp_name: x}
-    # node-by-node rtlsim
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareRTLSim())
-    model.save(build_dir + "/end2end_mobilenet_ipgen_nodebynode_rtlsim.onnx")
-    ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
-    res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
-    np.save(
-        build_dir + "/end2end_mobilenet_result_rtlsim_nodebynode.npy",
-        res_rtlsim_nodebynode,
-    )
-    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
-    res_rtlsim_nodebynode_prob = (
-        ret_rtlsim_nodebynode[model.graph.node[-2].output[0]] * a0
-    )
-    np.save(
-        build_dir + "/end2end_mobilenet_result_rtlsim_nodebynode_prob.npy",
-        res_rtlsim_nodebynode_prob,
-    )
-
-    # check result with golden values
-    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
-    golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
-
-    assert (golden == res_rtlsim_nodebynode).all()
-    assert np.isclose(golden_prob, res_rtlsim_nodebynode_prob).all()
-
 
 def test_end2end_mobilenet_gen_hls_ip():
     model = load_test_checkpoint_or_skip(
@@ -380,6 +313,8 @@ def test_end2end_mobilenet_set_fifo_depths():
     f.write("Execution time in seconds: " + str(elapsed_time))
     f.close()
     model.save(build_dir + "/end2end_mobilenet_fifodepth.onnx")
+    #ret = throughput_test_rtlsim(model, batchsize=50)
+    #print(ret)
 
 
 def test_end2end_mobilenet_build():
@@ -389,3 +324,4 @@ def test_end2end_mobilenet_build():
     model = model.transform(VitisBuild(test_fpga_part, target_clk_ns, test_platform))
     model.save(build_dir + "/end2end_mobilenet_build.onnx")
     model = model.transform(AnnotateResources("synth"))
+    model.save(build_dir + "/end2end_mobilenet_build.onnx")
