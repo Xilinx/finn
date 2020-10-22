@@ -22,7 +22,7 @@ class UNSW_NB15(torch.utils.data.Dataset):
         # -------------APPLY 1HOT ENCODING---------
         if onehot:
             #self.one_hot_encoded_df = self.one_hot_encoding(self.dataframe)
-            self.one_hot_encoded_df = self.one_hot_encoding_select_categ(self.dataframe)
+            self.one_hot_encoded_df = self.one_hot_encoding(self.dataframe)
         else:
             #self.dataframe = self.dataframe.drop(["proto","service","state"],1)
             self.one_hot_encoded_df = pd.DataFrame()
