@@ -354,3 +354,59 @@ $LAYER_NAME$
 
 endmodule
 """
+
+decoupled_thresholding_template = """
+template <
+    unsigned ImgDim, unsigned NumChannels, unsigned PE,
+    typename TSrcI = Identity, typename TDstI = Identity,
+    int ActVal=0, typename TT, unsigned int NumSteps,
+    typename TI, typename TO>
+void Thresholding_Stream_Batch(hls::stream<TI> &in,
+                        hls::stream<TO> &out,
+                        hls::stream<ap_uint<PE*NumSteps*TT::width>> &weight,
+                        int const reps)
+{
+
+  // how many different rows each neuron will compute
+  // alternatively: number of vertical matrix chunks
+  unsigned const NF = NumChannels / PE;
+
+  unsigned nf = 0;
+  unsigned tile = 0; // invariant: tile = nf*SF + sf
+
+  ThresholdsActivation<1, PE, NumSteps, TT, TO, ActVal> internal_thr;
+  #pragma HLS ARRAY_PARTITION variable=internal_thr.m_thresholds complete dim=0
+
+  // everything merged into a common iteration space (one "big" loop instead
+  // of smaller nested loops) to get the pipelinening the way we want
+  for (unsigned i = 0; i < reps * ImgDim * ImgDim * NF; i++)
+  {
+    #pragma HLS PIPELINE II=1
+
+    ap_uint<PE*NumSteps*TT::width> packed_thr;
+    packed_thr = weight.read();
+    auto const packed_thr_slicer = Slice<TT>()(packed_thr);
+
+    TI inElem;
+    inElem = in.read();
+    auto outElem = TDstI().template operator()<TO>();
+
+    for (unsigned pe = 0; pe < PE; pe++)
+    {
+#pragma HLS UNROLL
+      for (unsigned nt = 0; nt < NumSteps; nt++)
+      {
+        internal_thr.m_thresholds[pe][0][nt] = packed_thr_slicer(nt, pe);
+      }
+
+      auto const act = TSrcI()(inElem);
+      outElem(pe,0,1) = internal_thr.activate(0, pe, act(pe,0));
+    }
+    out.write(outElem);
+    if (++nf == NF)
+    {
+      nf = 0;
+    }
+  }
+}
+"""
