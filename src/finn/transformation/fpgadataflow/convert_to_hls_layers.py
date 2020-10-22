@@ -841,7 +841,9 @@ class InferThresholdingLayer(Transformation):
                     backend="fpgadataflow",
                     NumChannels=ifc,
                     PE=pe,
+                    numSteps=thl_threshold.shape[1],
                     inputDataType=idt.name,
+                    weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,
@@ -852,6 +854,7 @@ class InferThresholdingLayer(Transformation):
                 graph_modified = True
 
         if graph_modified:
+            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)

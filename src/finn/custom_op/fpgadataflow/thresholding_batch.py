@@ -34,7 +34,10 @@ import numpy as np
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow import HLSCustomOp
-from finn.util.basic import interleave_matrix_outer_dim_from_partitions
+from finn.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+)
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -58,12 +61,17 @@ class Thresholding_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
+            # parallelization; channels thresholded per cycle
             "PE": ("i", True, 0),
+            # number of channels (each may have different thresholds)
             "NumChannels": ("i", True, 0),
+            # number of steps in thresholding function
+            "numSteps": ("i", True, 1),
             # string defining memory type
             "ram_style": ("s", False, "distributed"),
-            # FINN DataTypes for inputs, weights, outputs
+            # FINN DataTypes for inputs, outputs
             "inputDataType": ("s", True, ""),
+            "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 0),
@@ -187,6 +195,34 @@ class Thresholding_Batch(HLSCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
+    def get_weight_datatype(self):
+        """Returns FINN DataType of thresholds, here called weights."""
+        return DataType[self.get_nodeattr("weightDataType")]
+
+    def minimize_accumulator_width(self, model):
+        "Minimize threshold width ('accumulator width' here due to convention)"
+        thresholds = model.get_initializer(self.onnx_node.input[1])
+        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+        min_threshold = thresholds.min()
+        max_threshold = thresholds.max()
+        min_input = self.get_input_datatype().min()
+        max_input = self.get_input_datatype().max()
+        # get range required by threshold values
+        tdt_min = min(min_input, min_threshold)
+        tdt_max = max(max_input, max_threshold)
+        if tdt_min < 0:
+            if abs(tdt_min) > tdt_max:
+                tdt = DataType.get_smallest_possible(tdt_min)
+            else:
+                tdt = DataType.get_smallest_possible(0 - tdt_max - 1)
+        else:
+            tdt = DataType.get_smallest_possible(tdt_max)
+        assert np.vectorize(tdt.allowed)(
+            threshold_tensor
+        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+        self.set_nodeattr("weightDataType", tdt.name)
+        return DataType[self.get_nodeattr("weightDataType")]
+
     def get_instream_width(self):
         i_bits = self.get_input_datatype().bitwidth()
         return i_bits * self.get_nodeattr("PE")
@@ -194,6 +230,23 @@ class Thresholding_Batch(HLSCustomOp):
     def get_outstream_width(self):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
+
+    def get_weightstream_width(self):
+        """Returns weight stream width. Used only in decoupled mode."""
+        if self.get_nodeattr("mem_mode") == "decoupled":
+            pe = self.get_nodeattr("PE")
+            wp = self.get_weight_datatype().bitwidth()
+            n_thres_steps = self.get_nodeattr("numSteps")
+            w_width = pe * wp * n_thres_steps
+            return w_width
+        else:
+            return 0
+
+    def get_weightstream_width_padded(self):
+        """Returns weight stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec. Used in decoupled mode."""
+        weight_width = self.get_weightstream_width()
+        return roundup_to_integer_multiple(weight_width, 8)
 
     def get_ap_int_max_w(self):
         temp_value = super().get_ap_int_max_w()
@@ -260,6 +313,9 @@ class Thresholding_Batch(HLSCustomOp):
         ), """Threshold matrix dimension is
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
+        assert n_thres_steps == self.get_nodeattr(
+            "numSteps"
+        ), "Mismatch in threshold steps"
         if not self.get_input_datatype().signed():
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
@@ -294,21 +350,7 @@ class Thresholding_Batch(HLSCustomOp):
         thresholds = model.get_initializer(self.onnx_node.input[1])
 
         threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-
-        min_threshold = thresholds.min()
-        max_threshold = thresholds.max()
-        min_input = self.get_input_datatype().min()
-        max_input = self.get_input_datatype().max()
-        # get range required by threshold values
-        tdt_min = min(min_input, min_threshold)
-        tdt_max = max(max_input, max_threshold)
-        if tdt_min < 0:
-            if abs(tdt_min) > tdt_max:
-                tdt = DataType.get_smallest_possible(tdt_min)
-            else:
-                tdt = DataType.get_smallest_possible(0 - tdt_max - 1)
-        else:
-            tdt = DataType.get_smallest_possible(tdt_max)
+        tdt = self.get_weight_datatype()
         assert np.vectorize(tdt.allowed)(
             threshold_tensor
         ).all(), "Thresholds can't be expressed with type %s" % str(tdt)

@@ -64,7 +64,9 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval):
         backend="fpgadataflow",
         NumChannels=NumChannels,
         PE=pe,
+        numSteps=T.shape[1],
         inputDataType=idt.name,
+        weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
         outputDataType=odt.name,
         ActVal=actval,
     )
