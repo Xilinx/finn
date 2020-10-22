@@ -344,42 +344,67 @@ class Thresholding_Batch(HLSCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def generate_params(self, model, path):
-        code_gen_dir = path
-        # save thresholds in thresh.h
-        thresholds = model.get_initializer(self.onnx_node.input[1])
+    def make_weight_file(self, weights, weight_file_mode, weight_file_name):
+        """Produce a file containing given weights (thresholds) in appropriate
+        format for this layer. This file can be used for either synthesis or
+        run-time reconfig of weights.
 
-        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+        Arguments:
+        * weights : numpy array with weights to be put into the file
+        * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
+          decoupled_runtime}
+        * weight_file_name : filename for the weight file to be generated
+        """
+        threshold_tensor = self.get_hls_compatible_threshold_tensor(weights)
         tdt = self.get_weight_datatype()
         assert np.vectorize(tdt.allowed)(
             threshold_tensor
         ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
-
-        thresholds_hls_code = numpy_to_hls_code(
-            threshold_tensor, tdt, "thresholds", False, True
-        )
-        # write thresholds into thresh.h
-        f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
-        tdt_hls = tdt.get_hls_datatype_str()
-        # use binary to export bipolar activations
-        export_odt = self.get_output_datatype()
-        if self.get_output_datatype() == DataType.BIPOLAR:
-            export_odt = DataType.BINARY
-        odt_hls = export_odt.get_hls_datatype_str()
-        f_thresh.write(
-            "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
-            = ".format(
-                self.calc_tmem(),
-                self.get_nodeattr("PE"),
-                threshold_tensor.shape[-1],
-                tdt_hls,
-                odt_hls,
-                self.get_nodeattr("ActVal"),
-                "std::less_equal<%s>" % tdt_hls,
+        if weight_file_mode == "hls_header":
+            # save thresholds in thresh.h
+            thresholds_hls_code = numpy_to_hls_code(
+                threshold_tensor, tdt, "thresholds", False, True
             )
-        )
-        f_thresh.write(thresholds_hls_code)
-        f_thresh.close()
+            # write thresholds into thresh.h
+            f_thresh = open(weight_file_name, "w")
+            tdt_hls = tdt.get_hls_datatype_str()
+            # use binary to export bipolar activations
+            export_odt = self.get_output_datatype()
+            if self.get_output_datatype() == DataType.BIPOLAR:
+                export_odt = DataType.BINARY
+            odt_hls = export_odt.get_hls_datatype_str()
+            f_thresh.write(
+                "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
+                = ".format(
+                    self.calc_tmem(),
+                    self.get_nodeattr("PE"),
+                    threshold_tensor.shape[-1],
+                    tdt_hls,
+                    odt_hls,
+                    self.get_nodeattr("ActVal"),
+                    "std::less_equal<%s>" % tdt_hls,
+                )
+            )
+            f_thresh.write(thresholds_hls_code)
+            f_thresh.close()
+        elif "decoupled" in weight_file_mode:
+            # TODO reshape for streaming weights and generate
+            raise Exception("Decoupled weight export not yet implemented")
+        else:
+            raise Exception("Unknown weight_file_mode")
+
+    def generate_params(self, model, path):
+        code_gen_dir = path
+        thresholds = model.get_initializer(self.onnx_node.input[1])
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "const":
+            # save thresholds in thresh.h
+            weight_filename = "{}/thresh.h".format(code_gen_dir)
+            self.make_weight_file(thresholds, "hls_header", weight_filename)
+        elif mem_mode == "decoupled":
+            raise Exception("Decoupled weight export not yet implemented")
+        else:
+            raise Exception("Unrecognized mem_mode")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
