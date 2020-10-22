@@ -75,6 +75,10 @@ class Thresholding_Batch(HLSCustomOp):
             "numInputVectors": ("ints", False, [1]),
             # initialization value for the thresholding accumulator
             "ActVal": ("i", False, 0),
+            # memory mode for the thresholds
+            # const -- embedded thresholds, default
+            # decoupled -- streaming thresholds with  streamer packaged inside IP
+            "mem_mode": ("s", False, "const"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -190,6 +194,11 @@ class Thresholding_Batch(HLSCustomOp):
     def get_outstream_width(self):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
+
+    def get_ap_int_max_w(self):
+        temp_value = super().get_ap_int_max_w()
+        weightstream = self.get_weightstream_width()
+        return max([weightstream, temp_value])
 
     def get_folded_input_shape(self):
         ich = self.get_nodeattr("NumChannels")
