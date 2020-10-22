@@ -29,7 +29,9 @@
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name
-from finn.analysis.floorplan_params import floorplan_params
+from finn.analysis.fpgadataflow.floorplan_params import floorplan_params
+from finn.util.basic import make_build_dir
+from finn.transformation.general import ApplyConfig
 import warnings
 import json
 
@@ -65,9 +67,7 @@ class Floorplan(Transformation):
         for node in model.graph.node:
             node_inst = getCustomOp(node)
             node_slr = node_inst.get_nodeattr("slr")
-            if node_slr is None or node_slr == -1:
-                node_inst.set_nodeattr("slr", -1)
-                node_slr = -1
+            if node_slr == -1:
                 unassigned_nodes += 1
             if node.op_type == "StreamingDataWidthConverter_Batch":
                 # if we have SLR assignment already. use that
@@ -82,14 +82,14 @@ class Floorplan(Transformation):
                 else:
                     narrow_neighbour = model.find_producer(node.input[0])
                     
-                node_slr = narrow_neighbour.get_nodeattr("slr")
+                node_slr = getCustomOp(narrow_neighbour).get_nodeattr("slr")
                 node_inst.set_nodeattr("slr", node_slr)
             if node.op_type == "StreamingFIFO":
                 # if we have SLR assignment already. use that
                 if node_slr != -1:
                     continue
                 srcnode = model.find_producer(node.input[0])
-                node_slr = srcnode.get_nodeattr("slr")
+                node_slr = getCustomOp(srcnode).get_nodeattr("slr")
                 node_inst.set_nodeattr("slr", node_slr)
 
 
@@ -100,16 +100,15 @@ class Floorplan(Transformation):
                 + "and no default value was set"
             )
 
-        # save the updated floorplan
-        floorplan = model.analysis(floorplan_params)
-        with open(model.get_metadata_prop("floorplan_json"), "w") as f:
-            json.dump(floorplan, f, indent=4)
-
 
         # partition id generation
         partition_cnt = 0
 
         # Assign IODMAs to their own partitions
+        all_nodes = list(model.graph.node)
+        df_nodes = list(
+            filter(lambda x: get_by_name(x.attribute, "backend") is not None, all_nodes)
+        )
         dma_nodes = list(filter(lambda x: x.op_type == "IODMA", df_nodes))
         non_dma_nodes = list(filter(lambda x: x not in dma_nodes, df_nodes))
         dyn_tlastmarker_nodes = list(
@@ -162,5 +161,10 @@ class Floorplan(Transformation):
                 # no matching, new partition
                 node_inst.set_nodeattr("partition_id", partition_cnt)
                 partition_cnt += 1
+
+        # save the updated floorplan
+        floorplan = model.analysis(floorplan_params)
+        with open(model.get_metadata_prop("floorplan_json"), "w") as f:
+            json.dump(floorplan, f, indent=4)
 
         return (model, False)

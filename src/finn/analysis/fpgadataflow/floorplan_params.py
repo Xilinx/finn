@@ -36,7 +36,7 @@ def floorplan_params(model):
     Returns {node name : {slr, device id, partition id, memory port}}."""
 
     ret_dict = {
-        "Defaults": {"slr": -1, "partition_id": 0, "device_id": 0, "mem_port": None}
+        "Defaults": {"slr": [-1, ["all"]], "partition_id": [0, ["all"]], "device_id": [0, ["all"]], "mem_port": ["", ["all"]]}
     }
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:

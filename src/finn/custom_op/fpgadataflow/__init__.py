@@ -94,7 +94,10 @@ class HLSCustomOp(CustomOp):
             "res_synth": ("s", False, ""),
             "rtlsim_so": ("s", False, ""),
             # partitioning info
+            "slr": ("i", False, -1),
+            "mem_port": ("s", False, ""),
             "partition_id": ("i", False, 0),
+            "device_id": ("i", False, 0),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),

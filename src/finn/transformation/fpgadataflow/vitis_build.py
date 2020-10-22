@@ -362,7 +362,7 @@ class VitisBuild(Transformation):
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
 
-        model = model.transform(Floorplan(floorplan=self.floorplan))
+        model = model.transform(Floorplan(floorplan=self.floorplan_file))
 
         model = model.transform(CreateDataflowPartition())
         model = model.transform(GiveUniqueNodeNames())
