@@ -42,6 +42,7 @@ from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     rtlsim_output_to_npy,
+    pack_innermost_dim_as_hex_string,
 )
 from . import templates
 
@@ -388,8 +389,35 @@ class Thresholding_Batch(HLSCustomOp):
             f_thresh.write(thresholds_hls_code)
             f_thresh.close()
         elif "decoupled" in weight_file_mode:
-            # TODO reshape for streaming weights and generate
-            raise Exception("Decoupled weight export not yet implemented")
+            # streaming thresholds need to be organized differently
+            # (1, pe, tmem, n_thres_steps) -> (1, tmem, pe, n_thres_steps)
+            decoupled_thres = np.transpose(threshold_tensor, (0, 2, 1, 3))
+            # TODO add flips/reversals as needed here
+            # (1, tmem, pe, n_thres_steps) -(1, tmem, pe * n_thres_steps)
+            pe = self.get_nodeattr("PE")
+            n_thres_steps = self.get_nodeattr("numSteps")
+            decoupled_thres = decoupled_thres.reshape(1, -1, pe * n_thres_steps)
+            decoupled_thres = decoupled_thres.copy()
+            if weight_file_mode == "decoupled_npy":
+                # save weight stream into npy for cppsim
+                np.save(weight_file_name, decoupled_thres)
+            elif weight_file_mode == "decoupled_verilog_dat":
+                # convert weight values into hexstring
+                weight_width = self.get_weightstream_width()
+                # pad to nearest 4 bits to get hex strings
+                weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
+                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+                    decoupled_thres, tdt, weight_width_padded, prefix=""
+                )
+                weight_stream = weight_tensor_pe_flipped.flatten()
+                weight_stream = weight_stream.copy()
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
+                        f.write(val + "\n")
+            else:
+                # elif weight_file_mode == "decoupled_runtime":
+                # TODO reshape for streaming weights and generate
+                raise Exception("Decoupled weight export not yet implemented")
         else:
             raise Exception("Unknown weight_file_mode")
 
@@ -402,7 +430,15 @@ class Thresholding_Batch(HLSCustomOp):
             weight_filename = "{}/thresh.h".format(code_gen_dir)
             self.make_weight_file(thresholds, "hls_header", weight_filename)
         elif mem_mode == "decoupled":
-            raise Exception("Decoupled weight export not yet implemented")
+            # save decoupled weights for cppsim
+            weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
+            self.make_weight_file(thresholds, "decoupled_npy", weight_filename_sim)
+            if mem_mode == "decoupled":
+                # also save weights as Verilog .dat file
+                weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+                self.make_weight_file(
+                    thresholds, "decoupled_verilog_dat", weight_filename_rtl
+                )
         else:
             raise Exception("Unrecognized mem_mode")
 
@@ -501,7 +537,8 @@ class Thresholding_Batch(HLSCustomOp):
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"']
-        self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
+        if self.get_nodeattr("mem_mode") == "const":
+            self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     # TODO check and add whatever missing
     def defines(self, var):
@@ -512,6 +549,21 @@ class Thresholding_Batch(HLSCustomOp):
                 self.get_nodeattr("NumChannels"), self.get_nodeattr("PE"), numReps,
             )
         ]
+        if self.get_nodeattr("mem_mode") == "decoupled":
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define ActVal1 %d" % self.get_nodeattr("ActVal")
+            )
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define ThresType1 %s"
+                % self.get_weight_datatype().get_hls_datatype_str()
+            )
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define NumSteps1 %d" % self.get_nodeattr("numSteps")
+            )
+            # TODO remove once Thresholding_Stream_Batch is in hlslib:
+            self.code_gen_dict["$DEFINES$"].append(
+                templates.decoupled_thresholding_template
+            )
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -528,6 +580,20 @@ class Thresholding_Batch(HLSCustomOp):
             'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
             % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
         )
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            tdt = self.get_weight_datatype()
+            elem_bits = tdt.bitwidth()
+            packed_bits = self.get_weightstream_width()
+            packed_hls_type = "ap_uint<%d>" % packed_bits
+            elem_hls_type = tdt.get_hls_datatype_str()
+            npy_type = "float"
+            npy_in = "%s/thresholds.npy" % code_gen_dir
+
+            self.code_gen_dict["$READNPYDATA$"].append(
+                'npy2apintstream<%s, %s, %d, %s>("%s", thres_stream, false, numReps);'
+                % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
@@ -537,6 +603,13 @@ class Thresholding_Batch(HLSCustomOp):
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
         )
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> thres_stream ("thres_stream");'.format(
+                    self.get_weightstream_width()
+                )
+            )
 
     def docompute(self):
         tmpl_args = self.get_template_param_values()
@@ -550,12 +623,26 @@ class Thresholding_Batch(HLSCustomOp):
             imgdim = ishape[1]
         else:
             raise Exception("""Unexpeted input shape""")
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, NumChannels1, PE1, {}, {}>
-            (in0, out, threshs, numReps);""".format(
-                node.op_type, imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"],
-            )
-        ]
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "const":
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<{}, NumChannels1, PE1, {}, {}>
+                (in0, out, threshs, numReps);""".format(
+                    node.op_type, imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"],
+                )
+            ]
+        elif mem_mode == "decoupled":
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<{}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
+                (in0, out, thres_stream, numReps);""".format(
+                    "Thresholding_Stream_Batch",
+                    imgdim,
+                    tmpl_args["TSrcI"],
+                    tmpl_args["TDstI"],
+                )
+            ]
+        else:
+            raise Exception("Unrecognized mem_mode")
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")

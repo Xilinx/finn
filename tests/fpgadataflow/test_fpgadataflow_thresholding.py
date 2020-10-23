@@ -48,7 +48,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
-def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval):
+def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode):
     NumChannels = T.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, NumChannels])
@@ -69,6 +69,7 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval):
         weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
         outputDataType=odt.name,
         ActVal=actval,
+        mem_mode=mem_mode,
     )
     graph = helper.make_graph(
         nodes=[Thresholding_node],
@@ -98,9 +99,11 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval):
 @pytest.mark.parametrize("ich", [16])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+# memory mode
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
+def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     if nf == -1:
         nf = ich
     pe = ich // nf
@@ -120,7 +123,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     else:
         actval = odt.min()
 
-    model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval)
+    model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
