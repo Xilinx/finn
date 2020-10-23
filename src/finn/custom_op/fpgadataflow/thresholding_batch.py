@@ -511,7 +511,23 @@ class Thresholding_Batch(HLSCustomOp):
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            output = self.rtlsim(sim, inp)
+            if self.get_nodeattr("mem_mode") == "decoupled":
+                wnbits = self.get_weightstream_width()
+                export_wdt = self.get_weight_datatype()
+                wei = npy_to_rtlsim_input(
+                    "{}/thresholds.npy".format(code_gen_dir), export_wdt, wnbits
+                )
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                io_dict = {
+                    "inputs": {"in0": inp, "weights": wei * num_w_reps},
+                    "outputs": {"out": []},
+                }
+                self.rtlsim_multi_io(sim, io_dict)
+                output = io_dict["outputs"]["out"]
+            elif self.get_nodeattr("mem_mode") == "const":
+                output = self.rtlsim(sim, inp)
+            else:
+                raise Exception("Unrecognized mem_mode")
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -590,7 +606,7 @@ class Thresholding_Batch(HLSCustomOp):
             npy_in = "%s/thresholds.npy" % code_gen_dir
 
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", thres_stream, false, numReps);'
+                'npy2apintstream<%s, %s, %d, %s>("%s", weights, false, numReps);'
                 % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
             )
 
@@ -605,7 +621,7 @@ class Thresholding_Batch(HLSCustomOp):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> thres_stream ("thres_stream");'.format(
+                'hls::stream<ap_uint<{}>> weights ("weights");'.format(
                     self.get_weightstream_width()
                 )
             )
@@ -633,7 +649,7 @@ class Thresholding_Batch(HLSCustomOp):
         elif mem_mode == "decoupled":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<{}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
-                (in0, out, thres_stream, numReps);""".format(
+                (in0, out, weights, numReps);""".format(
                     "Thresholding_Stream_Batch",
                     imgdim,
                     tmpl_args["TSrcI"],
@@ -675,15 +691,30 @@ class Thresholding_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0,
-                hls::stream<ap_uint<{}>> &out
-                )""".format(
-                self.onnx_node.name,
-                self.get_instream_width(),
-                self.get_outstream_width(),
-            )
-        ]
+        if self.get_nodeattr("mem_mode") == "const":
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void {}(hls::stream<ap_uint<{}>> &in0,
+                    hls::stream<ap_uint<{}>> &out
+                    )""".format(
+                    self.onnx_node.name,
+                    self.get_instream_width(),
+                    self.get_outstream_width(),
+                )
+            ]
+        elif self.get_nodeattr("mem_mode") == "decoupled":
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void {}(hls::stream<ap_uint<{}>> &in0,
+                    hls::stream<ap_uint<{}>> &weights,
+                    hls::stream<ap_uint<{}>> &out
+                    )""".format(
+                    self.onnx_node.name,
+                    self.get_instream_width(),
+                    self.get_weightstream_width(),
+                    self.get_outstream_width(),
+                )
+            ]
+        else:
+            raise Exception("Unrecognized mem_mode")
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
@@ -692,46 +723,51 @@ class Thresholding_Batch(HLSCustomOp):
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
 
-        # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-        # partition for parallel access along PE and N_THRES
-        # dimensions (dims 1 and 3)
-        self.code_gen_dict["$PRAGMAS$"].append(
-            (
-                "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                "complete dim=1"
+        if self.get_nodeattr("mem_mode") == "const":
+            # the threshold tensor is acc_type [PE][TMEM][N_THRES]
+            # partition for parallel access along PE and N_THRES
+            # dimensions (dims 1 and 3)
+            self.code_gen_dict["$PRAGMAS$"].append(
+                (
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=1"
+                )
             )
-        )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            (
-                "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                "complete dim=3"
+            self.code_gen_dict["$PRAGMAS$"].append(
+                (
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=3"
+                )
             )
-        )
-        # set resource type
-        ram_style = self.get_nodeattr("ram_style")
-        pe = self.get_nodeattr("PE")
-        ich = self.get_nodeattr("NumChannels")
-        # if PE less than NumChannels, assign cores according to ram_style;
-        # otherwise if PE == NumChannels, Vivado HLS will unroll to FFs
-        if pe < ich:
-            if ram_style == "distributed":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.m_thresholds "
-                        "core=ROM_2P_LUTRAM"
+            # set resource type
+            ram_style = self.get_nodeattr("ram_style")
+            pe = self.get_nodeattr("PE")
+            ich = self.get_nodeattr("NumChannels")
+            # if PE less than NumChannels, assign cores according to ram_style;
+            # otherwise if PE == NumChannels, Vivado HLS will unroll to FFs
+            if pe < ich:
+                if ram_style == "distributed":
+                    self.code_gen_dict["$PRAGMAS$"].append(
+                        (
+                            "#pragma HLS RESOURCE variable=threshs.m_thresholds "
+                            "core=ROM_2P_LUTRAM"
+                        )
                     )
-                )
-            elif ram_style == "block":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.m_thresholds "
-                        "core=ROM_2P_BRAM"
+                elif ram_style == "block":
+                    self.code_gen_dict["$PRAGMAS$"].append(
+                        (
+                            "#pragma HLS RESOURCE variable=threshs.m_thresholds "
+                            "core=ROM_2P_BRAM"
+                        )
                     )
-                )
-            else:
-                raise Exception(
-                    """Invalid value for attribute ram_style! Is currently set to: {}
-                has to be set to one of ("block", "distributed")""".format(
-                        ram_style
+                else:
+                    raise Exception(
+                        """Invalid value for attribute ram_style! Is currently set to: {}
+                    has to be set to one of ("block", "distributed")""".format(
+                            ram_style
+                        )
                     )
-                )
+        elif self.get_nodeattr("mem_mode") == "decoupled":
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS INTERFACE axis port=weights"
+            )
