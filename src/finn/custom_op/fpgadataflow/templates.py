@@ -385,7 +385,8 @@ void Thresholding_Stream_Batch(hls::stream<TI> &in,
 
     ap_uint<PE*NumSteps*TT::width> packed_thr;
     packed_thr = weight.read();
-    auto const packed_thr_slicer = Slice<TT>()(packed_thr);
+    // slicer to get 1 PE's worth of thresholds
+    auto const pe_slicer = Slice<ap_uint<NumSteps*TT::width>>()(packed_thr);
 
     TI inElem;
     inElem = in.read();
@@ -394,9 +395,11 @@ void Thresholding_Stream_Batch(hls::stream<TI> &in,
     for (unsigned pe = 0; pe < PE; pe++)
     {
 #pragma HLS UNROLL
+      // slicer to get individual thresholds
+      auto const thr_slicer = Slice<TT>()(pe_slicer(pe, 0));
       for (unsigned nt = 0; nt < NumSteps; nt++)
       {
-        internal_thr.m_thresholds[pe][0][nt] = packed_thr_slicer(nt, pe);
+        internal_thr.m_thresholds[pe][0][nt] = thr_slicer(nt, 0);
       }
 
       auto const act = TSrcI()(inElem);

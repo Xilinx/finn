@@ -433,12 +433,11 @@ class Thresholding_Batch(HLSCustomOp):
             # save decoupled weights for cppsim
             weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
             self.make_weight_file(thresholds, "decoupled_npy", weight_filename_sim)
-            if mem_mode == "decoupled":
-                # also save weights as Verilog .dat file
-                weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
-                self.make_weight_file(
-                    thresholds, "decoupled_verilog_dat", weight_filename_rtl
-                )
+            # also save weights as Verilog .dat file
+            weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+            self.make_weight_file(
+                thresholds, "decoupled_verilog_dat", weight_filename_rtl
+            )
         else:
             raise Exception("Unrecognized mem_mode")
 
