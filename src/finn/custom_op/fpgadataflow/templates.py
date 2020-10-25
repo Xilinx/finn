@@ -371,9 +371,6 @@ void Thresholding_Stream_Batch(hls::stream<TI> &in,
   // alternatively: number of vertical matrix chunks
   unsigned const NF = NumChannels / PE;
 
-  unsigned nf = 0;
-  unsigned tile = 0; // invariant: tile = nf*SF + sf
-
   ThresholdsActivation<1, PE, NumSteps, TT, TO, ActVal> internal_thr;
   #pragma HLS ARRAY_PARTITION variable=internal_thr.m_thresholds complete dim=0
 
@@ -399,6 +396,7 @@ void Thresholding_Stream_Batch(hls::stream<TI> &in,
       auto const thr_slicer = Slice<TT>()(pe_slicer(pe, 0));
       for (unsigned nt = 0; nt < NumSteps; nt++)
       {
+      #pragma HLS UNROLL
         internal_thr.m_thresholds[pe][0][nt] = thr_slicer(nt, 0);
       }
 
@@ -406,10 +404,6 @@ void Thresholding_Stream_Batch(hls::stream<TI> &in,
       outElem(pe,0,1) = internal_thr.activate(0, pe, act(pe,0));
     }
     out.write(outElem);
-    if (++nf == NF)
-    {
-      nf = 0;
-    }
   }
 }
 """
