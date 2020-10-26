@@ -181,9 +181,9 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
 @pytest.mark.vivado
 def test_runtime_thresholds_single_layer():
     mem_mode = "decoupled"
-    act = DataType.UINT2
-    idt = DataType.UINT8
-    nf = 2
+    act = DataType.INT4
+    idt = DataType.INT16
+    nf = 8
     ich = 16
     pe = ich // nf
     assert ich % pe == 0
@@ -235,9 +235,9 @@ def test_runtime_thresholds_single_layer():
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
     assert extracted_weight_stream == old_weight_stream
-    y = exec_ctx["outp"]
     # only use second batch element in output; first will be invalid due to
     # old weights (see above)
+    y = exec_ctx["outp"][1]
     expected = multithreshold(in_tensor, T)[1]
     if act == DataType.BIPOLAR:
         # binary to bipolar
@@ -245,4 +245,4 @@ def test_runtime_thresholds_single_layer():
     else:
         # signed offset
         expected += act.min()
-    assert (y[1] == expected).all()
+    assert (y == expected).all()
