@@ -795,6 +795,7 @@ class InferThresholdingLayer(Transformation):
                 thl_threshold = node.input[1]
                 thl_output = node.output[0]
                 thl_in_shape = model.get_tensor_shape(thl_input)
+                thl_thres_shape = model.get_tensor_shape(thl_threshold)
                 idt = model.get_tensor_datatype(thl_input)
 
                 # skip conversion for layers with float input
@@ -845,7 +846,7 @@ class InferThresholdingLayer(Transformation):
                     backend="fpgadataflow",
                     NumChannels=ifc,
                     PE=pe,
-                    numSteps=thl_threshold.shape[1],
+                    numSteps=thl_thres_shape[1],
                     inputDataType=idt.name,
                     weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
                     outputDataType=odt.name,
