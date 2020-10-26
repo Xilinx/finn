@@ -780,6 +780,10 @@ class InferVVAU(Transformation):
 class InferThresholdingLayer(Transformation):
     """Convert any MultiThreshold into a standalone thresholding HLS layer."""
 
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -791,6 +795,7 @@ class InferThresholdingLayer(Transformation):
                 thl_threshold = node.input[1]
                 thl_output = node.output[0]
                 thl_in_shape = model.get_tensor_shape(thl_input)
+                thl_thres_shape = model.get_tensor_shape(thl_threshold)
                 idt = model.get_tensor_datatype(thl_input)
 
                 # skip conversion for layers with float input
@@ -841,10 +846,13 @@ class InferThresholdingLayer(Transformation):
                     backend="fpgadataflow",
                     NumChannels=ifc,
                     PE=pe,
+                    numSteps=thl_thres_shape[1],
                     inputDataType=idt.name,
+                    weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,
+                    mem_mode=self.mem_mode,
                 )
                 graph.node.insert(insert_point, new_node)
                 # remove old node
@@ -852,6 +860,7 @@ class InferThresholdingLayer(Transformation):
                 graph_modified = True
 
         if graph_modified:
+            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
