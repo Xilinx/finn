@@ -407,8 +407,14 @@ class Thresholding_Batch(HLSCustomOp):
             # (1, tmem, pe, n_thres_steps) -(1, tmem, pe * n_thres_steps)
             pe = self.get_nodeattr("PE")
             n_thres_steps = self.get_nodeattr("numSteps")
+            decoupled_thres_pe_flipped = np.flip(decoupled_thres, axis=-2)
             decoupled_thres = decoupled_thres.reshape(1, -1, pe * n_thres_steps)
             decoupled_thres = decoupled_thres.copy()
+            decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.reshape(
+                1, -1, pe * n_thres_steps
+            )
+            decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.copy()
+
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
                 np.save(weight_file_name, decoupled_thres)
@@ -418,7 +424,7 @@ class Thresholding_Batch(HLSCustomOp):
                 # pad to nearest 4 bits to get hex strings
                 weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
                 weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    decoupled_thres, tdt, weight_width_padded, prefix=""
+                    decoupled_thres_pe_flipped, tdt, weight_width_padded, prefix=""
                 )
                 weight_stream = weight_tensor_pe_flipped.flatten()
                 weight_stream = weight_stream.copy()
@@ -435,7 +441,7 @@ class Thresholding_Batch(HLSCustomOp):
                 weight_width_padded = words_per_memwidth * 32
                 # first, pack and ensure padding to 32 bits
                 weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    decoupled_thres, tdt, weight_width_padded, prefix=""
+                    decoupled_thres_pe_flipped, tdt, weight_width_padded, prefix=""
                 )
                 weight_stream = weight_tensor_pe_flipped.flatten()
                 weight_stream = weight_stream.copy()
