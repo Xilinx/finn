@@ -26,7 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from math import ceil
+from math import ceil, log2
+import textwrap
 import os
 
 import numpy as np
@@ -88,6 +89,16 @@ class Thresholding_Batch(HLSCustomOp):
             # const -- embedded thresholds, default
             # decoupled -- streaming thresholds with  streamer packaged inside IP
             "mem_mode": ("s", False, "const"),
+            # (mem_mode = decoupled only) whether weights (thresholds) will be
+            # writable through an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            # see finn-rtllib/memstream/doc/README for more about the memory
+            # address map used for writable weights
+            # IMPORTANT: After using AXI lite to either read or write the weights,
+            # always "flush" the accelerator by first passing a dummy input
+            # vector through the accelerator. This will get rid of any old
+            # weight data from the weight FIFOs.
+            "runtime_writeable_weights": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -414,9 +425,28 @@ class Thresholding_Batch(HLSCustomOp):
                 with open(weight_file_name, "w") as f:
                     for val in weight_stream:
                         f.write(val + "\n")
+            elif weight_file_mode == "decoupled_runtime":
+                # memstream axi-lite interface will map each mem line to
+                # one or multiple 32-bit words
+                weight_width = self.get_weightstream_width()
+                words_per_memwidth = 2 ** ceil(log2(weight_width / 32))
+                if words_per_memwidth < 1:
+                    words_per_memwidth = 1
+                weight_width_padded = words_per_memwidth * 32
+                # first, pack and ensure padding to 32 bits
+                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+                    decoupled_thres, tdt, weight_width_padded, prefix=""
+                )
+                weight_stream = weight_tensor_pe_flipped.flatten()
+                weight_stream = weight_stream.copy()
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
+                        # split into groups of 8 hex digits (= 32 bits)
+                        words_32b = textwrap.wrap(val, 8)
+                        words_32b.reverse()
+                        for word_32b in words_32b:
+                            f.write(word_32b + "\n")
             else:
-                # elif weight_file_mode == "decoupled_runtime":
-                # TODO reshape for streaming weights and generate
                 raise Exception("Decoupled weight export not yet implemented")
         else:
             raise Exception("Unknown weight_file_mode")
@@ -484,7 +514,7 @@ class Thresholding_Batch(HLSCustomOp):
                     reshaped_input,
                 )
             elif in_ind > 2:
-                raise Exception("Unexpected input found for StreamingFCLayer")
+                raise Exception("Unexpected input found for Thresholding_Batch")
             in_ind += 1
 
         if mode == "cppsim":
@@ -771,3 +801,125 @@ class Thresholding_Batch(HLSCustomOp):
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE axis port=weights"
             )
+
+    def code_generation_ipi(self):
+        cmd = []
+        # add streamer if needed
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            node_name = self.onnx_node.name
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            # create a hierarchy for this layer, with the same port names
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
+            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
+            cmd.append("create_bd_cell -type hier %s" % node_name)
+            cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
+            cmd.append(
+                "create_bd_intf_pin -mode Master "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
+                % (node_name, dout_name)
+            )
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
+            )
+            # instantiate the hls ip
+            cmd.append(
+                "create_bd_cell -type ip -vlnv %s /%s/%s"
+                % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
+            )
+            # instantiate a streamer and connect it to the HLS IP
+            strm_vlnv = "xilinx.com:user:memstream:1.0"
+            strm_inst = node_name + "_wstrm"
+            cmd.append(
+                "create_bd_cell -type ip -vlnv %s /%s/%s"
+                % (strm_vlnv, node_name, strm_inst)
+            )
+            cmd.append(
+                "set_property -dict [list "
+                "CONFIG.NSTREAMS {1} "
+                "CONFIG.MEM_DEPTH {%d} "
+                "CONFIG.MEM_WIDTH {%d} "
+                "CONFIG.MEM_INIT {%s} "
+                "CONFIG.RAM_STYLE {%s} "
+                "CONFIG.STRM0_DEPTH {%d} "
+                "CONFIG.STRM0_WIDTH {%d} "
+                "CONFIG.STRM0_OFFSET {0} "
+                "] [get_bd_cells /%s/%s]"
+                % (
+                    self.calc_tmem(),
+                    self.get_weightstream_width_padded(),
+                    self.get_nodeattr("code_gen_dir_ipgen") + "/",
+                    self.get_nodeattr("ram_style"),
+                    self.calc_tmem(),
+                    self.get_weightstream_width_padded(),
+                    node_name,
+                    strm_inst,
+                )
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
+                "[get_bd_intf_pins %s/%s/weights_V_V]"
+                % (node_name, strm_inst, node_name, node_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aresetn]"
+                % (node_name, rst_name, node_name, strm_inst)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aclk]"
+                % (node_name, clk_name, node_name, strm_inst)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, rst_name, node_name, node_name, rst_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, clk_name, node_name, node_name, clk_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                "[get_bd_intf_pins %s/%s/%s]"
+                % (node_name, din_name, node_name, node_name, din_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                "[get_bd_intf_pins %s/%s/%s]"
+                % (node_name, dout_name, node_name, node_name, dout_name)
+            )
+            if runtime_writable:
+                # expose axi lite interface for writeable weights
+                axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
+                cmd.append(
+                    "create_bd_intf_pin -mode Slave "
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
+                    % (node_name, axilite_name)
+                )
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                    "[get_bd_intf_pins %s/%s/%s]"
+                    % (node_name, axilite_name, node_name, strm_inst, axilite_name)
+                )
+                # TODO calculate and pass in segment size here
+                cmd.append("assign_bd_address")
+            cmd.append("save_bd_design")
+        elif mem_mode == "const":
+            # base class impl sufficient for const mode
+            return super().code_generation_ipi()
+        else:
+            raise Exception("Unrecognized mem_mode for Thresholding_Batch")
+        return cmd
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            # only expose axilite interface if attribute is set
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writable:
+                intf_names["axilite"] = ["s_axilite"]
+        return intf_names
