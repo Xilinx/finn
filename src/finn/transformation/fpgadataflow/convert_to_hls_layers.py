@@ -780,6 +780,10 @@ class InferVVAU(Transformation):
 class InferThresholdingLayer(Transformation):
     """Convert any MultiThreshold into a standalone thresholding HLS layer."""
 
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -847,6 +851,7 @@ class InferThresholdingLayer(Transformation):
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,
+                    mem_mode=self.mem_mode,
                 )
                 graph.node.insert(insert_point, new_node)
                 # remove old node
