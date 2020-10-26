@@ -47,7 +47,7 @@ from finn.util.basic import gen_finn_dt_tensor
 from finn.custom_op.registry import getCustomOp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 import os
-from finn.util.pyverilator import axilite_read
+from finn.util.pyverilator import axilite_read, axilite_write
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.core.rtlsim_exec import rtlsim_exec
 
@@ -239,6 +239,35 @@ def test_runtime_thresholds_single_layer():
     # old weights (see above)
     y = exec_ctx["outp"][1]
     expected = multithreshold(in_tensor, T)[1]
+    if act == DataType.BIPOLAR:
+        # binary to bipolar
+        expected = 2 * expected - 1
+    else:
+        # signed offset
+        expected += act.min()
+    assert (y == expected).all()
+
+    new_weights = np.random.randint(idt.min(), idt.max() + 1, (ich, n_steps)).astype(
+        np.float32
+    )
+    # provide non-decreasing thresholds
+    new_weights = np.sort(T, axis=1)
+    op_inst.make_weight_file(new_weights, "decoupled_runtime", "new_weights.dat")
+    with open("new_weights.dat", "r") as f:
+        new_weight_stream = f.read().strip()
+    os.remove("new_weights.dat")
+    new_weight_stream = map(lambda x: int(x, 16), new_weight_stream.split("\n"))
+    new_weight_stream = list(new_weight_stream)
+
+    def write_weights(sim):
+        addr = 0
+        for nw in new_weight_stream:
+            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            addr += 4
+
+    rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
+    y = exec_ctx["outp"][1]
+    expected = multithreshold(in_tensor, new_weights)[1]
     if act == DataType.BIPOLAR:
         # binary to bipolar
         expected = 2 * expected - 1
