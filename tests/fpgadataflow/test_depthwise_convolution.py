@@ -70,7 +70,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         tdt = DataType.INT32
         thresh_node = oh.make_node(
             "MultiThreshold",
-            domain="finn",
+            domain="finn.custom_op.general",
             inputs=["outp", "T"],
             outputs=["out_act"],
             data_layout="NHWC",
@@ -93,7 +93,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 
     im2col_node = oh.make_node(
         "Im2Col",
-        domain="finn",
+        domain="finn.custom_op.general",
         inputs=["inp"],
         outputs=["im2col_out"],
         kernel_size=k,

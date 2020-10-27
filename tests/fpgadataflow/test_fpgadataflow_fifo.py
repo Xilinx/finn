@@ -55,7 +55,7 @@ def make_single_fifo_modelwrapper(Shape, Depth, fld_shape, finn_dtype):
         "StreamingFIFO",
         ["inp"],
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         depth=Depth,
         folded_shape=fld_shape,

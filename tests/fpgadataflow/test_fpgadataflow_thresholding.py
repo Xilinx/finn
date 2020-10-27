@@ -67,7 +67,7 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode):
         "Thresholding_Batch",
         node_inp_list,
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=NumChannels,
         PE=pe,

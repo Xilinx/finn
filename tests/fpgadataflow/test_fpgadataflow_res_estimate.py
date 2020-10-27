@@ -64,7 +64,7 @@ def test_res_estimate():
         "StreamingFCLayer_Batch",
         node_inp_list,
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         resType="ap_resource_lut()",
         MW=mw,
@@ -92,7 +92,11 @@ def test_res_estimate():
     model = model.transform(GiveUniqueNodeNames())
     prod_resource_estimation = model.analysis(res_estimation)
     expect_resource_estimation = {
-        "StreamingFCLayer_Batch_0": {"BRAM_18K": 1, 'BRAM_efficiency': 0.001736111111111111, "LUT": 304.4}
+        "StreamingFCLayer_Batch_0": {
+            "BRAM_18K": 1,
+            "BRAM_efficiency": 0.001736111111111111,
+            "LUT": 304.4,
+        }
     }
 
     assert check_two_dict_for_equality(

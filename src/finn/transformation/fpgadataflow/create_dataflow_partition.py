@@ -126,7 +126,7 @@ class CreateDataflowPartition(Transformation):
                     [df_out],
                     # use the model attribute to mark the df model
                     model=df_model_filename,
-                    domain="finn",
+                    domain="finn.custom_op.general",
                 )
                 non_df_model.graph.node.insert(df_start_ind, df_node)
                 model = non_df_model

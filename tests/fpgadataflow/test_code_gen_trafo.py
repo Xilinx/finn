@@ -51,7 +51,7 @@ def test_code_gen_trafo():
         "StreamingFCLayer_Batch",
         node_inp_list,
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         code_gen_dir="",
         executable_path="",

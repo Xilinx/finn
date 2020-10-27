@@ -88,7 +88,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         "StreamingFCLayer_Batch",
         node_inp_list,
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         resType="ap_resource_lut()",
         MW=mw,
