@@ -2,7 +2,7 @@ from onnx import TensorProto
 from onnx import helper as oh
 
 from finn.custom_op.registry import getCustomOp
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.util.fpgadataflow import is_fpgadataflow_node
 import warnings
 import numpy as np
@@ -76,7 +76,12 @@ class InsertFIFO(Transformation):
                         # check if folded_shape of output of first node and
                         # input of the second node is equal
                         n1 = getCustomOp(consumer)
-                        fld_shape_2 = n1.get_folded_input_shape()
+                        for idx, inp in enumerate(consumer.input):
+                            if inp == n_output:
+                                if idx == 0:
+                                    fld_shape_2 = n1.get_folded_input_shape()
+                                else:
+                                    fld_shape_2 = n1.get_folded_input_shape(ind=idx)
                         assert _suitable_folded_shapes(
                             fld_shape, fld_shape_2
                         ), """The
@@ -142,6 +147,10 @@ class InsertFIFO(Transformation):
                 dtype = n0.get_input_datatype()
                 fifo_depth = n0.get_nodeattr("inFIFODepth")
 
+                if fifo_depth <= 2:
+                    warnings.warn("Overriding input FIFO depth to 32")
+                    fifo_depth = 32
+
                 # create fifo node
                 fifo_output_tensor = oh.make_tensor_value_info(
                     model.make_new_valueinfo_name(),
@@ -184,6 +193,10 @@ class InsertFIFO(Transformation):
                 dtype = n0.get_output_datatype()
                 fifo_depth = n0.get_nodeattr("outFIFODepth")
 
+                if fifo_depth <= 2:
+                    warnings.warn("Overriding output FIFO depth to 32")
+                    fifo_depth = 32
+
                 # create fifo node
                 fifo_input_tensor = oh.make_tensor_value_info(
                     model.make_new_valueinfo_name(),
@@ -191,7 +204,7 @@ class InsertFIFO(Transformation):
                     n0.get_normal_output_shape(),
                 )
                 graph.value_info.append(fifo_input_tensor)
-                model.set_tensor_datatype(fifo_output_tensor.name, dtype)
+                model.set_tensor_datatype(fifo_input_tensor.name, dtype)
 
                 fifo_node = oh.make_node(
                     "StreamingFIFO",

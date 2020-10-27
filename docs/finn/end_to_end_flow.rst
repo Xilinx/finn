@@ -20,6 +20,5 @@ For a more detailed overview about the different flow sections, please have a lo
 
    brevitas_export
    nw_prep
-   vivado_synth
-   pynq_deploy
+   hw_build
    verification

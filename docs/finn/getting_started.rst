@@ -75,14 +75,20 @@ from the FINN root directory* as follows:
 
 ::
 
-  python setup.py test --addopts "-k test_end2end_tfc_w1a2"
+  python setup.py test --addopts "-k test_brevitas_debug"
 
-Finally, if you want to run tests in parallel (e.g. to take advantage of a multi-core CPU)
+If you want to run tests in parallel (e.g. to take advantage of a multi-core CPU)
 you can use:
  * pytest-parallel for any rtlsim tests, e.g. `python setup.py test --addopts "-k rtlsim --workers auto"`
  * pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `python setup.py test --addopts "-k mytest -n auto --dist=loadfile"`
 
 Please see the pytest documentation for more about picking tests by marks or by name.
+
+Finally, the full test suite with appropriate parallelization can be run inside the container by:
+
+::
+
+  quicktest.sh full
 
 Environment variables
 **********************
@@ -99,6 +105,7 @@ These are summarized below:
 * ``PYNQ_IP`` and ``PYNQ_PORT`` (or ``ALVEO_IP`` and ``ALVEO_PORT``) specify ip address and port number to access the PYNQ board / Alveo target
 * ``PYNQ_USERNAME`` and ``PYNQ_PASSWORD`` (or ``ALVEO_USERNAME`` and ``ALVEO_PASSWORD``) specify the PYNQ board / Alveo host access credentials for the test suite. For PYNQ, password is always needed to run as sudo. For Alveo, you can leave the password empty and place your ssh private key in the ``finn/ssh_keys`` folder to use keypair authentication.
 * ``PYNQ_TARGET_DIR`` (or ``ALVEO_TARGET_DIR``) specifies the target dir on the PYNQ board / Alveo host for the test suite
+* (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
 
 Supported Hardware
 ===================

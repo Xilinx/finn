@@ -1,41 +1,19 @@
-# Copyright (c) 2020, Xilinx
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# * Redistributions of source code must retain the above copyright notice, this
-#   list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of FINN nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+# Loading additional proc with user specified bodies to compute parameter values.
+source [file join [file dirname [file dirname [info script]]] gui/memstream_v1_0.gtcl]
 
 # Definitional proc to organize widgets for parameters.
 proc init_gui { IPINST } {
   ipgui::add_param $IPINST -name "Component_Name"
   #Adding Page
   set Page_0 [ipgui::add_page $IPINST -name "Page 0"]
+  ipgui::add_param $IPINST -name "AXILITE_ADDR_WIDTH" -parent ${Page_0}
   ipgui::add_param $IPINST -name "CONFIG_EN" -parent ${Page_0}
   ipgui::add_param $IPINST -name "MEM_DEPTH" -parent ${Page_0}
   ipgui::add_param $IPINST -name "MEM_INIT" -parent ${Page_0}
   ipgui::add_param $IPINST -name "MEM_WIDTH" -parent ${Page_0}
   ipgui::add_param $IPINST -name "NSTREAMS" -parent ${Page_0}
+  ipgui::add_param $IPINST -name "RAM_STYLE" -parent ${Page_0} -widget comboBox
   ipgui::add_param $IPINST -name "STRM0_DEPTH" -parent ${Page_0}
   ipgui::add_param $IPINST -name "STRM0_OFFSET" -parent ${Page_0}
   ipgui::add_param $IPINST -name "STRM0_WIDTH" -parent ${Page_0}
@@ -56,6 +34,22 @@ proc init_gui { IPINST } {
   ipgui::add_param $IPINST -name "STRM5_WIDTH" -parent ${Page_0}
 
 
+}
+
+proc update_PARAM_VALUE.AXILITE_ADDR_WIDTH { PARAM_VALUE.AXILITE_ADDR_WIDTH PARAM_VALUE.MEM_DEPTH PARAM_VALUE.MEM_WIDTH } {
+	# Procedure called to update AXILITE_ADDR_WIDTH when any of the dependent parameters in the arguments change
+	
+	set AXILITE_ADDR_WIDTH ${PARAM_VALUE.AXILITE_ADDR_WIDTH}
+	set MEM_DEPTH ${PARAM_VALUE.MEM_DEPTH}
+	set MEM_WIDTH ${PARAM_VALUE.MEM_WIDTH}
+	set values(MEM_DEPTH) [get_property value $MEM_DEPTH]
+	set values(MEM_WIDTH) [get_property value $MEM_WIDTH]
+	set_property value [gen_USERPARAMETER_AXILITE_ADDR_WIDTH_VALUE $values(MEM_DEPTH) $values(MEM_WIDTH)] $AXILITE_ADDR_WIDTH
+}
+
+proc validate_PARAM_VALUE.AXILITE_ADDR_WIDTH { PARAM_VALUE.AXILITE_ADDR_WIDTH } {
+	# Procedure called to validate AXILITE_ADDR_WIDTH
+	return true
 }
 
 proc update_PARAM_VALUE.CONFIG_EN { PARAM_VALUE.CONFIG_EN } {
@@ -100,6 +94,15 @@ proc update_PARAM_VALUE.NSTREAMS { PARAM_VALUE.NSTREAMS } {
 
 proc validate_PARAM_VALUE.NSTREAMS { PARAM_VALUE.NSTREAMS } {
 	# Procedure called to validate NSTREAMS
+	return true
+}
+
+proc update_PARAM_VALUE.RAM_STYLE { PARAM_VALUE.RAM_STYLE } {
+	# Procedure called to update RAM_STYLE when any of the dependent parameters in the arguments change
+}
+
+proc validate_PARAM_VALUE.RAM_STYLE { PARAM_VALUE.RAM_STYLE } {
+	# Procedure called to validate RAM_STYLE
 	return true
 }
 
@@ -291,6 +294,11 @@ proc update_MODELPARAM_VALUE.MEM_INIT { MODELPARAM_VALUE.MEM_INIT PARAM_VALUE.ME
 	set_property value [get_property value ${PARAM_VALUE.MEM_INIT}] ${MODELPARAM_VALUE.MEM_INIT}
 }
 
+proc update_MODELPARAM_VALUE.RAM_STYLE { MODELPARAM_VALUE.RAM_STYLE PARAM_VALUE.RAM_STYLE } {
+	# Procedure called to set VHDL generic/Verilog parameter value(s) based on TCL parameter value
+	set_property value [get_property value ${PARAM_VALUE.RAM_STYLE}] ${MODELPARAM_VALUE.RAM_STYLE}
+}
+
 proc update_MODELPARAM_VALUE.STRM0_WIDTH { MODELPARAM_VALUE.STRM0_WIDTH PARAM_VALUE.STRM0_WIDTH } {
 	# Procedure called to set VHDL generic/Verilog parameter value(s) based on TCL parameter value
 	set_property value [get_property value ${PARAM_VALUE.STRM0_WIDTH}] ${MODELPARAM_VALUE.STRM0_WIDTH}
@@ -379,5 +387,10 @@ proc update_MODELPARAM_VALUE.STRM4_OFFSET { MODELPARAM_VALUE.STRM4_OFFSET PARAM_
 proc update_MODELPARAM_VALUE.STRM5_OFFSET { MODELPARAM_VALUE.STRM5_OFFSET PARAM_VALUE.STRM5_OFFSET } {
 	# Procedure called to set VHDL generic/Verilog parameter value(s) based on TCL parameter value
 	set_property value [get_property value ${PARAM_VALUE.STRM5_OFFSET}] ${MODELPARAM_VALUE.STRM5_OFFSET}
+}
+
+proc update_MODELPARAM_VALUE.AXILITE_ADDR_WIDTH { MODELPARAM_VALUE.AXILITE_ADDR_WIDTH PARAM_VALUE.AXILITE_ADDR_WIDTH } {
+	# Procedure called to set VHDL generic/Verilog parameter value(s) based on TCL parameter value
+	set_property value [get_property value ${PARAM_VALUE.AXILITE_ADDR_WIDTH}] ${MODELPARAM_VALUE.AXILITE_ADDR_WIDTH}
 }
 

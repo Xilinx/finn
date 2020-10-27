@@ -12,14 +12,19 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-BREVITAS_COMMIT=85e28ac2e6570e91216d042212a7d1a28ec6e394
+FINN_BASE_COMMIT=951d5e9dd25b7f38731fa539959667a86e7091b2
+BREVITAS_COMMIT=6ffefa8dbf37fdb0f44c994f34604c29fadb16b0
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=cfafe11a93b79ab1af7529d68f08886913a6466e
-PYVERILATOR_COMMIT=c97a5ba41bbc7c419d6f25c74cdf3bdc3393174f
-PYNQSHELL_COMMIT=bf281fc3a44eca29efbcbefd63f1196d82c7c255
+PYVERILATOR_COMMIT=06c29ecf3ba0361e3d0a75c98f6918ba67bf0e27
 OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
 
 gecho "Setting up known-good commit versions for FINN dependencies"
+# finn-base
+gecho "finn-base @ $FINN_BASE_COMMIT"
+git -C /workspace/finn-base pull --quiet
+git -C /workspace/finn-base checkout $FINN_BASE_COMMIT --quiet
+pip install --user -e /workspace/finn-base
 # Brevitas
 gecho "brevitas @ $BREVITAS_COMMIT"
 git -C /workspace/brevitas pull --quiet
@@ -37,10 +42,6 @@ git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT --quiet
 gecho "PyVerilator @ $PYVERILATOR_COMMIT"
 git -C /workspace/pyverilator pull --quiet
 git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT --quiet
-# PYNQ-HelloWorld
-gecho "PYNQ shell @ $PYNQSHELL_COMMIT"
-git -C /workspace/PYNQ-HelloWorld pull --quiet
-git -C /workspace/PYNQ-HelloWorld checkout $PYNQSHELL_COMMIT --quiet
 # oh-my-xilinx
 gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
@@ -50,15 +51,6 @@ if [ ! -z "$VIVADO_PATH" ];then
   # source Vivado env.vars
   export XILINX_VIVADO=$VIVADO_PATH
   source $VIVADO_PATH/settings64.sh
-fi
-if [ ! -z "$VITIS_PATH" ];then
-  # source Vitis env.vars
-  export XILINX_VITIS=$VITIS_PATH
-  source $VITIS_PATH/settings64.sh
-fi
-if [ ! -z "$XILINX_XRT" ];then
-  # source XRT
-  source $XILINX_XRT/setup.sh
 fi
 
 # download PYNQ board files if not already there
@@ -79,5 +71,17 @@ if [ ! -d "/workspace/finn/board_files/ultra96v1" ]; then
     git clone https://github.com/Avnet/bdf.git
     mv /workspace/finn/bdf/* /workspace/finn/board_files/
     rm -rf /workspace/finn/bdf
+fi
+if [ ! -z "$VITIS_PATH" ];then
+  # source Vitis env.vars
+  export XILINX_VITIS=$VITIS_PATH
+  source $VITIS_PATH/settings64.sh
+  if [ ! -z "$XILINX_XRT" ];then
+    gecho "For VitisBuild, please ensure the XRT dependencies are correctly installed"
+    gecho "by downloading and running:"
+    gecho "https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh"
+    # source XRT
+    source $XILINX_XRT/setup.sh
+  fi
 fi
 exec "$@"

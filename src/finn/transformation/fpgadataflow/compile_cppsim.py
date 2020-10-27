@@ -28,7 +28,7 @@
 
 import finn.custom_op.registry as registry
 from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.transformation import NodeLocalTransformation
+from finn.transformation.base import NodeLocalTransformation
 
 
 class CompileCppSim(NodeLocalTransformation):

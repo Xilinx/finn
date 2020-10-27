@@ -55,7 +55,7 @@ def test_brevitas_debug():
     assert len(model.graph.input) == 1
     assert len(model.graph.output) == 1
     # load one of the test vectors
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {"0": nph.to_array(input_tensor)}
@@ -75,5 +75,5 @@ def test_brevitas_debug():
     for dbg_name in names_common:
         tensor_pytorch = dbg_hook.values[dbg_name].detach().numpy()
         tensor_finn = output_dict[dbg_name]
-        assert np.isclose(tensor_finn, tensor_pytorch).all()
+        assert np.isclose(tensor_finn, tensor_pytorch, atol=1e-5).all()
     os.remove(finn_onnx)

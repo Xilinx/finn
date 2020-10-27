@@ -31,7 +31,7 @@ from onnx import helper as oh
 
 from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.transformation.general import SortGraph
 import finn.core.data_layout as DataLayout
 import math
