@@ -1,7 +1,7 @@
 import pytest
 
 from onnx import helper, TensorProto
-from finn.custom_op.im2col import compute_conv_output_dim
+from finn.custom_op.general.im2col import compute_conv_output_dim
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper

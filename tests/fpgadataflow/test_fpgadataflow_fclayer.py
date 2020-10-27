@@ -33,11 +33,11 @@ from onnx import TensorProto, helper
 
 from finn.custom_op.registry import getCustomOp
 import finn.core.onnx_exec as oxe
-import finn.custom_op.xnorpopcount as xp
+import finn.custom_op.general.xnorpopcount as xp
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.multithreshold import multithreshold
+from finn.custom_op.general.multithreshold import multithreshold
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim

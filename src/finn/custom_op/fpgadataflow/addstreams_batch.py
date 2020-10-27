@@ -109,13 +109,6 @@ class AddStreams_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":

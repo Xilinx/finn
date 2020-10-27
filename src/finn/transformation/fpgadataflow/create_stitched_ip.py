@@ -187,7 +187,7 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
         # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
-            assert is_finn_op(node.domain), 'Node domain is not set to "finn"'
+            assert is_finn_op(node.domain), "Found non-FINN node"
             backend_attribute = get_by_name(node.attribute, "backend")
             assert backend_attribute is not None, "Backend node attribute is not set."
             backend_value = backend_attribute.s.decode("UTF-8")

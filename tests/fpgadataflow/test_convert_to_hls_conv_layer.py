@@ -47,7 +47,7 @@ import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.custom_op.im2col import compute_conv_output_dim
+from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.custom_op.registry import getCustomOp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
