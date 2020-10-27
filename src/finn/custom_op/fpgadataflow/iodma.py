@@ -30,7 +30,7 @@ import numpy as np
 import math
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 
 
 # the IODMA inerfaces a memory-mapped AXI interface and an AXI stream

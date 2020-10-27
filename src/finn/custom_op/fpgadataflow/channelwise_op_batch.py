@@ -33,7 +33,7 @@ import numpy as np
 
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
