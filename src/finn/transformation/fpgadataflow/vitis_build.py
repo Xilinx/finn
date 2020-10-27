@@ -99,7 +99,12 @@ class CreateVitisXO(Transformation):
         # NOTE: this assumes the graph is Vitis-compatible: max one axi lite interface
         # developed from instructions in UG1393 (v2019.2) and package_xo documentation
         # package_xo is responsible for generating the kernel xml
-        if len(interfaces["axilite"]) > 0:
+        assert (
+            len(interfaces["axilite"]) <= 1
+        ), "CreateVitisXO supports max 1 AXI lite interface"
+        axilite_intf_name = None
+        if len(interfaces["axilite"]) == 1:
+            axilite_intf_name = interfaces["axilite"][0]
             if len(interfaces["aximm"]) > 0:
                 args_string.append(
                     "{addr:1:%s:%s:0x8:0x10:ap_uint&lt;%s>*:0}"
@@ -111,12 +116,14 @@ class CreateVitisXO(Transformation):
                 )
                 arg_id += 1
                 args_string.append(
-                    "{numReps:0:%s:s_axi_control:0x4:0x1C:uint:0}" % str(arg_id)
+                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}" 
+                    % (str(arg_id), axilite_intf_name)
                 )
                 arg_id += 1
             else:
                 args_string.append(
-                    "{numReps:0:%s:s_axi_control:0x4:0x10:uint:0}" % str(arg_id)
+                    "{numReps:0:%s:%s:0x4:0x10:uint:0}"
+                    % (str(arg_id), axilite_intf_name)
                 )
                 arg_id += 1
         for intf in interfaces["s_axis"] + interfaces["m_axis"]:

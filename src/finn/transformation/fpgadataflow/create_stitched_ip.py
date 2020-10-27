@@ -91,7 +91,6 @@ class CreateStitchedIP(Transformation):
                 """The chosen frequency may lead to failure due to clock divider
                 constraints."""
             )
-        self.has_axilite = False
         self.has_aximm = False
         self.has_m_axis = False
         self.m_axis_idx = 0
@@ -153,14 +152,11 @@ class CreateStitchedIP(Transformation):
                 "make_bd_intf_pins_external "
                 "[get_bd_intf_pins %s/%s]" % (inst_name, axilite_intf_name[0])
             )
-            self.connect_cmds.append(
-                "set_property name s_axi_control " "[get_bd_intf_ports s_axi_control_0]"
+            ext_if_name = "%s_%d" % (
+                axilite_intf_name[0],
+                len(self.intf_names["axilite"]),
             )
-            assert (
-                self.has_axilite is False
-            ), "Currently limited to one slave AXI-Stream"
-            self.intf_names["axilite"] = ["s_axi_control"]
-            self.has_axilite = True
+            self.intf_names["axilite"].append(ext_if_name)
         if len(aximm_intf_name) != 0:
             self.connect_cmds.append(
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"

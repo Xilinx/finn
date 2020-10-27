@@ -214,11 +214,9 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
     def defines(self, var):
         numReps = 1
-        numInWords = 1
+        numInWords = int(np.prod(self.get_folded_input_shape()[:-1]))
         inWidth = self.get_nodeattr("inWidth")
         outWidth = self.get_nodeattr("outWidth")
-        if outWidth > inWidth:
-            numInWords = int(outWidth // inWidth)
         self.code_gen_dict["$DEFINES$"] = [
             "#define InWidth %d " % inWidth,
             "#define OutWidth %d " % outWidth,
@@ -451,7 +449,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
-        impl = self.get_nodeattr("impl_style")
         inw = self.get_instream_width()
         outw = self.get_outstream_width()
 
@@ -461,7 +458,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         # sometimes withs aren't directly divisible
         # this requires going up from input width to least common multiple
         # then down to output width
-        intw = abs(maxw*minw) // math.gcd(maxw, minw)
+        intw = abs(maxw * minw) // math.gcd(maxw, minw)
 
         # we assume a shift-based implementation
         # even if we don't use LUTs explicitly, we make some unavailable
@@ -471,11 +468,10 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         cset_luts = 0
 
         if inw != intw:
-            cnt_luts += abs(math.ceil(math.log(inw/intw, 2)))
+            cnt_luts += abs(math.ceil(math.log(inw / intw, 2)))
             cset_luts += intw
         if intw != outw:
             cnt_luts += abs(math.ceil(math.log(intw / outw, 2)))
             cset_luts += outw
 
-        return int(cnt_luts+cset_luts)
-
+        return int(cnt_luts + cset_luts)
