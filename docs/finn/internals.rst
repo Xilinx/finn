@@ -25,6 +25,8 @@ Custom Operations/Nodes
 
 FINN uses many custom operations (op_type in ONNX NodeProto) that are not defined in the ONNX operator schema. These custom nodes are marked with domain="finn.*" in the protobuf to identify them as such. These nodes can represent specific operations that we need for low-bit networks, or operations that are specific to a particular hardware backend. To get more familiar with custom operations and how they are created, please take a look in the Jupyter notebook about CustomOps (see chapter :ref:`tutorials` for details) or directly in the module :py:mod:`finn.custom_op`.
 
+.. note:: See the description of `this PR <https://github.com/Xilinx/finn-base/pull/6>`_ for more on how the operator wrapper library is organized.
+
 Custom ONNX Execution Flow
 ==========================
 
