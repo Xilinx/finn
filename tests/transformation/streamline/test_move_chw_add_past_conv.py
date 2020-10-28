@@ -34,7 +34,7 @@ from onnx import helper, TensorProto
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.reorder import MoveAddPastConv
-from finn.custom_op.im2col import compute_conv_output_dim
+from finn.custom_op.general.im2col import compute_conv_output_dim
 import finn.core.onnx_exec as oxe
 
 

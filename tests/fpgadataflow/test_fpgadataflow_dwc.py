@@ -50,7 +50,7 @@ def make_single_dwc_modelwrapper(Shape, INWidth, OUTWidth, finn_dtype):
         "StreamingDataWidthConverter_Batch",
         ["inp"],
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         shape=Shape,
         inWidth=INWidth,

@@ -81,7 +81,7 @@ class InsertDWC(Transformation):
                                 "StreamingDataWidthConverter_Batch",
                                 [n_output],
                                 [dwc_output_tensor.name],
-                                domain="finn",
+                                domain="finn.custom_op.fpgadataflow",
                                 backend="fpgadataflow",
                                 shape=dwc_shape,
                                 inWidth=dwc_in_width,

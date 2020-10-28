@@ -41,8 +41,7 @@ def res_estimation(model):
     res_dict = {}
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:
-            op_type = node.op_type
-            inst = registry.custom_op[op_type](node)
+            inst = registry.getCustomOp(node)
             res_dict[node.name] = inst.node_res_estimation()
 
     return res_dict

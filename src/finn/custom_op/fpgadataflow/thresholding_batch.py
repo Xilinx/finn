@@ -34,7 +34,7 @@ import numpy as np
 
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
@@ -137,13 +137,6 @@ class Thresholding_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":

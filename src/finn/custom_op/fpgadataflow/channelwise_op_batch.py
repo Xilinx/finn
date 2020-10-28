@@ -33,7 +33,7 @@ import numpy as np
 
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -178,13 +178,6 @@ class ChannelwiseOp_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":
