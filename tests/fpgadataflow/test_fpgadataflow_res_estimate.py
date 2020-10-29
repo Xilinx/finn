@@ -95,9 +95,9 @@ def test_res_estimate():
     prod_resource_estimation = model.analysis(res_estimation)
     expect_resource_estimation = {
         "StreamingFCLayer_Batch_0": {
-            "BRAM_18K": 1,
-            "BRAM_efficiency": 0.001736111111111111,
-            "LUT": 304.4,
+            "BRAM_18K": 0,
+            "BRAM_efficiency": 1,
+            "LUT": 357,
             "DSP": 0,
             "URAM": 0,
         }
