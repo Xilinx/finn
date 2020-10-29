@@ -28,9 +28,10 @@
 
 import os
 import finn.custom_op.registry as registry
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
+import warnings
 
 
 def _codegen_single_node(node, model, fpgapart, clk):
@@ -40,7 +41,7 @@ def _codegen_single_node(node, model, fpgapart, clk):
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
-        inst = registry.custom_op[op_type](node)
+        inst = registry.getCustomOp(node)
         # get the path of the code generation directory
         code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
         # ensure that there is a directory
@@ -49,8 +50,10 @@ def _codegen_single_node(node, model, fpgapart, clk):
                 prefix="code_gen_ipgen_" + str(node.name) + "_"
             )
             inst.set_nodeattr("code_gen_dir_ipgen", code_gen_dir)
-        # ensure that there is generated code inside the dir
-        inst.code_generation_ipgen(model, fpgapart, clk)
+            # ensure that there is generated code inside the dir
+            inst.code_generation_ipgen(model, fpgapart, clk)
+        else:
+            warnings.warn("Using pre-existing code for %s" % node.name)
     except KeyError:
         # exception if op_type is not supported
         raise Exception("Custom op_type %s is currently not supported." % op_type)
@@ -65,6 +68,9 @@ class PrepareIP(Transformation):
     * fpgapart (string)
 
     * clk in ns (int)
+
+    Any nodes that already have a code_gen_dir_ipgen attribute pointing to a valid path
+    will be skipped.
 
     Outcome if succesful: Node attribute "code_gen_dir_ipgen" contains path to folder
     that contains generated C++ code that can be used to generate a Vivado IP block.

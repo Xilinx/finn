@@ -28,7 +28,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-./gen_memblocks.sh golden.dat
-iverilog ../hdl/*.v *v -o sim
+iverilog ../hdl/*.v tb_memstream_writes.v -o sim
 ./sim
 

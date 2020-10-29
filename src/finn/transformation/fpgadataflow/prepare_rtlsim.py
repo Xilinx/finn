@@ -28,8 +28,10 @@
 
 import finn.custom_op.registry as registry
 from finn.util.fpgadataflow import is_fpgadataflow_node
-
-from finn.transformation import NodeLocalTransformation
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.base import NodeLocalTransformation
 
 try:
     from pyverilator import PyVerilator
@@ -54,12 +56,16 @@ class PrepareRTLSim(NodeLocalTransformation):
     def __init__(self, num_workers=None):
         super().__init__(num_workers=num_workers)
 
+    def apply(self, model):
+        model = model.transform(ReplaceVerilogRelPaths())
+        return super().apply(model)
+
     def applyNodeLocal(self, node):
         op_type = node.op_type
         if is_fpgadataflow_node(node) is True:
             try:
                 # lookup op_type in registry of CustomOps
-                inst = registry.custom_op[op_type](node)
+                inst = registry.getCustomOp(node)
                 inst.prepare_rtlsim()
                 # ensure that executable path is now set
                 assert (

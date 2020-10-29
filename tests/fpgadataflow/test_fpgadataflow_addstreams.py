@@ -42,9 +42,6 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.custom_op.registry import getCustomOp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
@@ -58,7 +55,7 @@ def make_addstreams_modelwrapper(ch, pe, idt):
         "AddStreams_Batch",
         ["inp1", "inp2"],
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=ch,
         PE=pe,
@@ -112,7 +109,6 @@ def test_fpgadataflow_addstreams(idt, ch, fold, exec_mode):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP("xc7z020clg400-1", 5))
         model = model.transform(HLSSynthIP())
-        model = model.transform(ReplaceVerilogRelPaths())
         model = model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode")

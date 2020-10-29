@@ -30,7 +30,7 @@ import os
 import subprocess
 
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.custom_op.registry import getCustomOp
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -42,15 +42,14 @@ from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarke
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.util.basic import make_build_dir
 from finn.transformation.infer_data_layouts import InferDataLayouts
+from . import templates
+from enum import Enum
 
 
 def _check_vitis_envvars():
@@ -61,6 +60,17 @@ def _check_vitis_envvars():
     assert (
         "XILINX_XRT" in os.environ
     ), "XILINX_XRT must be set for Vitis, ensure the XRT env is sourced"
+
+
+class VitisOptStrategy(Enum):
+    "Values applicable to VitisBuild optimization strategy."
+
+    DEFAULT = "0"
+    POWER = "1"
+    PERFORMANCE = "2"
+    PERFORMANCE_BEST = "3"
+    SIZE = "s"
+    BUILD_SPEED = "quick"
 
 
 class CreateVitisXO(Transformation):
@@ -85,6 +95,15 @@ class CreateVitisXO(Transformation):
         # NOTE: this assumes the graph is Vitis-compatible: max one axi lite interface
         # developed from instructions in UG1393 (v2019.2) and package_xo documentation
         # package_xo is responsible for generating the kernel xml
+        ifnames = eval(model.get_metadata_prop("vivado_stitch_ifnames"))
+        assert (
+            len(ifnames["axilite"]) <= 1
+        ), "CreateVitisXO supports max 1 AXI lite interface"
+        if len(ifnames["axilite"]) == 1:
+            axilite_intf_name = ifnames["axilite"][0]
+        else:
+            axilite_intf_name = None
+
         for node in model.graph.node:
             node_inst = getCustomOp(node)
             arg_id = 0
@@ -107,8 +126,10 @@ class CreateVitisXO(Transformation):
                 # add a axilite port if dynamic
                 # add a count parameter if dynamic
                 if node_inst.get_nodeattr("DynIters") == 1:
+                    assert axilite_intf_name is not None
                     args_string.append(
-                        "{numReps:0:%s:s_axi_control:0x4:0x10:uint:0}" % str(arg_id)
+                        "{numReps:0:%s:%s:0x4:0x10:uint:0}"
+                        % (str(arg_id), axilite_intf_name)
                     )
                     arg_id += 1
             elif node.op_type == "IODMA":
@@ -121,7 +142,8 @@ class CreateVitisXO(Transformation):
                 )
                 arg_id += 1
                 args_string.append(
-                    "{numReps:0:%s:s_axi_control:0x4:0x1C:uint:0}" % str(arg_id)
+                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}"
+                    % (str(arg_id), axilite_intf_name)
                 )
                 arg_id += 1
 
@@ -160,14 +182,22 @@ class CreateVitisXO(Transformation):
 class VitisLink(Transformation):
     """Create an XCLBIN with Vitis.
 
-    Outcome if successful: sets the vitis_xclbin attribute in the ONNX
+    Outcome if successful: sets the bitfile attribute in the ONNX
     ModelProto's metadata_props field with the XCLBIN full path as value.
     """
 
-    def __init__(self, platform, f_mhz=200):
+    def __init__(
+        self,
+        platform,
+        f_mhz=200,
+        strategy=VitisOptStrategy.PERFORMANCE,
+        enable_debug=False,
+    ):
         super().__init__()
         self.platform = platform
         self.f_mhz = f_mhz
+        self.strategy = strategy
+        self.enable_debug = enable_debug
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -238,6 +268,17 @@ class VitisLink(Transformation):
         with open(link_dir + "/config.txt", "w") as f:
             f.write(config)
 
+        # create tcl script to generate resource report in XML format
+        gen_rep_xml = templates.vitis_gen_xml_report_tcl_template
+        gen_rep_xml = gen_rep_xml.replace("$VITIS_PROJ_PATH$", link_dir)
+        with open(link_dir + "/gen_report_xml.tcl", "w") as f:
+            f.write(gen_rep_xml)
+
+        debug_commands = []
+        if self.enable_debug:
+            for inst in list(instance_names.values()):
+                debug_commands.append("--dk chipscope:%s" % inst)
+
         # create a shell script and call Vitis
         script = link_dir + "/run_vitis_link.sh"
         working_dir = os.environ["PWD"]
@@ -246,9 +287,15 @@ class VitisLink(Transformation):
             f.write("cd {}\n".format(link_dir))
             f.write(
                 "v++ -t hw --platform %s --link %s"
-                " --kernel_frequency %d --config config.txt --optimize 2"
-                " --save-temps -R2\n"
-                % (self.platform, " ".join(object_files), self.f_mhz)
+                " --kernel_frequency %d --config config.txt --optimize %s"
+                " --save-temps -R2 %s\n"
+                % (
+                    self.platform,
+                    " ".join(object_files),
+                    self.f_mhz,
+                    self.strategy.value,
+                    " ".join(debug_commands),
+                )
             )
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", script]
@@ -259,18 +306,44 @@ class VitisLink(Transformation):
         assert os.path.isfile(xclbin), (
             "Vitis .xclbin file not created, check logs under %s" % link_dir
         )
-        model.set_metadata_prop("vitis_xclbin", xclbin)
+        model.set_metadata_prop("bitfile", xclbin)
+
+        # run Vivado to gen xml report
+        gen_rep_xml_sh = link_dir + "/gen_report_xml.sh"
+        working_dir = os.environ["PWD"]
+        with open(gen_rep_xml_sh, "w") as f:
+            f.write("#!/bin/bash \n")
+            f.write("cd {}\n".format(link_dir))
+            f.write(
+                "vivado -mode tcl -source %s\n" % (link_dir + "/gen_report_xml.tcl")
+            )
+            f.write("cd {}\n".format(working_dir))
+        bash_command = ["bash", gen_rep_xml_sh]
+        process_genxml = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_genxml.communicate()
+        # filename for the synth utilization report
+        synth_report_filename = link_dir + "/synth_report.xml"
+        model.set_metadata_prop("vivado_synth_rpt", synth_report_filename)
         return (model, False)
 
 
 class VitisBuild(Transformation):
     """Best-effort attempt at building the accelerator with Vitis."""
 
-    def __init__(self, fpga_part, period_ns, platform):
+    def __init__(
+        self,
+        fpga_part,
+        period_ns,
+        platform,
+        strategy=VitisOptStrategy.PERFORMANCE,
+        enable_debug=False,
+    ):
         super().__init__()
         self.fpga_part = fpga_part
         self.period_ns = period_ns
         self.platform = platform
+        self.strategy = strategy
+        self.enable_debug = enable_debug
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -304,7 +377,6 @@ class VitisBuild(Transformation):
                 PrepareIP(self.fpga_part, self.period_ns)
             )
             kernel_model = kernel_model.transform(HLSSynthIP())
-            kernel_model = kernel_model.transform(ReplaceVerilogRelPaths())
             kernel_model = kernel_model.transform(
                 CreateStitchedIP(
                     self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True
@@ -313,9 +385,17 @@ class VitisBuild(Transformation):
             kernel_model = kernel_model.transform(
                 CreateVitisXO(sdp_node.onnx_node.name)
             )
+            kernel_model.set_metadata_prop("platform", "alveo")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from kernels
-        model = model.transform(VitisLink(self.platform, round(1000 / self.period_ns)))
+        model = model.transform(
+            VitisLink(
+                self.platform,
+                round(1000 / self.period_ns),
+                strategy=self.strategy,
+                enable_debug=self.enable_debug,
+            )
+        )
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "alveo")
 

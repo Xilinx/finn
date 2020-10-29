@@ -43,9 +43,6 @@ from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
 from finn.util.test import soft_verify_topk
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 
 
 def make_labelselect_modelwrapper(labels, pe, k, idt):
@@ -56,7 +53,7 @@ def make_labelselect_modelwrapper(labels, pe, k, idt):
         "LabelSelect_Batch",
         ["inp"],
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         Labels=labels,
         PE=pe,
@@ -116,7 +113,6 @@ def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP("xc7z020clg400-1", 5))
         model = model.transform(HLSSynthIP())
-        model = model.transform(ReplaceVerilogRelPaths())
         model = model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode")

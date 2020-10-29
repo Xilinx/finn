@@ -4,7 +4,7 @@ import math
 
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import interleave_matrix_outer_dim_from_partitions
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
@@ -97,7 +97,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
 
     def get_instream_width(self):
         i_bits = self.get_input_datatype().bitwidth()
-        in_width = i_bits * self.get_nodeattr("Channels")
+        in_width = i_bits * self.get_nodeattr("PE")
         return in_width
 
     def get_outstream_width(self):

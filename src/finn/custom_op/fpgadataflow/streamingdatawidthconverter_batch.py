@@ -28,8 +28,9 @@
 
 import os
 import numpy as np
+import math
 
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -51,6 +52,10 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             "outWidth": ("i", True, 0),
             # FINN DataTypes for inputs/outputs
             "dataType": ("s", True, ""),
+            # Toggle between hls or IPI implementation
+            # hls - use the hls generated IP during stitching
+            # vivado - use the AXI Infrastructure DWC
+            "impl_style": ("s", False, "hls"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -181,14 +186,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":
@@ -209,11 +206,9 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
     def defines(self, var):
         numReps = 1
-        numInWords = 1
+        numInWords = int(np.prod(self.get_folded_input_shape()[:-1]))
         inWidth = self.get_nodeattr("inWidth")
         outWidth = self.get_nodeattr("outWidth")
-        if outWidth > inWidth:
-            numInWords = int(outWidth // inWidth)
         self.code_gen_dict["$DEFINES$"] = [
             "#define InWidth %d " % inWidth,
             "#define OutWidth %d " % outWidth,
@@ -381,3 +376,94 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             exp_shape
         ), """Output
         shape doesn't match expected shape, should be same as input shape"""
+
+    def code_generation_ipi(self):
+        impl_style = self.get_nodeattr("impl_style")
+        if impl_style == "hls":
+            return super().code_generation_ipi()
+        elif impl_style == "vivado":
+            cmd = []
+            node_name = self.onnx_node.name
+            # create a hierarchy for this layer, with the same port names
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
+            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
+            cmd.append("create_bd_cell -type hier %s" % node_name)
+            cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
+            cmd.append(
+                "create_bd_intf_pin -mode Master "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
+                % (node_name, dout_name)
+            )
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
+            )
+            # instantiate and configure DWC
+            cmd.append(
+                "create_bd_cell -type ip "
+                "-vlnv xilinx.com:ip:axis_dwidth_converter:1.1 /%s/dwc" % node_name
+            )
+            cmd.append(
+                "set_property -dict "
+                "[list CONFIG.S_TDATA_NUM_BYTES.VALUE_SRC PROPAGATED] "
+                "[get_bd_cells /%s/dwc]" % node_name
+            )
+            cmd.append(
+                "set_property -dict "
+                "[list CONFIG.M_TDATA_NUM_BYTES {%d}] [get_bd_cells /%s/dwc]"
+                % (np.ceil(self.get_outstream_width() / 8), node_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/dwc/M_AXIS] "
+                "[get_bd_intf_pins %s/%s]" % (node_name, node_name, dout_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/dwc/S_AXIS] "
+                "[get_bd_intf_pins %s/%s]" % (node_name, node_name, din_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/dwc/aresetn]"
+                % (node_name, rst_name, node_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/dwc/aclk]"
+                % (node_name, clk_name, node_name)
+            )
+            return cmd
+        else:
+            raise Exception(
+                "DWC implementation style %s not supported, please use hls or vivado"
+                % impl_style
+            )
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs"""
+        inw = self.get_instream_width()
+        outw = self.get_outstream_width()
+
+        minw = min(inw, outw)
+        maxw = max(inw, outw)
+
+        # sometimes withs aren't directly divisible
+        # this requires going up from input width to least common multiple
+        # then down to output width
+        intw = abs(maxw * minw) // math.gcd(maxw, minw)
+
+        # we assume a shift-based implementation
+        # even if we don't use LUTs explicitly, we make some unavailable
+        # to other logic because they're tied into the DWC control sets
+
+        cnt_luts = 0
+        cset_luts = 0
+
+        if inw != intw:
+            cnt_luts += abs(math.ceil(math.log(inw / intw, 2)))
+            cset_luts += intw
+        if intw != outw:
+            cnt_luts += abs(math.ceil(math.log(intw / outw, 2)))
+            cset_luts += outw
+
+        return int(cnt_luts + cset_luts)

@@ -1,0 +1,45 @@
+IMPORTANT: After using AXI lite to either read or write the weights,
+always "flush" the accelerator by first passing a dummy input
+vector through the accelerator. This will get rid of any old
+weight data from the weight FIFOs.
+
+Memory Streamer Address Map
+
+The memory streamer implements an internal storage array of parameters:
+Memory Depth: D
+Memory Width: W
+
+When W is greater than 32, the bits of each word are assigned to N
+32-bit words on the AXI interface, where:
+N = pow(2,ceil(log2(W/32)))
+
+To the AXI master, this memory appears to have the following parameters:
+Apparent Memory Depth: D*N
+Apparent Memory Width: 32b
+
+To perform a write, the AXI master must write to the N 32-bit segments
+corresponding to a streamer memory word. The writes are committed to
+the internal memory when the last segment of a word is written.
+The order of writes to the other segments does not matter.
+To perform a read, the AXI master simply indicates on 32-bit segment to read.
+
+Example: D=2, W=70
+
+Here N=2 so we allocate two 32-bit words in the global memory map for each
+physical memory word:
+
+AXI Addr | Internal position of data
+------------------------------------
+0        | mem[0][31: 0]
+4        | mem[0][63:32]
+8        | mem[0][69:64]
+C        | N/A
+10       | mem[1][31: 0]
+14       | mem[1][63:32]
+18       | mem[1][69:64]
+1C       | N/A
+
+To perform a write to mem[0], the AXI master writes to AXI Addr 0,4,8 in any
+order, then writes to AXI Addr 0xC to commit the write. To read mem[1][63:32],
+the AXI master reads from AXI Addr 0x14. The words of mem can be written to or
+read from in any order.

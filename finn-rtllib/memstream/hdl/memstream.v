@@ -61,19 +61,40 @@ module memstream
 	parameter STRM2_OFFSET = 4608,
 	parameter STRM3_OFFSET = 6912,
 	parameter STRM4_OFFSET = 9216,
-	parameter STRM5_OFFSET = 11520
+	parameter STRM5_OFFSET = 11520,
+
+    parameter AXILITE_ADDR_WIDTH = 2+$clog2(MEM_DEPTH*(1<<$clog2((MEM_WIDTH+31)/32)))
 )
 
 (
     input aclk,
     input aresetn,
 
-    //optional configuration interface compatible with ap_memory
-	input [31:0] config_address,
-	input config_ce,
-	input config_we,
-	input [31:0] config_d0,
-	output [31:0] config_q0,
+    output awready,
+    input                       awvalid,
+    input [AXILITE_ADDR_WIDTH-1:0]      awaddr,
+    input [2:0]                 awprot,
+    //write data
+    output                  wready,
+    input                       wvalid,
+    input [31:0]      wdata,
+    input [3:0]  wstrb,
+    //burst response
+    input                       bready,
+    output                  bvalid,
+    output [1:0]            bresp,
+
+    //Read channels
+    //read address
+    output                  arready,
+    input                       arvalid,
+    input [AXILITE_ADDR_WIDTH-1:0]      araddr,
+    input [2:0]                 arprot,
+    //read data
+    input                       rready,
+    output                  rvalid,
+    output [1:0]            rresp,
+    output [31:0] rdata,
 
     //multiple output AXI Streams, TDATA width rounded to multiple of 8 bits
     input m_axis_0_afull,
@@ -109,359 +130,198 @@ module memstream
 
 );
 
-//calculate number of RAMB18 blocks we need depth-wise
-localparam NMEMBLOCKS = (MEM_DEPTH+1023) / 1024; //ceil(MEM_DEPTH/1024)
+wire [31:0] config_address;
+wire config_ce;
+wire config_we;
+wire config_rack;
+wire [MEM_WIDTH-1:0] config_d0;
+wire [MEM_WIDTH-1:0] config_q0;
 
-//calculate width of address for each block
-localparam BLOCKADRWIDTH = NMEMBLOCKS > 1 ? 10 : $clog2(MEM_DEPTH);
+generate
+if(NSTREAMS <= 2) begin: singleblock
 
-//determine whether a stream needs to multiplex between memory blocks
-localparam STRM0_MUX = ((STRM0_OFFSET/1024) != ((STRM0_OFFSET+STRM0_DEPTH)/1024));
-localparam STRM1_MUX = ((STRM1_OFFSET/1024) != ((STRM1_OFFSET+STRM1_DEPTH)/1024));
-localparam STRM2_MUX = ((STRM2_OFFSET/1024) != ((STRM2_OFFSET+STRM2_DEPTH)/1024));
-localparam STRM3_MUX = ((STRM3_OFFSET/1024) != ((STRM3_OFFSET+STRM3_DEPTH)/1024));
-localparam STRM4_MUX = ((STRM4_OFFSET/1024) != ((STRM4_OFFSET+STRM4_DEPTH)/1024));
-localparam STRM5_MUX = ((STRM5_OFFSET/1024) != ((STRM5_OFFSET+STRM5_DEPTH)/1024));
 
-//determine what the base block of each stream is
-localparam STRM0_BLOCK = (STRM0_OFFSET/1024);
-localparam STRM1_BLOCK = (STRM1_OFFSET/1024);
-localparam STRM2_BLOCK = (STRM2_OFFSET/1024);
-localparam STRM3_BLOCK = (STRM3_OFFSET/1024);
-localparam STRM4_BLOCK = (STRM4_OFFSET/1024);
-localparam STRM5_BLOCK = (STRM5_OFFSET/1024);
-
-//determine what the end block of each stream is
-localparam STRM0_END_BLOCK = ((STRM0_OFFSET+STRM0_DEPTH-1)/1024);
-localparam STRM1_END_BLOCK = ((STRM1_OFFSET+STRM1_DEPTH-1)/1024);
-localparam STRM2_END_BLOCK = ((STRM2_OFFSET+STRM2_DEPTH-1)/1024);
-localparam STRM3_END_BLOCK = ((STRM3_OFFSET+STRM3_DEPTH-1)/1024);
-localparam STRM4_END_BLOCK = ((STRM4_OFFSET+STRM4_DEPTH-1)/1024);
-localparam STRM5_END_BLOCK = ((STRM5_OFFSET+STRM5_DEPTH-1)/1024);
-
-//determine the number of blocks spanned by each stream
-localparam STRM0_NBLOCKS = STRM0_END_BLOCK - STRM0_BLOCK + 1;
-localparam STRM1_NBLOCKS = STRM1_END_BLOCK - STRM1_BLOCK + 1;
-localparam STRM2_NBLOCKS = STRM2_END_BLOCK - STRM2_BLOCK + 1;
-localparam STRM3_NBLOCKS = STRM3_END_BLOCK - STRM3_BLOCK + 1;
-localparam STRM4_NBLOCKS = STRM4_END_BLOCK - STRM4_BLOCK + 1;
-localparam STRM5_NBLOCKS = STRM5_END_BLOCK - STRM5_BLOCK + 1;
-
-//TODO: check that memory width is equal to the widest stream
-//TODO: check that the stream depths and offsets make sense, and that the memory depth is sufficient (or calculate depth here?)
-initial begin
-    if((NSTREAMS < 1) | (NSTREAMS > 6)) begin
-        $display("Invalid setting for NSTREAMS, please set in range [1,6]");
-        $finish();
-    end
-end
-
-//invert reset
-wire rst;
-assign rst = ~aresetn;
-
-//WARNING: pipeline depth is larger than the number of streams per port so we have in-flight writes that may see not-ready when they get executed
-//solution: use prog-full to make sure we have an equal number of free slots in the stream to the read pipeline depth
-
-reg [$clog2(MEM_DEPTH)-1:0] strm0_addr = STRM0_OFFSET;
-reg [$clog2(MEM_DEPTH)-1:0] strm1_addr = STRM1_OFFSET;
-reg [$clog2(MEM_DEPTH)-1:0] strm2_addr = STRM2_OFFSET;
-reg [$clog2(MEM_DEPTH)-1:0] strm3_addr = STRM3_OFFSET;
-reg [$clog2(MEM_DEPTH)-1:0] strm4_addr = STRM4_OFFSET;
-reg [$clog2(MEM_DEPTH)-1:0] strm5_addr = STRM5_OFFSET;
-
-reg strm0_incr_en;
-reg strm1_incr_en;
-reg strm2_incr_en;
-reg strm3_incr_en;
-reg strm4_incr_en;
-reg strm5_incr_en;
-
-wire strm0_rst;
-wire strm1_rst;
-wire strm2_rst;
-wire strm3_rst;
-wire strm4_rst;
-wire strm5_rst;
-
-reg strm0_ready;
-reg strm1_ready;
-reg strm2_ready;
-reg strm3_ready;
-reg strm4_ready;
-reg strm5_ready;
-
-//arbiter: work on one stream at a time
-//multiplex each port between (up to) half of the streams
-reg [1:0] current_stream_porta = 0;
-reg [1:0] current_stream_portb = 0;
-
-always @(posedge aclk) begin
-    if(rst)
-        current_stream_porta <= 0;
-    else case(current_stream_porta)
-        0: current_stream_porta <= strm2_ready ? 1 : strm4_ready ? 2 : 0;
-        1: current_stream_porta <= strm4_ready ? 2 : strm0_ready ? 0 : 1;
-        2: current_stream_porta <= strm0_ready ? 0 : strm2_ready ? 1 : 2;
-    endcase
-    if(rst)
-        current_stream_portb <= 0;
-    else case(current_stream_portb)
-        0: current_stream_portb <= strm3_ready ? 1 : strm5_ready ? 2 : 0;
-        1: current_stream_portb <= strm5_ready ? 2 : strm1_ready ? 0 : 1;
-        2: current_stream_portb <= strm1_ready ? 0 : strm3_ready ? 1 : 2;
-    endcase
-end
-
-always @(posedge aclk) begin
-    if(rst) begin
-        strm0_incr_en <= 0;
-        strm1_incr_en <= 0;
-        strm2_incr_en <= 0;
-        strm3_incr_en <= 0;
-        strm4_incr_en <= 0;
-        strm5_incr_en <= 0;
-    end else begin
-        strm0_incr_en <= (current_stream_porta == 0) & strm0_ready;
-        strm1_incr_en <= (current_stream_portb == 0) & strm1_ready;
-        strm2_incr_en <= (current_stream_porta == 1) & strm2_ready;
-        strm3_incr_en <= (current_stream_portb == 1) & strm3_ready;
-        strm4_incr_en <= (current_stream_porta == 2) & strm4_ready;
-        strm5_incr_en <= (current_stream_portb == 2) & strm5_ready;
-    end
-end
-
-assign strm0_rst = strm0_incr_en & (strm0_addr == (STRM0_OFFSET + STRM0_DEPTH-1));
-assign strm1_rst = strm1_incr_en & (strm1_addr == (STRM1_OFFSET + STRM1_DEPTH-1));
-assign strm2_rst = strm2_incr_en & (strm2_addr == (STRM2_OFFSET + STRM2_DEPTH-1));
-assign strm3_rst = strm3_incr_en & (strm3_addr == (STRM3_OFFSET + STRM3_DEPTH-1));
-assign strm4_rst = strm4_incr_en & (strm4_addr == (STRM4_OFFSET + STRM4_DEPTH-1));
-assign strm5_rst = strm5_incr_en & (strm5_addr == (STRM5_OFFSET + STRM5_DEPTH-1));
-
-always @(posedge aclk) begin
-    strm0_ready <= ~m_axis_0_afull;
-    strm1_ready <= ~m_axis_1_afull & (NSTREAMS >= 2);
-    strm2_ready <= ~m_axis_2_afull & (NSTREAMS >= 3);
-    strm3_ready <= ~m_axis_3_afull & (NSTREAMS >= 4);
-    strm4_ready <= ~m_axis_4_afull & (NSTREAMS >= 5);
-    strm5_ready <= ~m_axis_5_afull & (NSTREAMS >= 6);
-end
-
-//one address counter per stream; more LUTs but keeps routing short and local
-always @(posedge aclk) begin
-    if(strm0_rst | rst)
-        strm0_addr <= STRM0_OFFSET;
-    else if(strm0_incr_en)
-        strm0_addr <= strm0_addr + 1;
-    if(strm1_rst | rst)
-        strm1_addr <= STRM1_OFFSET;
-    else if(strm1_incr_en)
-        strm1_addr <= strm1_addr + 1;
-    if(strm2_rst | rst)
-        strm2_addr <= STRM2_OFFSET;
-    else if(strm2_incr_en)
-        strm2_addr <= strm2_addr + 1;
-    if(strm3_rst | rst)
-        strm3_addr <= STRM3_OFFSET;
-    else if(strm3_incr_en)
-        strm3_addr <= strm3_addr + 1;
-    if(strm4_rst | rst)
-        strm4_addr <= STRM4_OFFSET;
-    else if(strm4_incr_en)
-        strm4_addr <= strm4_addr + 1;
-    if(strm5_rst | rst)
-        strm5_addr <= STRM5_OFFSET;
-    else if(strm5_incr_en)
-        strm5_addr <= strm5_addr + 1;
-end
-
-reg [$clog2(MEM_DEPTH)-1:0] addra;
-wire [MEM_WIDTH*NMEMBLOCKS-1:0] rdqa;
-
-reg [$clog2(MEM_DEPTH)-1:0] addrb;
-wire [MEM_WIDTH*NMEMBLOCKS-1:0] rdqb;
-
-wire [NMEMBLOCKS-1:0] we;
-
-reg [1:0] addr_select_porta;
-reg [1:0] addr_select_portb;
-
-//multiplex addresses of various streams into address ports of memory
-always @(posedge aclk) begin
-    addr_select_porta <= current_stream_porta;
-    case(addr_select_porta)
-        0: addra <= strm0_addr;
-        1: addra <= strm2_addr;
-        2: addra <= strm4_addr;
-    endcase
-    addr_select_portb <= current_stream_portb;
-    case(addr_select_portb)
-        0: addrb <= strm1_addr;
-        1: addrb <= strm3_addr;
-        2: addrb <= strm5_addr;
-    endcase
-end
-
-genvar g;
-generate for(g=0; g<NMEMBLOCKS; g=g+1) begin: blockports
-
-assign we[g] = (CONFIG_EN == 1) & config_ce & config_we & (config_address[31:BLOCKADRWIDTH] == g);
-
-ramb18_wf_dualport
+memstream_singleblock
 #(
-    .ID(g),
-	.DWIDTH(MEM_WIDTH),
-	.AWIDTH(BLOCKADRWIDTH),
-	.MEM_INIT(MEM_INIT),
-  .RAM_STYLE(RAM_STYLE)
+    .CONFIG_EN(CONFIG_EN),
+    .NSTREAMS(NSTREAMS),
+    .MEM_DEPTH(MEM_DEPTH),
+    .MEM_WIDTH(MEM_WIDTH),
+    .MEM_INIT(MEM_INIT),
+    .RAM_STYLE(RAM_STYLE),
+
+    //widths per stream
+    .STRM0_WIDTH(STRM0_WIDTH),
+    .STRM1_WIDTH(STRM1_WIDTH),
+
+    //depths per stream
+    .STRM0_DEPTH(STRM0_DEPTH),
+    .STRM1_DEPTH(STRM1_DEPTH),
+
+    //offsets for each stream
+    .STRM0_OFFSET(STRM0_OFFSET),
+    .STRM1_OFFSET(STRM1_OFFSET)
 )
-ram
+mem
 (
-	.clk(aclk),
+    .aclk(aclk),
+    .aresetn(aresetn),
 
-	.wea(we[g]),
-	.addra(we[g] ? config_address[BLOCKADRWIDTH-1:0] : addra[BLOCKADRWIDTH-1:0]),
-	.wdataa(config_d0),
-	.rdqa(rdqa[(g+1)*MEM_WIDTH-1:g*MEM_WIDTH]),
+    .config_address(config_address),
+    .config_ce(config_ce),
+    .config_we(config_we),
+    .config_d0(config_d0),
+    .config_q0(config_q0),
+    .config_rack(config_rack),
 
-	.web(1'b0),
-	.addrb(addrb[BLOCKADRWIDTH-1:0]),
-	.wdatab('d0),
-	.rdqb(rdqb[(g+1)*MEM_WIDTH-1:g*MEM_WIDTH])
+    .m_axis_0_tready(m_axis_0_tready),
+    .m_axis_0_tvalid(m_axis_0_tvalid),
+    .m_axis_0_tdata(m_axis_0_tdata),
+
+    .m_axis_1_tready(m_axis_1_tready),
+    .m_axis_1_tvalid(m_axis_1_tvalid),
+    .m_axis_1_tdata(m_axis_1_tdata)
 );
 
-end
-endgenerate
+assign m_axis_2_tvalid = 0;
+assign m_axis_2_tdata = 0;
+assign m_axis_3_tvalid = 0;
+assign m_axis_3_tdata = 0;
+assign m_axis_4_tvalid = 0;
+assign m_axis_4_tdata = 0;
+assign m_axis_5_tvalid = 0;
+assign m_axis_5_tdata = 0;
 
-integer i;
+end else begin: multiblock
 
-generate if(NMEMBLOCKS > 1) begin: multiblock
 
-wire [MEM_WIDTH-1:0] rdqmux[5:0];
+memstream_multiblock
+#(
+    .CONFIG_EN(CONFIG_EN),
+    .NSTREAMS(NSTREAMS),
+    .MEM_DEPTH(MEM_DEPTH),
+    .MEM_WIDTH(MEM_WIDTH),
+    .MEM_INIT(MEM_INIT),
+    .RAM_STYLE(RAM_STYLE),
 
-reg [$clog2(MEM_DEPTH)-BLOCKADRWIDTH-1:0] rdblocka[2:0];
-reg [$clog2(MEM_DEPTH)-BLOCKADRWIDTH-1:0] rdblockb[2:0];
+    //widths per stream
+    .STRM0_WIDTH(STRM0_WIDTH),
+    .STRM1_WIDTH(STRM1_WIDTH),
+    .STRM2_WIDTH(STRM2_WIDTH),
+    .STRM3_WIDTH(STRM3_WIDTH),
+    .STRM4_WIDTH(STRM4_WIDTH),
+    .STRM5_WIDTH(STRM5_WIDTH),
 
-always @(posedge aclk) begin
-    rdblocka[0] <= addra[$clog2(MEM_DEPTH)-1:BLOCKADRWIDTH];
-    rdblockb[0] <= addrb[$clog2(MEM_DEPTH)-1:BLOCKADRWIDTH];
-    for(i=0; i<2; i=i+1) begin
-		rdblocka[i+1] <= rdblocka[i];
-		rdblockb[i+1] <= rdblockb[i];
-    end
-end
+    //depths per stream
+    .STRM0_DEPTH(STRM0_DEPTH),
+    .STRM1_DEPTH(STRM1_DEPTH),
+    .STRM2_DEPTH(STRM2_DEPTH),
+    .STRM3_DEPTH(STRM3_DEPTH),
+    .STRM4_DEPTH(STRM4_DEPTH),
+    .STRM5_DEPTH(STRM5_DEPTH),
 
-if(NSTREAMS >= 1) begin: en_strm0
-	if(STRM0_MUX == 1) begin: mux0
-		mux #(STRM0_NBLOCKS, MEM_WIDTH) m(rdqa[(STRM0_BLOCK+STRM0_NBLOCKS)*MEM_WIDTH-1:STRM0_BLOCK*MEM_WIDTH],rdqmux[0],rdblocka[1] - STRM0_BLOCK);
-	end else begin: nomux0
-		assign rdqmux[0] = rdqa[(STRM0_BLOCK+1)*MEM_WIDTH-1:STRM0_BLOCK*MEM_WIDTH];
-	end
-	assign m_axis_0_tdata = rdqmux[0][STRM0_WIDTH-1:0];
-end
+    //offsets for each stream
+    .STRM0_OFFSET(STRM0_OFFSET),
+    .STRM1_OFFSET(STRM1_OFFSET),
+    .STRM2_OFFSET(STRM2_OFFSET),
+    .STRM3_OFFSET(STRM3_OFFSET),
+    .STRM4_OFFSET(STRM4_OFFSET),
+    .STRM5_OFFSET(STRM5_OFFSET)
+)
+mem
+(
+    .aclk(aclk),
+    .aresetn(aresetn),
 
-if(NSTREAMS >= 2) begin: en_strm1
-	if(STRM1_MUX == 1) begin: mux1
-		mux #(STRM1_NBLOCKS, MEM_WIDTH) m(rdqb[(STRM1_BLOCK+STRM1_NBLOCKS)*MEM_WIDTH-1:STRM1_BLOCK*MEM_WIDTH],rdqmux[1],rdblockb[1] - STRM1_BLOCK);
-	end else begin: nomux1
-		assign rdqmux[1] = rdqb[(STRM1_BLOCK+1)*MEM_WIDTH-1:STRM1_BLOCK*MEM_WIDTH];
-	end
-	assign m_axis_1_tdata = rdqmux[1][STRM1_WIDTH-1:0];
-end
+    .config_address(config_address),
+    .config_ce(config_ce),
+    .config_we(config_we),
+    .config_d0(config_d0),
+    .config_q0(config_q0),
 
-if(NSTREAMS >= 3) begin: en_strm2
-	if(STRM2_MUX == 1) begin: mux2
-		mux #(STRM2_NBLOCKS, MEM_WIDTH) m(rdqa[(STRM2_BLOCK+STRM2_NBLOCKS)*MEM_WIDTH-1:STRM2_BLOCK*MEM_WIDTH],rdqmux[2],rdblocka[1] - STRM2_BLOCK);
-	end else begin: nomux2
-		assign rdqmux[2] = rdqa[(STRM2_BLOCK+1)*MEM_WIDTH-1:STRM2_BLOCK*MEM_WIDTH];
-	end
-	assign m_axis_2_tdata = rdqmux[2][STRM2_WIDTH-1:0];
-end
+    .m_axis_0_afull(m_axis_0_afull),
+    .m_axis_0_tready(m_axis_0_tready),
+    .m_axis_0_tvalid(m_axis_0_tvalid),
+    .m_axis_0_tdata(m_axis_0_tdata),
 
-if(NSTREAMS >= 4) begin: en_strm3
-	if(STRM3_MUX == 1) begin: mux3
-		mux #(STRM3_NBLOCKS, MEM_WIDTH) m(rdqb[(STRM3_BLOCK+STRM3_NBLOCKS)*MEM_WIDTH-1:STRM3_BLOCK*MEM_WIDTH],rdqmux[3],rdblockb[1] - STRM3_BLOCK);
-	end else begin: nomux3
-		assign rdqmux[3] = rdqb[(STRM3_BLOCK+1)*MEM_WIDTH-1:STRM3_BLOCK*MEM_WIDTH];
-	end
-	assign m_axis_3_tdata = rdqmux[3][STRM3_WIDTH-1:0];
-end
+    .m_axis_1_afull(m_axis_1_afull),
+    .m_axis_1_tready(m_axis_1_tready),
+    .m_axis_1_tvalid(m_axis_1_tvalid),
+    .m_axis_1_tdata(m_axis_1_tdata),
 
-if(NSTREAMS >= 5) begin: en_strm4
-	if(STRM4_MUX == 1) begin: mux4
-		mux #(STRM4_NBLOCKS, MEM_WIDTH) m(rdqa[(STRM4_BLOCK+STRM4_NBLOCKS)*MEM_WIDTH-1:STRM4_BLOCK*MEM_WIDTH],rdqmux[4],rdblocka[1] - STRM4_BLOCK);
-	end else begin: nomux4
-		assign rdqmux[4] = rdqa[(STRM4_BLOCK+1)*MEM_WIDTH-1:STRM4_BLOCK*MEM_WIDTH];
-	end
-	assign m_axis_4_tdata = rdqmux[4][STRM4_WIDTH-1:0];
-end
+    .m_axis_2_afull(m_axis_2_afull),
+    .m_axis_2_tready(m_axis_2_tready),
+    .m_axis_2_tvalid(m_axis_2_tvalid),
+    .m_axis_2_tdata(m_axis_2_tdata),
 
-if(NSTREAMS >= 6) begin: en_strm5
-	if(STRM5_MUX == 1) begin: mux5
-		mux #(STRM5_NBLOCKS, MEM_WIDTH) m(rdqb[(STRM5_BLOCK+STRM5_NBLOCKS)*MEM_WIDTH-1:STRM5_BLOCK*MEM_WIDTH],rdqmux[5],rdblockb[1] - STRM5_BLOCK);
-	end else begin: nomux5
-		assign rdqmux[5] = rdqb[(STRM5_BLOCK+1)*MEM_WIDTH-1:STRM5_BLOCK*MEM_WIDTH];
-	end
-	assign m_axis_5_tdata = rdqmux[5][STRM5_WIDTH-1:0];
-end
+    .m_axis_3_afull(m_axis_3_afull),
+    .m_axis_3_tready(m_axis_3_tready),
+    .m_axis_3_tvalid(m_axis_3_tvalid),
+    .m_axis_3_tdata(m_axis_3_tdata),
 
-end else begin: singleblock
+    .m_axis_4_afull(m_axis_4_afull),
+    .m_axis_4_tready(m_axis_4_tready),
+    .m_axis_4_tvalid(m_axis_4_tvalid),
+    .m_axis_4_tdata(m_axis_4_tdata),
 
-if(NSTREAMS >= 1) begin: en_strm0_direct
-    assign m_axis_0_tdata = rdqa[STRM0_WIDTH-1:0];
-end
-if(NSTREAMS >= 2) begin: en_strm1_direct
-	assign m_axis_1_tdata = rdqb[STRM1_WIDTH-1:0];
-end
-if(NSTREAMS >= 3) begin: en_strm2_direct
-	assign m_axis_2_tdata = rdqa[STRM2_WIDTH-1:0];
-end
-if(NSTREAMS >= 4) begin: en_strm3_direct
-	assign m_axis_3_tdata = rdqb[STRM3_WIDTH-1:0];
-end
-if(NSTREAMS >= 5) begin: en_strm4_direct
-	assign m_axis_4_tdata = rdqa[STRM4_WIDTH-1:0];
-end
-if(NSTREAMS >= 6) begin: en_strm5_direct
-	assign m_axis_5_tdata = rdqb[STRM5_WIDTH-1:0];
-end
+    .m_axis_5_afull(m_axis_5_afull),
+    .m_axis_5_tready(m_axis_5_tready),
+    .m_axis_5_tvalid(m_axis_5_tvalid),
+    .m_axis_5_tdata(m_axis_5_tdata)
+
+);
+
 
 end
 endgenerate
 
-//output to AXI Streams
-reg tvalid_pipe0[2:0];
-reg tvalid_pipe1[2:0];
-reg tvalid_pipe2[2:0];
-reg tvalid_pipe3[2:0];
-reg tvalid_pipe4[2:0];
-reg tvalid_pipe5[2:0];
+axi4lite_if
+#(
+    .ADDR_WIDTH(AXILITE_ADDR_WIDTH),
+    .DATA_WIDTH(32),
+    .IP_DATA_WIDTH(MEM_WIDTH)
+)
+config_if
+(
+    //system signals
+    .aclk(aclk),
+    .aresetn(aresetn),
 
-assign m_axis_0_tvalid = tvalid_pipe0[2];
-assign m_axis_1_tvalid = tvalid_pipe1[2];
-assign m_axis_2_tvalid = tvalid_pipe2[2];
-assign m_axis_3_tvalid = tvalid_pipe3[2];
-assign m_axis_4_tvalid = tvalid_pipe4[2];
-assign m_axis_5_tvalid = tvalid_pipe5[2];
+    //Write channels
+    //write address
+    .awready(awready),
+    .awvalid(awvalid),
+    .awaddr(awaddr),
+    .awprot(awprot),
+    //write data
+    .wready(wready),
+    .wvalid(wvalid),
+    .wdata(wdata),
+    .wstrb(wstrb),
+    //burst response
+    .bready(bready),
+    .bvalid(bvalid),
+    .bresp(bresp),
 
+    //Read channels
+    //read address
+    .arready(arready),
+    .arvalid(arvalid),
+    .araddr(araddr),
+    .arprot(arprot),
+    //read data
+    .rready(rready),
+    .rvalid(rvalid),
+    .rresp(rresp),
+    .rdata(rdata),
 
-always @(posedge aclk) begin
-    tvalid_pipe0[0] <= strm0_incr_en;
-    tvalid_pipe1[0] <= strm1_incr_en;
-    tvalid_pipe2[0] <= strm2_incr_en;
-    tvalid_pipe3[0] <= strm3_incr_en;
-    tvalid_pipe4[0] <= strm4_incr_en;
-    tvalid_pipe5[0] <= strm5_incr_en;
-    for(i=0; i<2; i=i+1) begin: srl
-        tvalid_pipe0[i+1] <= tvalid_pipe0[i];
-        tvalid_pipe1[i+1] <= tvalid_pipe1[i];
-        tvalid_pipe2[i+1] <= tvalid_pipe2[i];
-        tvalid_pipe3[i+1] <= tvalid_pipe3[i];
-        tvalid_pipe4[i+1] <= tvalid_pipe4[i];
-        tvalid_pipe5[i+1] <= tvalid_pipe5[i];
-    end
-end
-
-assign config_q0 = 0;
+    //IP-side interface
+    .ip_en(config_ce),
+    .ip_wen(config_we),
+    .ip_addr(config_address),
+    .ip_wdata(config_d0),
+    .ip_rack(config_rack),
+    .ip_rdata(config_q0)
+);
 
 endmodule

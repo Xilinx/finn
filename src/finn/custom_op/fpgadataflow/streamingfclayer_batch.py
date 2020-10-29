@@ -28,14 +28,11 @@
 
 import math
 import os
-import subprocess
-from shutil import copy
-
 import numpy as np
 
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
@@ -48,6 +45,7 @@ from finn.util.data_packing import (
     pack_innermost_dim_as_hex_string,
 )
 from . import templates
+import textwrap
 
 # ONNX i/o tensor shape assumptions for StreamingFCLayer:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -99,26 +97,19 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # distributed -- use LUTRAM
             # see also https://www.xilinx.com/support/answers/38070.html
             "ram_style": ("s", False, "auto"),
+            # (mem_mode = decoupled only) whether weights will be writable through
+            # an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            # see finn-rtllib/memstream/doc/README for more about the memory
+            # address map used for writable weights
+            # IMPORTANT: After using AXI lite to either read or write the weights,
+            # always "flush" the accelerator by first passing a dummy input
+            # vector through the accelerator. This will get rid of any old
+            # weight data from the weight FIFOs.
+            "runtime_writeable_weights": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
-
-    def get_verilog_top_module_name(self):
-        "Return the Verilog top module name for this node."
-
-        node = self.onnx_node
-        # set top name depending on mem_mode
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const" or mem_mode == "external":
-            prefixed_top_name = "%s_%s" % (node.name, node.name)
-        elif mem_mode == "decoupled":
-            prefixed_top_name = "%s_memstream" % (node.name)
-        else:
-            raise Exception(
-                """Please set mem_mode to "const", "decoupled", or "external",
-                currently no other parameter value is supported!"""
-            )
-        return prefixed_top_name
 
     def calc_wmem(self):
         """Calculates and returns WMEM."""
@@ -168,13 +159,6 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":
@@ -615,11 +599,17 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def generate_params(self, model, path):
-        mem_mode = self.get_nodeattr("mem_mode")
-        code_gen_dir = path
-        # weights, if not external
-        weights = model.get_initializer(self.onnx_node.input[1])
+    def make_weight_file(self, weights, weight_file_mode, weight_file_name):
+        """Produce a file containing given weights in appropriate format for this
+        layer. This file can be used for either synthesis or run-time reconfig
+        of weights.
+
+        Arguments:
+        * weights : numpy array with weights to be put into the file
+        * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
+          decoupled_runtime}
+        * weight_file_name : filename for the weight file to be generated
+        """
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hls_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
@@ -627,15 +617,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # so use it as such for weight generation
         if self.get_weight_datatype() == DataType.BIPOLAR:
             export_wdt = DataType.BINARY
-
-        if mem_mode == "const":
-            """Saves weights into params.h"""
+        if weight_file_mode == "hls_header":
             weight_hls_code = numpy_to_hls_code(
                 weight_tensor, export_wdt, "weights", True, True
             )
-            # write weights into params.h
-            f_weights = open("{}/params.h".format(code_gen_dir), "w")
-
+            # write weights into C++ header file as dictated by finn-hlslib
+            f_weights = open(weight_file_name, "w")
             if export_wdt.bitwidth() != 1:
                 f_weights.write(
                     "const FixedPointWeights<{},{},{},{}> weights = ".format(
@@ -655,17 +642,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
             f_weights.write(weight_hls_code)
             f_weights.close()
-
-        elif mem_mode == "decoupled" or mem_mode == "external":
-            """Saves weights in corresponding file format for cppsim or rtlsim"""
+        elif "decoupled" in weight_file_mode:
+            # create a weight stream for various flavors of decoupled mode:
             # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
             weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
-
             # reverse SIMD flip for saving weights in .npy
             weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
             # PE flip for saving weights in .dat
             weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
-
             # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
@@ -679,14 +663,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 1, -1, pe * simd
             )
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
-
-            """Saves weights into .npy file"""
-            np.save(
-                os.path.join(code_gen_dir, "weights.npy"), weight_tensor_simd_flipped
-            )
-
-            if mem_mode == "decoupled":
-                """Saves weights into .dat file"""
+            if weight_file_mode == "decoupled_npy":
+                # save weight stream into npy for cppsim
+                np.save(weight_file_name, weight_tensor_simd_flipped)
+            elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_weightstream_width()
                 # pad to nearest 4 bits to get hex strings
@@ -694,24 +674,58 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
                     weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
                 )
-                weight_stream_len = np.prod(weight_tensor_pe_flipped.shape)
-                factor = math.ceil(weight_stream_len / 1024)
                 # add zeroes to pad out file to 1024 entries
                 weight_stream = weight_tensor_pe_flipped.flatten()
-                pad_amt = (factor * 1024) - weight_stream_len
-                weight_stream = np.pad(
-                    weight_stream, (0, pad_amt), mode="constant", constant_values="0"
-                )
                 weight_stream = weight_stream.copy()
-                i = 0
-                j = 0
-                for val in weight_stream:
-                    if i == 1024:
-                        i = 0
-                        j += 1
-                    with open("{}/memblock_{}.dat".format(code_gen_dir, j), "a+") as f:
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
                         f.write(val + "\n")
-                    i += 1
+            elif weight_file_mode == "decoupled_runtime":
+                # memstream axi-lite interface will map each mem line to
+                # one or multiple 32-bit words
+                weight_width = self.get_weightstream_width()
+                words_per_memwidth = 2 ** math.ceil(math.log2(weight_width / 32))
+                if words_per_memwidth < 1:
+                    words_per_memwidth = 1
+                weight_width_padded = words_per_memwidth * 32
+                # first, pack and ensure padding to 32 bits
+                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+                    weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+                )
+                weight_stream = weight_tensor_pe_flipped.flatten()
+                weight_stream = weight_stream.copy()
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
+                        # split into groups of 8 hex digits (= 32 bits)
+                        words_32b = textwrap.wrap(val, 8)
+                        words_32b.reverse()
+                        for word_32b in words_32b:
+                            f.write(word_32b + "\n")
+            else:
+                raise Exception("Unknown weight_file_mode")
+
+        else:
+            raise Exception("Unknown weight_file_mode")
+
+    def generate_params(self, model, path):
+        mem_mode = self.get_nodeattr("mem_mode")
+        code_gen_dir = path
+        # weights, if not external
+        weights = model.get_initializer(self.onnx_node.input[1])
+        if mem_mode == "const":
+            # save hlslib-compatible weights in params.h
+            weight_filename = "{}/params.h".format(code_gen_dir)
+            self.make_weight_file(weights, "hls_header", weight_filename)
+        elif mem_mode == "decoupled" or mem_mode == "external":
+            weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
+            # save decoupled weights for cppsim
+            self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
+            if mem_mode == "decoupled":
+                # also save weights as Verilog .dat file
+                weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+                self.make_weight_file(
+                    weights, "decoupled_verilog_dat", weight_filename_rtl
+                )
         else:
             raise Exception(
                 """Please set mem_mode to "const", "decoupled", or "external",
@@ -835,7 +849,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            if mem_mode == "external":
+            if mem_mode == "external" or mem_mode == "decoupled":
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
                 # we have converted bipolar weights to binary for export,
@@ -845,8 +859,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 wei = npy_to_rtlsim_input(
                     "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
                 )
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
                 io_dict = {
-                    "inputs": {"in0": inp, "weights": wei},
+                    "inputs": {"in0": inp, "weights": wei * num_w_reps},
                     "outputs": {"out": []},
                 }
                 self.rtlsim_multi_io(sim, io_dict)
@@ -1143,118 +1158,126 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
             )
 
-    def code_generation_ipgen(self, model, fpgapart, clk):
-        # generate code for all mem_mode of MVAU/FCLayer unit
-        super().code_generation_ipgen(model, fpgapart, clk)
-
-        # if mem_mode = "decoupled" generate code for verilog wrapper
+    def code_generation_ipi(self):
+        cmd = []
+        # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
-            # empty code gen dictionary for new entries
-            self.code_gen_dict.clear()
-            self.code_gen_dict["$TOPNAME$"] = [
-                "{}_memstream".format(self.onnx_node.name)
-            ]
-            self.code_gen_dict["$LAYER_NAME$"] = [
-                "{}_{}".format(self.onnx_node.name, self.onnx_node.name)
-            ]
-            # make instream width a multiple of 8 for AXI stream interface
-            in_width = self.get_instream_width_padded()
-            self.code_gen_dict["$IN_RANGE$"] = ["[{}:0]".format(in_width - 1)]
-            self.code_gen_dict["$OUT_RANGE$"] = [
-                "[{}:0]".format(self.get_outstream_width_padded() - 1)
-            ]
-            # make weight stream width a multiple of 8 for AXI stream interface
-            weight_width = self.get_weightstream_width_padded()
-            self.code_gen_dict["$WEIGHT_RANGE$"] = ["[{}:0]".format(weight_width - 1)]
-            self.code_gen_dict["$WEIGHT_WIDTH$"] = [str(weight_width)]
-            self.code_gen_dict["$WSTREAM_DEPTH$"] = [str(self.calc_wmem())]
-            self.code_gen_dict["$MEM_DEPTH$"] = [
-                str(roundup_to_integer_multiple(self.calc_wmem(), 1024))
-            ]
-            self.code_gen_dict["$RAM_STYLE$"] = [self.get_nodeattr("ram_style")]
-
-            template = self.decoupled_wrapper
-
-            for key in self.code_gen_dict:
-                # transform list into long string separated by '\n'
-                code_gen_line = "\n".join(self.code_gen_dict[key])
-                template = template.replace(key, code_gen_line)
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-            f = open(
-                os.path.join(
-                    code_gen_dir, "{}_memstream.v".format(self.onnx_node.name)
-                ),
-                "w",
+            node_name = self.onnx_node.name
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            # create a hierarchy for this layer, with the same port names
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
+            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
+            cmd.append("create_bd_cell -type hier %s" % node_name)
+            cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
+            cmd.append(
+                "create_bd_intf_pin -mode Master "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
+                % (node_name, dout_name)
             )
-            f.write(template)
-            f.close()
-            self.code_gen_dict.clear()
-
-    def ipgen_singlenode_code(self):
-        # generate ip block of MVAU/FCLayer unit for all mem modes
-        super().ipgen_singlenode_code()
-
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "decoupled":
-            # copy necessary verilog and .dat files
-            # into verilog folder in code generation folder
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-            verilog_folder = "{}/project_{}/sol1/impl/verilog/".format(
-                code_gen_dir, self.onnx_node.name
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
-            # copy memstream components from finn-rtllib
-            memstream_dir = "/workspace/finn/finn-rtllib/memstream/hdl/"
-            for file in os.listdir(memstream_dir):
-                if file.endswith(".v"):
-                    verilog_file = os.path.join(memstream_dir, file)
-                    copy(verilog_file, verilog_folder)
-            # copy .dat files of weights
-            for file in os.listdir(code_gen_dir):
-                if file.endswith(".dat"):
-                    dat_file = os.path.join(code_gen_dir, file)
-                    copy(dat_file, verilog_folder)
-            # copy verilog wrapper
-            verilog_wrapper = "{}/{}_memstream.v".format(
-                code_gen_dir, self.onnx_node.name
+            # instantiate the hls ip
+            cmd.append(
+                "create_bd_cell -type ip -vlnv %s /%s/%s"
+                % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
             )
-            copy(verilog_wrapper, verilog_folder)
-            # prepare the IP packaging tcl template
-            template = templates.ip_package_tcl
-            self.code_gen_dict["$TOPNAME$"] = [
-                "{}_memstream".format(self.onnx_node.name)
-            ]
-            self.code_gen_dict["$VERILOG_DIR$"] = [verilog_folder]
-            for key in self.code_gen_dict:
-                # transform list into long string separated by '\n'
-                code_gen_line = "\n".join(self.code_gen_dict[key])
-                template = template.replace(key, code_gen_line)
-            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-            f = open(os.path.join(verilog_folder, "package_ip.tcl"), "w")
-            f.write(template)
-            f.close()
-            # create a shell script and call Vivado to invoke the IP pkg script
-            make_project_sh = verilog_folder + "/make_ip.sh"
-            working_dir = os.environ["PWD"]
-            with open(make_project_sh, "w") as f:
-                f.write("#!/bin/bash \n")
-                f.write("cd {}\n".format(verilog_folder))
-                f.write("vivado -mode batch -source package_ip.tcl\n")
-                f.write("cd {}\n".format(working_dir))
-            bash_command = ["bash", make_project_sh]
-            process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-            process_compile.communicate()
-            # re-set ip_path to point to the new packaged IP
-            self.set_nodeattr("ip_path", verilog_folder)
-            vlnv = "xilinx.com:hls:%s:1.0" % (
-                "{}_memstream".format(self.onnx_node.name)
+            # instantiate a streamer and connect it to the HLS IP
+            strm_vlnv = "xilinx.com:user:memstream:1.0"
+            strm_inst = node_name + "_wstrm"
+            cmd.append(
+                "create_bd_cell -type ip -vlnv %s /%s/%s"
+                % (strm_vlnv, node_name, strm_inst)
             )
-            self.set_nodeattr("ip_vlnv", vlnv)
-            self.code_gen_dict.clear()
+            cmd.append(
+                "set_property -dict [list "
+                "CONFIG.NSTREAMS {1} "
+                "CONFIG.MEM_DEPTH {%d} "
+                "CONFIG.MEM_WIDTH {%d} "
+                "CONFIG.MEM_INIT {%s} "
+                "CONFIG.RAM_STYLE {%s} "
+                "CONFIG.STRM0_DEPTH {%d} "
+                "CONFIG.STRM0_WIDTH {%d} "
+                "CONFIG.STRM0_OFFSET {0} "
+                "] [get_bd_cells /%s/%s]"
+                % (
+                    self.calc_wmem(),
+                    self.get_weightstream_width_padded(),
+                    self.get_nodeattr("code_gen_dir_ipgen") + "/",
+                    self.get_nodeattr("ram_style"),
+                    self.calc_wmem(),
+                    self.get_weightstream_width_padded(),
+                    node_name,
+                    strm_inst,
+                )
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
+                "[get_bd_intf_pins %s/%s/weights_V_V]"
+                % (node_name, strm_inst, node_name, node_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aresetn]"
+                % (node_name, rst_name, node_name, strm_inst)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aclk]"
+                % (node_name, clk_name, node_name, strm_inst)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, rst_name, node_name, node_name, rst_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, clk_name, node_name, node_name, clk_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                "[get_bd_intf_pins %s/%s/%s]"
+                % (node_name, din_name, node_name, node_name, din_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                "[get_bd_intf_pins %s/%s/%s]"
+                % (node_name, dout_name, node_name, node_name, dout_name)
+            )
+            if runtime_writable:
+                # expose axi lite interface for writeable weights
+                axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
+                cmd.append(
+                    "create_bd_intf_pin -mode Slave "
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
+                    % (node_name, axilite_name)
+                )
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                    "[get_bd_intf_pins %s/%s/%s]"
+                    % (node_name, axilite_name, node_name, strm_inst, axilite_name)
+                )
+                # TODO calculate and pass in segment size here
+                cmd.append("assign_bd_address")
+            cmd.append("save_bd_design")
+        elif mem_mode == "const":
+            # base class impl sufficient for const mode
+            return super().code_generation_ipi()
+        else:
+            raise Exception("Unrecognized mem_mode for StreamingFCLayer")
+        return cmd
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "external":
             intf_names["s_axis"] = ["in0_V_V", "weights_V_V"]
+        if mem_mode == "decoupled":
+            # only expose axilite interface if attribute is set
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writable:
+                intf_names["axilite"] = ["s_axilite"]
         return intf_names

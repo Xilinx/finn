@@ -29,8 +29,8 @@
 import os
 import numpy as np
 
-from finn.custom_op.fpgadataflow import HLSCustomOp
-from finn.custom_op.im2col import compute_conv_output_dim
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -99,7 +99,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         # derived from StreamingMaxPool_Batch loop nest
         k = self.get_nodeattr("PoolDim")
         ifm_dim = self.get_nodeattr("ImgDim")
-        return ifm_dim * (ifm_dim + (ifm_dim / k))
+        return int(ifm_dim * (ifm_dim + (ifm_dim / k)))
 
     def get_instream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()
@@ -138,14 +138,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":

@@ -25,8 +25,12 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# namespace package, extend path
+from pkgutil import extend_path
 
-from finn.transformation import Transformation
+__path__ = extend_path(__path__, __name__)
+
+from finn.transformation.base import Transformation
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import (
     ConvertSubToAdd,

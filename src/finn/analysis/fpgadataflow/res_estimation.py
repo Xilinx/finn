@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.custom_op.registry import getCustomOp
+import finn.custom_op.registry as registry
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -41,7 +41,7 @@ def res_estimation(model):
     res_dict = {}
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:
-            inst = getCustomOp(node)
+            inst = registry.getCustomOp(node)
             res_dict[node.name] = inst.node_res_estimation()
 
     return res_dict
@@ -60,7 +60,7 @@ def res_estimation_complete(model):
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:
             op_type = node.op_type
-            inst = getCustomOp(node)
+            inst = registry.getCustomOp(node)
             if op_type == "StreamingFCLayer_Batch" or op_type == "Vector_Vector_Activate_Batch":
                 orig_restype = inst.get_nodeattr("resType")
                 res_dict[node.name] = []

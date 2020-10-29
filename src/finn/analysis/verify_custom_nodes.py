@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import finn.custom_op.registry as registry
+from finn.util.basic import is_finn_op
 
 
 def verify_nodes(model):
@@ -39,9 +40,9 @@ def verify_nodes(model):
 
     verification_dict = {}
     for node in model.graph.node:
-        if node.domain == "finn":
+        if is_finn_op(node.domain):
             op_type = node.op_type
-            inst = registry.custom_op[op_type](node)
+            inst = registry.getCustomOp(node)
             verification_dict[op_type] = inst.verify_node()
 
     return verification_dict

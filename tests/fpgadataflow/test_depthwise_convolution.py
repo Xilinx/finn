@@ -43,7 +43,7 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 import finn.core.onnx_exec as oxe
-from finn.custom_op.im2col import compute_conv_output_dim
+from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 from finn.custom_op.registry import getCustomOp
 
@@ -51,9 +51,6 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 
 
 def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
@@ -73,7 +70,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         tdt = DataType.INT32
         thresh_node = oh.make_node(
             "MultiThreshold",
-            domain="finn",
+            domain="finn.custom_op.general",
             inputs=["outp", "T"],
             outputs=["out_act"],
             data_layout="NHWC",
@@ -96,7 +93,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 
     im2col_node = oh.make_node(
         "Im2Col",
-        domain="finn",
+        domain="finn.custom_op.general",
         inputs=["inp"],
         outputs=["im2col_out"],
         kernel_size=k,
@@ -243,7 +240,6 @@ def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(PrepareIP("xc7z020clg400-1", 5))
     new_model = new_model.transform(HLSSynthIP())
-    new_model = new_model.transform(ReplaceVerilogRelPaths())
     new_model = new_model.transform(PrepareRTLSim())
 
     assert oxe.compare_execution(model, new_model, input_dict)

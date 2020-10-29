@@ -2,7 +2,7 @@ import os
 import numpy as np
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -48,7 +48,7 @@ class FMPadding_Batch(HLSCustomOp):
         simd = self.get_nodeattr("SIMD")
         batch_size = self.get_nodeattr("numInputVectors")
         exp_cycles = (channels / simd) * batch_size * odim * odim
-        return exp_cycles
+        return int(exp_cycles)
 
     def get_normal_input_shape(self):
         idim = self.get_nodeattr("ImgDim")

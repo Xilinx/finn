@@ -89,18 +89,24 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
 : ${NUM_DEFAULT_WORKERS=1}
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
+: ${ALVEO_USERNAME="alveo_user"}
+: ${ALVEO_PASSWORD=""}
+: ${ALVEO_BOARD="U250"}
+: ${ALVEO_TARGET_DIR="/tmp"}
+: ${XILINX_XRT="/opt/xilinx/xrt"}
+: ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
+: ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 
-BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
+FINN_CONTAINER_BUILD_DIR=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
-VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
+VIVADO_IP_CACHE=$FINN_CONTAINER_BUILD_DIR/vivado_ip_cache
 
 # ensure build dir exists locally
-mkdir -p $BUILD_LOCAL
-mkdir -p $VIVADO_IP_CACHE
+mkdir -p $FINN_HOST_BUILD_DIR
 mkdir -p $FINN_SSH_KEY_DIR
 
 gecho "Instance is named as $DOCKER_INST_NAME"
-gecho "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
+gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_CONTAINER_BUILD_DIR"
 gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
 gecho "Mounting $VITIS_PATH into $VITIS_PATH"
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
@@ -142,7 +148,7 @@ DOCKER_EXEC="docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --i
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
-DOCKER_EXEC+="-v $BUILD_LOCAL:$BUILD_LOCAL "
+DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_CONTAINER_BUILD_DIR "
 DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/home/$DOCKER_UNAME/.ssh "
 DOCKER_EXEC+="-e FINN_INST_NAME=$DOCKER_INST_NAME "
 DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
@@ -161,10 +167,25 @@ if [ ! -z "$VIVADO_PATH" ];then
   DOCKER_EXEC+="-e VIVADO_PATH=$VIVADO_PATH "
 fi
 if [ ! -z "$VITIS_PATH" ];then
+  if [ -z "$PLATFORM_REPO_PATHS" ];then
+          recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
+          exit -1
+  fi
+  if [ -z "$XILINX_XRT" ];then
+          recho "XILINX_XRT must be set for Vitis/Alveo flows"
+          exit -1
+  fi
   DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
-  DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:/workspace/finn/vitis_platforms "
+  DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
+  DOCKER_EXEC+="-v $XILINX_XRT:$XILINX_XRT "
   DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
-  DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=/workspace/finn/vitis_platforms "
+  DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
+  DOCKER_EXEC+="-e XILINX_XRT=$XILINX_XRT "
+  DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
+  DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
+  DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
+  DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
+  DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
 fi
 DOCKER_EXEC+="$DOCKER_TAG $DOCKER_CMD"
 
