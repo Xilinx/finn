@@ -95,11 +95,11 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         my_attrs = {
             # channelwise "map" function to apply:
             # one of cmp_le, cmp_ge, add, mul
-            "Func": ("s", False, "cmp_le"),
+            "Func": ("s", False, "cmp_le", {"cmp_le", "cmp_ge", "add", "mul"}),
             "PE": ("i", True, 0),
             "NumChannels": ("i", True, 0),
             # string defining memory resource type for parameters
-            "ram_style": ("s", False, "distributed"),
+            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "paramDataType": ("s", True, ""),

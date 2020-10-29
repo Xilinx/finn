@@ -68,7 +68,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
-            "resType": ("s", False, "lut"),
+            "resType": ("s", False, "lut", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
@@ -78,9 +78,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "accDataType": ("s", False, "INT32"),
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
-            "binaryXnorMode": ("i", False, 0),
+            "binaryXnorMode": ("i", False, 0, {0, 1}),
             # no-activation mode (produce accumulators)
-            "noActivation": ("i", False, 0),
+            "noActivation": ("i", False, 0, {0, 1}),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -90,13 +90,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # const -- embedded weights, default, long compile/synth times
             # decoupled -- streaming weights with weight streamer packaged inside IP
             # external -- streaming weights with external streamer
-            "mem_mode": ("s", False, "const"),
+            "mem_mode": ("s", False, "const", {"const", "decoupled", "external"}),
             # FPGA resource type for memories in decoupled mode
             # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
             # see also https://www.xilinx.com/support/answers/38070.html
-            "ram_style": ("s", False, "auto"),
+            "ram_style": ("s", False, "auto", {"auto", "block", "distributed"}),
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -106,7 +106,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # always "flush" the accelerator by first passing a dummy input
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
-            "runtime_writeable_weights": ("i", False, 0),
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs

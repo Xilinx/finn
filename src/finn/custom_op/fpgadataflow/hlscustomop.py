@@ -82,7 +82,7 @@ class HLSCustomOp(CustomOp):
             "ipgen_path": ("s", False, ""),
             "ip_path": ("s", False, ""),
             "ip_vlnv": ("s", False, ""),
-            "exec_mode": ("s", False, ""),
+            "exec_mode": ("s", False, "", {"", "rtlsim", "cppsim"}),
             "cycles_rtlsim": ("i", False, 0),
             "cycles_estimate": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),

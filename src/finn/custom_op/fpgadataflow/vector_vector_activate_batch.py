@@ -25,14 +25,14 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             "Dim": ("i", True, 0),
             "Channels": ("i", True, 0),
             "Kernel": ("i", True, 0),
-            "resType": ("s", False, "auto"),
+            "resType": ("s", False, "auto", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             # no-activation mode (produce accumulators)
-            "noActivation": ("i", False, 0),
+            "noActivation": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -511,7 +511,6 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                 )
             )
 
-
     def bram_estimation(self):
         """Calculates resource estimation for BRAM"""
         # TODO add in/out FIFO contributions
@@ -524,7 +523,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         # assuming memories up to 128 deep get implemented in LUTs
         if self.calc_wmem() <= 128:
             return 0
-            
+
         if W == 1:
             return math.ceil(omega / 16384) * P
         elif W == 2:
@@ -580,7 +579,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             mult_luts = (2 * math.ceil((W + A) / 6) - 1) * (W + A)
         # accumulator
         k = self.get_nodeattr("Kernel")
-        acc_bits = W + A + math.ceil(math.log(k*k, 2))
+        acc_bits = W + A + math.ceil(math.log(k * k, 2))
         acc_luts = acc_bits
         # thresholds and threshold comparators
         thr_luts = 0
@@ -592,11 +591,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             thr_luts = (2 ** B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
             comp_luts = (2 ** B - 1) * acc_bits
 
-        return int(
-            c0
-            + c1 * (P * (mult_luts + acc_luts + thr_luts + comp_luts))
-            + c2
-        )
+        return int(c0 + c1 * (P * (mult_luts + acc_luts + thr_luts + comp_luts)) + c2)
 
     def dsp_estimation(self):
         # multiplication

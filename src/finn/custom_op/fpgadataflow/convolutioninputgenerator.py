@@ -70,13 +70,18 @@ class ConvolutionInputGenerator(HLSCustomOp):
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
-            "depthwise": ("i", False, 0),
+            "depthwise": ("i", False, 0, {0, 1}),
             # FPGA resource type for ConvolutionInputGenerator input buffer
             # auto -- let Vivado HLS decide
             # block -- use BRAM
             # distributed -- use LUTRAM
             # ultra -- use URAM
-            "ram_style": ("s", False, "distributed"),
+            "ram_style": (
+                "s",
+                False,
+                "distributed",
+                {"auto", "block", "distributed", "ultra"},
+            ),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
