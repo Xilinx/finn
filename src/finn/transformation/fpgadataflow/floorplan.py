@@ -38,11 +38,17 @@ import json
 
 class Floorplan(Transformation):
     """Perform Floorplanning of the dataflow design:
-    
-    -Separate DMAs into their own partitions IDs, 
-    -If not explicitly assigned, assign DWCs to SLRs to minimize SLLs required
-    -If not explicitly assigned, assign FIFOs to the SLR of the upstream node
-    -TODO: split the design into sections of defined size"""
+
+    floorplan: path to a JSON containing a dictionary with SLR assignments
+               for each node in the ONNX graph. Must be parse-able by
+               the ApplyConfig transform.
+
+    The transform applies the properties in the supplied JSON then:
+    -Separates DMAs into their own partitions IDs,
+    -If not explicitly assigned, assigns DWCs to SLRs to minimize SLLs required
+    -If not explicitly assigned, assigns FIFOs to the SLR of the upstream node
+
+    """
 
     def __init__(self, floorplan=None):
         super().__init__()

@@ -328,7 +328,18 @@ class VitisLink(Transformation):
 
 
 class VitisBuild(Transformation):
-    """Best-effort attempt at building the accelerator with Vitis."""
+    """Best-effort attempt at building the accelerator with Vitis.
+
+    fpga_part: string identifying the target FPGA
+    period_ns: target clock period
+    platform: target Alveo platform, one of ["U50", "U200", "U250", "U280"]
+    strategy: Vitis optimization strategy
+    enable_debug: add Chipscope to all AXI interfaces
+    floorplan_file: path to a JSON containing a dictionary with SLR assignments
+                    for each node in the ONNX graph. Must be parse-able by
+                    the ApplyConfig transform.
+
+    """
 
     def __init__(
         self,
