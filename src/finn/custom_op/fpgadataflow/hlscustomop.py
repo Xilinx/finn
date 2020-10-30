@@ -91,7 +91,22 @@ class HLSCustomOp(CustomOp):
             "res_synth": ("s", False, ""),
             "rtlsim_so": ("s", False, ""),
             # partitioning info
+            # ID of SLR to which the Op is attached in Vitis builds
+            # Set to -1 as 'don't care'
+            "slr": ("i", False, -1),
+            # Vitis memory port to which any AXI-MM interface
+            # of this Op should be attached in Vitis builds
+            # E.g.: "DDR[0]", "HBM[0]", "PLRAM[0]"
+            "mem_port": ("s", False, ""),
+            # Partition to which the Op belongs; all Ops with the
+            # same partition_id are stitched together
+            # Users should avoid setting this attribute manually
+            # and instead use the floorplan transform to set
+            # partition IDs from Vitis design rules and SLR IDs
             "partition_id": ("i", False, 0),
+            # ID of FPGA device to which this Op is allocated, in
+            # a multi-FPGA setting
+            "device_id": ("i", False, 0),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),

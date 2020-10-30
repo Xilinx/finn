@@ -328,7 +328,18 @@ class VitisLink(Transformation):
 
 
 class VitisBuild(Transformation):
-    """Best-effort attempt at building the accelerator with Vitis."""
+    """Best-effort attempt at building the accelerator with Vitis.
+
+    fpga_part: string identifying the target FPGA
+    period_ns: target clock period
+    platform: target Alveo platform, one of ["U50", "U200", "U250", "U280"]
+    strategy: Vitis optimization strategy
+    enable_debug: add Chipscope to all AXI interfaces
+    floorplan_file: path to a JSON containing a dictionary with SLR assignments
+                    for each node in the ONNX graph. Must be parse-able by
+                    the ApplyConfig transform.
+
+    """
 
     def __init__(
         self,
@@ -337,6 +348,7 @@ class VitisBuild(Transformation):
         platform,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
+        floorplan_file=None,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -344,6 +356,7 @@ class VitisBuild(Transformation):
         self.platform = platform
         self.strategy = strategy
         self.enable_debug = enable_debug
+        self.floorplan_file = floorplan_file
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -354,13 +367,18 @@ class VitisBuild(Transformation):
             MakePYNQDriver(platform="alveo"),
             InsertIODMA(512),
             InsertDWC(),
-            Floorplan(),
-            CreateDataflowPartition(),
         ]
         for trn in prep_transforms:
             model = model.transform(trn)
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
+
+        model = model.transform(Floorplan(floorplan=self.floorplan_file))
+
+        model = model.transform(CreateDataflowPartition())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+
         # Build each kernel individually
         sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
         for sdp_node in sdp_nodes:
