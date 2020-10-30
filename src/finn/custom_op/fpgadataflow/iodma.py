@@ -30,7 +30,7 @@ import numpy as np
 import math
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 
 
 # the IODMA inerfaces a memory-mapped AXI interface and an AXI stream
@@ -87,8 +87,8 @@ class IODMA(HLSCustomOp):
             "streamWidth": ("i", False, 32),
             # DMA-specific parameters
             "intfWidth": ("i", False, 32),
-            "burstMode": ("s", False, "increment"),
-            "direction": ("s", False, "in"),
+            "burstMode": ("s", False, "increment", {"wrap", "increment"}),
+            "direction": ("s", False, "in", {"in", "out"}),
             # shape describing input vecs per execution
             "numInputVectors": ("ints", False, [1]),
             # name of axi-mm interface

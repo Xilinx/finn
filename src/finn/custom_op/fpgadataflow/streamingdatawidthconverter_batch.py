@@ -30,7 +30,7 @@ import os
 import numpy as np
 import math
 
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -55,7 +55,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             # Toggle between hls or IPI implementation
             # hls - use the hls generated IP during stitching
             # vivado - use the AXI Infrastructure DWC
-            "impl_style": ("s", False, "hls"),
+            "impl_style": ("s", False, "hls", {"hls", "vivado"}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -186,14 +186,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":

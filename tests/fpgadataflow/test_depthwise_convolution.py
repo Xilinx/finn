@@ -43,7 +43,7 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 import finn.core.onnx_exec as oxe
-from finn.custom_op.im2col import compute_conv_output_dim
+from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 from finn.custom_op.registry import getCustomOp
 
@@ -70,7 +70,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         tdt = DataType.INT32
         thresh_node = oh.make_node(
             "MultiThreshold",
-            domain="finn",
+            domain="finn.custom_op.general",
             inputs=["outp", "T"],
             outputs=["out_act"],
             data_layout="NHWC",
@@ -93,7 +93,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 
     im2col_node = oh.make_node(
         "Im2Col",
-        domain="finn",
+        domain="finn.custom_op.general",
         inputs=["inp"],
         outputs=["im2col_out"],
         kernel_size=k,

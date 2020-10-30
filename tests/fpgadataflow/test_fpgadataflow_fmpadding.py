@@ -69,7 +69,7 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt, pad_sty
         "FMPadding_Batch",
         ["inp"],
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         ImgDim=idim,
         Padding=padding,

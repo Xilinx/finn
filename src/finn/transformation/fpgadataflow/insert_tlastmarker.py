@@ -84,7 +84,7 @@ class InsertTLastMarker(Transformation):
                 DynIters=(1 if self.dyniters else 0),
                 Direction="out",
                 Protocol=("external" if self.external else "internal"),
-                domain="finn",
+                domain="finn.custom_op.fpgadataflow",
                 backend="fpgadataflow",
             )
             model.graph.node.append(tlast_node)
@@ -159,7 +159,7 @@ class InsertTLastMarker(Transformation):
                         DynIters=(1 if self.dyniters else 0),
                         Direction="in",
                         Protocol=("external" if self.external else "internal"),
-                        domain="finn",
+                        domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
                     )
                     model.graph.node.insert(insert_idx, tlast_node)

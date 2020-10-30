@@ -2,7 +2,7 @@ import os
 import numpy as np
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -28,7 +28,7 @@ class FMPadding_Batch(HLSCustomOp):
             # controls distribution of padded pixels
             # in case of uneven padding -- see FMPadding fxn
             # in hlslib
-            "PaddingStyle": ("i", False, 2),
+            "PaddingStyle": ("i", False, 2, {2, 1}),
             # shape describing input vecs per execution
             "numInputVectors": ("i", False, 1),
         }

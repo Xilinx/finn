@@ -139,7 +139,7 @@ class InsertIODMA(Transformation):
                     intfWidth=intfwidth,
                     streamWidth=streamWidth,
                     direction="out",
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                 )
                 model.graph.node.append(dma_node)
@@ -172,7 +172,7 @@ class InsertIODMA(Transformation):
                     intfWidth=intfwidth,
                     streamWidth=streamWidth,
                     direction="in",
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                 )
                 model.graph.node.insert(0, dma_node)
@@ -212,7 +212,7 @@ class InsertIODMA(Transformation):
                     streamWidth=streamWidth,
                     direction="in",
                     burstMode="wrap",
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                 )
                 fc_node.input[1] = fc_node_in.name
