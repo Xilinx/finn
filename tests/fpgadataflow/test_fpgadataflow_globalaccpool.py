@@ -54,7 +54,7 @@ def make_accpool_modelwrapper(ch, pe, idim, idt):
         "GlobalAccPool_Batch",
         ["inp"],
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=ch,
         PE=pe,

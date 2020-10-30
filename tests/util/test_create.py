@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020 Xilinx, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -11,7 +11,7 @@
 #   this list of conditions and the following disclaimer in the documentation
 #   and/or other materials provided with the distribution.
 #
-# * Neither the name of FINN nor the names of its
+# * Neither the name of Xilinx nor the names of its
 #   contributors may be used to endorse or promote products derived from
 #   this software without specific prior written permission.
 #
@@ -26,22 +26,40 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import finn.custom_op.registry as registry
-from finn.util.fpgadataflow import is_fpgadataflow_node
+import pytest
+
+import finn.util.create as create
+from finn.core.datatype import DataType
 
 
-def exp_cycles_per_layer(model):
-    """Estimates the number of cycles per sample for dataflow layers in the given model.
-    Ensure that all nodes have unique names (by calling the GiveUniqueNodeNames
-    transformation) prior to calling this analysis pass to ensure all nodes are
-    visible in the results.
+@pytest.mark.parametrize("bitwidth", [DataType.BIPOLAR, DataType.INT2, DataType.INT4])
+def test_hls_random_mlp_maker(bitwidth):
+    w = bitwidth
+    a = bitwidth
+    layer_spec = [
+        {
+            "mw": 185,
+            "mh": 100,
+            "simd": 185,
+            "pe": 100,
+            "idt": DataType.BIPOLAR,
+            "wdt": w,
+            "act": a,
+        },
+        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
+        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
+        {"mw": 100, "mh": 100, "simd": 100, "pe": 100, "idt": a, "wdt": w, "act": a},
+        {
+            "mw": 100,
+            "mh": 1,
+            "simd": 100,
+            "pe": 1,
+            "idt": a,
+            "wdt": w,
+            "act": DataType.BIPOLAR,
+        },
+    ]
 
-    Returns {node name : cycle estimation}."""
-
-    cycle_dict = {}
-    for node in model.graph.node:
-        if is_fpgadataflow_node(node) is True:
-            inst = registry.getCustomOp(node)
-            cycle_dict[node.name] = inst.get_exp_cycles()
-
-    return cycle_dict
+    ret = create.hls_random_mlp_maker(layer_spec)
+    assert len(ret.graph.node) == 5
+    # ret.save("mlp-%s.onnx" % str(bitwidth))

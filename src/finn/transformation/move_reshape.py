@@ -1,10 +1,10 @@
 from finn.transformation.base import Transformation
-from finn.util.basic import get_by_name
+from finn.util.basic import get_by_name, is_finn_op
 
 
 def _is_fpgadataflow_node(node):
     if node is not None:
-        if node.domain == "finn":
+        if is_finn_op(node.domain):
             n_backend = get_by_name(node.attribute, "backend")
             if n_backend is None:
                 return False

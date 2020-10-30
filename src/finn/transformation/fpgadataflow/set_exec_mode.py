@@ -45,7 +45,7 @@ class SetExecMode(Transformation):
             if is_fpgadataflow_node(node) is True:
                 try:
                     # lookup op_type in registry of CustomOps
-                    inst = registry.custom_op[op_type](node)
+                    inst = registry.getCustomOp(node)
                     # set sim_mode accordingly to argument mode
                     inst.set_nodeattr("exec_mode", self.mode)
                     # ensure that sim_mode is now set

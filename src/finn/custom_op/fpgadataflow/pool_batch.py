@@ -29,7 +29,7 @@
 import os
 import numpy as np
 
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -60,9 +60,9 @@ class Pool_Batch(HLSCustomOp):
             "KernelSize": ("i", True, 0),
             # Function:
             #  - MaxPool
-            #  - AvgPool (not yet supported, but HLSLIB does)
-            #  - AccPool (not yet supported, but HLSLIB does)
-            "Function": ("s", True, ""),
+            #  - QuantAvgPool
+            # TODO add support for AvgPool and AccPool
+            "Function": ("s", True, "", {"MaxPool", "QuantAvgPool"}),
             "OutImgDim": ("i", True, 0),
             # FINN DataTypes for inputs/outputs
             "InputDataType": ("s", True, ""),
@@ -185,14 +185,6 @@ class Pool_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":

@@ -56,7 +56,7 @@ class CleanUp(Transformation):
             if is_fpgadataflow_node(node) is True:
                 try:
                     # lookup op_type in registry of CustomOps
-                    inst = registry.custom_op[op_type](node)
+                    inst = registry.getCustomOp(node)
                     # delete code_gen_dir from cppsim
                     code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
                     if os.path.isdir(code_gen_dir):

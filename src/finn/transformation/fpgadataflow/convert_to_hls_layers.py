@@ -105,7 +105,7 @@ class InferConvInpGen(Transformation):
                         "FMPadding_Batch",
                         [i2c_input],
                         [padding_out],
-                        domain="finn",
+                        domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
                         ImgDim=ifm_dim,
                         Padding=2 * pad,
@@ -121,7 +121,7 @@ class InferConvInpGen(Transformation):
                         "DownSampler",
                         [ConvInpGen_input],
                         [i2c_output],
-                        domain="finn",
+                        domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
                         ImgDim=ConvInpGen_idim,
                         NumChannels=ifm_ch,
@@ -136,7 +136,7 @@ class InferConvInpGen(Transformation):
                         "ConvolutionInputGenerator",
                         [ConvInpGen_input],
                         [i2c_output],
-                        domain="finn",
+                        domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
                         ConvKernelDim=k,
                         IFMChannels=ifm_ch,
@@ -187,7 +187,7 @@ class InferStreamingMaxPool(Transformation):
                         "StreamingMaxPool_Batch",
                         [mp_input],
                         [mp_output],
-                        domain="finn",
+                        domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
                         PoolDim=k,
                         NumChannels=ifm_ch,
@@ -314,7 +314,7 @@ class InferPool_Batch(Transformation):
                     "Im2Col",
                     [inp_trans_out],
                     [im2col_out],
-                    domain="finn",
+                    domain="finn.custom_op.general",
                     stride=stride,
                     kernel_size=k,
                     pad_amount=pad,
@@ -331,7 +331,7 @@ class InferPool_Batch(Transformation):
                     "Pool_Batch",
                     [im2col_out],
                     [pool_output],
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     InputDataType=idt.name,
                     OutputDataType=odt.name,
@@ -440,9 +440,8 @@ class InferBinaryStreamingFCLayer(Transformation):
                         "StreamingFCLayer_Batch",
                         [mm_input, mm_weight, mt_thres],
                         [mt_output],
-                        domain="finn",
+                        domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
-                        resType="ap_resource_lut()",
                         MW=mw,
                         MH=mh,
                         SIMD=simd,
@@ -471,9 +470,8 @@ class InferBinaryStreamingFCLayer(Transformation):
                         "StreamingFCLayer_Batch",
                         [mm_input, mm_weight],
                         [mm_output],
-                        domain="finn",
+                        domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
-                        resType="ap_resource_lut()",
                         MW=mw,
                         MH=mh,
                         SIMD=simd,
@@ -575,9 +573,8 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             "StreamingFCLayer_Batch",
                             [mm_input, mm_weight, mt_thres],
                             [mt_output],
-                            domain="finn",
+                            domain="finn.custom_op.fpgadataflow",
                             backend="fpgadataflow",
-                            resType="ap_resource_lut()",
                             MW=mw,
                             MH=mh,
                             SIMD=simd,
@@ -606,9 +603,8 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             "StreamingFCLayer_Batch",
                             [mm_input, mm_weight],
                             [mm_output],
-                            domain="finn",
+                            domain="finn.custom_op.fpgadataflow",
                             backend="fpgadataflow",
-                            resType="ap_resource_lut()",
                             MW=mw,
                             MH=mh,
                             SIMD=simd,
@@ -726,9 +722,9 @@ class InferVVAU(Transformation):
                             "Vector_Vector_Activate_Batch",
                             [mm_input, mm_weight, mt_thres],
                             [mt_output],
-                            domain="finn",
+                            domain="finn.custom_op.fpgadataflow",
                             backend="fpgadataflow",
-                            resType="ap_resource_lut()",
+                            resType="lut",
                             PE=pe,
                             Dim=mm_in_shape[1],
                             Channels=channels,
@@ -754,9 +750,9 @@ class InferVVAU(Transformation):
                             "Vector_Vector_Activate_Batch",
                             [mm_input, mm_weight],
                             [mm_output],
-                            domain="finn",
+                            domain="finn.custom_op.fpgadataflow",
                             backend="fpgadataflow",
-                            resType="ap_resource_lut()",
+                            resType="lut",
                             PE=pe,
                             Dim=mm_in_shape[1],
                             Channels=channels,
@@ -780,6 +776,10 @@ class InferVVAU(Transformation):
 class InferThresholdingLayer(Transformation):
     """Convert any MultiThreshold into a standalone thresholding HLS layer."""
 
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -791,6 +791,7 @@ class InferThresholdingLayer(Transformation):
                 thl_threshold = node.input[1]
                 thl_output = node.output[0]
                 thl_in_shape = model.get_tensor_shape(thl_input)
+                thl_thres_shape = model.get_tensor_shape(thl_threshold)
                 idt = model.get_tensor_datatype(thl_input)
 
                 # skip conversion for layers with float input
@@ -837,14 +838,17 @@ class InferThresholdingLayer(Transformation):
                     "Thresholding_Batch",
                     [thl_input, thl_threshold],
                     [thl_output],
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     NumChannels=ifc,
                     PE=pe,
+                    numSteps=thl_thres_shape[1],
                     inputDataType=idt.name,
+                    weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,
+                    mem_mode=self.mem_mode,
                 )
                 graph.node.insert(insert_point, new_node)
                 # remove old node
@@ -852,6 +856,7 @@ class InferThresholdingLayer(Transformation):
                 graph_modified = True
 
         if graph_modified:
+            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -926,7 +931,7 @@ class InferAddStreamsLayer(Transformation):
                     "AddStreams_Batch",
                     [in0, in1],
                     [result],
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     NumChannels=num_channels,
                     PE=pe,
@@ -986,7 +991,7 @@ class InferDuplicateStreamsLayer(Transformation):
                     "DuplicateStreams_Batch",
                     [output_tensor],
                     out_tensor_clones,
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     NumChannels=num_ch,
                     PE=pe,
@@ -1151,7 +1156,7 @@ class InferChannelwiseLinearLayer(Transformation):
                     "ChannelwiseOp_Batch",
                     [ll_input, ll_const],
                     [ll_output],
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     Func=func,
                     NumChannels=ch,
@@ -1212,7 +1217,7 @@ class InferLabelSelectLayer(Transformation):
                     "LabelSelect_Batch",
                     [fc_input],
                     [idx_output],
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     Labels=num_labels,
                     PE=pe,
@@ -1288,7 +1293,7 @@ class InferGlobalAccPoolLayer(Transformation):
                     "GlobalAccPool_Batch",
                     [in0],
                     [pool_out],
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                     NumChannels=num_ch,
                     PE=pe,

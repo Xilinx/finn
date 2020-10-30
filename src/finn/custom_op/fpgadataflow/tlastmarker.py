@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 
 
 class TLastMarker(HLSCustomOp):
@@ -47,14 +47,14 @@ class TLastMarker(HLSCustomOp):
             # whether static or dynamic (from AXI lite) number of iterations are used
             "DynIters": ("i", False, 1),
             # direction: whether to insert or remove TLAST
-            "Direction": ("s", False, "out"),
+            "Direction": ("s", False, "out", {"out", "in"}),
             # width of input-output data streams, in bits
             "StreamWidth": ("i", True, 0),
             # width of individual element in stream, in bits
             "ElemWidth": ("i", True, 0),
             # Protocol: external or internal
             # Vitis docs recommend using qdma_axis for external, ap_axiu for internal
-            "Protocol": ("s", False, "external"),
+            "Protocol": ("s", False, "external", {"external", "internal"}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
