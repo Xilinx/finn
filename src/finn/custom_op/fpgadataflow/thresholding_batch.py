@@ -70,7 +70,7 @@ class Thresholding_Batch(HLSCustomOp):
             # number of steps in thresholding function
             "numSteps": ("i", True, 1),
             # string defining memory type
-            "ram_style": ("s", False, "distributed"),
+            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
             # FINN DataTypes for inputs, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
@@ -88,7 +88,7 @@ class Thresholding_Batch(HLSCustomOp):
             # memory mode for the thresholds
             # const -- embedded thresholds, default
             # decoupled -- streaming thresholds with  streamer packaged inside IP
-            "mem_mode": ("s", False, "const"),
+            "mem_mode": ("s", False, "const", {"const", "decoupled"}),
             # (mem_mode = decoupled only) whether weights (thresholds) will be
             # writable through an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -98,7 +98,7 @@ class Thresholding_Batch(HLSCustomOp):
             # always "flush" the accelerator by first passing a dummy input
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
-            "runtime_writeable_weights": ("i", False, 0),
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs

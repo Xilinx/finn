@@ -60,9 +60,9 @@ class Pool_Batch(HLSCustomOp):
             "KernelSize": ("i", True, 0),
             # Function:
             #  - MaxPool
-            #  - AvgPool (not yet supported, but HLSLIB does)
-            #  - AccPool (not yet supported, but HLSLIB does)
-            "Function": ("s", True, ""),
+            #  - QuantAvgPool
+            # TODO add support for AvgPool and AccPool
+            "Function": ("s", True, "", {"MaxPool", "QuantAvgPool"}),
             "OutImgDim": ("i", True, 0),
             # FINN DataTypes for inputs/outputs
             "InputDataType": ("s", True, ""),

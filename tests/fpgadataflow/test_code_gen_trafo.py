@@ -55,7 +55,6 @@ def test_code_gen_trafo():
         backend="fpgadataflow",
         code_gen_dir="",
         executable_path="",
-        resType="ap_resource_lut()",
         MW=mw,
         MH=mh,
         SIMD=simd,

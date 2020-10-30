@@ -55,7 +55,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             # Toggle between hls or IPI implementation
             # hls - use the hls generated IP during stitching
             # vivado - use the AXI Infrastructure DWC
-            "impl_style": ("s", False, "hls"),
+            "impl_style": ("s", False, "hls", {"hls", "vivado"}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs

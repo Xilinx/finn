@@ -87,8 +87,8 @@ class IODMA(HLSCustomOp):
             "streamWidth": ("i", False, 32),
             # DMA-specific parameters
             "intfWidth": ("i", False, 32),
-            "burstMode": ("s", False, "increment"),
-            "direction": ("s", False, "in"),
+            "burstMode": ("s", False, "increment", {"wrap", "increment"}),
+            "direction": ("s", False, "in", {"in", "out"}),
             # shape describing input vecs per execution
             "numInputVectors": ("ints", False, [1]),
             # name of axi-mm interface

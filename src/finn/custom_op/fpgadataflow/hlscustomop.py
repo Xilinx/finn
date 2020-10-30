@@ -82,7 +82,7 @@ class HLSCustomOp(CustomOp):
             "ipgen_path": ("s", False, ""),
             "ip_path": ("s", False, ""),
             "ip_vlnv": ("s", False, ""),
-            "exec_mode": ("s", False, ""),
+            "exec_mode": ("s", False, "", {"", "rtlsim", "cppsim"}),
             "cycles_rtlsim": ("i", False, 0),
             "cycles_estimate": ("i", False, 0),
             "rtlsim_trace": ("s", False, ""),
@@ -194,6 +194,8 @@ class HLSCustomOp(CustomOp):
         ret["BRAM_18K"] = self.bram_estimation()
         ret["BRAM_efficiency"] = self.bram_efficiency_estimation()
         ret["LUT"] = self.lut_estimation()
+        ret["URAM"] = self.uram_estimation()
+        ret["DSP"] = self.dsp_estimation()
         return ret
 
     def bram_efficiency_estimation(self):
@@ -206,8 +208,18 @@ class HLSCustomOp(CustomOp):
         HLSCustomOp class but has to be filled by every node"""
         return 0
 
+    def uram_estimation(self):
+        """Function for UltraRAM resource estimation, is member function of
+        HLSCustomOp class but has to be filled by every node"""
+        return 0
+
     def lut_estimation(self):
         """Function for LUT resource estimation, is member function of
+        HLSCustomOp class but has to be filled by every node"""
+        return 0
+
+    def dsp_estimation(self):
+        """Function for DSP resource estimation, is member function of
         HLSCustomOp class but has to be filled by every node"""
         return 0
 

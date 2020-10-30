@@ -28,7 +28,7 @@ class FMPadding_Batch(HLSCustomOp):
             # controls distribution of padded pixels
             # in case of uneven padding -- see FMPadding fxn
             # in hlslib
-            "PaddingStyle": ("i", False, 2),
+            "PaddingStyle": ("i", False, 2, {2, 1}),
             # shape describing input vecs per execution
             "numInputVectors": ("i", False, 1),
         }

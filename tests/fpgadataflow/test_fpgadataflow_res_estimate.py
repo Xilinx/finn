@@ -28,7 +28,10 @@
 
 from onnx import TensorProto, helper
 
-from finn.analysis.fpgadataflow.res_estimation import res_estimation
+from finn.analysis.fpgadataflow.res_estimation import (
+    res_estimation,
+    res_estimation_complete,
+)
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.general import GiveUniqueNodeNames
@@ -53,7 +56,7 @@ def test_res_estimate():
     pe = 1
     idt = DataType.INT2
     wdt = DataType.INT2
-    odt = DataType.INT32
+    odt = DataType.INT2
     actval = odt.min()
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, mw])
@@ -66,7 +69,6 @@ def test_res_estimate():
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        resType="ap_resource_lut()",
         MW=mw,
         MH=mh,
         SIMD=simd,
@@ -93,13 +95,28 @@ def test_res_estimate():
     prod_resource_estimation = model.analysis(res_estimation)
     expect_resource_estimation = {
         "StreamingFCLayer_Batch_0": {
-            "BRAM_18K": 1,
-            "BRAM_efficiency": 0.001736111111111111,
-            "LUT": 304.4,
+            "BRAM_18K": 0,
+            "BRAM_efficiency": 1,
+            "LUT": 357,
+            "DSP": 0,
+            "URAM": 0,
         }
     }
 
     assert check_two_dict_for_equality(
         prod_resource_estimation, expect_resource_estimation
     ), """The produced output of
-    the resource estimation analysis pass is not equal to the expected one"""
+    the res_estimation analysis pass is not equal to the expected one"""
+
+    prod_resource_estimation = model.analysis(res_estimation_complete)
+    expect_resource_estimation = {
+        "StreamingFCLayer_Batch_0": [
+            {"BRAM_18K": 0, "BRAM_efficiency": 1, "LUT": 352, "DSP": 1, "URAM": 0},
+            {"BRAM_18K": 0, "BRAM_efficiency": 1, "LUT": 357, "DSP": 0, "URAM": 0},
+        ]
+    }
+
+    assert check_two_dict_for_equality(
+        prod_resource_estimation, expect_resource_estimation
+    ), """The produced output of
+    the res_estimation_complete analysis pass is not equal to the expected one"""

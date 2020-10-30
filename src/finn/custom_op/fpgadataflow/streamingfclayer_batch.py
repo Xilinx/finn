@@ -68,7 +68,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
-            "resType": ("s", True, ""),
+            "resType": ("s", False, "lut", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
@@ -78,9 +78,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "accDataType": ("s", False, "INT32"),
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
-            "binaryXnorMode": ("i", False, 0),
+            "binaryXnorMode": ("i", False, 0, {0, 1}),
             # no-activation mode (produce accumulators)
-            "noActivation": ("i", False, 0),
+            "noActivation": ("i", False, 0, {0, 1}),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -90,13 +90,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # const -- embedded weights, default, long compile/synth times
             # decoupled -- streaming weights with weight streamer packaged inside IP
             # external -- streaming weights with external streamer
-            "mem_mode": ("s", False, "const"),
+            "mem_mode": ("s", False, "const", {"const", "decoupled", "external"}),
             # FPGA resource type for memories in decoupled mode
             # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
             # see also https://www.xilinx.com/support/answers/38070.html
-            "ram_style": ("s", False, "auto"),
+            "ram_style": ("s", False, "auto", {"auto", "block", "distributed"}),
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -106,7 +106,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # always "flush" the accelerator by first passing a dummy input
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
-            "runtime_writeable_weights": ("i", False, 0),
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -231,7 +231,27 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
         omega = (D_in * D_out) / (Q * P)
-        return P * (math.ceil(omega / 512)) * (math.ceil((Q * W) / 36))
+        mem_width = Q * W * P
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle == "distributed") or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            return 0
+        # assuming SDP mode RAMB18s (see UG573 Table 1-10)
+        # assuming decoupled (RTL) memory, which is more efficient than const (HLS)
+        if mem_width == 1:
+            return math.ceil(omega / 16384)
+        elif mem_width == 2:
+            return math.ceil(omega / 8192)
+        elif mem_width <= 4:
+            return (math.ceil(omega / 4096)) * (math.ceil(mem_width / 4))
+        elif mem_width <= 9:
+            return (math.ceil(omega / 2048)) * (math.ceil(mem_width / 9))
+        elif mem_width <= 18 or omega > 512:
+            return (math.ceil(omega / 1024)) * (math.ceil(mem_width / 18))
+        else:
+            return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
 
     def bram_efficiency_estimation(self):
         wdt = self.get_weight_datatype()
@@ -239,6 +259,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
         bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
         wbits = W * D_in * D_out
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
@@ -254,6 +276,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # TODO add in/out FIFO contributions
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
+        MW = self.get_nodeattr("MW")
         wdt = self.get_weight_datatype()
         W = wdt.bitwidth()
         # determine tdt with input and weight data types
@@ -262,8 +285,55 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # parameters from experiments in paper mentioned above
         c0 = 300
         c1 = 1.1
+        c2 = 0
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle == "distributed") or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
 
-        return c0 + c1 * (P * Q) * (W * A)
+        # multiplication
+        res_type = self.get_nodeattr("resType")
+        if res_type == "dsp":
+            mult_luts = 0
+        else:
+            mult_luts = Q * (2 * math.ceil((W + A) / 6) - 1) * (W + A)
+        # adder tree
+        addertree_luts = (W + A) * (2 * Q - 1)
+        # accumulator
+        acc_bits = W + A + np.ceil(math.log(MW, 2))
+        acc_luts = acc_bits
+        # thresholds and threshold comparators
+        thr_luts = 0
+        comp_luts = 0
+        noact = self.get_nodeattr("noActivation")
+        if noact == 0:
+            odt = self.get_output_datatype()
+            B = odt.bitwidth()
+            thr_luts = (2 ** B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
+            comp_luts = (2 ** B - 1) * acc_bits
+
+        return int(
+            c0
+            + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts))
+            + c2
+        )
+
+    def dsp_estimation(self):
+        # multiplication
+        P = self.get_nodeattr("PE")
+        res_type = self.get_nodeattr("resType")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        if res_type == "dsp":
+            mult_dsp = P * Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
+        else:
+            mult_dsp = 0
+        return int(mult_dsp)
 
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
@@ -915,6 +985,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def docompute(self):
         mem_mode = self.get_nodeattr("mem_mode")
+        map_to_hls_mult_style = {
+            "auto": "ap_resource_dflt()",
+            "lut": "ap_resource_lut()",
+            "dsp": "ap_resource_dsp()",
+        }
         tmpl_args = self.get_template_param_values()
         if self.calc_tmem() == 0:
             odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
@@ -931,7 +1006,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
                     threshs,
-                    self.get_nodeattr("resType"),
+                    map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
             ]
         elif mem_mode == "decoupled" or mem_mode == "external":
@@ -949,7 +1024,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     tmpl_args["TWeightI"],
                     wdtype_hls_str,
                     threshs,
-                    self.get_nodeattr("resType"),
+                    map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
             ]
 
