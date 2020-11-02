@@ -222,8 +222,12 @@ class VitisLink(Transformation):
             config.append("slr=%s:SLR0" % instance_names[node.name])
             # assign memory banks
             if producer is None or consumer is None:
+                mem_type = "DDR"
+                # U50 uses HBM
+                if os.getenv("ALVEO_BOARD") == "U50":
+                    mem_type = "HBM"
                 config.append(
-                    "sp=%s.m_axi_gmem0:DDR[%d]" % (instance_names[node.name], 0)
+                    "sp=%s.m_axi_gmem0:%s[%d]" % (instance_names[node.name], mem_type, 0)
                 )
             # connect streams
             if producer is not None:
