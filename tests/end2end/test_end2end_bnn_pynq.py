@@ -147,6 +147,27 @@ def fold_tfc(model):
     return model
 
 
+def fold_lfc(model):
+    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    # (PE, SIMD, ramstyle) for each layer
+    config = [
+        (32, 49, "block"),
+        (64, 32, "auto"),
+        (32, 64, "auto"),
+        (10, 8, "distributed"),
+    ]
+    for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
+        fcl_inst = getCustomOp(fcl)
+        fcl_inst.set_nodeattr("PE", pe)
+        fcl_inst.set_nodeattr("SIMD", simd)
+        fcl_inst.set_nodeattr("ram_style", ramstyle)
+    # set parallelism for input quantizer to be same as first layer's SIMD
+    inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
+    inp_qnt = getCustomOp(inp_qnt_node)
+    inp_qnt.set_nodeattr("PE", 49)
+    return model
+
+
 def fold_cnv_large(model):
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     # each tuple is (PE, SIMD) for a layer
@@ -205,6 +226,8 @@ def fold_cnv_small(model):
 def get_folding_function(topology, wbits, abits):
     if "tfc" in topology:
         return fold_tfc
+    elif "lfc" in topology:
+        return fold_lfc
     elif "cnv" in topology:
         if wbits == 1 and abits == 1:
             return fold_cnv_large
@@ -281,11 +304,13 @@ def topology2dataset(topology):
 
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("abits", [1, 2])
-@pytest.mark.parametrize("topology", ["tfc", "cnv"])
+@pytest.mark.parametrize("topology", ["lfc", "tfc", "cnv"])
 class TestEnd2End:
     def test_export(self, topology, wbits, abits):
         if wbits > abits:
             pytest.skip("No wbits > abits end2end network configs for now")
+        if topology == "lfc" and wbits > 1:
+            pytest.skip("Skipping non-existing lfc configs")
         (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
         chkpt_name = get_checkpoint_name(topology, wbits, abits, "export")
         bo.export_finn_onnx(model, ishape, chkpt_name)
