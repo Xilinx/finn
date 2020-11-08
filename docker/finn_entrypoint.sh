@@ -12,8 +12,8 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-FINN_BASE_COMMIT=3c379063610f7b9add083c1b73fb087fa1dc166b
-BREVITAS_COMMIT=b75e0408d9759ed519296e3af29b9c16fb94b0b8
+FINN_BASE_COMMIT=f3569f7e809de39af68851c049cfa90291e29f96
+BREVITAS_COMMIT=aff49758ec445d77c75721c7de3091a2a1797ca8
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=cfafe11a93b79ab1af7529d68f08886913a6466e
 PYVERILATOR_COMMIT=06c29ecf3ba0361e3d0a75c98f6918ba67bf0e27
@@ -46,6 +46,8 @@ git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT --quiet
 gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
 git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
+# run pip install for finn
+pip install --user -e $FINN_ROOT
 
 if [ ! -z "$VIVADO_PATH" ];then
   # source Vivado env.vars

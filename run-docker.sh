@@ -138,8 +138,6 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg UNAME=$DOCKER_UNAME \
              --build-arg UID=$DOCKER_UID \
              --build-arg PASSWD=$DOCKER_PASSWD \
-             --build-arg JUPYTER_PORT=$JUPYTER_PORT \
-             --build-arg NETRON_PORT=$NETRON_PORT \
              .
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
@@ -159,6 +157,8 @@ DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
 DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
 DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
+DOCKER_EXEC+="-e JUPYTER_PORT=$JUPYTER_PORT "
+DOCKER_EXEC+="-e NETRON_PORT=$NETRON_PORT "
 DOCKER_EXEC+="-p $JUPYTER_PORT:$JUPYTER_PORT "
 DOCKER_EXEC+="-p $NETRON_PORT:$NETRON_PORT "
 if [ ! -z "$VIVADO_PATH" ];then

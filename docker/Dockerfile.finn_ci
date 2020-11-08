@@ -36,8 +36,8 @@ WORKDIR /workspace
 RUN apt-get update
 RUN apt-get -y upgrade
 RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
-RUN apt-get install -y verilator zsh
-RUN apt-get -y install sshpass wget unzip
+RUN apt-get install -y verilator zsh nano
+RUN apt-get install -y sshpass wget unzip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # XRT deps
@@ -63,14 +63,11 @@ RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-x
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
-RUN apt update; apt install nano
 RUN pip install pytest-dependency
 RUN pip install pytest-xdist
 RUN pip install pytest-parallel
 RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 ENV VIVADO_IP_CACHE "$BUILD_PATH/vivado_ip_cache"
 ENV PATH "${PATH}:/workspace/oh-my-xilinx"
 ENV OHMYXILINX "/workspace/oh-my-xilinx"
