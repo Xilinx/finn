@@ -42,6 +42,7 @@ git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT --quiet
 gecho "PyVerilator @ $PYVERILATOR_COMMIT"
 git -C /workspace/pyverilator pull --quiet
 git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT --quiet
+pip install --user -e /workspace/pyverilator
 # oh-my-xilinx
 gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
