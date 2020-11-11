@@ -371,7 +371,7 @@ void Thresholding_Stream_Batch(hls::stream<TI> &in,
   // alternatively: number of vertical matrix chunks
   unsigned const NF = NumChannels / PE;
 
-  ThresholdsActivation<1, PE, NumSteps, TT, TO, ActVal, std::less_equal<TT>> internal_thr;
+  ThresholdsActivation<1, PE, NumSteps, TT, TO, ActVal, comp::less_equal<TT>> internal_thr;
   #pragma HLS ARRAY_PARTITION variable=internal_thr.m_thresholds complete dim=0
 
   // everything merged into a common iteration space (one "big" loop instead

@@ -275,7 +275,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                         tdt_hls,
                         odt_hls,
                         self.get_nodeattr("ActVal"),
-                        "std::less_equal<%s>" % tdt_hls,
+                        "comp::less_equal<%s>" % tdt_hls,
                     )
                 )
                 f_thresh.write(thresholds_hls_code)

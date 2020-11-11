@@ -363,7 +363,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         # get desired function
         func = self.get_nodeattr("Func")
         if func == "cmp_le":
-            func_str = "std::less_equal"
+            func_str = "comp::less_equal"
         elif func == "cmp_ge":
             func_str = "std::greater_equal"
         elif func == "add":
