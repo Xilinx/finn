@@ -37,10 +37,11 @@ import finn.transformation.streamline.absorb as absorb
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import (
-    RemoveUnusedTensors,
-    RemoveStaticGraphInputs,
+    ApplyConfig,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
+    RemoveUnusedTensors,
+    RemoveStaticGraphInputs,
 )
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
@@ -52,6 +53,16 @@ from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
+import time
+from shutil import copy, copytree
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.util.basic import pynq_part_map, alveo_part_map
 
 
 class ShellFlowType(Enum):
@@ -72,18 +83,52 @@ class ComputeEngineMemMode(Enum):
 
 @dataclass
 class DataflowBuildConfig:
+    "Build configuration to be passed to the build_dataflow function."
+
     output_dir: str
     folding_config_file: str
-    hls_clk_period_ns: float
     synth_clk_period_ns: float
     board: str
     shell_flow_type: ShellFlowType
     generate_outputs: List[DataflowOutputType]
     fpga_part: str = None
+    auto_fifo_depths: bool = True
+    hls_clk_period_ns: float = None
     default_mem_mode: ComputeEngineMemMode = ComputeEngineMemMode.DECOUPLED
     vitis_platform: str = None
+    vitis_floorplan_file: str = None
     save_intermediate_models: bool = False
     enable_debug: bool = False
+
+    def resolve_hls_clk_period(self):
+        if self.hls_clk_period_ns is None:
+            # use same clk for synth and hls if not explicitly specified
+            return self.synth_clk_period_ns
+        else:
+            return self.hls_clk_period_ns
+
+    def resolve_driver_platform(self):
+        if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
+            return "zynq-iodma"
+        elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+            return "alveo"
+        else:
+            raise Exception(
+                "Couldn't resolve driver platform for " + str(self.shell_flow_type)
+            )
+
+    def resolve_fpga_part(self):
+        if self.fpga_part is None:
+            # lookup from part map if not specified
+            if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
+                return pynq_part_map[self.board]
+            elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+                return alveo_part_map[self.board]
+            else:
+                raise Exception("Couldn't resolve fpga_part for " + self.board)
+        else:
+            # return as-is when explicitly specified
+            return self.fpga_part
 
 
 def tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -138,31 +183,111 @@ def convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def build_dataflow(
-    model,
-    output_dir,
-    folding_config_dict,
-    hls_clock_setting,
-    synth_clock_setting,
-    board,
-    flow_type,
-    fpga_part=None,
-    generate_outputs=["bitfile", "driver", "stitched_ip"],
-    save_intermediate_models=False,
-    enable_debug=False,
-):
+def apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(ApplyConfig(cfg.folding_config_file))
+    return model
+
+
+def hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
+    model = model.transform(
+        PrepareIP(cfg.resolve_fpga_part(), cfg.resolve_hls_clk_period())
+    )
+    model = model.transform(HLSSynthIP())
+    return model
+
+
+def auto_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
+    if cfg.auto_fifo_depths:
+        model = model.transform(
+            InsertAndSetFIFODepths(
+                cfg.resolve_fpga_part(), cfg.resolve_hls_clk_period()
+            )
+        )
+    return model
+
+
+def create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
+    if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
+        stitched_ip_dir = cfg.output_dir + "/stitched_ip"
+        os.makedirs(stitched_ip_dir)
+        model = model.transform(
+            CreateStitchedIP(cfg.resolve_fpga_part(), cfg.synth_clk_period_ns)
+        )
+        # TODO copy all ip sources into output dir? as zip?
+        copytree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
+    return model
+
+
+def make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
+    if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
+        driver_dir = cfg.output_dir + "driver"
+        os.makedirs(driver_dir)
+        model = model.transform(MakePYNQDriver(cfg.resolve_driver_platform()))
+        copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
+    return model
+
+
+def synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
+    if DataflowOutputType.BITFILE in cfg.generate_outputs:
+        bitfile_dir = cfg.output_dir + "∕bitfile"
+        os.makedirs(bitfile_dir)
+        if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
+            model = model.transform(
+                ZynqBuild(cfg.board, cfg.synth_clk_period_ns, cfg.enable_debug)
+            )
+            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.bit")
+            copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
+        elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
+            model = model.transform(
+                VitisBuild(
+                    cfg.resolve_fpga_part(),
+                    cfg.synth_clk_period_ns,
+                    cfg.vitis_platform,
+                    enable_debug=cfg.enable_debug,
+                    floorplan_file=cfg.vitis_floorplan_file,
+                )
+            )
+            copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")
+        else:
+            raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
+
+    return model
+
+
+def build_dataflow(model, cfg: DataflowBuildConfig):
     # load the model if specified as filename
     if type(model) == str:
         model = ModelWrapper(model)
     assert type(model) is ModelWrapper
     # create the output dir if it doesn't exist
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    transform_steps = [tidy_up, streamline, convert_to_hls]
+    if not os.path.exists(cfg.output_dir):
+        os.makedirs(cfg.output_dir)
+    transform_steps = [
+        tidy_up,
+        streamline,
+        convert_to_hls,
+        apply_folding_config,
+        hls_ipgen,
+        auto_set_fifo_depths,
+        create_stitched_ip,
+        make_pynq_driver,
+        synthesize_bitfile,
+    ]
     step_no = 0
+    time_per_step = dict()
     for transform_step in transform_steps:
+        step_name = transform_step.__name__
+        print("Running step: %s [%d/%d]" % (step_name, step_no, len(transform_steps)))
+        step_start = time.time()
         model = transform_step(model)
-        chkpt_name = "%d_%s.onnx" % (step_no, transform_step.__name__)
-        if save_intermediate_models:
-            model.save("%s/%s" % (output_dir, chkpt_name))
+        step_end = time.time()
+        time_per_step[step_name] = step_end - step_start
+        chkpt_name = "%d_%s.onnx" % (step_no, step_name)
+        if cfg.save_intermediate_models:
+            intermediate_model_dir = cfg.output_dir + "/intermediate_models"
+            os.makedirs(intermediate_model_dir)
+            model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
         step_no += 1
+    with open(cfg.output_dir + "/time_per_step.txt", "w") as f:
+        f.write(str(time_per_step))
