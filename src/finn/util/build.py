@@ -103,6 +103,8 @@ class DataflowBuildConfig:
     vitis_floorplan_file: str = None
     save_intermediate_models: bool = False
     enable_debug: bool = False
+    from_step_num: int = None
+    to_step_num: int = None
 
     def resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
@@ -219,33 +221,37 @@ def auto_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 cfg.resolve_fpga_part(), cfg.resolve_hls_clk_period()
             )
         )
+        model = model.transform(
+            PrepareIP(cfg.resolve_fpga_part(), cfg.resolve_hls_clk_period())
+        )
+        model = model.transform(HLSSynthIP())
     return model
 
 
 def create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
         stitched_ip_dir = cfg.output_dir + "/stitched_ip"
-        os.makedirs(stitched_ip_dir)
         model = model.transform(
             CreateStitchedIP(cfg.resolve_fpga_part(), cfg.synth_clk_period_ns)
         )
         # TODO copy all ip sources into output dir? as zip?
         copytree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
+        print("Vivado stitched IP written into " + stitched_ip_dir)
     return model
 
 
 def make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
-        driver_dir = cfg.output_dir + "driver"
-        os.makedirs(driver_dir)
+        driver_dir = cfg.output_dir + "/driver"
         model = model.transform(MakePYNQDriver(cfg.resolve_driver_platform()))
         copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
+        print("PYNQ Python driver written into " + driver_dir)
     return model
 
 
 def synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
     if DataflowOutputType.BITFILE in cfg.generate_outputs:
-        bitfile_dir = cfg.output_dir + "∕bitfile"
+        bitfile_dir = cfg.output_dir + "/bitfile"
         os.makedirs(bitfile_dir)
         if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             model = model.transform(
@@ -266,15 +272,16 @@ def synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
+        print("Bitfile written into " + bitfile_dir)
 
     return model
 
 
-def build_dataflow(model, cfg: DataflowBuildConfig):
-    # load the model if specified as filename
-    if type(model) == str:
-        model = ModelWrapper(model)
+def build_dataflow(model_filename, cfg: DataflowBuildConfig):
+    model = ModelWrapper(model_filename)
     assert type(model) is ModelWrapper
+    print("Building dataflow accelerator from " + model_filename)
+    print("Outputs will be generated at " + cfg.output_dir)
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
@@ -290,21 +297,28 @@ def build_dataflow(model, cfg: DataflowBuildConfig):
         make_pynq_driver,
         synthesize_bitfile,
     ]
-    step_no = 0
+    step_num = 0
     time_per_step = dict()
     for transform_step in transform_steps:
+        if cfg.from_step_num is not None and step_num < cfg.from_step_num:
+            step_num += 1
+            continue
+        if cfg.to_step_num is not None and step_num > cfg.to_step_num:
+            step_num += 1
+            continue
         step_name = transform_step.__name__
-        print("Running step: %s [%d/%d]" % (step_name, step_no, len(transform_steps)))
+        print("Running step: %s [%d/%d]" % (step_name, step_num, len(transform_steps)))
         step_start = time.time()
         model = transform_step(model, cfg)
         step_end = time.time()
         time_per_step[step_name] = step_end - step_start
-        chkpt_name = "%d_%s.onnx" % (step_no, step_name)
+        chkpt_name = "%d_%s.onnx" % (step_num, step_name)
         if cfg.save_intermediate_models:
             intermediate_model_dir = cfg.output_dir + "/intermediate_models"
             if not os.path.exists(intermediate_model_dir):
                 os.makedirs(intermediate_model_dir)
             model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
-        step_no += 1
+        step_num += 1
     with open(cfg.output_dir + "/time_per_step.txt", "w") as f:
         f.write(str(time_per_step))
+    print("Completed successfully")
