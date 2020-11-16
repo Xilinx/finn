@@ -63,6 +63,10 @@ from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.util.basic import pynq_part_map, alveo_part_map
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
+)
+from finn.custom_op.registry import getCustomOp
 
 
 class ShellFlowType(Enum):
@@ -160,7 +164,7 @@ def streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 
 def convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
-    mem_mode = cfg.default_mem_mode
+    mem_mode = cfg.default_mem_mode.value
     # needed for bipolar MatMul layers
     model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
     # needed for non-bipolar MatMul layers
@@ -180,6 +184,17 @@ def convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferDataLayouts())
+    return model
+
+
+def create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig):
+    parent_model = model.transform(CreateDataflowPartition())
+    sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
+    assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
+    sdp_node = sdp_nodes[0]
+    sdp_node = getCustomOp(sdp_node)
+    dataflow_model_filename = sdp_node.get_nodeattr("model")
+    model = ModelWrapper(dataflow_model_filename)
     return model
 
 
@@ -267,6 +282,7 @@ def build_dataflow(model, cfg: DataflowBuildConfig):
         tidy_up,
         streamline,
         convert_to_hls,
+        create_dataflow_partition,
         apply_folding_config,
         hls_ipgen,
         auto_set_fifo_depths,
@@ -280,13 +296,14 @@ def build_dataflow(model, cfg: DataflowBuildConfig):
         step_name = transform_step.__name__
         print("Running step: %s [%d/%d]" % (step_name, step_no, len(transform_steps)))
         step_start = time.time()
-        model = transform_step(model)
+        model = transform_step(model, cfg)
         step_end = time.time()
         time_per_step[step_name] = step_end - step_start
         chkpt_name = "%d_%s.onnx" % (step_no, step_name)
         if cfg.save_intermediate_models:
             intermediate_model_dir = cfg.output_dir + "/intermediate_models"
-            os.makedirs(intermediate_model_dir)
+            if not os.path.exists(intermediate_model_dir):
+                os.makedirs(intermediate_model_dir)
             model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
         step_no += 1
     with open(cfg.output_dir + "/time_per_step.txt", "w") as f:
