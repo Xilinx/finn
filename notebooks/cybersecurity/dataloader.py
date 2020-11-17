@@ -2,6 +2,7 @@ import torch
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import OneHotEncoder
+from sklearn import preprocessing
 
 class UNSW_NB15(torch.utils.data.Dataset):
     def __init__(self, file_path, sequence_length=25, transform=None, onehot=True):   
@@ -25,7 +26,7 @@ class UNSW_NB15(torch.utils.data.Dataset):
             self.one_hot_encoded_df = self.one_hot_encoding(self.dataframe)
         else:
             #self.dataframe = self.dataframe.drop(["proto","service","state"],1)
-            self.one_hot_encoded_df = pd.DataFrame()
+            self.one_hot_encoded_df = self.integer_encoding(self.dataframe)
                 
         #normalize df
         #self.one_hot_encoded_df.apply(lambda x: x/x.max(), axis=0)
@@ -78,15 +79,15 @@ class UNSW_NB15(torch.utils.data.Dataset):
     
     
 
-    def integer_encoding(self):
+    def integer_encoding(self, df):
         """Applies integer encoding to the proto, service and state columns of the dataframe"""
         le = preprocessing.LabelEncoder()
 
         #self.dataframe['attack_cat'] = le.fit_transform(self.dataframe['attack_cat'])
-        self.dataframe['proto'] = le.fit_transform(self.dataframe['proto'])
-        self.dataframe['service'] = le.fit_transform(self.dataframe['service'])
-        self.dataframe['state'] = le.fit_transform(self.dataframe['state']) 
-        return self.dataframe
+        df['proto'] = le.fit_transform(df['proto'])
+        df['service'] = le.fit_transform(df['service'])
+        df['state'] = le.fit_transform(df['state']) 
+        return df
     
     # Apply 1 hot encoding to the dataframe
     def one_hot_encoding(self, df):
