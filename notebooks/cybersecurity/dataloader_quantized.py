@@ -6,7 +6,7 @@ from sklearn.preprocessing import OneHotEncoder
 import math
 
 class UNSW_NB15_quantized(torch.utils.data.Dataset):
-    def __init__(self, file_path_train, file_path_test, quantization=True, onehot=True, train=True, sequence_length=25, transform=None):   
+    def __init__(self, file_path_train, file_path_test, quantization=True, onehot=False, train=True, sequence_length=25, transform=None):   
         self.dataframe = pd.concat([pd.read_csv(file_path_train), pd.read_csv(file_path_test)]).reset_index().drop(columns = ['index'])
         self.transform = transform
         self.sequence_length = sequence_length
@@ -29,9 +29,9 @@ class UNSW_NB15_quantized(torch.utils.data.Dataset):
             _, self.to_be_tensor_train, self.to_be_tensor_test = self.quantize_df(self.to_be_tensor_df)        
         
         if train:
-            self.data = torch.FloatTensor(self.to_be_tensor_train.values.astype('float')) #create tensor
+            self.data = torch.FloatTensor(self.to_be_tensor_train.astype('float')) #create tensor
         else:
-            self.data = torch.FloatTensor(self.to_be_tensor_test.values.astype('float')) #create tensor
+            self.data = torch.FloatTensor(self.to_be_tensor_test.astype('float')) #create tensor
             
         print(self.data.shape)
        
@@ -127,6 +127,8 @@ class UNSW_NB15_quantized(torch.utils.data.Dataset):
         get_min_positive_number = lambda vector: vector[vector > 0].min()
         # computes the maximum required bits necessary to represent each number from a vector of numbers
         get_max_bits = lambda vector: math.ceil(math.log2(float(vector.max())+1.0))
+        # splits a string into a list of all characters
+        char_split = lambda s: np.array([ch for ch in s]) 
 
         df_encoded = self.integer_encoding(df)
         python_quantized_df = df_encoded.copy()
@@ -151,11 +153,15 @@ class UNSW_NB15_quantized(torch.utils.data.Dataset):
                 column_data.update(pd.Series(dict_correct_rate_values))
         
             python_quantized_df[column] = self.dec2bin(column_data, maxbits, left_msb=False).reshape((-1,1)).flatten()
-        
-        python_train = python_quantized_df.iloc[:175341]
-        python_test  = python_quantized_df.iloc[175341:]
+               
+        for column in python_quantized_df.columns:
+            python_quantized_df[column] = python_quantized_df[column].apply(char_split).values
+       
+        python_quantized_df_separated = pd.DataFrame(np.column_stack(python_quantized_df.values.T.tolist()))
+        python_train = python_quantized_df_separated.iloc[:175341]
+        python_test  = python_quantized_df_separated.iloc[175341:]
 
-        return python_quantized_df, python_train, python_test
+        return python_quantized_df_separated.values, python_train.values, python_test.values
     
     def one_hot_encoding(self, df):
         dataframe = df.copy()
