@@ -407,7 +407,7 @@ set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]
 
 # out-of-context synth can't be used for bitstream generation
 # set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
-launch_runs -to_step write_bitstream impl_1 -jobs %d
+launch_runs -to_step write_bitstream impl_1
 wait_on_run [get_runs impl_1]
 
 # generate synthesis report
