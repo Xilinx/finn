@@ -29,7 +29,7 @@
 from finn.core.modelwrapper import ModelWrapper
 import os
 from dataclasses import dataclass
-from enum import Enum, auto
+from enum import Enum
 from typing import List
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -70,14 +70,14 @@ from finn.custom_op.registry import getCustomOp
 
 
 class ShellFlowType(Enum):
-    VIVADO_ZYNQ = auto()
-    VITIS_ALVEO = auto()
+    VIVADO_ZYNQ = "vivado_zynq"
+    VITIS_ALVEO = "vitis_alveo"
 
 
 class DataflowOutputType(Enum):
-    STITCHED_IP = auto()
-    BITFILE = auto()
-    PYNQ_DRIVER = auto()
+    STITCHED_IP = "stitched_ip"
+    BITFILE = "bitfile"
+    PYNQ_DRIVER = "pynq_driver"
 
 
 class ComputeEngineMemMode(Enum):
