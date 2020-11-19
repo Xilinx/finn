@@ -95,18 +95,18 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${ALVEO_TARGET_DIR="/tmp"}
 : ${XILINX_XRT="/opt/xilinx/xrt"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
+: ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 
-BUILD_LOCAL=/tmp/$DOCKER_INST_NAME
+FINN_CONTAINER_BUILD_DIR=/tmp/$DOCKER_INST_NAME
 VIVADO_HLS_LOCAL=$VIVADO_PATH
-VIVADO_IP_CACHE=$BUILD_LOCAL/vivado_ip_cache
+VIVADO_IP_CACHE=$FINN_CONTAINER_BUILD_DIR/vivado_ip_cache
 
 # ensure build dir exists locally
-mkdir -p $BUILD_LOCAL
-mkdir -p $VIVADO_IP_CACHE
+mkdir -p $FINN_HOST_BUILD_DIR
 mkdir -p $FINN_SSH_KEY_DIR
 
 gecho "Instance is named as $DOCKER_INST_NAME"
-gecho "Mounting $BUILD_LOCAL into $BUILD_LOCAL"
+gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_CONTAINER_BUILD_DIR"
 gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
 gecho "Mounting $VITIS_PATH into $VITIS_PATH"
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
@@ -138,8 +138,6 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg UNAME=$DOCKER_UNAME \
              --build-arg UID=$DOCKER_UID \
              --build-arg PASSWD=$DOCKER_PASSWD \
-             --build-arg JUPYTER_PORT=$JUPYTER_PORT \
-             --build-arg NETRON_PORT=$NETRON_PORT \
              .
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
@@ -148,7 +146,7 @@ DOCKER_EXEC="docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --i
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
-DOCKER_EXEC+="-v $BUILD_LOCAL:$BUILD_LOCAL "
+DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_CONTAINER_BUILD_DIR "
 DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/home/$DOCKER_UNAME/.ssh "
 DOCKER_EXEC+="-e FINN_INST_NAME=$DOCKER_INST_NAME "
 DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
@@ -159,6 +157,8 @@ DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
 DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
 DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
+DOCKER_EXEC+="-e JUPYTER_PORT=$JUPYTER_PORT "
+DOCKER_EXEC+="-e NETRON_PORT=$NETRON_PORT "
 DOCKER_EXEC+="-p $JUPYTER_PORT:$JUPYTER_PORT "
 DOCKER_EXEC+="-p $NETRON_PORT:$NETRON_PORT "
 if [ ! -z "$VIVADO_PATH" ];then

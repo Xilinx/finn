@@ -12,13 +12,19 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-BREVITAS_COMMIT=6ffefa8dbf37fdb0f44c994f34604c29fadb16b0
+FINN_BASE_COMMIT=f3569f7e809de39af68851c049cfa90291e29f96
+BREVITAS_COMMIT=aff49758ec445d77c75721c7de3091a2a1797ca8
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=cfafe11a93b79ab1af7529d68f08886913a6466e
-PYVERILATOR_COMMIT=c97a5ba41bbc7c419d6f25c74cdf3bdc3393174f
+PYVERILATOR_COMMIT=06c29ecf3ba0361e3d0a75c98f6918ba67bf0e27
 OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
 
 gecho "Setting up known-good commit versions for FINN dependencies"
+# finn-base
+gecho "finn-base @ $FINN_BASE_COMMIT"
+git -C /workspace/finn-base pull --quiet
+git -C /workspace/finn-base checkout $FINN_BASE_COMMIT --quiet
+pip install --user -e /workspace/finn-base
 # Brevitas
 gecho "brevitas @ $BREVITAS_COMMIT"
 git -C /workspace/brevitas pull --quiet
@@ -36,10 +42,14 @@ git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT --quiet
 gecho "PyVerilator @ $PYVERILATOR_COMMIT"
 git -C /workspace/pyverilator pull --quiet
 git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT --quiet
+pip install --user -e /workspace/pyverilator
 # oh-my-xilinx
 gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
 git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
+# cleanup and run pip install for finn
+python $FINN_ROOT/setup.py clean --dist --eggs
+pip install --user -e $FINN_ROOT
 
 if [ ! -z "$VIVADO_PATH" ];then
   # source Vivado env.vars

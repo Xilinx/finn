@@ -29,8 +29,8 @@
 import copy
 
 from onnx import helper
-
-from finn.transformation import Transformation
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name, make_build_dir
 
 
@@ -117,6 +117,28 @@ class CreateDataflowPartition(Transformation):
                 # remove all dataflow nodes from the non-dataflow model
                 # keep track of where the dataflow part starts
                 df_start_ind = all_nodes.index(df_nodes[0])
+
+                # get and check floorplan
+                inst = getCustomOp(df_nodes[0])
+                slr = inst.get_nodeattr("slr")
+                for node in df_nodes[1:]:
+                    inst = getCustomOp(node)
+                    assert slr == inst.get_nodeattr(
+                        "slr"
+                    ), """all nodes with
+                same partition_id must have the same slr id"""
+
+                # check that there is only one non-null mem_port per partition
+                nmemports = 0
+                mem_port = ""
+                for node in df_nodes:
+                    inst = getCustomOp(node)
+                    port = inst.get_nodeattr("mem_port")
+                    if port is not None and port != "":
+                        nmemports += 1
+                        mem_port = port
+                assert nmemports <= 1, """too many memory ports per partition"""
+
                 for node_to_remove in df_nodes:
                     non_df_model.graph.node.remove(node_to_remove)
                 # create StreamingDataflow node with df_in/df_out io
@@ -126,7 +148,10 @@ class CreateDataflowPartition(Transformation):
                     [df_out],
                     # use the model attribute to mark the df model
                     model=df_model_filename,
-                    domain="finn",
+                    domain="finn.custom_op.general",
+                    partition_id=target_partition_id,
+                    slr=slr,
+                    mem_port=mem_port,
                 )
                 non_df_model.graph.node.insert(df_start_ind, df_node)
                 model = non_df_model

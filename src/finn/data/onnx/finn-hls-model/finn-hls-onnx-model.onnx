@@ -1,207 +1,0 @@
-finn-hls-onnx-model:º
-R
-inp	memInStrm	memInStrm"FIFO*
-backend"fpgadataflow *
-depth€ :finn
-Ò
-	memInStrm
-weights0
-thresh0out1"StreamingFCLayer_Batch*
-
-MH€ *
-
-MWÀ *	
-PE  *
-SIMD@ *
-backend"fpgadataflow *!
-resDataType"Recast<XnorMul> *
-resType"ap_resource_lut() :finn
-L
-out1inter0inter0"FIFO*
-backend"fpgadataflow *
-depth :finn
-Ï
-inter0
-weights1
-thresh1out2"StreamingFCLayer_Batch*
-
-MH€ *
-
-MW€ *	
-PE@ *
-SIMD  *
-backend"fpgadataflow *!
-resDataType"Recast<XnorMul> *
-resType"ap_resource_lut() :finn
-L
-out2inter1inter1"FIFO*
-backend"fpgadataflow *
-depth :finn
-Ï
-inter1
-weights2
-thresh2out3"StreamingFCLayer_Batch*
-
-MH€ *
-
-MW€ *	
-PE  *
-SIMD@ *
-backend"fpgadataflow *!
-resDataType"Recast<XnorMul> *
-resType"ap_resource_lut() :finn
-L
-out3inter2inter2"FIFO*
-backend"fpgadataflow *
-depth :finn
-Î
-inter2
-weights3
-thresh3out4"StreamingFCLayer_Batch*	
-MH@ *
-
-MW€ *	
-PE *
-SIMD *
-backend"fpgadataflow *!
-resDataType"Recast<XnorMul> *
-resType"ap_resource_lut() :finn
-O
-out4outp
-memOutStrm"FIFO*
-backend"fpgadataflow *
-depth€ :finnfinn_hls_onnx_graphZ
-inp
-
-
-
-@b
-outp
-
-
-
-@j
-	memInStrm
-
-
-
-@j
-weights0
-
-@
- 
- j%
-thresh0
-
- 
- 
-
-
-j
-out1
-
-
- 
- j
-inter0
-
-
- 
- j
-weights1
-
- 
-@
-€j%
-thresh1
-
-
-@
-
-
-j
-out2
-
-
-
-@j
-inter1
-
-
-
-@j
-weights2
-
-@
- 
-€j%
-thresh2
-
- 
- 
-
-
-j
-out3
-
-
- 
- j
-inter2
-
-
- 
- j
-weights3
-
-
-
-€j%
-thresh3
-
-
-
-
-
-j
-out4
-
-
-
-@r
-inp
-finn_datatypeBIPOLARr 
-outp
-finn_datatypeBIPOLARr%
-	memInStrm
-finn_datatypeBIPOLARr$
-weights0
-finn_datatypeBIPOLARr#
-thresh0
-finn_datatypeBIPOLARr 
-out1
-finn_datatypeBIPOLARr"
-inter0
-finn_datatypeBIPOLARr$
-weights1
-finn_datatypeBIPOLARr#
-thresh1
-finn_datatypeBIPOLARr 
-out2
-finn_datatypeBIPOLARr"
-inter1
-finn_datatypeBIPOLARr$
-weights2
-finn_datatypeBIPOLARr#
-thresh2
-finn_datatypeBIPOLARr 
-out3
-finn_datatypeBIPOLARr"
-inter2
-finn_datatypeBIPOLARr$
-weights3
-finn_datatypeBIPOLARr#
-thresh3
-finn_datatypeBIPOLARr 
-out4
-finn_datatypeBIPOLARB
