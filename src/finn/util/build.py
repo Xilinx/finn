@@ -356,7 +356,12 @@ def build_dataflow_directory(path_to_cfg_dir: str):
     with open(json_filename, "r") as f:
         json_str = f.read()
     build_cfg = DataflowBuildConfig.from_json(json_str)
-    return build_dataflow_cfg(onnx_filename, build_cfg)
+    old_wd = os.getcwd()
+    # change into build dir to resolve relative paths
+    os.chdir(path_to_cfg_dir)
+    ret = build_dataflow_cfg(onnx_filename, build_cfg)
+    os.chdir(old_wd)
+    return ret
 
 
 def main():
