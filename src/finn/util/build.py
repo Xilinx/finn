@@ -29,8 +29,9 @@
 from finn.core.modelwrapper import ModelWrapper
 import os
 from dataclasses import dataclass
+from dataclasses_json import dataclass_json
 from enum import Enum
-from typing import List
+from typing import List, Optional
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -67,24 +68,26 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
 from finn.custom_op.registry import getCustomOp
+import clize
 
 
-class ShellFlowType(Enum):
+class ShellFlowType(str, Enum):
     VIVADO_ZYNQ = "vivado_zynq"
     VITIS_ALVEO = "vitis_alveo"
 
 
-class DataflowOutputType(Enum):
+class DataflowOutputType(str, Enum):
     STITCHED_IP = "stitched_ip"
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
 
 
-class ComputeEngineMemMode(Enum):
+class ComputeEngineMemMode(str, Enum):
     CONST = "const"
     DECOUPLED = "decoupled"
 
 
+@dataclass_json
 @dataclass
 class DataflowBuildConfig:
     "Build configuration to be passed to the build_dataflow function."
@@ -95,16 +98,16 @@ class DataflowBuildConfig:
     board: str
     shell_flow_type: ShellFlowType
     generate_outputs: List[DataflowOutputType]
-    fpga_part: str = None
-    auto_fifo_depths: bool = True
-    hls_clk_period_ns: float = None
-    default_mem_mode: ComputeEngineMemMode = ComputeEngineMemMode.DECOUPLED
-    vitis_platform: str = None
-    vitis_floorplan_file: str = None
-    save_intermediate_models: bool = False
-    enable_debug: bool = False
-    from_step_num: int = None
-    to_step_num: int = None
+    fpga_part: Optional[str] = None
+    auto_fifo_depths: Optional[bool] = True
+    hls_clk_period_ns: Optional[float] = None
+    default_mem_mode: Optional[ComputeEngineMemMode] = ComputeEngineMemMode.DECOUPLED
+    vitis_platform: Optional[str] = None
+    vitis_floorplan_file: Optional[str] = None
+    save_intermediate_models: Optional[bool] = False
+    enable_debug: Optional[bool] = False
+    from_step_num: Optional[int] = None
+    to_step_num: Optional[int] = None
 
     def resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
@@ -277,48 +280,88 @@ def synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def build_dataflow(model_filename, cfg: DataflowBuildConfig):
-    model = ModelWrapper(model_filename)
-    assert type(model) is ModelWrapper
-    print("Building dataflow accelerator from " + model_filename)
-    print("Outputs will be generated at " + cfg.output_dir)
-    # create the output dir if it doesn't exist
-    if not os.path.exists(cfg.output_dir):
-        os.makedirs(cfg.output_dir)
-    transform_steps = [
-        tidy_up,
-        streamline,
-        convert_to_hls,
-        create_dataflow_partition,
-        apply_folding_config,
-        hls_ipgen,
-        auto_set_fifo_depths,
-        create_stitched_ip,
-        make_pynq_driver,
-        synthesize_bitfile,
-    ]
-    step_num = 0
-    time_per_step = dict()
-    for transform_step in transform_steps:
-        if cfg.from_step_num is not None and step_num < cfg.from_step_num:
+def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
+    try:
+        model = ModelWrapper(model_filename)
+        assert type(model) is ModelWrapper
+        print("Building dataflow accelerator from " + model_filename)
+        print("Outputs will be generated at " + cfg.output_dir)
+        # create the output dir if it doesn't exist
+        if not os.path.exists(cfg.output_dir):
+            os.makedirs(cfg.output_dir)
+        transform_steps = [
+            tidy_up,
+            streamline,
+            convert_to_hls,
+            create_dataflow_partition,
+            apply_folding_config,
+            hls_ipgen,
+            auto_set_fifo_depths,
+            create_stitched_ip,
+            make_pynq_driver,
+            synthesize_bitfile,
+        ]
+        step_num = 0
+        time_per_step = dict()
+        for transform_step in transform_steps:
+            if cfg.from_step_num is not None and step_num < cfg.from_step_num:
+                step_num += 1
+                continue
+            if cfg.to_step_num is not None and step_num > cfg.to_step_num:
+                step_num += 1
+                continue
+            step_name = transform_step.__name__
+            print(
+                "Running step: %s [%d/%d]" % (step_name, step_num, len(transform_steps))
+            )
+            step_start = time.time()
+            model = transform_step(model, cfg)
+            step_end = time.time()
+            time_per_step[step_name] = step_end - step_start
+            chkpt_name = "%d_%s.onnx" % (step_num, step_name)
+            if cfg.save_intermediate_models:
+                intermediate_model_dir = cfg.output_dir + "/intermediate_models"
+                if not os.path.exists(intermediate_model_dir):
+                    os.makedirs(intermediate_model_dir)
+                model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
             step_num += 1
-            continue
-        if cfg.to_step_num is not None and step_num > cfg.to_step_num:
-            step_num += 1
-            continue
-        step_name = transform_step.__name__
-        print("Running step: %s [%d/%d]" % (step_name, step_num, len(transform_steps)))
-        step_start = time.time()
-        model = transform_step(model, cfg)
-        step_end = time.time()
-        time_per_step[step_name] = step_end - step_start
-        chkpt_name = "%d_%s.onnx" % (step_num, step_name)
-        if cfg.save_intermediate_models:
-            intermediate_model_dir = cfg.output_dir + "/intermediate_models"
-            if not os.path.exists(intermediate_model_dir):
-                os.makedirs(intermediate_model_dir)
-            model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
-        step_num += 1
-    with open(cfg.output_dir + "/time_per_step.txt", "w") as f:
-        f.write(str(time_per_step))
-    print("Completed successfully")
+        with open(cfg.output_dir + "/time_per_step.txt", "w") as f:
+            f.write(str(time_per_step))
+        print("Completed successfully")
+        return 0
+    except Exception as inst:
+        print("Build failed:")
+        print(type(inst))
+        print(inst.args)
+        print(inst)
+        return -1
+
+
+def build_dataflow_directory(path_to_cfg_dir: str):
+    """Best-effort build a dataflow accelerator from the specified directory.
+
+    :param path_to_cfg_dir: Directory containing the model and build config
+
+    The specified directory path_to_cfg_dir must contain the following files:
+
+    * model.onnx : ONNX model to be converted to dataflow accelerator
+    * dataflow_build_config.json : JSON file with build configuration
+
+    """
+    assert os.path.isdir(path_to_cfg_dir), "Directory not found: " + path_to_cfg_dir
+    onnx_filename = path_to_cfg_dir + "/model.onnx"
+    json_filename = path_to_cfg_dir + "/dataflow_build_config.json"
+    assert os.path.isfile(onnx_filename), "ONNX not found: " + onnx_filename
+    assert os.path.isfile(json_filename), "Build config not found: " + json_filename
+    with open(json_filename, "r") as f:
+        json_str = f.read()
+    build_cfg = DataflowBuildConfig.from_json(json_str)
+    return build_dataflow_cfg(onnx_filename, build_cfg)
+
+
+def main():
+    clize.run(build_dataflow_directory)
+
+
+if __name__ == "__main__":
+    main()
