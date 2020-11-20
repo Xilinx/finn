@@ -47,8 +47,7 @@ pip install --user -e /workspace/pyverilator
 gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
 git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
-# cleanup and run pip install for finn
-python $FINN_ROOT/setup.py clean --dist --eggs
+# run pip install for finn
 pip install --user -e $FINN_ROOT
 
 if [ ! -z "$VIVADO_PATH" ];then
