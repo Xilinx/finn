@@ -98,7 +98,7 @@ import subprocess
 from finn.util.gdrive import upload_to_end2end_dashboard
 from collections import OrderedDict
 
-build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
+build_dir = os.environ["FINN_BUILD_DIR"]
 target_clk_ns = 10
 mem_mode = "decoupled"
 rtlsim_trace = False

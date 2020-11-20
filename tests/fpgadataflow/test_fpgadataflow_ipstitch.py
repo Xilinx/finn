@@ -65,7 +65,7 @@ from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]
 
-ip_stitch_model_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
+ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
 
 
 def create_one_fc_model(mem_mode="const"):
