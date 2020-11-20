@@ -281,60 +281,52 @@ def synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 
 def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
-    try:
-        model = ModelWrapper(model_filename)
-        assert type(model) is ModelWrapper
-        print("Building dataflow accelerator from " + model_filename)
-        print("Outputs will be generated at " + cfg.output_dir)
-        # create the output dir if it doesn't exist
-        if not os.path.exists(cfg.output_dir):
-            os.makedirs(cfg.output_dir)
-        transform_steps = [
-            tidy_up,
-            streamline,
-            convert_to_hls,
-            create_dataflow_partition,
-            apply_folding_config,
-            hls_ipgen,
-            auto_set_fifo_depths,
-            create_stitched_ip,
-            make_pynq_driver,
-            synthesize_bitfile,
-        ]
-        step_num = 0
-        time_per_step = dict()
-        for transform_step in transform_steps:
-            if cfg.from_step_num is not None and step_num < cfg.from_step_num:
-                step_num += 1
-                continue
-            if cfg.to_step_num is not None and step_num > cfg.to_step_num:
-                step_num += 1
-                continue
-            step_name = transform_step.__name__
-            print(
-                "Running step: %s [%d/%d]" % (step_name, step_num, len(transform_steps))
-            )
-            step_start = time.time()
-            model = transform_step(model, cfg)
-            step_end = time.time()
-            time_per_step[step_name] = step_end - step_start
-            chkpt_name = "%d_%s.onnx" % (step_num, step_name)
-            if cfg.save_intermediate_models:
-                intermediate_model_dir = cfg.output_dir + "/intermediate_models"
-                if not os.path.exists(intermediate_model_dir):
-                    os.makedirs(intermediate_model_dir)
-                model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
+
+    model = ModelWrapper(model_filename)
+    assert type(model) is ModelWrapper
+    print("Building dataflow accelerator from " + model_filename)
+    print("Outputs will be generated at " + cfg.output_dir)
+    # create the output dir if it doesn't exist
+    if not os.path.exists(cfg.output_dir):
+        os.makedirs(cfg.output_dir)
+    transform_steps = [
+        tidy_up,
+        streamline,
+        convert_to_hls,
+        create_dataflow_partition,
+        apply_folding_config,
+        hls_ipgen,
+        auto_set_fifo_depths,
+        create_stitched_ip,
+        make_pynq_driver,
+        synthesize_bitfile,
+    ]
+    step_num = 0
+    time_per_step = dict()
+    for transform_step in transform_steps:
+        if cfg.from_step_num is not None and step_num < cfg.from_step_num:
             step_num += 1
-        with open(cfg.output_dir + "/time_per_step.txt", "w") as f:
-            f.write(str(time_per_step))
-        print("Completed successfully")
-        return 0
-    except Exception as inst:
-        print("Build failed:")
-        print(type(inst))
-        print(inst.args)
-        print(inst)
-        return -1
+            continue
+        if cfg.to_step_num is not None and step_num > cfg.to_step_num:
+            step_num += 1
+            continue
+        step_name = transform_step.__name__
+        print("Running step: %s [%d/%d]" % (step_name, step_num, len(transform_steps)))
+        step_start = time.time()
+        model = transform_step(model, cfg)
+        step_end = time.time()
+        time_per_step[step_name] = step_end - step_start
+        chkpt_name = "%d_%s.onnx" % (step_num, step_name)
+        if cfg.save_intermediate_models:
+            intermediate_model_dir = cfg.output_dir + "/intermediate_models"
+            if not os.path.exists(intermediate_model_dir):
+                os.makedirs(intermediate_model_dir)
+            model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
+        step_num += 1
+    with open(cfg.output_dir + "/time_per_step.txt", "w") as f:
+        f.write(str(time_per_step))
+    print("Completed successfully")
+    return 0
 
 
 def build_dataflow_directory(path_to_cfg_dir: str):
