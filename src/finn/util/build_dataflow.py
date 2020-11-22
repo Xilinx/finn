@@ -90,33 +90,83 @@ class ComputeEngineMemMode(str, Enum):
 @dataclass_json
 @dataclass
 class DataflowBuildConfig:
-    "Build configuration to be passed to the build_dataflow function."
+    """Build configuration to be passed to the build_dataflow function. Can be
+    serialized into or de-serialized from JSON files for persistence.
+    See list of attributes below for more information on the build configuration.
+    """
 
+    #: Directory where the final build outputs will be written into
     output_dir: str
+
+    #: Path to folding configuration JSON file.
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     folding_config_file: str
+
+    #: Target clock frequency (in nanoseconds) for Vivado synthesis.
+    #: e.g. synth_clk_period_ns=5.0 will target a 200 MHz clock.
+    #: If hls_clk_period_ns is not specified it will default to this value.
     synth_clk_period_ns: float
-    board: str
-    shell_flow_type: ShellFlowType
+
+    #: Which output(s) to generate from the build flow.
     generate_outputs: List[DataflowOutputType]
+
+    #: Target board, only needed for generating full bitfiles where the FINN
+    #: design is integrated into a shell.
+    #: e.g. "Pynq-Z1" or "U250"
+    board: Optional[str] = None
+
+    #: Target shell flow, only needed for generating full bitfiles where the FINN
+    #: design is integrated into a shell.
+    shell_flow_type: Optional[ShellFlowType] = None
+
+    #: Target Xilinx FPGA part. Only needed when board is not specified.
+    #: e.g. "xc7z020clg400-1"
     fpga_part: Optional[str] = None
+
+    #: Whether FIFO depths will be set automatically. Involves running stitched
+    #: rtlsim and can take a long time.
     auto_fifo_depths: Optional[bool] = True
+
+    #: Target clock frequency (in nanoseconds) for Vivado HLS synthesis.
+    #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
+    #: If not specified it will default to synth_clk_period_ns
     hls_clk_period_ns: Optional[float] = None
+
+    #: Which memory mode will be used for compute layers
     default_mem_mode: Optional[ComputeEngineMemMode] = ComputeEngineMemMode.DECOUPLED
+
+    #: Which Vitis platform will be used.
+    #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
+    #: e.g. "xilinx_u250_xdma_201830_2"
     vitis_platform: Optional[str] = None
+
+    #: Path to JSON config file assigning each layer to an SLR.
+    #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
-    save_intermediate_models: Optional[bool] = False
-    enable_debug: Optional[bool] = False
+
+    #: Whether intermediate ONNX files will be saved during the build process.
+    #: These can be useful for debugging if the build fails.
+    save_intermediate_models: Optional[bool] = True
+
+    #: Whether hardware debugging will be enabled (e.g. ILA cores inserted to
+    #: debug signals in the generated hardware)
+    enable_hw_debug: Optional[bool] = False
+
+    #: Start dataflow build from (and including) this step.
     from_step_num: Optional[int] = None
+
+    #: Stop dataflow build at (and including) this step.
     to_step_num: Optional[int] = None
 
-    def resolve_hls_clk_period(self):
+    def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
             # use same clk for synth and hls if not explicitly specified
             return self.synth_clk_period_ns
         else:
             return self.hls_clk_period_ns
 
-    def resolve_driver_platform(self):
+    def _resolve_driver_platform(self):
         if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             return "zynq-iodma"
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
@@ -126,7 +176,7 @@ class DataflowBuildConfig:
                 "Couldn't resolve driver platform for " + str(self.shell_flow_type)
             )
 
-    def resolve_fpga_part(self):
+    def _resolve_fpga_part(self):
         if self.fpga_part is None:
             # lookup from part map if not specified
             if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
@@ -140,7 +190,11 @@ class DataflowBuildConfig:
             return self.fpga_part
 
 
-def tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Run the tidy-up step on given model. This includes shape and datatype
+    inference, constant folding, and giving nodes and tensors better names.
+    """
+
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
@@ -150,8 +204,14 @@ def tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
-    # move past any reshapes to be able to streamline input scaling
+def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Run streamlining on given model. Streamlining involves moving floating point
+    scale/shift parameters around, collapsing adjacent ones into a single parameter,
+    then absorbing the scale/shift into the following `MultiThreshold` node.
+    Streamlining requires careful topology design and cannot be applied to all
+    topologies.
+    """
+
     model = model.transform(MoveScalarLinearPastInvariants())
     model = model.transform(Streamline())
     need_lowering = len(model.get_nodes_by_op_type("Conv")) > 0
@@ -168,7 +228,11 @@ def streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Convert eligible nodes to `HLSCustomOp` subclasses that represent HLS
+    layers. Which nodes and particular configurations can be converted to HLS
+    is limited, see the source code of the `convert_to_hls` module for more. """
+
     mem_mode = cfg.default_mem_mode.value
     # needed for bipolar MatMul layers
     model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
@@ -192,7 +256,11 @@ def convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Separate consecutive groups of HLSCustomOp nodes into StreamingDataflowPartition
+    nodes, which point to a separate ONNX file. Dataflow accelerator synthesis
+    can only be performed on those HLSCustomOp sub-graphs."""
+
     parent_model = model.transform(CreateDataflowPartition())
     sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
     assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
@@ -203,39 +271,50 @@ def create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Apply the folding configuration file onto the model to set folding (parallelization)
+    and other attributes."""
+
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(ApplyConfig(cfg.folding_config_file))
     return model
 
 
-def hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
+    "Run Vivado HLS synthesis on any HLSCustomOp nodes to generate IP blocks."
+
     model = model.transform(
-        PrepareIP(cfg.resolve_fpga_part(), cfg.resolve_hls_clk_period())
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
     )
     model = model.transform(HLSSynthIP())
     return model
 
 
-def auto_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_auto_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Run the `InsertAndSetFIFODepths` transformation to attempt to determine
+    the FIFO sizes that provide full throughput. Involves running stitched-IP
+    rtlsim and may take a long time."""
+
     if cfg.auto_fifo_depths:
         model = model.transform(
             InsertAndSetFIFODepths(
-                cfg.resolve_fpga_part(), cfg.resolve_hls_clk_period()
+                cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()
             )
         )
         model = model.transform(
-            PrepareIP(cfg.resolve_fpga_part(), cfg.resolve_hls_clk_period())
+            PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
         )
         model = model.transform(HLSSynthIP())
     return model
 
 
-def create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
+    "Create stitched IP for a graph after all HLS IP blocks have been generated."
+
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
         stitched_ip_dir = cfg.output_dir + "/stitched_ip"
         model = model.transform(
-            CreateStitchedIP(cfg.resolve_fpga_part(), cfg.synth_clk_period_ns)
+            CreateStitchedIP(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns)
         )
         # TODO copy all ip sources into output dir? as zip?
         copytree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
@@ -243,32 +322,38 @@ def create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Create a PYNQ Python driver that can be used to interface the generated
+    accelerator."""
+
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
         driver_dir = cfg.output_dir + "/driver"
-        model = model.transform(MakePYNQDriver(cfg.resolve_driver_platform()))
+        model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
         copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
         print("PYNQ Python driver written into " + driver_dir)
     return model
 
 
-def synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Synthesize a bitfile for the using the specified shell flow, using either
+    Vivado or Vitis, to target the specified board."""
+
     if DataflowOutputType.BITFILE in cfg.generate_outputs:
         bitfile_dir = cfg.output_dir + "/bitfile"
         os.makedirs(bitfile_dir)
         if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             model = model.transform(
-                ZynqBuild(cfg.board, cfg.synth_clk_period_ns, cfg.enable_debug)
+                ZynqBuild(cfg.board, cfg.synth_clk_period_ns, cfg.enable_hw_debug)
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.bit")
             copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
         elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
                 VitisBuild(
-                    cfg.resolve_fpga_part(),
+                    cfg._resolve_fpga_part(),
                     cfg.synth_clk_period_ns,
                     cfg.vitis_platform,
-                    enable_debug=cfg.enable_debug,
+                    enable_debug=cfg.enable_hw_debug,
                     floorplan_file=cfg.vitis_floorplan_file,
                 )
             )
@@ -280,8 +365,29 @@ def synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
+#: List of steps that will be run as part of the standard dataflow build, in the
+#: specified order. Use the `from_step_num` and `to_step_num` as part of build
+#: config to restrict which steps will be run.
+build_dataflow_steps = [
+    step_tidy_up,
+    step_streamline,
+    step_convert_to_hls,
+    step_create_dataflow_partition,
+    step_apply_folding_config,
+    step_hls_ipgen,
+    step_auto_set_fifo_depths,
+    step_create_stitched_ip,
+    step_make_pynq_driver,
+    step_synthesize_bitfile,
+]
 
+
+def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
+    """Best-effort build a dataflow accelerator using the given configuration.
+
+    :param model_filename: ONNX model filename to build
+    :param cfg: Build configuration
+    """
     model = ModelWrapper(model_filename)
     assert type(model) is ModelWrapper
     print("Building dataflow accelerator from " + model_filename)
@@ -289,21 +395,9 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
-    transform_steps = [
-        tidy_up,
-        streamline,
-        convert_to_hls,
-        create_dataflow_partition,
-        apply_folding_config,
-        hls_ipgen,
-        auto_set_fifo_depths,
-        create_stitched_ip,
-        make_pynq_driver,
-        synthesize_bitfile,
-    ]
     step_num = 0
     time_per_step = dict()
-    for transform_step in transform_steps:
+    for transform_step in build_dataflow_steps:
         if cfg.from_step_num is not None and step_num < cfg.from_step_num:
             step_num += 1
             continue
@@ -311,7 +405,10 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
             step_num += 1
             continue
         step_name = transform_step.__name__
-        print("Running step: %s [%d/%d]" % (step_name, step_num, len(transform_steps)))
+        print(
+            "Running step: %s [%d/%d]"
+            % (step_name, step_num, len(build_dataflow_steps))
+        )
         step_start = time.time()
         model = transform_step(model, cfg)
         step_end = time.time()
@@ -357,6 +454,8 @@ def build_dataflow_directory(path_to_cfg_dir: str):
 
 
 def main():
+    """Entry point for dataflow builds. Invokes `build_dataflow_directory` using
+    command line arguments"""
     clize.run(build_dataflow_directory)
 
 
