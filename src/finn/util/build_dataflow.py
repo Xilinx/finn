@@ -153,11 +153,9 @@ class DataflowBuildConfig:
     #: debug signals in the generated hardware)
     enable_hw_debug: Optional[bool] = False
 
-    #: Start dataflow build from (and including) this step.
-    from_step_num: Optional[int] = None
-
-    #: Stop dataflow build at (and including) this step.
-    to_step_num: Optional[int] = None
+    #: If given, only run the steps with the specified names in the list.
+    #: See `default_build_dataflow_steps` for the default list of steps.
+    steps: Optional[List[str]] = None
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
@@ -188,6 +186,14 @@ class DataflowBuildConfig:
         else:
             # return as-is when explicitly specified
             return self.fpga_part
+
+    def _resolve_steps(self):
+        steps = self.steps
+        if steps is None:
+            steps = default_build_dataflow_steps
+        # lookup step function from step name
+        steps_as_fxns = [eval(x) for x in steps]
+        return steps_as_fxns
 
 
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -366,19 +372,19 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 
 #: List of steps that will be run as part of the standard dataflow build, in the
-#: specified order. Use the `from_step_num` and `to_step_num` as part of build
-#: config to restrict which steps will be run.
-build_dataflow_steps = [
-    step_tidy_up,
-    step_streamline,
-    step_convert_to_hls,
-    step_create_dataflow_partition,
-    step_apply_folding_config,
-    step_hls_ipgen,
-    step_auto_set_fifo_depths,
-    step_create_stitched_ip,
-    step_make_pynq_driver,
-    step_synthesize_bitfile,
+#: specified order. Use the `steps` as part of build config to restrict which
+#: steps will be run.
+default_build_dataflow_steps = [
+    "step_tidy_up",
+    "step_streamline",
+    "step_convert_to_hls",
+    "step_create_dataflow_partition",
+    "step_apply_folding_config",
+    "step_hls_ipgen",
+    "step_auto_set_fifo_depths",
+    "step_create_stitched_ip",
+    "step_make_pynq_driver",
+    "step_synthesize_bitfile",
 ]
 
 
@@ -395,15 +401,10 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
-    step_num = 0
+    step_num = 1
     time_per_step = dict()
+    build_dataflow_steps = cfg._resolve_steps()
     for transform_step in build_dataflow_steps:
-        if cfg.from_step_num is not None and step_num < cfg.from_step_num:
-            step_num += 1
-            continue
-        if cfg.to_step_num is not None and step_num > cfg.to_step_num:
-            step_num += 1
-            continue
         step_name = transform_step.__name__
         print(
             "Running step: %s [%d/%d]"
