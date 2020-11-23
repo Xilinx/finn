@@ -69,12 +69,11 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.custom_op.registry import getCustomOp
 import clize
-
-# https://stackoverflow.com/a/39215961
 import sys
 import logging
 
 
+# adapted from https://stackoverflow.com/a/39215961
 class StreamToLogger(object):
     """
     Fake file-like stream object that redirects writes to a logger instance.
@@ -455,7 +454,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     # set up logger
     logging.basicConfig(
         level=logging.DEBUG,
-        format="%(asctime)s:%(levelname)s:%(name)s: %(message)s",
+        format="[%(asctime)s] %(message)s",
         filename=cfg.output_dir + "/build_dataflow.log",
         filemode="a",
     )
@@ -509,6 +508,8 @@ def build_dataflow_directory(path_to_cfg_dir: str):
     * dataflow_build_config.json : JSON file with build configuration
 
     """
+    # get absolute path
+    path_to_cfg_dir = os.path.abspath(path_to_cfg_dir)
     assert os.path.isdir(path_to_cfg_dir), "Directory not found: " + path_to_cfg_dir
     onnx_filename = path_to_cfg_dir + "/model.onnx"
     json_filename = path_to_cfg_dir + "/dataflow_build_config.json"
