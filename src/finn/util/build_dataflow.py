@@ -304,6 +304,8 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
     sdp_node = sdp_nodes[0]
     sdp_node = getCustomOp(sdp_node)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
+    if cfg.save_intermediate_models:
+        parent_model.save(cfg.output_dir + "/intermediate_models/dataflow_parent.onnx")
     model = ModelWrapper(dataflow_model_filename)
     return model
 
@@ -384,6 +386,17 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.bit")
             copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
+            copy(
+                model.get_metadata_prop("vivado_synth_rpt"),
+                bitfile_dir + "/resources.xml",
+            )
+            vivado_pynq_proj_dir = model.get_metadata_prop("vivado_pynq_proj")
+            timing_rpt = (
+                "%s/finn_zynq_link.runs/impl_1/top_wrapper_timing_summary_routed.rpt"
+                % vivado_pynq_proj_dir
+            )
+            copy(timing_rpt, bitfile_dir + "/timing.rpt")
+
         elif cfg.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             model = model.transform(
                 VitisBuild(
@@ -395,6 +408,10 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")
+            copy(
+                model.get_metadata_prop("vivado_synth_rpt"),
+                bitfile_dir + "/resources.xml",
+            )
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
