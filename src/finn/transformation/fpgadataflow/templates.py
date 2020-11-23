@@ -411,8 +411,9 @@ launch_runs -to_step write_bitstream impl_1
 wait_on_run [get_runs impl_1]
 
 # generate synthesis report
-open_run synth_1 -name synth_1
+open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+close_project
 """
 
 alveo_run_sh_template = """#!/bin/bash

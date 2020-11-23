@@ -97,24 +97,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 
-FINN_CONTAINER_BUILD_DIR=/tmp/$DOCKER_INST_NAME
-VIVADO_HLS_LOCAL=$VIVADO_PATH
-VIVADO_IP_CACHE=$FINN_CONTAINER_BUILD_DIR/vivado_ip_cache
-
-# ensure build dir exists locally
-mkdir -p $FINN_HOST_BUILD_DIR
-mkdir -p $FINN_SSH_KEY_DIR
-
-gecho "Instance is named as $DOCKER_INST_NAME"
-gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_CONTAINER_BUILD_DIR"
-gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
-gecho "Mounting $VITIS_PATH into $VITIS_PATH"
-gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
-gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
-gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
-gecho "Using default PYNQ board $PYNQ_BOARD"
-
 DOCKER_INTERACTIVE=""
+DOCKER_EXTRA=""
 
 if [ "$1" = "test" ]; then
         gecho "Running test suite (all tests)"
@@ -125,11 +109,38 @@ elif [ "$1" = "quicktest" ]; then
 elif [ "$1" = "notebook" ]; then
         gecho "Running Jupyter notebook server"
         DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
+elif [ "$1" = "build_dataflow" ]; then
+        BUILD_DATAFLOW_DIR=$(readlink -f "$2")
+        DOCKER_EXTRA="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR"
+        gecho "Running build_dataflow for folder $BUILD_DATAFLOW_DIR"
+        DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
+elif [ "$1" = "build_custom" ]; then
+        BUILD_CUSTOM_DIR=$(readlink -f "$2")
+        DOCKER_EXTRA="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR"
+        gecho "Running build_custom: $BUILD_CUSTOM_DIR/build.py"
+        DOCKER_CMD="python build.py"
 else
         gecho "Running container only"
         DOCKER_CMD="bash"
         DOCKER_INTERACTIVE="-it"
 fi
+
+VIVADO_HLS_LOCAL=$VIVADO_PATH
+VIVADO_IP_CACHE=$FINN_HOST_BUILD_DIR/vivado_ip_cache
+
+# ensure build dir exists locally
+mkdir -p $FINN_HOST_BUILD_DIR
+mkdir -p $FINN_SSH_KEY_DIR
+
+gecho "Docker container is named $DOCKER_INST_NAME"
+gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
+gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
+gecho "Mounting $VITIS_PATH into $VITIS_PATH"
+gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
+gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
+gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
+gecho "Using default PYNQ board $PYNQ_BOARD"
+
 
 # Build the FINN Docker image
 docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
@@ -146,9 +157,10 @@ DOCKER_EXEC="docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --i
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
-DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_CONTAINER_BUILD_DIR "
+DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/home/$DOCKER_UNAME/.ssh "
 DOCKER_EXEC+="-e FINN_INST_NAME=$DOCKER_INST_NAME "
+DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
 DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
 DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "
@@ -187,6 +199,7 @@ if [ ! -z "$VITIS_PATH" ];then
   DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
   DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
 fi
+DOCKER_EXEC+="$DOCKER_EXTRA "
 DOCKER_EXEC+="$DOCKER_TAG $DOCKER_CMD"
 
 $DOCKER_EXEC

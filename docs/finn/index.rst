@@ -36,6 +36,7 @@ More FINN Resources
    getting_started
    tutorials
    end_to_end_flow
+   command_line
    example_networks
    internals
    source_code/finn

@@ -1,0 +1,20 @@
+{
+  "output_dir": "output_tfc_w1a1_Pynq-Z1",
+  "folding_config_file": "folding_config.json",
+  "synth_clk_period_ns": 10.0,
+  "board": "Pynq-Z1",
+  "shell_flow_type": "vivado_zynq",
+  "generate_outputs": [
+    "pynq_driver",
+    "stitched_ip",
+    "bitfile"
+  ],
+  "fpga_part": null,
+  "auto_fifo_depths": true,
+  "hls_clk_period_ns": null,
+  "default_mem_mode": "decoupled",
+  "vitis_platform": null,
+  "vitis_floorplan_file": null,
+  "save_intermediate_models": true,
+  "enable_debug": false
+}
