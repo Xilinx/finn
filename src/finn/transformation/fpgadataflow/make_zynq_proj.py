@@ -239,7 +239,7 @@ class MakeZYNQProject(Transformation):
         with open(synth_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_pynq_proj_dir))
-            f.write("vivado -mode tcl -source %s\n" % ipcfg)
+            f.write("vivado -mode batch -source %s\n" % ipcfg)
             f.write("cd {}\n".format(working_dir))
 
         # call the synthesis script
