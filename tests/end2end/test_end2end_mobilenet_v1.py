@@ -262,12 +262,12 @@ def test_end2end_mobilenet_folding():
         # set SIMD in preceeding ConvInputGen to same value
         convinputgen = model.find_direct_predecessors(vvau)[0]
         convinputgen_inst = getCustomOp(convinputgen)
-        convinputgen_inst.set_nodeattr("SIMD", pe)
+        convinputgen_inst.set_nodeattr("SIMD", pe // extra_fold)
         # set SIMD in preceeding FMPadding to same value
         padding = model.find_direct_predecessors(convinputgen)[0]
         if padding.op_type == "FMPadding_Batch":
             padding_inst = getCustomOp(padding)
-            padding_inst.set_nodeattr("SIMD", pe)
+            padding_inst.set_nodeattr("SIMD", pe // extra_fold)
 
     model = model.transform(InferDataLayouts())
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
@@ -319,6 +319,8 @@ def test_end2end_mobilenet_cppsim():
     assert np.isclose(golden_prob, res_cppsim_prob).all()
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_end2end_mobilenet_gen_hls_ip():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_mobilenet_dataflow_model.onnx"
@@ -372,6 +374,8 @@ def test_end2end_mobilenet_rtlsim():
     assert np.isclose(golden_prob, res_rtlsim_nodebynode_prob).all()
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_end2end_mobilenet_set_fifo_depths():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_ipgen.onnx")
     start = time.time()
@@ -384,6 +388,8 @@ def test_end2end_mobilenet_set_fifo_depths():
     model.save(build_dir + "/end2end_mobilenet_fifodepth.onnx")
 
 
+@pytest.mark.slow
+@pytest.mark.vitis
 def test_end2end_mobilenet_build():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_mobilenet_fifodepth.onnx"
