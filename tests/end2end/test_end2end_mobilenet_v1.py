@@ -226,6 +226,8 @@ def test_end2end_mobilenet_folding():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_mobilenet_hls_layers.onnx"
     )
+    extra_fold = 1
+    assert extra_fold in [1, 2, 4]
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     # each tuple is (PE, SIMD, ram_style) for a layer
     folding = [
@@ -247,7 +249,7 @@ def test_end2end_mobilenet_folding():
     ]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, folding):
         fcl_inst = getCustomOp(fcl)
-        fcl_inst.set_nodeattr("PE", pe)
+        fcl_inst.set_nodeattr("PE", pe // extra_fold)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
 
@@ -256,7 +258,7 @@ def test_end2end_mobilenet_folding():
     folding = [32, 32, 64, 16, 32, 8, 16, 16, 16, 16, 16, 4, 8]
     for vvau, pe in zip(vvau_layers, folding):
         vvau_inst = getCustomOp(vvau)
-        vvau_inst.set_nodeattr("PE", pe)
+        vvau_inst.set_nodeattr("PE", pe // extra_fold)
         # set SIMD in preceeding ConvInputGen to same value
         convinputgen = model.find_direct_predecessors(vvau)[0]
         convinputgen_inst = getCustomOp(convinputgen)
@@ -317,6 +319,24 @@ def test_end2end_mobilenet_cppsim():
     assert np.isclose(golden_prob, res_cppsim_prob).all()
 
 
+def test_end2end_mobilenet_gen_hls_ip():
+    model = load_test_checkpoint_or_skip(
+        build_dir + "/end2end_mobilenet_dataflow_model.onnx"
+    )
+    start = time.time()
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(ReplaceVerilogRelPaths())
+    end = time.time()
+    elapsed_time = end - start
+    f = open(build_dir + "/end2end_mobilenet_ipgen_time.txt", "w+")
+    f.write("Execution time in seconds: " + str(elapsed_time))
+    f.close()
+
+    model = model.transform(AnnotateResources("hls"))
+    model.save(build_dir + "/end2end_mobilenet_ipgen.onnx")
+
+
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_end2end_mobilenet_rtlsim():
@@ -350,24 +370,6 @@ def test_end2end_mobilenet_rtlsim():
 
     assert (golden == res_rtlsim_nodebynode).all()
     assert np.isclose(golden_prob, res_rtlsim_nodebynode_prob).all()
-
-
-def test_end2end_mobilenet_gen_hls_ip():
-    model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_mobilenet_dataflow_model.onnx"
-    )
-    start = time.time()
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
-    end = time.time()
-    elapsed_time = end - start
-    f = open(build_dir + "/end2end_mobilenet_ipgen_time.txt", "w+")
-    f.write("Execution time in seconds: " + str(elapsed_time))
-    f.close()
-
-    model = model.transform(AnnotateResources("hls"))
-    model.save(build_dir + "/end2end_mobilenet_ipgen.onnx")
 
 
 def test_end2end_mobilenet_set_fifo_depths():
