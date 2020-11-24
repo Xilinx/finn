@@ -9,6 +9,13 @@ Getting Started
 How to use the FINN compiler
 ============================
 The FINN compiler should not be thought of a single pushbutton tool that does everything for you, but rather as a collection of scripts/tools that will help you convert a QNN into a custom FPGA accelerator that performs high-performance inference. We do provide several examples of taking trained networks all the way down to FPGA bitfiles, but if you are trying to do this for custom networks you will have to write your own Python scripts that call the appropriate FINN Compiler functions that process your design correctly, or adding new functions as required.
+You should first familiarize with the existing end-to-end examples that FINN
+offers to understand the general flow.
+For custom networks, we recommend making a copy of the end-to-end
+Jupyter notebook as a starting point, visualizing the model at intermediate
+steps and adding calls to new transformations as needed.
+Once you have a working flow, you can implement a command line entry for this
+by using the "advanced mode" described in the :ref:`command_line` section.
 
 Requirements
 ============
@@ -20,7 +27,6 @@ Requirements
 * (optional) A PYNQ board with a network connection
    * the ``bitstring`` package must be installed on the PYNQ: ``sudo pip3 install bitstring``
 * (optional) An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ below)
-
 
 Running FINN in Docker
 ======================
@@ -40,6 +46,18 @@ If you want a new terminal on an already-running container, you can do this with
 .. warning:: The Docker container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the /workspace/finn folder (which is mounted from the host computer) or otherwise backed up.
 
 .. note:: **Develop from host, run inside container:** The FINN repository directory will be mounted from the host, so that you can use a text editor on your host computer to develop and the changes will be reflected directly inside the container.
+
+Command Line Entry
+*******************
+FINN is currently more compiler infrastructure than compiler, but we do offer
+a :ref:`command_line` entry for certain use-cases. These run a predefined flow
+or a user-defined flow from the command line as follows:
+
+::
+
+  ./run_docker.sh build_dataflow <path/to/dataflow_build_dir/>
+  ./run_docker.sh build_custom <path/to/custom_build_dir/>
+
 
 Running the Jupyter notebooks
 *****************************

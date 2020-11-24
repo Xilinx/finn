@@ -61,7 +61,7 @@ def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
         "ChannelwiseOp_Batch",
         node_inp_list,
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=NumChannels,
         Func=func,

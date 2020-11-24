@@ -41,7 +41,7 @@ from finn.util.basic import gen_finn_dt_tensor
 import finn.core.onnx_exec as oxe
 
 
-build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
+build_dir = os.environ["FINN_BUILD_DIR"]
 test_fpga_part = "xc7z020clg400-1"
 target_clk_ns = 10
 
@@ -55,7 +55,7 @@ def make_single_fifo_modelwrapper(Shape, Depth, fld_shape, finn_dtype):
         "StreamingFIFO",
         ["inp"],
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         depth=Depth,
         folded_shape=fld_shape,

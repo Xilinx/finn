@@ -60,7 +60,7 @@ class ConvertSignToThres(Transformation):
                     "MultiThreshold",
                     [sign_in_name, thres_param_name],
                     [sign_out_name],
-                    domain="finn",
+                    domain="finn.custom_op.general",
                     out_scale=2.0,
                     out_bias=-1.0,
                     out_dtype="BIPOLAR",

@@ -31,7 +31,7 @@ import warnings
 import subprocess
 
 from finn.transformation.base import Transformation
-from finn.util.basic import get_by_name, make_build_dir
+from finn.util.basic import get_by_name, make_build_dir, is_finn_op
 from finn.custom_op.registry import getCustomOp
 from finn.util.basic import get_num_default_workers
 import multiprocessing as mp
@@ -187,7 +187,7 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
         # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
-            assert node.domain == "finn", 'Node domain is not set to "finn"'
+            assert is_finn_op(node.domain), "Found non-FINN node"
             backend_attribute = get_by_name(node.attribute, "backend")
             assert backend_attribute is not None, "Backend node attribute is not set."
             backend_value = backend_attribute.s.decode("UTF-8")

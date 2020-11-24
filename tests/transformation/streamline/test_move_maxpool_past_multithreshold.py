@@ -52,7 +52,7 @@ def test_move_maxpool_past_multithreshold():
             "MultiThreshold",
             ["t1", "thres1"],
             ["t2"],
-            domain="finn",
+            domain="finn.custom_op.general",
             out_dtype="BIPOLAR",
             out_bias=-1.0,
             out_scale=1.0,
@@ -64,7 +64,7 @@ def test_move_maxpool_past_multithreshold():
             "MultiThreshold",
             ["t3", "thres2"],
             ["top_out"],
-            domain="finn",
+            domain="finn.custom_op.general",
             out_dtype="UINT4",
         )
     ]

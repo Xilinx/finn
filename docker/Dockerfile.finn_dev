@@ -34,8 +34,6 @@ ARG GNAME
 ARG UNAME
 ARG UID
 ARG PASSWD
-ARG JUPYTER_PORT
-ARG NETRON_PORT
 
 WORKDIR /workspace
 
@@ -86,8 +84,6 @@ RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-x
 
 # for this developer-oriented Docker container we assume the FINN repo is cloned and mounted from the host
 # at /workspace/finn -- see run-docker.sh for an example of how to do this.
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 ENV PATH "${PATH}:/workspace/oh-my-xilinx:/home/$UNAME/.local/bin"
 ENV OHMYXILINX "/workspace/oh-my-xilinx"
 
@@ -102,9 +98,6 @@ COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
 USER $UNAME
-
-EXPOSE $JUPYTER_PORT
-EXPOSE $NETRON_PORT
 
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]

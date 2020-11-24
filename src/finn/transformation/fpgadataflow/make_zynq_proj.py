@@ -33,7 +33,6 @@ from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.core.modelwrapper import ModelWrapper
 from finn.util.basic import get_by_name, make_build_dir
-from finn.util.basic import get_num_default_workers
 from finn.util.basic import pynq_part_map
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -231,7 +230,6 @@ class MakeZYNQProject(Transformation):
                     pynq_part_map[self.platform],
                     config,
                     self.enable_debug,
-                    get_num_default_workers(),
                 )
             )
 
@@ -241,7 +239,7 @@ class MakeZYNQProject(Transformation):
         with open(synth_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_pynq_proj_dir))
-            f.write("vivado -mode tcl -source %s\n" % ipcfg)
+            f.write("vivado -mode batch -source %s\n" % ipcfg)
             f.write("cd {}\n".format(working_dir))
 
         # call the synthesis script

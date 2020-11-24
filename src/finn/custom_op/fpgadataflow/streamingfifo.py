@@ -32,7 +32,7 @@ import subprocess
 import math
 import warnings
 
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -56,13 +56,18 @@ class StreamingFIFO(HLSCustomOp):
             # Toggle between hls or IPI implementation
             # rtl - use the hls generated IP during stitching
             # vivado - use the AXI Infrastructure FIFO
-            "impl_style": ("s", False, "rtl"),
+            "impl_style": ("s", False, "rtl", {"rtl", "vivado"}),
             # FPGA resource type for FIFOs when impl_style is vivado
             # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
             # ultra -- use URAM (on UltraScale+)
-            "ram_style": ("s", False, "auto"),
+            "ram_style": (
+                "s",
+                False,
+                "auto",
+                {"auto", "block", "distributed", "ultra"},
+            ),
         }
         my_attrs.update(super().get_nodeattr_types())
 

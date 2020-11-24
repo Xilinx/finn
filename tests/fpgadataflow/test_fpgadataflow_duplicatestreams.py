@@ -58,7 +58,7 @@ def make_dupstreams_modelwrapper(ch, pe, idim, idt):
         "DuplicateStreams_Batch",
         ["inp"],
         ["outp0", "outp1"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=ch,
         PE=pe,

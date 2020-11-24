@@ -584,7 +584,7 @@ class MakeMaxPoolNHWC(Transformation):
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
                         n.op_type = "MaxPoolNHWC"
-                        n.domain = "finn"
+                        n.domain = "finn.custom_op.general"
                         start_name = n.input[0]
                         mid_name = consumer.input[0]
                         end_name = consumer.output[0]
