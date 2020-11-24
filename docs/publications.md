@@ -1,5 +1,13 @@
 ## Publications
 
+* FPT'20: <a href="https://arxiv.org/pdf/2011.07317.pdf">Memory-Efficient Dataflow Inference for Deep CNNs on FPGA</a>
+* IEEE ToC: <a href="https://ieeexplore.ieee.org/abstract/document/9187576/">Evaluation of Optimized CNNs on Heterogeneous Accelerators using a Novel Benchmarking Approach</a>
+* FPL'20: <a href="https://arxiv.org/pdf/2004.03021.pdf">LogicNets: Co-Designed Neural Networks and Circuits for Extreme-Throughput Applications</a>
+* FCCM'20: <a href="https://www.fccm.org/past/2020/proceedings/2020/pdfs/FCCM2020-65FOvhMqzyMYm99lfeVKyl/580300a238/580300a238.pdf">High-Throughput DNN Inference with LogicNets</a>
+* GECCO'20: <a href="https://arxiv.org/pdf/2003.12449.pdf">Evolutionary Bin Packing for Memory-Efficient Dataflow Inference Acceleration on FPGA</a>
+* FPGA'20: <a href="https://dl.acm.org/doi/abs/10.1145/3373087.3375348">Evaluation of Optimized CNNs on FPGA and non-FPGA based Accelerators using a Novel Benchmarking Approach</a>
+* ACM JETC: <a href="https://arxiv.org/pdf/1909.05009">QuTiBench: Benchmarking neural networks on heterogeneous hardware</a>
+* ACM TRETS: <a href="https://arxiv.org/pdf/1901.00370">Optimizing bit-serial matrix multiplication for reconfigurable computing</a>
 * FPL'18: <a href="https://arxiv.org/pdf/1807.04093.pdf" target="_blank">FINN-L:Library Extensions and Design Trade-off Analysis for Variable Precision LSTM Networks on FPGAs</a>
 * FPL'18: <a href="https://arxiv.org/pdf/1806.08862.pdf" target="_blank">BISMO: A Scalable Bit-Serial Matrix Multiplication Overlay for Reconfigurable Computing</a>
 * FPL'18: <a href="http://kalman.mee.tcd.ie/fpl2018/content/pdfs/FPL2018-43iDzVTplcpussvbfIaaHz/XZmyRhWvHACdwHRVTCTVB/6jfImwD836ibhOELmms0Ut.pdf" target="_blank">Customizing Low-Precision Deep Neural Networks For FPGAs</a>
