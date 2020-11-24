@@ -86,7 +86,7 @@ from finn.core.onnx_exec import execute_onnx
 from finn.util.basic import alveo_part_map, alveo_default_platform
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 
-build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
+build_dir = os.environ["FINN_BUILD_DIR"]
 
 test_board = "U250"
 test_platform = alveo_default_platform[test_board]
