@@ -34,8 +34,6 @@ ARG GNAME
 ARG UNAME
 ARG UID
 ARG PASSWD
-ARG JUPYTER_PORT
-ARG NETRON_PORT
 
 WORKDIR /workspace
 
@@ -47,23 +45,19 @@ RUN apt-get -y install sshpass wget unzip
 RUN apt-get -y install libsndfile1
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
-# install XRT dependencies
-RUN wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh
-RUN apt-get update
-RUN bash xrtdeps.sh
-RUN rm xrtdeps.sh
-
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
+RUN pip install pygments==2.4.1
 RUN pip install jupyter==1.0.0
-RUN pip install matplotlib==3.3.1 --ignore-installed certifi
+RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1
 RUN pip install sphinx==3.1.2
 RUN pip install sphinx_rtd_theme==0.5.0
 RUN pip install pytest-xdist==2.0.0
 RUN pip install pytest-parallel==0.1.0
-RUN pip install netron==4.4.7
+RUN pip install netron
+RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
 # switch user
 RUN groupadd -g $GID $GNAME
@@ -76,6 +70,8 @@ RUN chown -R $UNAME:$GNAME /home/$UNAME
 USER $UNAME
 
 # cloning dependency repos (as user)
+# finn-base
+RUN git clone https://github.com/Xilinx/finn-base.git /workspace/finn-base
 # Brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
 # CNPY
@@ -89,8 +85,6 @@ RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-x
 
 # for this developer-oriented Docker container we assume the FINN repo is cloned and mounted from the host
 # at /workspace/finn -- see run-docker.sh for an example of how to do this.
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/finn/src"
-ENV PYTHONPATH "${PYTHONPATH}:/workspace/pyverilator"
 ENV PATH "${PATH}:/workspace/oh-my-xilinx:/home/$UNAME/.local/bin"
 ENV OHMYXILINX "/workspace/oh-my-xilinx"
 
@@ -105,9 +99,6 @@ COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
 USER $UNAME
-
-EXPOSE $JUPYTER_PORT
-EXPOSE $NETRON_PORT
 
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]

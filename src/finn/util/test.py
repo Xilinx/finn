@@ -77,6 +77,11 @@ def get_test_model_untrained(netname, wbits, abits):
     return get_test_model(netname, wbits, abits, pretrained=False)
 
 
+def get_topk(vec, k):
+    "Return indices of the top-k values in given array vec (treated as 1D)."
+    return np.flip(vec.flatten().argsort())[:k]
+
+
 def soft_verify_topk(invec, idxvec, k):
     """Check that the topK indices provided actually point to the topK largest
     values in the input vector"""
@@ -134,13 +139,14 @@ def get_example_input(topology):
     "Get example numpy input tensor for given topology."
 
     if "fc" in topology:
-        raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+        raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
         onnx_tensor = onnx.load_tensor_from_string(raw_i)
         return nph.to_array(onnx_tensor)
     elif topology == "cnv":
-        fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
+        fn = pk.resource_filename(
+            "finn.qnn-data", "cifar10/cifar10-test-data-class3.npz"
+        )
         input_tensor = np.load(fn)["arr_0"].astype(np.float32)
-        input_tensor = input_tensor / 255
         return input_tensor
     else:
         raise Exception("Unknown topology, can't return example input")
@@ -158,7 +164,7 @@ def get_trained_network_and_ishape(topology, wbits, abits):
     return (model, ishape)
 
 
-def execute_parent(parent_path, child_path, input_tensor_npy):
+def execute_parent(parent_path, child_path, input_tensor_npy, return_full_ctx=False):
     """Execute parent model containing a single StreamingDataflowPartition by
     replacing it with the model at child_path and return result."""
 
@@ -169,5 +175,7 @@ def execute_parent(parent_path, child_path, input_tensor_npy):
     sdp_node = getCustomOp(sdp_node)
     sdp_node.set_nodeattr("model", child_path)
     ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
-    y = ret[oname]
-    return y
+    if return_full_ctx:
+        return ret
+    else:
+        return ret[oname]

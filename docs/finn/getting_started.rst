@@ -9,6 +9,13 @@ Getting Started
 How to use the FINN compiler
 ============================
 The FINN compiler should not be thought of a single pushbutton tool that does everything for you, but rather as a collection of scripts/tools that will help you convert a QNN into a custom FPGA accelerator that performs high-performance inference. We do provide several examples of taking trained networks all the way down to FPGA bitfiles, but if you are trying to do this for custom networks you will have to write your own Python scripts that call the appropriate FINN Compiler functions that process your design correctly, or adding new functions as required.
+You should first familiarize with the existing end-to-end examples that FINN
+offers to understand the general flow.
+For custom networks, we recommend making a copy of the end-to-end
+Jupyter notebook as a starting point, visualizing the model at intermediate
+steps and adding calls to new transformations as needed.
+Once you have a working flow, you can implement a command line entry for this
+by using the "advanced mode" described in the :ref:`command_line` section.
 
 Requirements
 ============
@@ -20,7 +27,6 @@ Requirements
 * (optional) A PYNQ board with a network connection
    * the ``bitstring`` package must be installed on the PYNQ: ``sudo pip3 install bitstring``
 * (optional) An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ below)
-
 
 Running FINN in Docker
 ======================
@@ -40,6 +46,18 @@ If you want a new terminal on an already-running container, you can do this with
 .. warning:: The Docker container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the /workspace/finn folder (which is mounted from the host computer) or otherwise backed up.
 
 .. note:: **Develop from host, run inside container:** The FINN repository directory will be mounted from the host, so that you can use a text editor on your host computer to develop and the changes will be reflected directly inside the container.
+
+Command Line Entry
+*******************
+FINN is currently more compiler infrastructure than compiler, but we do offer
+a :ref:`command_line` entry for certain use-cases. These run a predefined flow
+or a user-defined flow from the command line as follows:
+
+::
+
+  ./run_docker.sh build_dataflow <path/to/dataflow_build_dir/>
+  ./run_docker.sh build_custom <path/to/custom_build_dir/>
+
 
 Running the Jupyter notebooks
 *****************************
@@ -75,14 +93,20 @@ from the FINN root directory* as follows:
 
 ::
 
-  python setup.py test --addopts "-k test_end2end_tfc_w1a2"
+  python setup.py test --addopts "-k test_brevitas_debug"
 
-Finally, if you want to run tests in parallel (e.g. to take advantage of a multi-core CPU)
+If you want to run tests in parallel (e.g. to take advantage of a multi-core CPU)
 you can use:
  * pytest-parallel for any rtlsim tests, e.g. `python setup.py test --addopts "-k rtlsim --workers auto"`
  * pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `python setup.py test --addopts "-k mytest -n auto --dist=loadfile"`
 
 Please see the pytest documentation for more about picking tests by marks or by name.
+
+Finally, the full test suite with appropriate parallelization can be run inside the container by:
+
+::
+
+  quicktest.sh full
 
 Environment variables
 **********************
@@ -99,6 +123,7 @@ These are summarized below:
 * ``PYNQ_IP`` and ``PYNQ_PORT`` (or ``ALVEO_IP`` and ``ALVEO_PORT``) specify ip address and port number to access the PYNQ board / Alveo target
 * ``PYNQ_USERNAME`` and ``PYNQ_PASSWORD`` (or ``ALVEO_USERNAME`` and ``ALVEO_PASSWORD``) specify the PYNQ board / Alveo host access credentials for the test suite. For PYNQ, password is always needed to run as sudo. For Alveo, you can leave the password empty and place your ssh private key in the ``finn/ssh_keys`` folder to use keypair authentication.
 * ``PYNQ_TARGET_DIR`` (or ``ALVEO_TARGET_DIR``) specifies the target dir on the PYNQ board / Alveo host for the test suite
+* (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
 
 Supported Hardware
 ===================

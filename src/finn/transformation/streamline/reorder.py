@@ -31,7 +31,7 @@ import warnings
 from onnx import helper as oh
 from onnx import TensorProto
 
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 import finn.core.data_layout as DataLayout
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
@@ -533,7 +533,7 @@ class MoveScalarLinearPastInvariants(Transformation):
                 if prod0 is None:
                     continue
 
-                if prod0.op_type == "Mul" or prod0.op_type == "Add":
+                if prod0.op_type in ["Mul", "Add", "Div"]:
                     # check if second input of producer is an initializer
                     init0 = model.get_initializer(prod0.input[1])
                     # if either initializer is None, skip
@@ -584,7 +584,7 @@ class MakeMaxPoolNHWC(Transformation):
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
                         n.op_type = "MaxPoolNHWC"
-                        n.domain = "finn"
+                        n.domain = "finn.custom_op.general"
                         start_name = n.input[0]
                         mid_name = consumer.input[0]
                         end_name = consumer.output[0]

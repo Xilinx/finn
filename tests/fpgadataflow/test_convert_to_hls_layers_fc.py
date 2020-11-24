@@ -110,7 +110,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
     model = model.transform(CompileCppSim())
     model = model.transform(SetExecMode("cppsim"))
 
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {"global_in": nph.to_array(input_tensor)}
@@ -175,7 +175,7 @@ def test_convert_to_hls_layers_tfc_w1a2():
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
     model = model.transform(SetExecMode("cppsim"))
-    raw_i = get_data("finn", "data/onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {"global_in": nph.to_array(input_tensor)}

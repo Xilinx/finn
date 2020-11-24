@@ -30,7 +30,7 @@ import os
 
 import finn.custom_op.registry as registry
 from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 
 
 class ReplaceVerilogRelPaths(Transformation):
@@ -41,11 +41,10 @@ class ReplaceVerilogRelPaths(Transformation):
 
     def apply(self, model):
         for node in model.graph.node:
-            op_type = node.op_type
             if is_fpgadataflow_node(node) is True:
                 try:
                     # lookup op_type in registry of CustomOps
-                    inst = registry.custom_op[op_type](node)
+                    inst = registry.getCustomOp(node)
                     # find the IP gen dir
                     ipgen_path = inst.get_nodeattr("ipgen_path")
                     if ipgen_path is not None and os.path.isdir(ipgen_path):

@@ -31,7 +31,7 @@ import os
 import finn.custom_op.registry as registry
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.util.basic import get_num_default_workers
 import multiprocessing as mp
 import copy
@@ -44,7 +44,7 @@ def _codegen_single_node(node, model):
     op_type = node.op_type
     try:
         # lookup op_type in registry of CustomOps
-        inst = registry.custom_op[op_type](node)
+        inst = registry.getCustomOp(node)
         # get the path of the code generation directory
         code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
         # ensure that there is a directory

@@ -28,9 +28,10 @@
 
 
 import shutil
-from finn.transformation import Transformation
-from finn.util.basic import gen_finn_dt_tensor, get_finn_root, make_build_dir
-from finn.util.data_packing import finnpy_to_packed_bytearray
+from finn.transformation.base import Transformation
+from finn.util.basic import gen_finn_dt_tensor, make_build_dir
+import finn.util.data_packing as dpk
+import finn.core.datatype as dtp
 
 from . import templates
 
@@ -77,10 +78,10 @@ class MakePYNQDriver(Transformation):
         # generate dummy folded i/o tensors and their packed versions
         i_tensor_dummy_folded = gen_finn_dt_tensor(i_tensor_dt, i_tensor_shape_folded)
         o_tensor_dummy_folded = gen_finn_dt_tensor(o_tensor_dt, o_tensor_shape_folded)
-        i_tensor_dummy_packed = finnpy_to_packed_bytearray(
+        i_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
             i_tensor_dummy_folded, i_tensor_dt
         )
-        o_tensor_dummy_packed = finnpy_to_packed_bytearray(
+        o_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
             o_tensor_dummy_folded, o_tensor_dt
         )
         i_tensor_shape_packed = i_tensor_dummy_packed.shape
@@ -124,12 +125,25 @@ class MakePYNQDriver(Transformation):
 
         with open(driver_py, "w") as f:
             f.write(driver)
+
+        # add validate.py to run full top-1 test (only for suitable networks)
+        validate_py = pynq_driver_dir + "/validate.py"
+        validate_src = templates.pynq_validation_template
+        with open(validate_py, "w") as f:
+            f.write(validate_src)
+
         # copy all the dependencies into the driver folder
-        shutil.copytree(
-            get_finn_root() + "/src/finn/util", pynq_driver_dir + "/finn/util"
-        )
-        shutil.copytree(
-            get_finn_root() + "/src/finn/core", pynq_driver_dir + "/finn/core"
-        )
+        # driver imports utils/data_packing and core/datatype
+        # both of which are in finn-base
+        # e.g. /workspace/finn-base/src/finn/util/data_packing.py
+        dpk_root = dpk.__file__
+        # e.g. /workspace/finn-base/src/finn/util
+        dpk_root = dpk_root.replace("data_packing.py", "")
+        # e.g. /workspace/finn-base/src/finn/core/datatype.py
+        dtp_root = dtp.__file__
+        # e.g. /workspace/finn-base/src/finn/core
+        dtp_root = dtp_root.replace("datatype.py", "")
+        shutil.copytree(dpk_root, pynq_driver_dir + "/finn/util")
+        shutil.copytree(dtp_root, pynq_driver_dir + "/finn/core")
 
         return (model, False)

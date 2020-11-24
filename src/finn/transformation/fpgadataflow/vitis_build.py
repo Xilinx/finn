@@ -30,7 +30,7 @@ import os
 import subprocess
 
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.custom_op.registry import getCustomOp
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -95,6 +95,15 @@ class CreateVitisXO(Transformation):
         # NOTE: this assumes the graph is Vitis-compatible: max one axi lite interface
         # developed from instructions in UG1393 (v2019.2) and package_xo documentation
         # package_xo is responsible for generating the kernel xml
+        ifnames = eval(model.get_metadata_prop("vivado_stitch_ifnames"))
+        assert (
+            len(ifnames["axilite"]) <= 1
+        ), "CreateVitisXO supports max 1 AXI lite interface"
+        if len(ifnames["axilite"]) == 1:
+            axilite_intf_name = ifnames["axilite"][0]
+        else:
+            axilite_intf_name = None
+
         for node in model.graph.node:
             node_inst = getCustomOp(node)
             arg_id = 0
@@ -117,8 +126,10 @@ class CreateVitisXO(Transformation):
                 # add a axilite port if dynamic
                 # add a count parameter if dynamic
                 if node_inst.get_nodeattr("DynIters") == 1:
+                    assert axilite_intf_name is not None
                     args_string.append(
-                        "{numReps:0:%s:s_axi_control:0x4:0x10:uint:0}" % str(arg_id)
+                        "{numReps:0:%s:%s:0x4:0x10:uint:0}"
+                        % (str(arg_id), axilite_intf_name)
                     )
                     arg_id += 1
             elif node.op_type == "IODMA":
@@ -131,7 +142,8 @@ class CreateVitisXO(Transformation):
                 )
                 arg_id += 1
                 args_string.append(
-                    "{numReps:0:%s:s_axi_control:0x4:0x1C:uint:0}" % str(arg_id)
+                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}"
+                    % (str(arg_id), axilite_intf_name)
                 )
                 arg_id += 1
 
@@ -174,11 +186,18 @@ class VitisLink(Transformation):
     ModelProto's metadata_props field with the XCLBIN full path as value.
     """
 
-    def __init__(self, platform, f_mhz=200, strategy=VitisOptStrategy.PERFORMANCE):
+    def __init__(
+        self,
+        platform,
+        f_mhz=200,
+        strategy=VitisOptStrategy.PERFORMANCE,
+        enable_debug=False,
+    ):
         super().__init__()
         self.platform = platform
         self.f_mhz = f_mhz
         self.strategy = strategy
+        self.enable_debug = enable_debug
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -255,6 +274,11 @@ class VitisLink(Transformation):
         with open(link_dir + "/gen_report_xml.tcl", "w") as f:
             f.write(gen_rep_xml)
 
+        debug_commands = []
+        if self.enable_debug:
+            for inst in list(instance_names.values()):
+                debug_commands.append("--dk chipscope:%s" % inst)
+
         # create a shell script and call Vitis
         script = link_dir + "/run_vitis_link.sh"
         working_dir = os.environ["PWD"]
@@ -264,12 +288,13 @@ class VitisLink(Transformation):
             f.write(
                 "v++ -t hw --platform %s --link %s"
                 " --kernel_frequency %d --config config.txt --optimize %s"
-                " --save-temps -R2\n"
+                " --save-temps -R2 %s\n"
                 % (
                     self.platform,
                     " ".join(object_files),
                     self.f_mhz,
                     self.strategy.value,
+                    " ".join(debug_commands),
                 )
             )
             f.write("cd {}\n".format(working_dir))
@@ -303,16 +328,35 @@ class VitisLink(Transformation):
 
 
 class VitisBuild(Transformation):
-    """Best-effort attempt at building the accelerator with Vitis."""
+    """Best-effort attempt at building the accelerator with Vitis.
+
+    fpga_part: string identifying the target FPGA
+    period_ns: target clock period
+    platform: target Alveo platform, one of ["U50", "U200", "U250", "U280"]
+    strategy: Vitis optimization strategy
+    enable_debug: add Chipscope to all AXI interfaces
+    floorplan_file: path to a JSON containing a dictionary with SLR assignments
+                    for each node in the ONNX graph. Must be parse-able by
+                    the ApplyConfig transform.
+
+    """
 
     def __init__(
-        self, fpga_part, period_ns, platform, strategy=VitisOptStrategy.PERFORMANCE
+        self,
+        fpga_part,
+        period_ns,
+        platform,
+        strategy=VitisOptStrategy.PERFORMANCE,
+        enable_debug=False,
+        floorplan_file=None,
     ):
         super().__init__()
         self.fpga_part = fpga_part
         self.period_ns = period_ns
         self.platform = platform
         self.strategy = strategy
+        self.enable_debug = enable_debug
+        self.floorplan_file = floorplan_file
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -323,13 +367,18 @@ class VitisBuild(Transformation):
             MakePYNQDriver(platform="alveo"),
             InsertIODMA(512),
             InsertDWC(),
-            Floorplan(),
-            CreateDataflowPartition(),
         ]
         for trn in prep_transforms:
             model = model.transform(trn)
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
+
+        model = model.transform(Floorplan(floorplan=self.floorplan_file))
+
+        model = model.transform(CreateDataflowPartition())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+
         # Build each kernel individually
         sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
         for sdp_node in sdp_nodes:
@@ -359,7 +408,10 @@ class VitisBuild(Transformation):
         # Assemble design from kernels
         model = model.transform(
             VitisLink(
-                self.platform, round(1000 / self.period_ns), strategy=self.strategy
+                self.platform,
+                round(1000 / self.period_ns),
+                strategy=self.strategy,
+                enable_debug=self.enable_debug,
             )
         )
         # set platform attribute for correct remote execution

@@ -58,7 +58,7 @@ def test_brevitas_cnv_export_exec(wbits, abits):
     model = model.transform(RemoveStaticGraphInputs())
     assert len(model.graph.input) == 1
     assert len(model.graph.output) == 1
-    fn = pk.resource_filename("finn", "data/cifar10/cifar10-test-data-class3.npz")
+    fn = pk.resource_filename("finn.qnn-data", "cifar10/cifar10-test-data-class3.npz")
     input_tensor = np.load(fn)["arr_0"].astype(np.float32)
     input_tensor = input_tensor / 255
     assert input_tensor.shape == (1, 3, 32, 32)

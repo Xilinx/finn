@@ -30,8 +30,9 @@ import numpy as np
 from shutil import copy
 import subprocess
 import math
+import warnings
 
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -55,13 +56,18 @@ class StreamingFIFO(HLSCustomOp):
             # Toggle between hls or IPI implementation
             # rtl - use the hls generated IP during stitching
             # vivado - use the AXI Infrastructure FIFO
-            "impl_style": ("s", False, "rtl"),
+            "impl_style": ("s", False, "rtl", {"rtl", "vivado"}),
             # FPGA resource type for FIFOs when impl_style is vivado
             # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
             # ultra -- use URAM (on UltraScale+)
-            "ram_style": ("s", False, "auto"),
+            "ram_style": (
+                "s",
+                False,
+                "auto",
+                {"auto", "block", "distributed", "ultra"},
+            ),
         }
         my_attrs.update(super().get_nodeattr_types())
 
@@ -178,14 +184,11 @@ class StreamingFIFO(HLSCustomOp):
         depth = self.get_nodeattr("depth")
         # depth has to be between 2 and 256 with the current
         # StreamingFIFO implementation
-        assert (
-            depth >= 2
-        ), """Depth is too low. Please set node attribute "depth" to a value
-        between 2 and 256"""
-        assert (
-            depth <= 256
-        ), """Depth is too high. Please set node attribute "depth" to a value
-        between 2 and 256"""
+        assert depth >= 2, """Depth is too low"""
+        if depth > 256 and self.get_nodeattr("impl_style") == "rtl":
+            warnings.warn(
+                "Depth is high, set between 2 and 256 for efficient SRL implementation"
+            )
         # derive normal shape from folded shape
         # StreamingFIFOs are inserted in between fpgadataflow nodes
         # the folded shape could be for example (1, nf, pe)
@@ -424,7 +427,6 @@ class StreamingFIFO(HLSCustomOp):
         else:
             return (math.ceil(depth / 4096)) * (math.ceil(W / 72))
 
-
     def bram_efficiency_estimation(self):
         depth = self.get_nodeattr("depth")
         W = self.get_instream_width()
@@ -451,3 +453,9 @@ class StreamingFIFO(HLSCustomOp):
 
         return int(address_luts + ram_luts)
 
+    def prepare_rtlsim(self):
+        assert self.get_nodeattr("impl_style") != "vivado", (
+            "StreamingFIFO impl_style "
+            "cannot be vivado for rtlsim. Only impl_style=rtl supported."
+        )
+        super().prepare_rtlsim()

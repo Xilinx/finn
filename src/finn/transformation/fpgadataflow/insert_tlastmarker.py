@@ -30,7 +30,7 @@ from onnx import TensorProto
 from onnx import helper as oh
 
 from finn.custom_op.registry import getCustomOp
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name
 
 import numpy as np
@@ -84,7 +84,7 @@ class InsertTLastMarker(Transformation):
                 DynIters=(1 if self.dyniters else 0),
                 Direction="out",
                 Protocol=("external" if self.external else "internal"),
-                domain="finn",
+                domain="finn.custom_op.fpgadataflow",
                 backend="fpgadataflow",
             )
             model.graph.node.append(tlast_node)
@@ -159,7 +159,7 @@ class InsertTLastMarker(Transformation):
                         DynIters=(1 if self.dyniters else 0),
                         Direction="in",
                         Protocol=("external" if self.external else "internal"),
-                        domain="finn",
+                        domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
                     )
                     model.graph.node.insert(insert_idx, tlast_node)

@@ -55,7 +55,7 @@ def make_addstreams_modelwrapper(ch, pe, idt):
         "AddStreams_Batch",
         ["inp1", "inp2"],
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=ch,
         PE=pe,

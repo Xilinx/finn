@@ -31,7 +31,7 @@ from onnx import helper as oh
 
 from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.transformation.general import SortGraph
 import finn.core.data_layout as DataLayout
 import math
@@ -111,7 +111,7 @@ class InsertIODMA(Transformation):
                     intfWidth=intfwidth,
                     streamWidth=streamWidth,
                     direction="out",
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                 )
                 model.graph.node.append(dma_node)
@@ -149,7 +149,7 @@ class InsertIODMA(Transformation):
                     intfWidth=intfwidth,
                     streamWidth=streamWidth,
                     direction="in",
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                 )
                 model.graph.node.insert(0, dma_node)
@@ -191,7 +191,7 @@ class InsertIODMA(Transformation):
                     streamWidth=streamWidth,
                     direction="in",
                     burstMode="wrap",
-                    domain="finn",
+                    domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                 )
                 fc_node.input[1] = fc_node_in.name

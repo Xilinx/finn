@@ -35,7 +35,7 @@ import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.multithreshold import multithreshold
+from finn.custom_op.general.multithreshold import multithreshold
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -46,9 +46,16 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
 from finn.custom_op.registry import getCustomOp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+import os
+from finn.util.pyverilator import axilite_read, axilite_write
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.core.rtlsim_exec import rtlsim_exec
+
+test_fpga_part = "xc7z020clg400-1"
+target_clk_ns = 5
 
 
-def make_single_thresholding_modelwrapper(T, pe, idt, odt):
+def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode):
     NumChannels = T.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, NumChannels])
@@ -60,12 +67,16 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt):
         "Thresholding_Batch",
         node_inp_list,
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=NumChannels,
         PE=pe,
+        numSteps=T.shape[1],
         inputDataType=idt.name,
+        weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
         outputDataType=odt.name,
+        ActVal=actval,
+        mem_mode=mem_mode,
     )
     graph = helper.make_graph(
         nodes=[Thresholding_node],
@@ -95,9 +106,11 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt):
 @pytest.mark.parametrize("ich", [16])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+# memory mode
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
+def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     if nf == -1:
         nf = ich
     pe = ich // nf
@@ -112,7 +125,12 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     # provide non-decreasing thresholds
     T = np.sort(T, axis=1)
 
-    model = make_single_thresholding_modelwrapper(T, pe, idt, odt)
+    if odt == DataType.BIPOLAR:
+        actval = 0
+    else:
+        actval = odt.min()
+
+    model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -121,7 +139,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
     else:
@@ -158,3 +176,102 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode):
         exp_cycles = exp_cycles_dict[node.name]
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
+
+
+@pytest.mark.vivado
+def test_runtime_thresholds_single_layer():
+    mem_mode = "decoupled"
+    act = DataType.INT4
+    idt = DataType.INT16
+    nf = 8
+    ich = 16
+    pe = ich // nf
+    assert ich % pe == 0
+
+    # generate input data
+    in_tensor = gen_finn_dt_tensor(idt, (1, ich))
+
+    odt = act
+    n_steps = act.get_num_possible_values() - 1
+    T = np.random.randint(idt.min(), idt.max() + 1, (ich, n_steps)).astype(np.float32)
+    # provide non-decreasing thresholds
+    T = np.sort(T, axis=1)
+
+    if odt == DataType.BIPOLAR:
+        actval = 0
+    else:
+        actval = odt.min()
+
+    model = make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode)
+    op_inst = getCustomOp(model.graph.node[0])
+    op_inst.set_nodeattr("runtime_writeable_weights", 1)
+    op_inst.make_weight_file(T, "decoupled_runtime", "old_weights.dat")
+    with open("old_weights.dat", "r") as f:
+        old_weight_stream = f.read().strip()
+    os.remove("old_weights.dat")
+    old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
+    old_weight_stream = list(old_weight_stream)
+    # need to create stitched IP for runtime weight testing
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+    model = model.transform(PrepareRTLSim())
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    # add two copies of the input tensor as the first one is just used to
+    # "flush out" the pipeline (as mvau already starts receiving old weights while
+    # we read/write new ones and reads seem to cause a disturbance too)
+    in_tensor = np.tile(in_tensor, (2, 1))
+    exec_ctx = {"inp": in_tensor}
+    extracted_weight_stream = []
+
+    def read_weights(sim):
+        addr = 0
+        for i in range(len(old_weight_stream)):
+            extracted_weight_stream.append(
+                axilite_read(sim, addr, basename="s_axilite_0_")
+            )
+            addr += 4
+
+    rtlsim_exec(model, exec_ctx, pre_hook=read_weights)
+    assert extracted_weight_stream == old_weight_stream
+    # only use second batch element in output; first will be invalid due to
+    # old weights (see above)
+    y = exec_ctx["outp"][1]
+    expected = multithreshold(in_tensor, T)[1]
+    if act == DataType.BIPOLAR:
+        # binary to bipolar
+        expected = 2 * expected - 1
+    else:
+        # signed offset
+        expected += act.min()
+    assert (y == expected).all()
+
+    new_weights = np.random.randint(idt.min(), idt.max() + 1, (ich, n_steps)).astype(
+        np.float32
+    )
+    # provide non-decreasing thresholds
+    new_weights = np.sort(T, axis=1)
+    op_inst.make_weight_file(new_weights, "decoupled_runtime", "new_weights.dat")
+    with open("new_weights.dat", "r") as f:
+        new_weight_stream = f.read().strip()
+    os.remove("new_weights.dat")
+    new_weight_stream = map(lambda x: int(x, 16), new_weight_stream.split("\n"))
+    new_weight_stream = list(new_weight_stream)
+
+    def write_weights(sim):
+        addr = 0
+        for nw in new_weight_stream:
+            axilite_write(sim, addr, nw, basename="s_axilite_0_")
+            addr += 4
+
+    rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
+    y = exec_ctx["outp"][1]
+    expected = multithreshold(in_tensor, new_weights)[1]
+    if act == DataType.BIPOLAR:
+        # binary to bipolar
+        expected = 2 * expected - 1
+    else:
+        # signed offset
+        expected += act.min()
+    assert (y == expected).all()
