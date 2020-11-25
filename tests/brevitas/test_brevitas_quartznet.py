@@ -29,6 +29,7 @@
 import brevitas.onnx as bo
 import numpy as np
 import torch
+import pytest
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
@@ -42,6 +43,7 @@ import brevitas_examples.speech_to_text as stt
 export_onnx_path = make_build_dir("test_brevitas_quartznet_")
 
 
+@pytest.mark.slow
 def test_brevitas_quartznet_onnx_export_and_exec():
     nname = "quartznet-4b"
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
