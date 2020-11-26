@@ -155,7 +155,7 @@ gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
 
 # Build the FINN Docker image
-docker build -f $SCRIPTPATH/docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
+docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg GID=$DOCKER_GID \
              --build-arg GNAME=$DOCKER_GNAME \
              --build-arg UNAME=$DOCKER_UNAME \
