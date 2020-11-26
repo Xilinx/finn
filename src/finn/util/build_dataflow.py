@@ -31,7 +31,7 @@ import os
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Any
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -219,9 +219,14 @@ class DataflowBuildConfig:
     #: debug signals in the generated hardware)
     enable_hw_debug: Optional[bool] = False
 
-    #: If given, only run the steps with the specified names in the list.
+    #: If given, only run the steps in the list. If not, run default steps.
     #: See `default_build_dataflow_steps` for the default list of steps.
-    steps: Optional[List[str]] = None
+    #: When specified:
+    #: Each item can either be a string, or a function (does not apply to json
+    #: serialized configs) and does the following:
+    #: - strings are resolved to functions from the default list
+    #: - functions are called with (model, DataflowBuildConfig) as args
+    steps: Optional[List[Any]] = None
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
@@ -257,8 +262,16 @@ class DataflowBuildConfig:
         steps = self.steps
         if steps is None:
             steps = default_build_dataflow_steps
-        # lookup step function from step name
-        steps_as_fxns = [eval(x) for x in steps]
+        steps_as_fxns = []
+        for transform_step in steps:
+            if type(transform_step) is str:
+                # lookup step function from step name
+                steps_as_fxns.append(_internal_step_lookup[transform_step])
+            elif callable(transform_step):
+                # treat step as function to be called as-is
+                steps_as_fxns.append(transform_step)
+            else:
+                raise Exception("Could not resolve build step: " + str(transform_step))
         return steps_as_fxns
 
     def _resolve_vitis_opt_strategy(self):
@@ -493,6 +506,20 @@ default_build_dataflow_steps = [
     "step_make_pynq_driver",
     "step_synthesize_bitfile",
 ]
+
+# map strings to step names
+_internal_step_lookup = {
+    "step_tidy_up": step_tidy_up,
+    "step_streamline": step_streamline,
+    "step_convert_to_hls": step_convert_to_hls,
+    "step_create_dataflow_partition": step_create_dataflow_partition,
+    "step_apply_folding_config": step_apply_folding_config,
+    "step_hls_ipgen": step_hls_ipgen,
+    "step_auto_set_fifo_depths": step_auto_set_fifo_depths,
+    "step_create_stitched_ip": step_create_stitched_ip,
+    "step_make_pynq_driver": step_make_pynq_driver,
+    "step_synthesize_bitfile": step_synthesize_bitfile,
+}
 
 
 def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
