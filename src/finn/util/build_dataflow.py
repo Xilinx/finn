@@ -56,16 +56,21 @@ from finn.transformation.streamline.reorder import (
 )
 import time
 from shutil import copy, copytree
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.util.basic import pynq_part_map, alveo_part_map
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
+)
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
 )
 from finn.custom_op.registry import getCustomOp
 import clize
@@ -117,6 +122,26 @@ class ComputeEngineMemMode(str, Enum):
     DECOUPLED = "decoupled"
 
 
+class VitisOptStrategyCfg(str, Enum):
+    """Vitis optimization strategy with serializable string enum values."""
+
+    DEFAULT = "default"
+    POWER = "power"
+    PERFORMANCE = "performance"
+    PERFORMANCE_BEST = "performance_best"
+    SIZE = "size"
+    BUILD_SPEED = "quick"
+
+
+class LargeFIFOMemStyle(str, Enum):
+    """Type of memory resource to use for large FIFOs."""
+
+    AUTO = "auto"
+    BRAM = "block"
+    LUTRAM = "distributed"
+    URAM = "ultra"
+
+
 @dataclass_json
 @dataclass
 class DataflowBuildConfig:
@@ -128,7 +153,8 @@ class DataflowBuildConfig:
     #: Directory where the final build outputs will be written into
     output_dir: str
 
-    #: Path to folding configuration JSON file.
+    #: Path to folding configuration JSON file. May also contain FIFO sizes
+    #: and any other HLS node config if desired.
     #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     folding_config_file: str
 
@@ -155,7 +181,13 @@ class DataflowBuildConfig:
 
     #: Whether FIFO depths will be set automatically. Involves running stitched
     #: rtlsim and can take a long time.
+    #: If set to False, the folding_config_file can be used to specify sizes
+    #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
+
+    #: Memory resource type for large FIFOs
+    #: Only relevant when `auto_fifo_depths = True`
+    large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
 
     #: Target clock frequency (in nanoseconds) for Vivado HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
@@ -174,6 +206,10 @@ class DataflowBuildConfig:
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
     #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
+
+    #: Vitis optimization strategy
+    #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
+    vitis_opt_strategy: Optional[VitisOptStrategyCfg] = VitisOptStrategyCfg.DEFAULT
 
     #: Whether intermediate ONNX files will be saved during the build process.
     #: These can be useful for debugging if the build fails.
@@ -224,6 +260,18 @@ class DataflowBuildConfig:
         # lookup step function from step name
         steps_as_fxns = [eval(x) for x in steps]
         return steps_as_fxns
+
+    def _resolve_vitis_opt_strategy(self):
+        # convert human-readable enum to value expected by v++
+        name_to_strategy = {
+            VitisOptStrategyCfg.DEFAULT: VitisOptStrategy.DEFAULT,
+            VitisOptStrategyCfg.POWER: VitisOptStrategy.POWER,
+            VitisOptStrategyCfg.PERFORMANCE: VitisOptStrategy.PERFORMANCE,
+            VitisOptStrategyCfg.PERFORMANCE_BEST: VitisOptStrategy.PERFORMANCE_BEST,
+            VitisOptStrategyCfg.SIZE: VitisOptStrategy.SIZE,
+            VitisOptStrategyCfg.BUILD_SPEED: VitisOptStrategy.BUILD_SPEED,
+        }
+        return name_to_strategy[self.vitis_opt_strategy]
 
 
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -325,6 +373,7 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
         PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
     )
     model = model.transform(HLSSynthIP())
+    model = model.transform(ReplaceVerilogRelPaths())
     return model
 
 
@@ -336,13 +385,23 @@ def step_auto_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.auto_fifo_depths:
         model = model.transform(
             InsertAndSetFIFODepths(
-                cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()
+                cfg._resolve_fpga_part(),
+                cfg._resolve_hls_clk_period(),
+                vivado_ram_style=cfg.large_fifo_mem_style.value,
             )
         )
         model = model.transform(
             PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
         )
         model = model.transform(HLSSynthIP())
+    else:
+        # assume folding cfg json contains FIFO sizes too
+        # insert DWCs, FIFOs and run ApplyConfig once more
+        model = model.transform(InsertDWC())
+        model = model.transform(InsertFIFO())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(ApplyConfig(cfg.folding_config_file))
     return model
 
 
@@ -402,6 +461,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg._resolve_fpga_part(),
                     cfg.synth_clk_period_ns,
                     cfg.vitis_platform,
+                    strategy=cfg._resolve_vitis_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                     floorplan_file=cfg.vitis_floorplan_file,
                 )
