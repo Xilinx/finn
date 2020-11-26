@@ -532,6 +532,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     assert type(model) is ModelWrapper
     print("Building dataflow accelerator from " + model_filename)
     print("Outputs will be generated at " + cfg.output_dir)
+    print("Build log is at " + cfg.output_dir + "/build_dataflow.log")
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)
