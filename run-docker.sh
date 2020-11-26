@@ -56,6 +56,13 @@ if [ -z "$VITIS_PATH" ];then
 else
   if [ -z "$PLATFORM_REPO_PATHS" ];then
     recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
+    recho "This is required to be able to use Vitis."
+    exit -1
+  fi
+  if [ -z "$XILINX_XRT" ];then
+    recho "Please set XILINX_XRT pointing to your XRT installation."
+    recho "This is required to be able to use Vitis."
+    exit -1
   fi
 fi
 
@@ -129,6 +136,7 @@ fi
 
 VIVADO_HLS_LOCAL=$VIVADO_PATH
 VIVADO_IP_CACHE=$FINN_HOST_BUILD_DIR/vivado_ip_cache
+INSTALL_XRT_DEPS=0
 
 # ensure build dir exists locally
 mkdir -p $FINN_HOST_BUILD_DIR
@@ -139,12 +147,12 @@ gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
 gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
 if [ ! -z "$VITIS_PATH" ];then
   gecho "Mounting $VITIS_PATH into $VITIS_PATH"
+  INSTALL_XRT_DEPS=1
 fi
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
-
 
 # Build the FINN Docker image
 docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
@@ -153,6 +161,7 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg UNAME=$DOCKER_UNAME \
              --build-arg UID=$DOCKER_UID \
              --build-arg PASSWD=$DOCKER_PASSWD \
+             --build-arg INSTALL_XRT_DEPS=$INSTALL_XRT_DEPS \
              .
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
