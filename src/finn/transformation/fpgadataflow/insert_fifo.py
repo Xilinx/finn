@@ -44,11 +44,16 @@ class InsertFIFO(Transformation):
     node attribute 'outFIFODepth' of the previous and node attribute 'inFIFODepth'
     of the subsequent node. max() of these two values sets the FIFO depth.
 
-    The other node attributes necessary to create a FIFO node are taking from the
+    Normally, shallow-depth (<=2) FIFOs won't be created since HLS streaming
+    interfaces already have a degree of buffering. You can set
+    create_shallow_fifos=True to override this default behavior.
+
+    The other node attributes necessary to create a FIFO node are taken from the
     node the FIFO node is inserted after: 'folded_shape' and 'dtype'"""
 
-    def __init__(self):
+    def __init__(self, create_shallow_fifos=False):
         super().__init__()
+        self.create_shallow_fifos = create_shallow_fifos
 
     def apply(self, model):
         graph = model.graph
@@ -98,12 +103,12 @@ class InsertFIFO(Transformation):
                         elif n0_depth != n1_depth:
                             fifo_depth = max(n0_depth, n1_depth)
 
-                        if fifo_depth > 2:
+                        if fifo_depth > 2 or self.create_shallow_fifos:
                             # assumption: HLS streaming components already have
                             # depth-2 FIFOs on inputs and outputs, so no point
                             # creating additional small FIFOs in between --
                             # we only create the larger FIFOs specified
-                            # create fifo node
+                            # or unless create_shallow_fifos is specified
                             fifo_output_tensor = oh.make_tensor_value_info(
                                 model.make_new_valueinfo_name(),
                                 TensorProto.FLOAT,
