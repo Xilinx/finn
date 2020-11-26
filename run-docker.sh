@@ -155,6 +155,9 @@ gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
 
 # Build the FINN Docker image
+# Need to ensure this is done within the finn/ root folder:
+OLD_PWD=$(pwd)
+cd $SCRIPTPATH
 docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg GID=$DOCKER_GID \
              --build-arg GNAME=$DOCKER_GNAME \
@@ -163,6 +166,7 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg PASSWD=$DOCKER_PASSWD \
              --build-arg INSTALL_XRT_DEPS=$INSTALL_XRT_DEPS \
              .
+cd $OLD_PWD
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
