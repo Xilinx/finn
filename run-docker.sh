@@ -42,21 +42,21 @@ recho () {
 }
 
 if [ -z "$VIVADO_PATH" ];then
-        recho "Please set the VIVADO_PATH that contains the path to your Vivado installation directory."
-        recho "FINN functionality depending on Vivado or Vivado HLS will not be available."
+  recho "Please set the VIVADO_PATH that contains the path to your Vivado installation directory."
+  recho "FINN functionality depending on Vivado or Vivado HLS will not be available."
 fi
 
 if [ -z "$PYNQ_IP" ];then
-        recho "Please set the PYNQ_IP env.var. to enable PYNQ deployment tests."
+  recho "Please set the PYNQ_IP env.var. to enable PYNQ deployment tests."
 fi
 
 if [ -z "$VITIS_PATH" ];then
-        recho "Please set the VITIS_PATH that contains the path to your Vitis installation directory."
-        recho "FINN functionality depending on Vitis will not be available."
+  recho "Please set the VITIS_PATH that contains the path to your Vitis installation directory."
+  recho "FINN functionality depending on Vitis will not be available."
 else
-    if [ -z "$PLATFORM_REPO_PATHS" ];then
-            recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
-    fi
+  if [ -z "$PLATFORM_REPO_PATHS" ];then
+    recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
+  fi
 fi
 
 DOCKER_GID=$(id -g)
@@ -101,28 +101,30 @@ DOCKER_INTERACTIVE=""
 DOCKER_EXTRA=""
 
 if [ "$1" = "test" ]; then
-        gecho "Running test suite (all tests)"
-        DOCKER_CMD="python setup.py test"
+  gecho "Running test suite (all tests)"
+  DOCKER_CMD="python setup.py test"
 elif [ "$1" = "quicktest" ]; then
-        gecho "Running test suite (non-Vivado, non-slow tests)"
-        DOCKER_CMD="quicktest.sh"
+  gecho "Running test suite (non-Vivado, non-slow tests)"
+  DOCKER_CMD="quicktest.sh"
 elif [ "$1" = "notebook" ]; then
-        gecho "Running Jupyter notebook server"
-        DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
+  gecho "Running Jupyter notebook server"
+  DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
 elif [ "$1" = "build_dataflow" ]; then
-        BUILD_DATAFLOW_DIR=$(readlink -f "$2")
-        DOCKER_EXTRA="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR"
-        gecho "Running build_dataflow for folder $BUILD_DATAFLOW_DIR"
-        DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
+  BUILD_DATAFLOW_DIR=$(readlink -f "$2")
+  DOCKER_EXTRA="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR"
+  #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
+  gecho "Running build_dataflow for folder $BUILD_DATAFLOW_DIR"
+  DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
 elif [ "$1" = "build_custom" ]; then
-        BUILD_CUSTOM_DIR=$(readlink -f "$2")
-        DOCKER_EXTRA="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR"
-        gecho "Running build_custom: $BUILD_CUSTOM_DIR/build.py"
-        DOCKER_CMD="python build.py"
+  BUILD_CUSTOM_DIR=$(readlink -f "$2")
+  DOCKER_EXTRA="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR"
+  #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
+  gecho "Running build_custom: $BUILD_CUSTOM_DIR/build.py"
+  DOCKER_CMD="python build.py"
 else
-        gecho "Running container only"
-        DOCKER_CMD="bash"
-        DOCKER_INTERACTIVE="-it"
+  gecho "Running container only"
+  DOCKER_CMD="bash"
+  DOCKER_INTERACTIVE="-it"
 fi
 
 VIVADO_HLS_LOCAL=$VIVADO_PATH
@@ -135,7 +137,9 @@ mkdir -p $FINN_SSH_KEY_DIR
 gecho "Docker container is named $DOCKER_INST_NAME"
 gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
 gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
-gecho "Mounting $VITIS_PATH into $VITIS_PATH"
+if [ ! -z "$VITIS_PATH" ];then
+  gecho "Mounting $VITIS_PATH into $VITIS_PATH"
+fi
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
@@ -184,12 +188,12 @@ if [ ! -z "$VIVADO_PATH" ];then
 fi
 if [ ! -z "$VITIS_PATH" ];then
   if [ -z "$PLATFORM_REPO_PATHS" ];then
-          recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
-          exit -1
+    recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
+    exit -1
   fi
   if [ -z "$XILINX_XRT" ];then
-          recho "XILINX_XRT must be set for Vitis/Alveo flows"
-          exit -1
+    recho "XILINX_XRT must be set for Vitis/Alveo flows"
+    exit -1
   fi
   DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
   DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
