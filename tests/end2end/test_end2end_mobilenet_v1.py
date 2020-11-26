@@ -84,6 +84,7 @@ from finn.transformation.fpgadataflow.annotate_resources import AnnotateResource
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.core.onnx_exec import execute_onnx
 from finn.util.basic import alveo_part_map, alveo_default_platform
+from finn.util.config import extract_model_config_to_json
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 
 build_dir = os.environ["FINN_BUILD_DIR"]
@@ -93,6 +94,9 @@ test_platform = alveo_default_platform[test_board]
 test_fpga_part = alveo_part_map[test_board]
 target_clk_ns = 5
 mem_mode = "decoupled"
+large_fifo_ram_style = "ultra"
+extra_fold = 1
+first_layer_res_type = "dsp"
 
 
 def test_end2end_mobilenet_export():
@@ -226,8 +230,11 @@ def test_end2end_mobilenet_folding():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_mobilenet_hls_layers.onnx"
     )
-    extra_fold = 1
+    # optional extra folding to use fewer resources
+    # applied while setting the attributes on each node
     assert extra_fold in [1, 2, 4]
+    # set up folding for the depthwise conv layers impl'd by VVAUs
+    # each value is PE for a layer
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     # each tuple is (PE, SIMD, ram_style) for a layer
     folding = [
@@ -252,9 +259,12 @@ def test_end2end_mobilenet_folding():
         fcl_inst.set_nodeattr("PE", pe // extra_fold)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
-
-    vvau_layers = model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")
+    # first layer uses 8-bit weights & activations
+    # control its compute resource type explicitly
+    getCustomOp(fc_layers[0]).set_nodeattr("resType", first_layer_res_type)
+    # set up folding for the depthwise conv layers impl'd by VVAUs
     # each value is PE for a layer
+    vvau_layers = model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")
     folding = [32, 32, 64, 16, 32, 8, 16, 16, 16, 16, 16, 4, 8]
     for vvau, pe in zip(vvau_layers, folding):
         vvau_inst = getCustomOp(vvau)
@@ -268,7 +278,13 @@ def test_end2end_mobilenet_folding():
         if padding.op_type == "FMPadding_Batch":
             padding_inst = getCustomOp(padding)
             padding_inst.set_nodeattr("SIMD", pe // extra_fold)
-
+    # adjust final pooling layer + its inpgen
+    pool_node = model.get_nodes_by_op_type("Pool_Batch")[0]
+    pool_inst = getCustomOp(pool_node)
+    pool_inst.set_nodeattr("PE", 4 // extra_fold)
+    pool_inpgen = model.find_direct_predecessors(pool_node)[0]
+    pool_inpgen_inst = getCustomOp(pool_inpgen)
+    pool_inpgen_inst.set_nodeattr("SIMD", 4 // extra_fold)
     model = model.transform(InferDataLayouts())
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
 
@@ -379,12 +395,21 @@ def test_end2end_mobilenet_rtlsim():
 def test_end2end_mobilenet_set_fifo_depths():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_ipgen.onnx")
     start = time.time()
-    model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
+    model = model.transform(
+        InsertAndSetFIFODepths(
+            test_fpga_part, target_clk_ns, vivado_ram_style=large_fifo_ram_style
+        )
+    )
     end = time.time()
     elapsed_time = end - start
     f = open(build_dir + "/end2end_mobilenet_fifoset_time.txt", "w+")
     f.write("Execution time in seconds: " + str(elapsed_time))
     f.close()
+    extract_model_config_to_json(
+        model,
+        build_dir + "/end2end_mobilenet_folded_and_fifo_config.json",
+        ["PE", "SIMD", "impl_style", "ram_style", "depth"],
+    )
     model.save(build_dir + "/end2end_mobilenet_fifodepth.onnx")
 
 
