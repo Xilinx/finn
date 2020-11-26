@@ -1,7 +1,7 @@
 from PIL import Image
 import numpy as np
 import brevitas.onnx as bo
-
+import pytest
 import torch
 from finn.util.basic import make_build_dir
 from finn.util.pytorch import NormalizePreProc
@@ -23,6 +23,7 @@ from finn.transformation.insert_topk import InsertTopK
 import finn.core.onnx_exec as oxe
 
 
+@pytest.mark.xfail
 def test_brevitas_mobilenet():
     # get single image as input and prepare image
     img = Image.open("/workspace/finn/tests/brevitas/king_charles.jpg")

@@ -303,6 +303,7 @@ def test_end2end_mobilenet_create_dataflow_partition():
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.xfail
 def test_end2end_mobilenet_cppsim():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
@@ -357,6 +358,7 @@ def test_end2end_mobilenet_gen_hls_ip():
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.xfail
 def test_end2end_mobilenet_rtlsim():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_ipgen.onnx")
     x = np.load(build_dir + "/end2end_mobilenet_input.npy")
