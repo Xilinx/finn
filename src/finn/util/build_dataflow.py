@@ -393,10 +393,18 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def step_auto_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Run the `InsertAndSetFIFODepths` transformation to attempt to determine
-    the FIFO sizes that provide full throughput. Involves running stitched-IP
-    rtlsim and may take a long time."""
+def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """
+    Depending on the auto_fifo_depths setting, do one of the following:
+    * if auto_fifo_depths=True:  Run the `InsertAndSetFIFODepths` transformation
+    to attempt to determine the FIFO sizes that provide full throughput. Involves
+    running stitched-IP rtlsim and may take a long time.
+    * if auto_fifo_depths=False:  Assume the folding config file contains FIFO
+    sizes as well. Runs the `InsertFIFO` transformation, then
+    `ApplyConfig(cfg.folding_config_file)`, and finally `RemoveShallowFIFOs`.
+    Coherency with config file node naming is ensured by calling
+    `GiveUniqueNodeNames`.
+    """
 
     if cfg.auto_fifo_depths:
         model = model.transform(
@@ -406,10 +414,6 @@ def step_auto_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                 vivado_ram_style=cfg.large_fifo_mem_style.value,
             )
         )
-        model = model.transform(
-            PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-        )
-        model = model.transform(HLSSynthIP())
     else:
         # assume folding cfg json contains FIFO sizes too
         # insert DWCs, FIFOs and run ApplyConfig once more
@@ -422,6 +426,13 @@ def step_auto_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(ApplyConfig(cfg.folding_config_file))
         # remove any shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
+
+    # after FIFOs are ready go go, call PrepareIP and HLSSynthIP again
+    # this will only run for the new nodes (e.g. FIFOs and DWCs)
+    model = model.transform(
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+    )
+    model = model.transform(HLSSynthIP())
     return model
 
 
@@ -508,7 +519,7 @@ default_build_dataflow_steps = [
     "step_create_dataflow_partition",
     "step_apply_folding_config",
     "step_hls_ipgen",
-    "step_auto_set_fifo_depths",
+    "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_make_pynq_driver",
     "step_synthesize_bitfile",
@@ -522,7 +533,7 @@ _internal_step_lookup = {
     "step_create_dataflow_partition": step_create_dataflow_partition,
     "step_apply_folding_config": step_apply_folding_config,
     "step_hls_ipgen": step_hls_ipgen,
-    "step_auto_set_fifo_depths": step_auto_set_fifo_depths,
+    "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_make_pynq_driver": step_make_pynq_driver,
     "step_synthesize_bitfile": step_synthesize_bitfile,
