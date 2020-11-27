@@ -492,7 +492,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg._resolve_fpga_part(),
                     cfg.synth_clk_period_ns,
                     cfg.vitis_platform,
-                    strategy=cfg._resolve_vitis_strategy(),
+                    strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                     floorplan_file=cfg.vitis_floorplan_file,
                 )
