@@ -47,18 +47,21 @@ class SetFolding(Transformation):
 
     * When folding dense convolution/FC compute engines (StreamingFCLayer_Batch),
     which have two attributes (PE and SIMD):
-        * first increases SIMD while weight stream width per PE is <= 36
+        * first increases SIMD while weight stream width per PE is <= mvau_wwidth_max
+          (configurable in the SetFolding initializer, defaults to 36)
         * then increases PE until the target is met or max PE reached
 
     * When folding depthwise convolutions ("VVAU"/Vector_Vector_Activate_Batch)
     or spatial reduction ops (Pool_Batch):
-        * the producer of the node is expected to be a ConvolutionInputGenerator,
-          whose SIMD value will be set equal to the PE value of the VVAU
+        * the producer of the node is expected to be a ConvolutionInputGenerator
+        with depthwise=1, whose SIMD value will be set equal to the PE value of
+        its consumer node
     """
 
-    def __init__(self, cycles_target=1000):
+    def __init__(self, cycles_target=1000, mvau_wwidth_max=36):
         super().__init__()
         self.cycles_target = cycles_target
+        self.mvau_wwidth_max = mvau_wwidth_max
 
     def optimize_attribute_val(self, node_inst, max_val, attr_name):
         node_inst.set_nodeattr(attr_name, 1)
@@ -93,7 +96,7 @@ class SetFolding(Transformation):
                     if (
                         node_inst.get_weight_datatype().bitwidth()
                         * node_inst.get_nodeattr("SIMD")
-                        > 36
+                        > self.mvau_wwidth_max
                     ):
                         # revert if we've gone above width threshold
                         node_inst.set_nodeattr("SIMD", prev_simd_val)
@@ -153,6 +156,7 @@ class SetFolding(Transformation):
                     max_simd = node_inst.get_nodeattr("IFMChannels")
                     self.optimize_attribute_val(node_inst, max_simd, "SIMD")
                 else:
+                    # depthwise SWGs are handled separately
                     continue
 
         return (model, False)
