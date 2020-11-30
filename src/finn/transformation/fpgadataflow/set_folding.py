@@ -38,10 +38,23 @@ def divisors(num):
 
 class SetFolding(Transformation):
     """Set parallelism attributes in all nodes to meet a specific
-    target expressed as cycles per frame. Applies the following rules
-    when folding conv layers which have two attributes (PE and SIMD):
-    -first increases SIMD while weight stream width per PE is <= 36
-    -then increases PE until the target is met or max PE reached"""
+    target expressed as cycles per frame. For each HLSCustomOp node
+    type, the attribute may vary but is typically one of {PE, SIMD},
+    and has a certain allowed-maximum value and divisibility constraints,
+    which SetFolding will take into account.
+
+    Notable exceptions and special behavior:
+
+    * When folding dense convolution/FC compute engines (StreamingFCLayer_Batch),
+    which have two attributes (PE and SIMD):
+        * first increases SIMD while weight stream width per PE is <= 36
+        * then increases PE until the target is met or max PE reached
+
+    * When folding depthwise convolutions ("VVAU"/Vector_Vector_Activate_Batch)
+    or spatial reduction ops (Pool_Batch):
+        * the producer of the node is expected to be a ConvolutionInputGenerator,
+          whose SIMD value will be set equal to the PE value of the VVAU
+    """
 
     def __init__(self, cycles_target=1000):
         super().__init__()
