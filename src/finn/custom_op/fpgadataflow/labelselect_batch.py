@@ -346,3 +346,9 @@ class LabelSelect_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def get_exp_cycles(self):
+        nlabels = self.get_nodeattr("Labels")
+        pe = self.get_nodeattr("PE")
+        exp_cycles = nlabels / pe
+        return int(exp_cycles)
