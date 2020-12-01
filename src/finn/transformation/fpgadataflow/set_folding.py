@@ -31,6 +31,7 @@ from finn.transformation.base import Transformation
 from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+import warnings
 
 
 def divisors(num):
@@ -41,7 +42,7 @@ def divisors(num):
 
 class SetFolding(Transformation):
     """Set parallelism attributes in all nodes to meet a specific
-    target expressed as cycles per frame target_cycles_per_frame.For each
+    target expressed as cycles per frame target_cycles_per_frame. For each
     HLSCustomOp node type, the attribute may vary but is typically one of {PE, SIMD},
     and has a certain allowed-maximum value and divisibility constraints,
     which SetFolding will take into account. In the returned model, each node's
@@ -133,6 +134,9 @@ class SetFolding(Transformation):
             elif op_type in pe_ops:
                 max_pe = node_inst.get_nodeattr("NumChannels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
+            elif op_type == "LabelSelect_Batch":
+                max_pe = node_inst.get_nodeattr("Labels")
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in depthwise_op_exceptions:
                 max_pe = node_inst.get_nodeattr("Channels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
@@ -159,7 +163,9 @@ class SetFolding(Transformation):
                 max_simd = node_inst.get_nodeattr("NumChannels")
                 self.optimize_attribute_val(node_inst, max_simd, "SIMD")
             else:
-                raise Exception("Unknown op_type in SetFolding: " + op_type)
+                warnings.warn(
+                    "SetFolding doesn't know how to handle op_type " + op_type
+                )
 
         model = model.transform(AnnotateCycles())
         if self.two_pass_relaxation:
