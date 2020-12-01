@@ -31,6 +31,7 @@ from finn.transformation.base import Transformation
 from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.general import GiveUniqueNodeNames
 import warnings
 
 
@@ -172,6 +173,7 @@ class SetFolding(Transformation):
                     "SetFolding doesn't know how to handle op_type " + op_type
                 )
 
+        model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())
         if self.two_pass_relaxation:
             perf_dict = model.analysis(dataflow_performance)
