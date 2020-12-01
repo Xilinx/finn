@@ -164,8 +164,9 @@ class SetFolding(Transformation):
                     else:
                         # depthwise SWGs are handled separately
                         continue
-                max_simd = node_inst.get_nodeattr("NumChannels")
-                self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                else:
+                    max_simd = node_inst.get_nodeattr("NumChannels")
+                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
             else:
                 warnings.warn(
                     "SetFolding doesn't know how to handle op_type " + op_type
@@ -180,6 +181,10 @@ class SetFolding(Transformation):
                 # to balance the entire dataflow pipeline instead
                 # no two_pass_relaxation this time -- no guarantee we'll
                 # converge otherwise
+                warnings.warn(
+                    "Node %s is bottleneck with %d cycles, running second pass"
+                    % (perf_dict["max_cycles_node_name"], perf_dict["max_cycles"])
+                )
                 model = model.transform(
                     SetFolding(
                         target_cycles_per_frame=perf_dict["max_cycles"],
