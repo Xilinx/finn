@@ -559,8 +559,8 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         bitfile_dir = cfg.output_dir + "/bitfile"
         driver_dir = cfg.output_dir + "/driver"
         os.makedirs(deploy_dir)
-        copytree(bitfile_dir + "/*", deploy_dir)
-        copytree(driver_dir + "/*", deploy_dir)
+        copytree(bitfile_dir, deploy_dir + "/bitfile")
+        copytree(driver_dir, deploy_dir + "/driver")
     return model
 
 
