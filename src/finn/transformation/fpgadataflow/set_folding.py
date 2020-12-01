@@ -29,6 +29,8 @@
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 
 
 def divisors(num):
@@ -42,7 +44,14 @@ class SetFolding(Transformation):
     target expressed as cycles per frame target_cycles_per_frame.For each
     HLSCustomOp node type, the attribute may vary but is typically one of {PE, SIMD},
     and has a certain allowed-maximum value and divisibility constraints,
-    which SetFolding will take into account.
+    which SetFolding will take into account. In the returned model, each node's
+    cycles_estimate attribute will be set to its estimated number of cycles.
+
+    If two_pass_relaxation is enabled,
+    SetFolding will internally run a second time if the target cycles from the
+    first pass could not be achieved, instead using the achievable target (which
+    may be constrained by a single node) to obtain a balanced pipeline.
+
     Notable exceptions and special behavior:
 
     * When folding dense convolution/FC compute engines (StreamingFCLayer_Batch),
@@ -58,10 +67,13 @@ class SetFolding(Transformation):
         its consumer node
     """
 
-    def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36):
+    def __init__(
+        self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True
+    ):
         super().__init__()
         self.target_cycles_per_frame = target_cycles_per_frame
         self.mvau_wwidth_max = mvau_wwidth_max
+        self.two_pass_relaxation = two_pass_relaxation
 
     def optimize_attribute_val(self, node_inst, max_val, attr_name):
         node_inst.set_nodeattr(attr_name, 1)
@@ -74,7 +86,6 @@ class SetFolding(Transformation):
 
     def apply(self, model):
         graph = model.graph
-
         # these ops use PE parallelism, up to a max value of NumChannels
         pe_ops = [
             "AddStreams_Batch",
@@ -117,7 +128,6 @@ class SetFolding(Transformation):
                         # revert if we've gone above width threshold
                         node_inst.set_nodeattr("SIMD", prev_simd_val)
                         break
-
                 # increase PE until target met or reached max_pe
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
             elif op_type in pe_ops:
@@ -150,5 +160,22 @@ class SetFolding(Transformation):
                 self.optimize_attribute_val(node_inst, max_simd, "SIMD")
             else:
                 raise Exception("Unknown op_type in SetFolding: " + op_type)
+
+        model = model.transform(AnnotateCycles())
+        if self.two_pass_relaxation:
+            perf_dict = model.analysis(dataflow_performance)
+            if perf_dict["max_cycles"] > self.target_cycles_per_frame:
+                # run again, but with lower target (that we managed) -- this
+                # may be coming from a single node's constraints, but we want
+                # to balance the entire dataflow pipeline instead
+                # no two_pass_relaxation this time -- no guarantee we'll
+                # converge otherwise
+                model = model.transform(
+                    SetFolding(
+                        target_cycles_per_frame=perf_dict["max_cycles"],
+                        mvau_wwidth_max=self.mvau_wwidth_max,
+                        two_pass_relaxation=False,
+                    )
+                )
 
         return (model, False)
