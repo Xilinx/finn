@@ -115,6 +115,7 @@ class DataflowOutputType(str, Enum):
     STITCHED_IP = "stitched_ip"
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
+    DEPLOYMENT_PACKAGE = "deployment_package"
 
 
 class ComputeEngineMemMode(str, Enum):
@@ -550,6 +551,19 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Create a deployment package including the driver and bitfile."""
+
+    if DataflowOutputType.DEPLOYMENT_PACKAGE in cfg.generate_outputs:
+        deploy_dir = cfg.output_dir + "/deploy"
+        bitfile_dir = cfg.output_dir + "/bitfile"
+        driver_dir = cfg.output_dir + "/driver"
+        os.makedirs(deploy_dir)
+        copytree(bitfile_dir + "/*", deploy_dir)
+        copytree(driver_dir + "/*", deploy_dir)
+    return model
+
+
 #: List of steps that will be run as part of the standard dataflow build, in the
 #: specified order. Use the `steps` as part of build config to restrict which
 #: steps will be run.
@@ -565,6 +579,7 @@ default_build_dataflow_steps = [
     "step_create_stitched_ip",
     "step_make_pynq_driver",
     "step_synthesize_bitfile",
+    "step_deployment_package",
 ]
 
 # map strings to step names
@@ -580,6 +595,7 @@ _internal_step_lookup = {
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_make_pynq_driver": step_make_pynq_driver,
     "step_synthesize_bitfile": step_synthesize_bitfile,
+    "step_deployment_package": step_deployment_package,
 }
 
 
