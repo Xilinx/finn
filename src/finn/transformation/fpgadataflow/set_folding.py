@@ -28,6 +28,7 @@
 
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def divisors(num):
@@ -38,11 +39,10 @@ def divisors(num):
 
 class SetFolding(Transformation):
     """Set parallelism attributes in all nodes to meet a specific
-    target expressed as cycles per frame. For each HLSCustomOp node
-    type, the attribute may vary but is typically one of {PE, SIMD},
+    target expressed as cycles per frame target_cycles_per_frame.For each
+    HLSCustomOp node type, the attribute may vary but is typically one of {PE, SIMD},
     and has a certain allowed-maximum value and divisibility constraints,
     which SetFolding will take into account.
-
     Notable exceptions and special behavior:
 
     * When folding dense convolution/FC compute engines (StreamingFCLayer_Batch),
@@ -58,9 +58,9 @@ class SetFolding(Transformation):
         its consumer node
     """
 
-    def __init__(self, cycles_target=1000, mvau_wwidth_max=36):
+    def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36):
         super().__init__()
-        self.cycles_target = cycles_target
+        self.target_cycles_per_frame = target_cycles_per_frame
         self.mvau_wwidth_max = mvau_wwidth_max
 
     def optimize_attribute_val(self, node_inst, max_val, attr_name):
@@ -68,15 +68,31 @@ class SetFolding(Transformation):
         for val in divisors(max_val):
             node_inst.set_nodeattr(attr_name, val)
             cyc = node_inst.get_exp_cycles()
-            if cyc < self.cycles_target:
+            if cyc < self.target_cycles_per_frame:
                 # finish if target met
                 break
 
     def apply(self, model):
         graph = model.graph
+
+        # these ops use PE parallelism, up to a max value of NumChannels
+        pe_ops = [
+            "AddStreams_Batch",
+            "ChannelwiseOp_Batch",
+            "DuplicateStreams_Batch",
+            "GlobalAccPool_Batch",
+            "Thresholding_Batch",
+        ]
+        # these ops use SIMD parallelism, up to a max value of NumChannels
+        # ConvolutionInputGenerator has a special case when depthwise=1
+        simd_ops = ["DownSampler", "FMPadding_Batch", "ConvolutionInputGenerator"]
+        # these ops are preceded by depthwise SWG and have special behavior,
+        # as explained in the SetFolding docstring
+        depthwise_op_exceptions = ["Vector_Vector_Activate_Batch", "Pool_Batch"]
         for node in graph.node:
+            if not is_fpgadataflow_node(node):
+                continue
             op_type = node.op_type
-            # TODO: ensure node is fpgadataflow
             node_inst = getCustomOp(node)
             if op_type == "StreamingFCLayer_Batch":
                 max_simd = node_inst.get_nodeattr("MW")
@@ -90,7 +106,7 @@ class SetFolding(Transformation):
                     prev_simd_val = node_inst.get_nodeattr("SIMD")
                     node_inst.set_nodeattr("SIMD", simd_val)
                     cyc = node_inst.get_exp_cycles()
-                    if cyc < self.cycles_target:
+                    if cyc < self.target_cycles_per_frame:
                         # finish if target met
                         break
                     if (
@@ -104,8 +120,10 @@ class SetFolding(Transformation):
 
                 # increase PE until target met or reached max_pe
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
-
-            elif op_type == "Vector_Vector_Activate_Batch":
+            elif op_type in pe_ops:
+                max_pe = node_inst.get_nodeattr("NumChannels")
+                self.optimize_attribute_val(node_inst, max_pe, "PE")
+            elif op_type in depthwise_op_exceptions:
                 max_pe = node_inst.get_nodeattr("Channels")
                 self.optimize_attribute_val(node_inst, max_pe, "PE")
                 # also set the folding of the upsteam DW SWU
@@ -116,47 +134,21 @@ class SetFolding(Transformation):
                     pe = node_inst.get_nodeattr("PE")
                     swu_node_inst.set_nodeattr("SIMD", pe)
                 else:
-                    raise Exception("Expected SWU on input")
-            elif op_type == "AddStreams_Batch":
-                max_pe = node_inst.get_nodeattr("NumChannels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
-            elif op_type == "ChannelwiseOp_Batch":
-                max_pe = node_inst.get_nodeattr("NumChannels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
-            elif op_type == "DuplicateStreams_Batch":
-                max_pe = node_inst.get_nodeattr("NumChannels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
-            elif op_type == "GlobalAccPool_Batch":
-                max_pe = node_inst.get_nodeattr("NumChannels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
-            elif op_type == "Pool_Batch":
-                max_pe = node_inst.get_nodeattr("Channels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
-                # also set the folding of the upsteam DW SWU
-                # which must be identical to this node
-                swu_node = model.find_producer(node.input[0])
-                if swu_node.op_type == "ConvolutionInputGenerator":
-                    swu_node_inst = getCustomOp(swu_node)
-                    pe = node_inst.get_nodeattr("PE")
-                    swu_node_inst.set_nodeattr("SIMD", pe)
-                else:
-                    raise Exception("Expected SWU on input")
-            elif op_type == "Thresholding_Batch":
-                max_pe = node_inst.get_nodeattr("NumChannels")
-                self.optimize_attribute_val(node_inst, max_pe, "PE")
-            elif op_type == "DownSampler":
+                    raise Exception(
+                        "Expected SWU on DW op input, found " + swu_node.op_type
+                    )
+            elif op_type in simd_ops:
+                if op_type == "ConvolutionInputGenerator":
+                    depthwise = node_inst.get_nodeattr("depthwise")
+                    if depthwise == 0:
+                        max_simd = node_inst.get_nodeattr("IFMChannels")
+                        self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                    else:
+                        # depthwise SWGs are handled separately
+                        continue
                 max_simd = node_inst.get_nodeattr("NumChannels")
                 self.optimize_attribute_val(node_inst, max_simd, "SIMD")
-            elif op_type == "FMPadding_Batch":
-                max_simd = node_inst.get_nodeattr("NumChannels")
-                self.optimize_attribute_val(node_inst, max_simd, "SIMD")
-            elif op_type == "ConvolutionInputGenerator":
-                depthwise = node_inst.get_nodeattr("depthwise")
-                if depthwise == 0:
-                    max_simd = node_inst.get_nodeattr("IFMChannels")
-                    self.optimize_attribute_val(node_inst, max_simd, "SIMD")
-                else:
-                    # depthwise SWGs are handled separately
-                    continue
+            else:
+                raise Exception("Unknown op_type in SetFolding: " + op_type)
 
         return (model, False)
