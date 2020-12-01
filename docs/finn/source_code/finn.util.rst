@@ -13,6 +13,15 @@ finn.util.basic
    :undoc-members:
    :show-inheritance:
 
+finn.util.build\_dataflow
+--------------------------
+
+.. automodule:: finn.util.build_dataflow
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 finn.util.data\_packing
 ------------------------------
 

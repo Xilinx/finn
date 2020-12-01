@@ -28,7 +28,6 @@
 
 FROM pytorch/pytorch:1.1.0-cuda10.0-cudnn7.5-devel
 MAINTAINER Yaman Umuroglu <yamanu@xilinx.com>
-ARG PYTHON_VERSION=3.6
 ARG GID
 ARG GNAME
 ARG UNAME
@@ -97,6 +96,18 @@ COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
+# install vitis deps if required
+ARG INSTALL_XRT_DEPS
+RUN if [ "$INSTALL_XRT_DEPS" = "1" ] ; then \
+    echo "Installing XRT dependencies"; \
+    wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh; \
+    apt-get update; \
+    bash xrtdeps.sh -docker; \
+    rm xrtdeps.sh; \
+  else \
+    echo "Skipping installation of XRT dependencies"; \
+  fi
+
 USER $UNAME
 
 ENTRYPOINT ["finn_entrypoint.sh"]

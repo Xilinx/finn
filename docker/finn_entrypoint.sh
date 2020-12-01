@@ -12,11 +12,11 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-FINN_BASE_COMMIT=f3569f7e809de39af68851c049cfa90291e29f96
+FINN_BASE_COMMIT=888ef9c31314f9368aec0fc14b2ba0ec8673fd88
 BREVITAS_COMMIT=aff49758ec445d77c75721c7de3091a2a1797ca8
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=cfafe11a93b79ab1af7529d68f08886913a6466e
-PYVERILATOR_COMMIT=06c29ecf3ba0361e3d0a75c98f6918ba67bf0e27
+PYVERILATOR_COMMIT=e2ff74030de3992dcac54bf1b6aad2915946e8cb
 OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
 
 gecho "Setting up known-good commit versions for FINN dependencies"
@@ -47,8 +47,7 @@ pip install --user -e /workspace/pyverilator
 gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
 git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
-# cleanup and run pip install for finn
-python $FINN_ROOT/setup.py clean --dist --eggs
+# run pip install for finn
 pip install --user -e $FINN_ROOT
 
 if [ ! -z "$VIVADO_PATH" ];then
@@ -60,6 +59,8 @@ fi
 # download PYNQ board files if not already there
 if [ ! -d "/workspace/finn/board_files" ]; then
     gecho "Downloading PYNQ board files for Vivado"
+    OLD_PWD=$(pwd)
+    cd /workspace/finn
     wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
     wget -q https://d2m32eurp10079.cloudfront.net/Download/pynq-z2.zip
     unzip -q pynq-z1.zip
@@ -69,21 +70,22 @@ if [ ! -d "/workspace/finn/board_files" ]; then
     mv pynq-z2/ board_files/
     rm pynq-z1.zip
     rm pynq-z2.zip
+    cd $OLD_PWD
 fi
 if [ ! -d "/workspace/finn/board_files/ultra96v1" ]; then
     gecho "Downloading Avnet BDF files into board_files"
+    OLD_PWD=$(pwd)
+    cd /workspace/finn
     git clone https://github.com/Avnet/bdf.git
     mv /workspace/finn/bdf/* /workspace/finn/board_files/
     rm -rf /workspace/finn/bdf
+    cd $OLD_PWD
 fi
 if [ ! -z "$VITIS_PATH" ];then
   # source Vitis env.vars
   export XILINX_VITIS=$VITIS_PATH
   source $VITIS_PATH/settings64.sh
   if [ ! -z "$XILINX_XRT" ];then
-    gecho "For VitisBuild, please ensure the XRT dependencies are correctly installed"
-    gecho "by downloading and running:"
-    gecho "https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh"
     # source XRT
     source $XILINX_XRT/setup.sh
   fi
