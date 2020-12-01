@@ -38,7 +38,10 @@ platform_name = "Pynq-Z1"
 
 cfg = build.DataflowBuildConfig(
     output_dir="output_%s_%s" % (model_name, platform_name),
-    folding_config_file="folding_config.json",
+    target_fps=100000,
+    mvau_width_max=10000,
+    # can specify detailed folding/FIFO/etc config with:
+    # folding_config_file="folding_config.json",
     synth_clk_period_ns=10.0,
     board=platform_name,
     shell_flow_type=build.ShellFlowType.VIVADO_ZYNQ,
