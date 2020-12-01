@@ -264,6 +264,19 @@ class VitisLink(Transformation):
         link_dir = make_build_dir(prefix="vitis_link_proj_")
         model.set_metadata_prop("vitis_link_proj", link_dir)
 
+        # add Vivado physopt directives if desired
+        if self.strategy == VitisOptStrategy.PERFORMANCE_BEST:
+            config.append("[vivado]")
+            config.append(
+                "prop=run.impl_1.STEPS.OPT_DESIGN.ARGS.DIRECTIVE=ExploreWithRemap"
+            )
+            config.append("prop=run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=Explore")
+            config.append("prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.IS_ENABLED=true")
+            config.append(
+                "prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE=Explore"
+            )
+            config.append("prop=run.impl_1.STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE=Explore")
+
         config = "\n".join(config) + "\n"
         with open(link_dir + "/config.txt", "w") as f:
             f.write(config)

@@ -63,7 +63,7 @@ Depending on the chosen output products, the dataflow build will run for a while
   Running step: step_create_dataflow_partition [4/10]
   Running step: step_apply_folding_config [5/10]
   Running step: step_hls_ipgen [6/10]
-  Running step: step_auto_set_fifo_depths [7/10]
+  Running step: step_set_fifo_depths [7/10]
   Running step: step_create_stitched_ip [8/10]
   Running step: step_make_pynq_driver [9/10]
   Running step: step_synthesize_bitfile [10/10]
