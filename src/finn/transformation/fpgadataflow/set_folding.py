@@ -41,11 +41,15 @@ def divisors(num):
 
 
 class SetFolding(Transformation):
-    """Set parallelism attributes in all nodes to meet a specific
+    """Attempt to set parallelism attributes in all nodes to meet a specific
     target expressed as cycles per frame target_cycles_per_frame. For each
     HLSCustomOp node type, the attribute may vary but is typically one of {PE, SIMD},
     and has a certain allowed-maximum value and divisibility constraints,
-    which SetFolding will take into account. In the returned model, each node's
+    which SetFolding will take into account. Note that the algorithm implemented
+    by SetFolding is very simple and it is often possible to hand-tune the returned
+    parallelism configuration for better results.
+
+    In the returned model, each node's
     cycles_estimate attribute will be set to its estimated number of cycles.
 
     If two_pass_relaxation is enabled,
