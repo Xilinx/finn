@@ -31,7 +31,7 @@ import os
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Any
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -56,17 +56,25 @@ from finn.transformation.streamline.reorder import (
 )
 import time
 from shutil import copy, copytree
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
+from finn.transformation.fpgadataflow.set_fifo_depths import (
+    InsertAndSetFIFODepths,
+    RemoveShallowFIFOs,
+)
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.util.basic import pynq_part_map, alveo_part_map
 from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
+)
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
 )
 from finn.custom_op.registry import getCustomOp
 import clize
@@ -116,6 +124,26 @@ class ComputeEngineMemMode(str, Enum):
 
     CONST = "const"
     DECOUPLED = "decoupled"
+
+
+class VitisOptStrategyCfg(str, Enum):
+    """Vitis optimization strategy with serializable string enum values."""
+
+    DEFAULT = "default"
+    POWER = "power"
+    PERFORMANCE = "performance"
+    PERFORMANCE_BEST = "performance_best"
+    SIZE = "size"
+    BUILD_SPEED = "quick"
+
+
+class LargeFIFOMemStyle(str, Enum):
+    """Type of memory resource to use for large FIFOs."""
+
+    AUTO = "auto"
+    BRAM = "block"
+    LUTRAM = "distributed"
+    URAM = "ultra"
 
 
 @dataclass_json
@@ -176,7 +204,13 @@ class DataflowBuildConfig:
 
     #: Whether FIFO depths will be set automatically. Involves running stitched
     #: rtlsim and can take a long time.
+    #: If set to False, the folding_config_file can be used to specify sizes
+    #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
+
+    #: Memory resource type for large FIFOs
+    #: Only relevant when `auto_fifo_depths = True`
+    large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
 
     #: Target clock frequency (in nanoseconds) for Vivado HLS synthesis.
     #: e.g. `hls_clk_period_ns=5.0` will target a 200 MHz clock.
@@ -196,6 +230,10 @@ class DataflowBuildConfig:
     #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
 
+    #: Vitis optimization strategy
+    #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
+    vitis_opt_strategy: Optional[VitisOptStrategyCfg] = VitisOptStrategyCfg.DEFAULT
+
     #: Whether intermediate ONNX files will be saved during the build process.
     #: These can be useful for debugging if the build fails.
     save_intermediate_models: Optional[bool] = True
@@ -204,9 +242,14 @@ class DataflowBuildConfig:
     #: debug signals in the generated hardware)
     enable_hw_debug: Optional[bool] = False
 
-    #: If given, only run the steps with the specified names in the list.
+    #: If given, only run the steps in the list. If not, run default steps.
     #: See `default_build_dataflow_steps` for the default list of steps.
-    steps: Optional[List[str]] = None
+    #: When specified:
+    #: Each item can either be a string, or a function (does not apply to json
+    #: serialized configs) and does the following:
+    #: - strings are resolved to functions from the default list
+    #: - functions are called with (model, DataflowBuildConfig) as args
+    steps: Optional[List[Any]] = None
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
@@ -242,8 +285,16 @@ class DataflowBuildConfig:
         steps = self.steps
         if steps is None:
             steps = default_build_dataflow_steps
-        # lookup step function from step name
-        steps_as_fxns = [eval(x) for x in steps]
+        steps_as_fxns = []
+        for transform_step in steps:
+            if type(transform_step) is str:
+                # lookup step function from step name
+                steps_as_fxns.append(_internal_step_lookup[transform_step])
+            elif callable(transform_step):
+                # treat step as function to be called as-is
+                steps_as_fxns.append(transform_step)
+            else:
+                raise Exception("Could not resolve build step: " + str(transform_step))
         return steps_as_fxns
 
     def _resolve_cycles_per_frame(self):
@@ -253,6 +304,18 @@ class DataflowBuildConfig:
             n_clock_cycles_per_sec = 10 ** 9 / self.synth_clk_period_ns
             n_cycles_per_frame = n_clock_cycles_per_sec / self.target_fps
             return int(n_cycles_per_frame)
+
+    def _resolve_vitis_opt_strategy(self):
+        # convert human-readable enum to value expected by v++
+        name_to_strategy = {
+            VitisOptStrategyCfg.DEFAULT: VitisOptStrategy.DEFAULT,
+            VitisOptStrategyCfg.POWER: VitisOptStrategy.POWER,
+            VitisOptStrategyCfg.PERFORMANCE: VitisOptStrategy.PERFORMANCE,
+            VitisOptStrategyCfg.PERFORMANCE_BEST: VitisOptStrategy.PERFORMANCE_BEST,
+            VitisOptStrategyCfg.SIZE: VitisOptStrategy.SIZE,
+            VitisOptStrategyCfg.BUILD_SPEED: VitisOptStrategy.BUILD_SPEED,
+        }
+        return name_to_strategy[self.vitis_opt_strategy]
 
 
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -367,24 +430,50 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
         PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
     )
     model = model.transform(HLSSynthIP())
+    model = model.transform(ReplaceVerilogRelPaths())
     return model
 
 
-def step_auto_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
-    """Run the `InsertAndSetFIFODepths` transformation to attempt to determine
-    the FIFO sizes that provide full throughput. Involves running stitched-IP
-    rtlsim and may take a long time."""
+def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """
+    Depending on the auto_fifo_depths setting, do one of the following:
+    * if auto_fifo_depths=True:  Run the `InsertAndSetFIFODepths` transformation
+    to attempt to determine the FIFO sizes that provide full throughput. Involves
+    running stitched-IP rtlsim and may take a long time.
+    * if auto_fifo_depths=False:  Assume the folding config file contains FIFO
+    sizes as well. Runs the `InsertFIFO` transformation, then
+    `ApplyConfig(cfg.folding_config_file)`, and finally `RemoveShallowFIFOs`.
+    Coherency with config file node naming is ensured by calling
+    `GiveUniqueNodeNames`.
+    """
 
     if cfg.auto_fifo_depths:
         model = model.transform(
             InsertAndSetFIFODepths(
-                cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period()
+                cfg._resolve_fpga_part(),
+                cfg._resolve_hls_clk_period(),
+                vivado_ram_style=cfg.large_fifo_mem_style.value,
             )
         )
-        model = model.transform(
-            PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-        )
-        model = model.transform(HLSSynthIP())
+    else:
+        # assume folding cfg json contains FIFO sizes too
+        # insert DWCs, FIFOs and run ApplyConfig once more
+        model = model.transform(InsertDWC())
+        # need to make sure all FIFOs are created so that their depth can be
+        # set by ApplyConfig, so create_shallow_fifos=True
+        model = model.transform(InsertFIFO(create_shallow_fifos=True))
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+        model = model.transform(ApplyConfig(cfg.folding_config_file))
+        # remove any shallow FIFOs
+        model = model.transform(RemoveShallowFIFOs())
+
+    # after FIFOs are ready go go, call PrepareIP and HLSSynthIP again
+    # this will only run for the new nodes (e.g. FIFOs and DWCs)
+    model = model.transform(
+        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+    )
+    model = model.transform(HLSSynthIP())
     return model
 
 
@@ -444,6 +533,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     cfg._resolve_fpga_part(),
                     cfg.synth_clk_period_ns,
                     cfg.vitis_platform,
+                    strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                     floorplan_file=cfg.vitis_floorplan_file,
                 )
@@ -471,11 +561,26 @@ default_build_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_hls_ipgen",
-    "step_auto_set_fifo_depths",
+    "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_make_pynq_driver",
     "step_synthesize_bitfile",
 ]
+
+# map strings to step names
+_internal_step_lookup = {
+    "step_tidy_up": step_tidy_up,
+    "step_streamline": step_streamline,
+    "step_convert_to_hls": step_convert_to_hls,
+    "step_create_dataflow_partition": step_create_dataflow_partition,
+    "step_target_fps_parallelization": step_target_fps_parallelization,
+    "step_apply_folding_config": step_apply_folding_config,
+    "step_hls_ipgen": step_hls_ipgen,
+    "step_set_fifo_depths": step_set_fifo_depths,
+    "step_create_stitched_ip": step_create_stitched_ip,
+    "step_make_pynq_driver": step_make_pynq_driver,
+    "step_synthesize_bitfile": step_synthesize_bitfile,
+}
 
 
 def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
@@ -488,6 +593,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     assert type(model) is ModelWrapper
     print("Building dataflow accelerator from " + model_filename)
     print("Outputs will be generated at " + cfg.output_dir)
+    print("Build log is at " + cfg.output_dir + "/build_dataflow.log")
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
         os.makedirs(cfg.output_dir)

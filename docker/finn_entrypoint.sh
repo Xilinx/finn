@@ -59,6 +59,8 @@ fi
 # download PYNQ board files if not already there
 if [ ! -d "/workspace/finn/board_files" ]; then
     gecho "Downloading PYNQ board files for Vivado"
+    OLD_PWD=$(pwd)
+    cd /workspace/finn
     wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
     wget -q https://d2m32eurp10079.cloudfront.net/Download/pynq-z2.zip
     unzip -q pynq-z1.zip
@@ -68,21 +70,22 @@ if [ ! -d "/workspace/finn/board_files" ]; then
     mv pynq-z2/ board_files/
     rm pynq-z1.zip
     rm pynq-z2.zip
+    cd $OLD_PWD
 fi
 if [ ! -d "/workspace/finn/board_files/ultra96v1" ]; then
     gecho "Downloading Avnet BDF files into board_files"
+    OLD_PWD=$(pwd)
+    cd /workspace/finn
     git clone https://github.com/Avnet/bdf.git
     mv /workspace/finn/bdf/* /workspace/finn/board_files/
     rm -rf /workspace/finn/bdf
+    cd $OLD_PWD
 fi
 if [ ! -z "$VITIS_PATH" ];then
   # source Vitis env.vars
   export XILINX_VITIS=$VITIS_PATH
   source $VITIS_PATH/settings64.sh
   if [ ! -z "$XILINX_XRT" ];then
-    gecho "For VitisBuild, please ensure the XRT dependencies are correctly installed"
-    gecho "by downloading and running:"
-    gecho "https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh"
     # source XRT
     source $XILINX_XRT/setup.sh
   fi

@@ -304,8 +304,14 @@ class HLSCustomOp(CustomOp):
         builder.append_tcl(code_gen_dir + "/hls_syn_{}.tcl".format(node.name))
         builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
         builder.build(code_gen_dir)
-        self.set_nodeattr("ipgen_path", builder.ipgen_path)
-        self.set_nodeattr("ip_path", builder.ipgen_path + "/sol1/impl/ip")
+        ipgen_path = builder.ipgen_path
+        assert os.path.isdir(ipgen_path), "IPGen failed: %s not found" % (ipgen_path)
+        self.set_nodeattr("ipgen_path", ipgen_path)
+        ip_path = ipgen_path + "/sol1/impl/ip"
+        assert os.path.isdir(
+            ip_path
+        ), "IPGen failed: %s not found. Check log under %s" % (ip_path, ipgen_path)
+        self.set_nodeattr("ip_path", ip_path)
         vlnv = "xilinx.com:hls:%s:1.0" % node.name
         self.set_nodeattr("ip_vlnv", vlnv)
 

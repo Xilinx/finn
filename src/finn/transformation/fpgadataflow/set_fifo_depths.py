@@ -187,6 +187,8 @@ class InsertAndSetFIFODepths(Transformation):
     - max_depth : how deep the "max"-sized FIFOs initially inserted will be
     - swg_exception : call CapConvolutionFIFODepths to make convolution FIFOs
                         smaller where appropriate
+    - vivado_ram_style : the StreamingFIFO.ram_style attribute to be used for
+                          large FIFOs implemented by Vivado
 
     Assumed input graph properties:
     - all nodes are fpgadataflow nodes
@@ -216,6 +218,7 @@ class InsertAndSetFIFODepths(Transformation):
         max_qsrl_depth=256,
         max_depth=2 ** 14,
         swg_exception=True,
+        vivado_ram_style="auto",
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -223,6 +226,7 @@ class InsertAndSetFIFODepths(Transformation):
         self.max_qsrl_depth = max_qsrl_depth
         self.max_depth = max_depth
         self.swg_exception = swg_exception
+        self.vivado_ram_style = vivado_ram_style
 
     def apply(self, model):
         # change external to decoupled and warn user
@@ -356,7 +360,7 @@ class InsertAndSetFIFODepths(Transformation):
                 # Set FIFO implementation/ram styles
                 if depth > self.max_qsrl_depth:
                     node_inst.set_nodeattr("impl_style", "vivado")
-                    node_inst.set_nodeattr("ram_style", "auto")
+                    node_inst.set_nodeattr("ram_style", self.vivado_ram_style)
                 else:
                     node_inst.set_nodeattr("impl_style", "rtl")
                 # reset implementation

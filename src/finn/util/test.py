@@ -30,7 +30,7 @@ import onnx
 import onnx.numpy_helper as nph
 import pkg_resources as pk
 from pkgutil import get_data
-from brevitas_examples import bnn_pynq
+from brevitas_examples import bnn_pynq, imagenet_classification
 import numpy as np
 import pytest
 import warnings
@@ -41,6 +41,7 @@ from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 from finn.custom_op.registry import getCustomOp
 from finn.core.onnx_exec import execute_onnx
+import torchvision.transforms.functional as torchvision_util
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -55,6 +56,7 @@ example_map = {
     ("TFC", 1, 1): bnn_pynq.tfc_1w1a,
     ("TFC", 1, 2): bnn_pynq.tfc_1w2a,
     ("TFC", 2, 2): bnn_pynq.tfc_2w2a,
+    ("mobilenet", 4, 4): imagenet_classification.quant_mobilenet_v1_4b,
 }
 
 
@@ -179,3 +181,14 @@ def execute_parent(parent_path, child_path, input_tensor_npy, return_full_ctx=Fa
         return ret
     else:
         return ret[oname]
+
+
+def resize_smaller_side(target_pixels, img):
+    """Resizes smallest side of image to target pixels and resizes larger side with
+    same ratio. Expects a PIL image."""
+    return torchvision_util.resize(img, target_pixels)
+
+
+def crop_center(size, img):
+    """Crop central size*size window out of a PIL image."""
+    return torchvision_util.center_crop(img, size)
