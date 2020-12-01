@@ -1,7 +1,7 @@
 {
   "output_dir": "output_tfc_w1a1_Pynq-Z1",
   "target_fps": 100000,
-  "mvau_width_max": 10000,
+  "mvau_wwidth_max": 10000,
   "synth_clk_period_ns": 10.0,
   "board": "Pynq-Z1",
   "shell_flow_type": "vivado_zynq",
