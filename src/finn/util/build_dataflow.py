@@ -69,6 +69,7 @@ from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.util.basic import pynq_part_map, alveo_part_map
+from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -156,18 +157,36 @@ class DataflowBuildConfig:
     #: Directory where the final build outputs will be written into
     output_dir: str
 
-    #: Path to folding configuration JSON file. May also contain FIFO sizes
-    #: and any other HLS node config if desired.
-    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
-    folding_config_file: str
-
     #: Target clock frequency (in nanoseconds) for Vivado synthesis.
     #: e.g. synth_clk_period_ns=5.0 will target a 200 MHz clock.
     #: If hls_clk_period_ns is not specified it will default to this value.
     synth_clk_period_ns: float
 
-    #: Which output(s) to generate from the build flow.
+    #: Which output(s) to generate from the build flow.  See documentation of
+    #: DataflowOutputType for available options.
     generate_outputs: List[DataflowOutputType]
+
+    #: (Optional) Path to configuration JSON file. May include parallelization,
+    #: FIFO sizes, RAM and implementation style attributes and so on.
+    #: If the parallelization attributes (PE, SIMD) are part of the config,
+    #: this will override the automatically generated parallelization
+    #: attributes inferred from target_fps (if any)
+    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
+    folding_config_file: Optional[str] = None
+
+    #: (Optional) Target inference performance in frames per second.
+    #: Note that target may not be achievable due to specific layer constraints,
+    #: or due to resource limitations of the FPGA.
+    #: If parallelization attributes are specified as part of folding_config_file
+    #: that will override the target_fps setting here.
+    target_fps: Optional[int] = None
+
+    #: (Optional) Control the maximum width of the per-PE MVAU stream while
+    #: exploring the parallelization attributes to reach target_fps
+    #: Only relevant if target_fps is specified.
+    #: Set this to a large value (e.g. 10000) if targeting full unfolding or
+    #: very high performance.
+    mvau_wwidth_max: Optional[int] = 36
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
@@ -175,7 +194,8 @@ class DataflowBuildConfig:
     board: Optional[str] = None
 
     #: Target shell flow, only needed for generating full bitfiles where the FINN
-    #: design is integrated into a shell.
+    #: design is integrated into a shell. See documentation of ShellFlowType
+    #: for options.
     shell_flow_type: Optional[ShellFlowType] = None
 
     #: Target Xilinx FPGA part. Only needed when board is not specified.
@@ -277,6 +297,14 @@ class DataflowBuildConfig:
                 raise Exception("Could not resolve build step: " + str(transform_step))
         return steps_as_fxns
 
+    def _resolve_cycles_per_frame(self):
+        if self.target_fps is None:
+            return None
+        else:
+            n_clock_cycles_per_sec = 10 ** 9 / self.synth_clk_period_ns
+            n_cycles_per_frame = n_clock_cycles_per_sec / self.target_fps
+            return int(n_cycles_per_frame)
+
     def _resolve_vitis_opt_strategy(self):
         # convert human-readable enum to value expected by v++
         name_to_strategy = {
@@ -373,12 +401,25 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
+def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """If target_fps was specified, use the SetFolding transformation to determine
+    parallelization attributes."""
+
+    target_cycles_per_frame = cfg._resolve_cycles_per_frame()
+    if target_cycles_per_frame is not None:
+        model = model.transform(
+            SetFolding(target_cycles_per_frame, mvau_wwidth_max=cfg.mvau_wwidth_max)
+        )
+    return model
+
+
 def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Apply the folding configuration file onto the model to set folding (parallelization)
-    and other attributes."""
+    and other attributes, if config file is specified."""
 
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(ApplyConfig(cfg.folding_config_file))
+    if cfg.folding_config_file is not None:
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(ApplyConfig(cfg.folding_config_file))
     return model
 
 
@@ -517,6 +558,7 @@ default_build_dataflow_steps = [
     "step_streamline",
     "step_convert_to_hls",
     "step_create_dataflow_partition",
+    "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_hls_ipgen",
     "step_set_fifo_depths",
@@ -531,6 +573,7 @@ _internal_step_lookup = {
     "step_streamline": step_streamline,
     "step_convert_to_hls": step_convert_to_hls,
     "step_create_dataflow_partition": step_create_dataflow_partition,
+    "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
     "step_hls_ipgen": step_hls_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
