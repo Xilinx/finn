@@ -2,9 +2,6 @@
 Command Line Entry
 *******************
 
-.. note:: **This website is currently under construction.**
-
-
 Although FINN is primarily *compiler infrastructure* that provides the capabilities
 researchers can use to explore custom QNN inference, we also provide
 two command line entry points for productivity and ease-of-use:
@@ -16,7 +13,7 @@ two command line entry points for productivity and ease-of-use:
 
 .. warning::
   If you are using a neural network with a topology that is substantially
-  different to the FINN end-to-end examples, the simple dataflow build flow used by the compiler
+  different to the FINN end-to-end examples, the simple dataflow build mode below
   is likely to fail. For those cases, we recommend making a copy of the end-to-end
   Jupyter notebook as a starting point, visualizing the model at intermediate
   steps and adding calls to new transformations as needed.
@@ -42,7 +39,7 @@ To use it, first create a folder with the necessary configuration and model file
 2. Put your ONNX model to be converted under ``dataflow_build_dir/model.onnx``.
    The filename is important and must exactly be ``model.onnx``.
 3. Create a JSON file with the build configuration. It must be named ``dataflow_build_dir/dataflow_build_config.json``.
-   Read more about the build configuration options on :py:mod:``finn.util.build_dataflow.DataflowBuildConfig``.
+   Read more about the build configuration options on :py:mod:``finn.builder.build_dataflow_config.DataflowBuildConfig``.
    You can find an example .json file under ``src/finn/qnn-data/build_dataflow/dataflow_build_config.json``
 4. (Optional) create a JSON file with the folding configuration. It must be named ``dataflow_build_dir/folding_config.json``.
    You can find an example .json file under ``src/finn/qnn-data/build_dataflow/folding_config.json``.
@@ -55,28 +52,31 @@ Now you can invoke the simple dataflow build as follows:
 
   ./run-docker.sh build_dataflow <path/to/dataflow_build_dir/>
 
-Depending on the chosen output products, the dataflow build will run for a while.
+Depending on the chosen output products, the dataflow build will run for a while
+as it go through numerous steps:
 
 .. code-block:: none
 
   Building dataflow accelerator from /home/maltanar/sandbox/build_dataflow/model.onnx
   Outputs will be generated at output_tfc_w1a1_Pynq-Z1
   Build log is at output_tfc_w1a1_Pynq-Z1/build_dataflow.log
-  Running step: step_tidy_up [1/13]
-  Running step: step_streamline [2/13]
-  Running step: step_convert_to_hls [3/13]
-  Running step: step_create_dataflow_partition [4/13]
-  Running step: step_target_fps_parallelization [5/13]
-  Running step: step_apply_folding_config [6/13]
-  Running step: step_generate_estimate_reports [7/13]
-  Running step: step_hls_ipgen [8/13]
-  Running step: step_set_fifo_depths [9/13]
-  Running step: step_create_stitched_ip [10/13]
-  Running step: step_make_pynq_driver [11/13]
-  Running step: step_synthesize_bitfile [12/13]
-  Running step: step_deployment_package [13/13]
+  Running step: step_tidy_up [1/14]
+  Running step: step_streamline [2/14]
+  Running step: step_convert_to_hls [3/14]
+  Running step: step_create_dataflow_partition [4/14]
+  Running step: step_target_fps_parallelization [5/14]
+  Running step: step_apply_folding_config [6/14]
+  Running step: step_generate_estimate_reports [7/14]
+  Running step: step_hls_ipgen [8/14]
+  Running step: step_set_fifo_depths [9/14]
+  Running step: step_create_stitched_ip [10/14]
+  Running step: step_make_pynq_driver [11/14]
+  Running step: step_out_of_context_synthesis [12/14]
+  Running step: step_synthesize_bitfile [13/14]
+  Running step: step_deployment_package [14/14]
 
-
+You can read a brief description of what each step does on
+:py:mod:`finn.builder.build_dataflow_steps`.
 
 
 Generated outputs
@@ -99,48 +99,35 @@ The following outputs will be generated regardless of which particular outputs a
 The other output products are controlled by the `generate_outputs` field in the
 build configuration), and are detailed below.
 
-* :py:mod:`finn.util.build_dataflow.DataflowOutputType.ESTIMATE_REPORTS`
-produces a variety of reports to estimate resource usage and performance *without*
-running any synthesis. This can be useful for setting up the parallelization and
-other hardware configuration:
+* :py:mod:`finn.builder.build_dataflow.DataflowOutputType.ESTIMATE_REPORTS` produces a variety of reports to estimate resource usage and performance *without* running any synthesis. This can be useful for setting up the parallelization and other hardware configuration:
 
   * ``report/estimate_layer_cycles.json`` -- cycles per layer estimation from analytical model
   * ``report/estimate_layer_resources.json`` -- resources per layer estimation from analytical model
   * ``report/estimate_layer_config_alternatives.json`` -- resources per layer estimation from analytical model, including what other config alternatives would have yielded
   * ``report/estimate_network_performance.json`` -- whole-network performance estimation from analytical model
 
-* :py:mod:`finn.util.build_dataflow.DataflowOutputType.STITCHED_IP`:
-produces a stitched Vivado IP block design that can be integrated with other FPGA
-designs in Vivado IPI:
+* :py:mod:`finn.builder.build_dataflow.DataflowOutputType.STITCHED_IP`: produces a stitched Vivado IP block design that can be integrated with other FPGA designs in Vivado IPI:
 
   * ``stitched_ip/finn_vivado_stitch_proj.xpr`` -- Vivado project (including Vivado IP Integrator block design) to generate the stitched IP
   * ``stitched_ip/ip`` -- exported Vivado IP for the stitched design
 
 
-* :py:mod:`finn.util.build_dataflow.DataflowOutputType.OOC_SYNTH`
-runs out-of-context synthesis for the stitched IP. This is useful for getting
-post-synthesis resource counts and achievable clock frequency without having to
-produce a full bitfile with DMA engines:
-:
+* :py:mod:`finn.builder.build_dataflow.DataflowOutputType.OOC_SYNTH` runs out-of-context synthesis for the stitched IP. This is useful for getting post-synthesis resource counts and achievable clock frequency without having to produce a full bitfile with DMA engines:
 
   * ``report/ooc_synth_and_timing.json`` -- resources and achievable clock frequency from out-of-context synthesis
 
-* :py:mod:`finn.util.build_dataflow.DataflowOutputType.BITFILE` will run Vivado
-and/or Vitis to insert the FINN accelerator inside a shell, with DMA engines
-instantiated to move data to/from main memory:
+* :py:mod:`finn.builder.build_dataflow.DataflowOutputType.BITFILE` will run Vivado and/or Vitis to insert the FINN accelerator inside a shell, with DMA engines instantiated to move data to/from main memory:
 
   * ``bitfile/finn-accel.(bit|xclbin)`` -- generated bitfile depending on platform
   * ``report/post_synth_resources.xml`` -- FPGA resource utilization after synthesis
   * ``report/post_route_timing.rpt`` -- post-route timing report
 
 
-* :py:mod:`finn.util.build_dataflow.DataflowOutputType.PYNQ_DRIVER`
-will generate a PYNQ Python driver that can be used to interface the generated
-accelerator:
+* :py:mod:`finn.builder.build_dataflow.DataflowOutputType.PYNQ_DRIVER` will generate a PYNQ Python driver that can be used to interface the generated accelerator:
 
   * ``driver/driver.py`` -- Python driver that can be used on PYNQ on Zynq or Alveo platforms to launch the accelerator
 
-* :py:mod:`finn.util.build_dataflow.DataflowOutputType.DEPLOYMENT_PACKAGE`:
+* :py:mod:`finn.builder.build_dataflow.DataflowOutputType.DEPLOYMENT_PACKAGE`:
 
   * ``deploy/`` -- deployment package folder with a bitfile and driver, ready to be copied to target hardware platform
 

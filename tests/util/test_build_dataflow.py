@@ -30,7 +30,7 @@ import pytest
 import pkg_resources as pk
 from shutil import copytree
 from finn.util.basic import make_build_dir
-from finn.util.build_dataflow import build_dataflow_directory
+from finn.builder.build_dataflow import build_dataflow_directory
 import os
 
 
