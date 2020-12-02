@@ -510,7 +510,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(InsertFIFO(create_shallow_fifos=True))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
-        model = model.transform(ApplyConfig(cfg.folding_config_file))
+        if cfg.folding_config_file is not None:
+            model = model.transform(ApplyConfig(cfg.folding_config_file))
         # remove any shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
 
