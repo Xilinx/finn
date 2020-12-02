@@ -449,7 +449,8 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
         estimate_network_performance["estimated_throughput_fps"] = est_fps
         est_latency_ns = (
-            estimate_network_performance["max_cycles"] * cfg.synth_clk_period_ns
+            estimate_network_performance["critical_path_cycles"]
+            * cfg.synth_clk_period_ns
         )
         estimate_network_performance["estimated_latency_ns"] = est_latency_ns
         with open(report_dir + "/estimate_layer_cycles.json", "w") as f:
