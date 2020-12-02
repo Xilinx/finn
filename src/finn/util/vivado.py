@@ -78,8 +78,7 @@ def out_of_context_synth(
         float(clk_period_ns),
     )
     call_omx = call_omx.split()
-    # TODO pass env=os.environ ?
-    launch_process_helper(call_omx)
+    launch_process_helper(call_omx, proc_env=os.environ.copy(), cwd=verilog_dir)
 
     vivado_proj_folder = "%s/results_%s" % (verilog_dir, top_name)
     res_counts_path = vivado_proj_folder + "/res.txt"
