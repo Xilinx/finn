@@ -12,6 +12,8 @@ two command line entry points for productivity and ease-of-use:
 * *Simple dataflow build mode:* Best-effort dataflow build by JSON build config file to convert your ONNX model.
 * *Advanced build mode:* Provide your own build script with full flexibility
 
+.. note:: **When setting up builds using either build mode, you should keep all required data (model, config files etc.) inside the build folder and not use symlinks.**
+
 .. warning::
   If you are using a neural network with a topology that is substantially
   different to the FINN end-to-end examples, the simple dataflow build flow used by the compiler
@@ -75,44 +77,73 @@ Depending on the chosen output products, the dataflow build will run for a while
   Running step: step_deployment_package [13/13]
 
 
-You will find the generated outputs under the subfolder you specified in the
-build configuration, which can include the following folders and files
-depending on the chosen output products:
 
-* If the output products include :py:mod:`finn.util.build_dataflow.DataflowOutputType.ESTIMATE_REPORTS`
-(all reports are Python dictionaries exported as JSON):
+
+Generated outputs
+-----------------
+
+.. note:: **All reports mentioned below are Python dictionaries exported as JSON.**
+
+You will find the generated outputs under the subfolder you specified in the
+build configuration, which can include a variety of folders and files
+depending on the chosen output products.
+
+The following outputs will be generated regardless of which particular outputs are selected:
+
+* ``build_dataflow.log`` is the build logfile that will contain any warnings/errors
+* ``time_per_step.json`` will report the time (in seconds) each build step took
+* ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build
+* ``intermediate_models/`` will contain the ONNX file(s) produced after each build step
+
+
+The other output products are controlled by the `generate_outputs` field in the
+build configuration), and are detailed below.
+
+* :py:mod:`finn.util.build_dataflow.DataflowOutputType.ESTIMATE_REPORTS`
+produces a variety of reports to estimate resource usage and performance *without*
+running any synthesis. This can be useful for setting up the parallelization and
+other hardware configuration:
 
   * ``report/estimate_layer_cycles.json`` -- cycles per layer estimation from analytical model
   * ``report/estimate_layer_resources.json`` -- resources per layer estimation from analytical model
   * ``report/estimate_layer_config_alternatives.json`` -- resources per layer estimation from analytical model, including what other config alternatives would have yielded
   * ``report/estimate_network_performance.json`` -- whole-network performance estimation from analytical model
 
-* If the output products include :py:mod:`finn.util.build_dataflow.DataflowOutputType.BITFILE`:
+* :py:mod:`finn.util.build_dataflow.DataflowOutputType.STITCHED_IP`:
+produces a stitched Vivado IP block design that can be integrated with other FPGA
+designs in Vivado IPI:
+
+  * ``stitched_ip/finn_vivado_stitch_proj.xpr`` -- Vivado project (including Vivado IP Integrator block design) to generate the stitched IP
+  * ``stitched_ip/ip`` -- exported Vivado IP for the stitched design
+
+
+* :py:mod:`finn.util.build_dataflow.DataflowOutputType.OOC_SYNTH`
+runs out-of-context synthesis for the stitched IP. This is useful for getting
+post-synthesis resource counts and achievable clock frequency without having to
+produce a full bitfile with DMA engines:
+:
+
+  * ``report/ooc_synth_and_timing.json`` -- resources and achievable clock frequency from out-of-context synthesis
+
+* :py:mod:`finn.util.build_dataflow.DataflowOutputType.BITFILE` will run Vivado
+and/or Vitis to insert the FINN accelerator inside a shell, with DMA engines
+instantiated to move data to/from main memory:
 
   * ``bitfile/finn-accel.(bit|xclbin)`` -- generated bitfile depending on platform
   * ``report/post_synth_resources.xml`` -- FPGA resource utilization after synthesis
   * ``report/post_route_timing.rpt`` -- post-route timing report
 
-* If the output products include :py:mod:`finn.util.build_dataflow.DataflowOutputType.STITCHED_IP`:
 
-  * ``stitched_ip/finn_vivado_stitch_proj.xpr`` -- Vivado project (including Vivado IP Integrator block design) to generate the stitched IP
-  * ``stitched_ip/ip`` -- exported Vivado IP for the stitched design
-
-* If the output products include :py:mod:`finn.util.build_dataflow.DataflowOutputType.PYNQ_DRIVER`:
+* :py:mod:`finn.util.build_dataflow.DataflowOutputType.PYNQ_DRIVER`
+will generate a PYNQ Python driver that can be used to interface the generated
+accelerator:
 
   * ``driver/driver.py`` -- Python driver that can be used on PYNQ on Zynq or Alveo platforms to launch the accelerator
 
-* If the output products include :py:mod:`finn.util.build_dataflow.DataflowOutputType.DEPLOYMENT_PACKAGE`:
+* :py:mod:`finn.util.build_dataflow.DataflowOutputType.DEPLOYMENT_PACKAGE`:
 
   * ``deploy/`` -- deployment package folder with a bitfile and driver, ready to be copied to target hardware platform
 
-
-Other generated files will include:
-
-* ``build_dataflow.log`` is the build logfile that will contain any warnings/errors
-* ``time_per_step.json`` will list the time (in seconds) each build step took
-* ``final_hw_config.json`` will contain the final (after parallelization, FIFO sizing etc) hardware configuration for the build
-* ``intermediate_models/`` will contain the ONNX file(s) produced after each build step
 
 Advanced mode
 --------------
@@ -131,6 +162,7 @@ executed. You should also put any ONNX model(s) or other Python modules you
 may want to include in your build flow in this folder (so that they get mounted
 into the Docker container while building). Besides the filename and data placement,
 you have complete freedom on how to implement the build flow here, including
+calling the steps from the simple dataflow build mode above,
 making calls to FINN library functions, preprocessing and altering models, building several variants etc.
 You can find a basic example of build.py under ``src/finn/qnn-data/build_dataflow/build.py``.
 
