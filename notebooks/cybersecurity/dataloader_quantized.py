@@ -6,32 +6,20 @@ from sklearn.preprocessing import OneHotEncoder
 import math
 
 class UNSW_NB15_quantized(torch.utils.data.Dataset):
-    def __init__(self, file_path_train, file_path_test, quantization=True, onehot=False, train=True, sequence_length=25, transform=None):   
-        self.dataframe = pd.concat([pd.read_csv(file_path_train), pd.read_csv(file_path_test)]).reset_index().drop(columns = ['index'])
-        self.transform = transform
-        self.sequence_length = sequence_length
+    def __init__(self, file_path_train, file_path_test, quantization=True, onehot=False, train=True):   
         
-        self.categorical_column_values = {"proto":None, "state":None, "service":None, "attack_cat":None}
+        self.dataframe = pd.concat([pd.read_csv(file_path_train), pd.read_csv(file_path_test)]).reset_index().drop(columns = ['index','id', 'attack_cat'])
 
-        #load all the unique values of categorical features at the start
-        #and make these accessible via a fast function call.
-        for key in self.categorical_column_values:
-            self.categorical_column_values[key] = self.dataframe[key].unique()
-        
-        #------------------------------------------------
-        self.dataframe = self.dataframe.drop(['id', 'attack_cat'],1)   
-        
-        # -------------APPLY 1HOT ENCODING and Quantization---------
-        self.to_be_tensor_df = self.dataframe
         if onehot :
-            self.to_be_tensor_df = self.one_hot_encoding(self.to_be_tensor_df)
+            self.one_hot_df_encoded = self.one_hot_encoding(self.dataframe)
+            
         if quantization:            
-            _, self.to_be_tensor_train, self.to_be_tensor_test = self.quantize_df(self.to_be_tensor_df)        
+            _, self.train_df, self.test_df = self.quantize_df(self.dataframe)        
         
         if train:
-            self.data = torch.FloatTensor(self.to_be_tensor_train.astype('float')) #create tensor
+            self.data = torch.FloatTensor(self.train_df.astype('float'))
         else:
-            self.data = torch.FloatTensor(self.to_be_tensor_test.astype('float')) #create tensor
+            self.data = torch.FloatTensor(self.test_df.astype('float'))
             
         print(self.data.shape)
        
@@ -46,38 +34,7 @@ class UNSW_NB15_quantized(torch.utils.data.Dataset):
         target = self.data[index][-1]
         data_val = self.data[index][:-1]
         return data_val,target
-    
-    #get a list of all the unique labels in the dataset
-    def get_labels(self):
-        return self.dataframe['label'].unique().tolist()
-    
-    #get a list of all the unique attack categories in the dataset
-    def get_attack_categories(self):
-        return self.dataframe['attack_cat'].unique().tolist()
-    
-    def get_list_of_categories(self, column_name):
-        pass #TODO
-
-    #limit the dataset to only examples in the specified category
-    def use_only_category(self, category_name):
-        if category_name not in self.get_attack_categories():
-            return False
         
-        new_dataframe = self.dataframe[self.dataframe['attack_cat'] == category_name]
-        new_dataframe = new_dataframe.reset_index()
-        self.dataframe = new_dataframe
-        return True
-    
-    #limit the dataset to only examples with the specified label
-    def use_only_label(self, label):
-        if label not in self.get_labels():
-            return False
-        
-        new_dataframe = self.dataframe[self.dataframe['label'] == label]
-        new_dataframe = new_dataframe.reset_index()
-        self.dataframe = new_dataframe
-        return True
-    
     def dec2bin(self,column: pd.Series, number_of_bits: int, left_msb:bool= True )-> pd.Series: 
         """Convert a decimal pd.Series to binary pd.Series with numbers in their base-2 equivalents.
         The output is a numpy nd array.   
@@ -195,31 +152,6 @@ class UNSW_NB15_quantized(torch.utils.data.Dataset):
             column_df = dataframe.loc[:, [column]]
 
             one_hot_encoder = OneHotEncoder(sparse=False, categories = categories)
-            # Fit OneHotEncoder to dataframe
-            one_hot_encoder.fit(column_df)  
-            # Transform the dataframe
-            column_df_encoded = one_hot_encoder.transform(column_df)
-            #Create dataframe from the 2-d array
-            column_df_encoded = pd.DataFrame(data=column_df_encoded, columns=one_hot_encoder.categories_[0])
-            dataframe = pd.concat([column_df_encoded, dataframe], axis=1, sort=False)
-
-        #delete proto,service and state columns
-        dataframe = dataframe.drop(string_columns,1)
-
-        return dataframe
-    
-    def one_hot_encoding_select_categ(self, df):
-        dataframe = df.copy()
-        """Applies 1 hot encoding to the proto, service and state columns but to some selected categories which are more influetial acording to seaborn countplot"""
-
-        string_columns= ["proto","service","state"]
-        string_categories= [[['tcp', 'udp', 'arp', 'ospf']],[['-', 'ftp', 'smtp', 'snmp', 'http', 'ftp-data', 'dns', 'ssh']],[['FIN', 'INT', 'CON', 'ECO', 'REQ']]]
-    
-
-        for column, categories in zip(string_columns, string_categories):       
-            column_df = dataframe.loc[:, [column]]
-
-            one_hot_encoder = OneHotEncoder(sparse=False, categories = categories,handle_unknown='ignore')
             # Fit OneHotEncoder to dataframe
             one_hot_encoder.fit(column_df)  
             # Transform the dataframe
