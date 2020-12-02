@@ -129,7 +129,7 @@ elif [ "$1" = "build_custom" ]; then
   DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/build.py"
-  DOCKER_CMD="python build.py"
+  DOCKER_CMD="python -mpdb -cr build.py"
 else
   gecho "Running container only"
   DOCKER_CMD="bash"

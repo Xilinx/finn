@@ -90,6 +90,8 @@ from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.util.config import extract_model_config_to_json
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
+import pdb  # NOQA
+import traceback
 
 
 # adapted from https://stackoverflow.com/a/39215961
@@ -254,6 +256,9 @@ class DataflowBuildConfig:
     #: Whether hardware debugging will be enabled (e.g. ILA cores inserted to
     #: debug signals in the generated hardware)
     enable_hw_debug: Optional[bool] = False
+
+    #: Whether pdb postmortem debuggig will be launched when the build fails
+    enable_build_pdb_debug: Optional[bool] = True
 
     #: If given, only run the steps in the list. If not, run default steps.
     #: See `default_build_dataflow_steps` for the default list of steps.
@@ -724,33 +729,49 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     stdout_orig = sys.stdout
     stderr_orig = sys.stderr
     for transform_step in build_dataflow_steps:
-        step_name = transform_step.__name__
-        print(
-            "Running step: %s [%d/%d]"
-            % (step_name, step_num, len(build_dataflow_steps))
-        )
-        # redirect output to logfile
-        sys.stdout = stdout_logger
-        sys.stderr = stderr_logger
-        print(
-            "Running step: %s [%d/%d]"
-            % (step_name, step_num, len(build_dataflow_steps))
-        )
-        # run the step
-        step_start = time.time()
-        model = transform_step(model, cfg)
-        step_end = time.time()
-        # restore stdout/stderr
-        sys.stdout = stdout_orig
-        sys.stderr = stderr_orig
-        time_per_step[step_name] = step_end - step_start
-        chkpt_name = "%d_%s.onnx" % (step_num, step_name)
-        if cfg.save_intermediate_models:
-            intermediate_model_dir = cfg.output_dir + "/intermediate_models"
-            if not os.path.exists(intermediate_model_dir):
-                os.makedirs(intermediate_model_dir)
-            model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
-        step_num += 1
+        try:
+            step_name = transform_step.__name__
+            print(
+                "Running step: %s [%d/%d]"
+                % (step_name, step_num, len(build_dataflow_steps))
+            )
+            # redirect output to logfile
+            sys.stdout = stdout_logger
+            sys.stderr = stderr_logger
+            print(
+                "Running step: %s [%d/%d]"
+                % (step_name, step_num, len(build_dataflow_steps))
+            )
+            # run the step
+            step_start = time.time()
+            model = transform_step(model, cfg)
+            step_end = time.time()
+            # restore stdout/stderr
+            sys.stdout = stdout_orig
+            sys.stderr = stderr_orig
+            time_per_step[step_name] = step_end - step_start
+            chkpt_name = "%d_%s.onnx" % (step_num, step_name)
+            if cfg.save_intermediate_models:
+                intermediate_model_dir = cfg.output_dir + "/intermediate_models"
+                if not os.path.exists(intermediate_model_dir):
+                    os.makedirs(intermediate_model_dir)
+                model.save("%s/%s" % (intermediate_model_dir, chkpt_name))
+            step_num += 1
+        except:  # noqa
+            # restore stdout/stderr
+            sys.stdout = stdout_orig
+            sys.stderr = stderr_orig
+            # print exception info and traceback
+            extype, value, tb = sys.exc_info()
+            traceback.print_exc()
+            # start postmortem debug if configured
+            if cfg.enable_build_pdb_debug:
+                pdb.post_mortem(tb)
+            else:
+                print("enable_build_pdb_debug not set in build config, exiting...")
+            print("Build failed")
+            return -1
+
     with open(cfg.output_dir + "/time_per_step.json", "w") as f:
         json.dump(time_per_step, f, indent=2)
     print("Completed successfully")
