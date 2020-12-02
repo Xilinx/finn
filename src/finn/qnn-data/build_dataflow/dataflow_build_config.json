@@ -6,8 +6,11 @@
   "board": "Pynq-Z1",
   "shell_flow_type": "vivado_zynq",
   "generate_outputs": [
-    "pynq_driver",
+    "estimate_reports",
     "stitched_ip",
-    "bitfile"
+    "pynq_driver",
+    "out_of_context_synth",
+    "bitfile",
+    "deployment_package"
   ]
 }

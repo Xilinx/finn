@@ -48,7 +48,10 @@ cfg = build.DataflowBuildConfig(
     generate_outputs=[
         build.DataflowOutputType.PYNQ_DRIVER,
         build.DataflowOutputType.STITCHED_IP,
+        build.DataflowOutputType.ESTIMATE_REPORTS,
+        build.DataflowOutputType.OOC_SYNTH,
         build.DataflowOutputType.BITFILE,
+        build.DataflowOutputType.DEPLOYMENT_PACKAGE,
     ],
     save_intermediate_models=True,
 )
