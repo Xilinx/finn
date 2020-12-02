@@ -89,6 +89,7 @@ from finn.analysis.fpgadataflow.res_estimation import (
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.util.config import extract_model_config_to_json
+from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 
 
 # adapted from https://stackoverflow.com/a/39215961
@@ -123,6 +124,7 @@ class DataflowOutputType(str, Enum):
 
     STITCHED_IP = "stitched_ip"
     ESTIMATE_REPORTS = "estimate_reports"
+    OOC_SYNTH = "out_of_context_synth"
     BITFILE = "bitfile"
     PYNQ_DRIVER = "pynq_driver"
     DEPLOYMENT_PACKAGE = "deployment_package"
@@ -565,6 +567,32 @@ def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def step_out_of_context_synthesis(model: ModelWrapper, cfg: DataflowBuildConfig):
+    "Run out-of-context synthesis and generate reports."
+    if DataflowOutputType.OOC_SYNTH in cfg.generate_outputs:
+        assert (
+            DataflowOutputType.STITCHED_IP in cfg.generate_outputs
+        ), "OOC needs stitched IP"
+        model = model.transform(
+            SynthOutOfContext(
+                part=cfg._resolve_fpga_part(), clk_period_ns=cfg.synth_clk_period_ns
+            )
+        )
+    report_dir = cfg.output_dir + "/report"
+    os.makedirs(report_dir, exist_ok=True)
+    ooc_res_dict = model.get_metadata_prop("res_total_ooc_synth")
+    ooc_res_dict = eval(ooc_res_dict)
+
+    estimate_network_performance = model.analysis(dataflow_performance)
+    # add some more metrics to estimated performance
+    n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
+    est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+    ooc_res_dict["estimated_throughput_fps"] = est_fps
+    with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
+        json.dump(ooc_res_dict, f, indent=2)
+    return model
+
+
 def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Synthesize a bitfile for the using the specified shell flow, using either
     Vivado or Vitis, to target the specified board."""
@@ -642,6 +670,7 @@ default_build_dataflow_steps = [
     "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_make_pynq_driver",
+    "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
     "step_deployment_package",
 ]
@@ -659,6 +688,7 @@ _internal_step_lookup = {
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_make_pynq_driver": step_make_pynq_driver,
+    "step_out_of_context_synthesis": step_out_of_context_synthesis,
     "step_synthesize_bitfile": step_synthesize_bitfile,
     "step_deployment_package": step_deployment_package,
 }
