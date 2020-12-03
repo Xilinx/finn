@@ -47,6 +47,8 @@ pip install --user -e /workspace/pyverilator
 gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
 git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
+# remove old version egg-info, if any
+rm -rf $FINN_ROOT/src/FINN.egg-info
 # run pip install for finn
 pip install --user -e $FINN_ROOT
 
