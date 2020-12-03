@@ -656,7 +656,12 @@ compilation transformations?
         return roundup_to_integer_multiple(out_width, 8)
 
     def get_ap_int_max_w(self):
-        "Return the maximum width of any ap_int used in this module."
+        """Return the maximum width of any ap_int used in this module. Used to set the
+        AP_INT_MAX_W definition for HLS."""
         instream = self.get_instream_width()
         outstream = self.get_outstream_width()
-        return max([instream, outstream])
+        ret = max([instream, outstream])
+        assert ret <= 32768, (
+            "AP_INT_MAX_W=%d is larger than allowed maximum of 32768" % ret
+        )
+        return ret
