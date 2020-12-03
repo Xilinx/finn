@@ -244,6 +244,13 @@ class HLSCustomOp(CustomOp):
         by every node"""
         return 0
 
+    def get_op_and_param_counts(self):
+        """Return a dictionary with number of ops needed per inference for
+        this layer as well as parameter count (weights, thresholds, etc.).
+        Entries should be in the format:
+        {op_<optype> : <count>, param_<paramtype>: <count>}."""
+        return {}
+
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
         node = self.onnx_node
@@ -649,7 +656,12 @@ compilation transformations?
         return roundup_to_integer_multiple(out_width, 8)
 
     def get_ap_int_max_w(self):
-        "Return the maximum width of any ap_int used in this module."
+        """Return the maximum width of any ap_int used in this module. Used to set the
+        AP_INT_MAX_W definition for HLS."""
         instream = self.get_instream_width()
         outstream = self.get_outstream_width()
-        return max([instream, outstream])
+        ret = max([instream, outstream])
+        assert ret <= 32768, (
+            "AP_INT_MAX_W=%d is larger than allowed maximum of 32768" % ret
+        )
+        return ret
