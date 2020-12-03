@@ -770,6 +770,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
                 weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+                ram_style = self.get_nodeattr("ram_style")
+                if ram_style == "ultra":
+                    # UltraRAM must have no memory initializer, or only zeroes
+                    # otherwise BRAM will be inferred instead of URAM
+                    # as a workaround we provide a zero-weight init here
+                    # TODO handle this in Verilog with an if statement
+                    weights = np.zeros_like(weights)
                 self.make_weight_file(
                     weights, "decoupled_verilog_dat", weight_filename_rtl
                 )
