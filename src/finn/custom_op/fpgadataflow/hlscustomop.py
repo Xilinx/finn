@@ -244,9 +244,11 @@ class HLSCustomOp(CustomOp):
         by every node"""
         return 0
 
-    def get_op_counts(self):
+    def get_op_and_param_counts(self):
         """Return a dictionary with number of ops needed per inference for
-        this layer, in the format {op_type : count}."""
+        this layer as well as parameter count (weights, thresholds, etc.).
+        Entries should be in the format:
+        {op_<optype> : <count>, param_<paramtype>: <count>}."""
         return {}
 
     def code_generation_ipgen(self, model, fpgapart, clk):

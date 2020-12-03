@@ -1299,7 +1299,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
-    def get_op_counts(self):
+    def get_op_and_param_counts(self):
         in_features = self.get_nodeattr("MW")
         out_features = self.get_nodeattr("MH")
         weight_bits = self.get_weight_datatype().bitwidth()
@@ -1311,5 +1311,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
         bw1 = min(inp_bits, weight_bits)
         bw2 = max(inp_bits, weight_bits)
-        mac_op_type = "mac_%dbx%db" % (bw1, bw2)
-        return {mac_op_type: mac_count}
+        mac_op_type = "op_mac_%dbx%db" % (bw1, bw2)
+        weight_param_type = "param_weight_%db" % (weight_bits)
+        weight_count = in_features * out_features
+        ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
+        if self.get_nodeattr("noActivation") == 0:
+            tdt = DataType[self.get_nodeattr("accDataType")]
+            thres_bits = tdt.bitwidth()
+            thres_param_type = "param_threshold_%db" % (thres_bits)
+            thres_count = out_features
+            ret_dict[thres_param_type] = thres_count
+        return ret_dict
