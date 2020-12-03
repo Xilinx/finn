@@ -192,6 +192,22 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+def _aggregate_resources(res_dict):
+    total_dict = {}
+    for layer in res_dict:
+        layer_res_dict = res_dict[layer]
+        for r_type in layer_res_dict.keys():
+            if "efficiency" in r_type:
+                continue
+            r_amount = layer_res_dict[r_type]
+            r_amount = float(r_amount)
+            if r_type in total_dict.keys():
+                total_dict[r_type] += r_amount
+            else:
+                total_dict[r_type] = r_amount
+    return total_dict
+
+
 def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig):
     "Generate per-layer resource and cycle estimates using analytical models."
 
@@ -200,6 +216,9 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         os.makedirs(report_dir, exist_ok=True)
         estimate_layer_cycles = model.analysis(exp_cycles_per_layer)
         estimate_layer_resources = model.analysis(res_estimation)
+        estimate_layer_resources["total"] = _aggregate_resources(
+            estimate_layer_resources
+        )
         estimate_layer_resources_complete = model.analysis(res_estimation_complete)
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
