@@ -96,8 +96,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
+            # ultra -- use UltraRAM (URAM), must have runtime_writeable_weights=1
             # see also https://www.xilinx.com/support/answers/38070.html
-            "ram_style": ("s", False, "auto", {"auto", "block", "distributed"}),
+            "ram_style": (
+                "s",
+                False,
+                "auto",
+                {"auto", "block", "distributed", "ultra"},
+            ),
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -216,6 +222,25 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         return info_messages
 
+    def uram_estimation(self):
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_nodeattr("MW")
+        D_out = self.get_nodeattr("MH")
+        omega = (D_in * D_out) / (Q * P)
+        mem_width = Q * W * P
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle in ["distributed", "block"]) or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            return 0
+        width_multiplier = math.ceil(mem_width / 72)
+        depth_multiplier = math.ceil(omega / 4096)
+        return width_multiplier * depth_multiplier
+
     def bram_estimation(self):
         """Calculates resource estimation for BRAM based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
@@ -235,7 +260,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mem_width = Q * W * P
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
-        if (mmode == "decoupled" and mstyle == "distributed") or (
+        if (mmode == "decoupled" and mstyle in ["distributed", "ultra"]) or (
             mmode == "const" and self.calc_wmem() <= 128
         ):
             return 0
@@ -1186,8 +1211,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
-            node_name = self.onnx_node.name
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if self.get_nodeattr("ram_style") == "ultra":
+                assert (
+                    runtime_writable == 1
+                ), "Layer with URAM weights must have runtime_writeable_weights=1"
+            node_name = self.onnx_node.name
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
