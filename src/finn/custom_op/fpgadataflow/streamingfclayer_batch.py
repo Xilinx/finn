@@ -390,9 +390,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return roundup_to_integer_multiple(weight_width, 8)
 
     def get_ap_int_max_w(self):
-        temp_value = super().get_ap_int_max_w()
+        # base class impl (max of inp/out stream widths)
+        max_of_io = super().get_ap_int_max_w()
+        # decoupled mode weight stream
         weightstream = self.get_weightstream_width()
-        return max([weightstream, temp_value])
+        # single PE weight entry
+        weight_bits = self.get_weight_datatype().bitwidth()
+        simd = self.get_nodeattr("SIMD")
+        single_pe_w = simd * weight_bits
+        return max([weightstream, max_of_io, single_pe_w])
 
     def get_folded_input_shape(self):
         mw = self.get_nodeattr("MW")
