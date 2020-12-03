@@ -390,9 +390,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return roundup_to_integer_multiple(weight_width, 8)
 
     def get_ap_int_max_w(self):
-        temp_value = super().get_ap_int_max_w()
+        # base class impl (max of inp/out stream widths)
+        max_of_io = super().get_ap_int_max_w()
+        # decoupled mode weight stream
         weightstream = self.get_weightstream_width()
-        return max([weightstream, temp_value])
+        # single PE weight entry
+        weight_bits = self.get_weight_datatype().bitwidth()
+        simd = self.get_nodeattr("SIMD")
+        single_pe_w = simd * weight_bits
+        return max([weightstream, max_of_io, single_pe_w])
 
     def get_folded_input_shape(self):
         mw = self.get_nodeattr("MW")
@@ -1298,3 +1304,27 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             if runtime_writable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
+
+    def get_op_and_param_counts(self):
+        in_features = self.get_nodeattr("MW")
+        out_features = self.get_nodeattr("MH")
+        weight_bits = self.get_weight_datatype().bitwidth()
+        inp_bits = self.get_input_datatype().bitwidth()
+        num_inp_vec = self.get_nodeattr("numInputVectors")
+        num_repetitions = int(np.prod(num_inp_vec))
+        mac_count = in_features * out_features * num_repetitions
+        # cannonicalize op type: highest bitwidth operand first s.t.
+        # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
+        bw1 = min(inp_bits, weight_bits)
+        bw2 = max(inp_bits, weight_bits)
+        mac_op_type = "op_mac_%dbx%db" % (bw1, bw2)
+        weight_param_type = "param_weight_%db" % (weight_bits)
+        weight_count = in_features * out_features
+        ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
+        if self.get_nodeattr("noActivation") == 0:
+            tdt = DataType[self.get_nodeattr("accDataType")]
+            thres_bits = tdt.bitwidth()
+            thres_param_type = "param_threshold_%db" % (thres_bits)
+            thres_count = out_features
+            ret_dict[thres_param_type] = thres_count
+        return ret_dict
