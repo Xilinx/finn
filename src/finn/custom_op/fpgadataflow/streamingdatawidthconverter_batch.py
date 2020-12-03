@@ -408,8 +408,13 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict "
-                "[list CONFIG.S_TDATA_NUM_BYTES.VALUE_SRC PROPAGATED] "
+                "[list CONFIG.S_TDATA_NUM_BYTES.VALUE_SRC USER] "
                 "[get_bd_cells /%s/dwc]" % node_name
+            )
+            cmd.append(
+                "set_property -dict "
+                "[list CONFIG.S_TDATA_NUM_BYTES {%d}] [get_bd_cells /%s/dwc]"
+                % (np.ceil(self.get_instream_width() / 8), node_name)
             )
             cmd.append(
                 "set_property -dict "
