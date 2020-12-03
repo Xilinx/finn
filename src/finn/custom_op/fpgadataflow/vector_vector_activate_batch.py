@@ -678,3 +678,18 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         else:
             mult_dsp = 0
         return int(mult_dsp)
+
+    def get_op_counts(self):
+        k = self.get_nodeattr("Kernel")
+        fm = self.get_nodeattr("Channels")
+        dim = self.get_nodeattr("Dim")
+        weight_bits = self.get_weight_datatype().bitwidth()
+        inp_bits = self.get_input_datatype().bitwidth()
+        num_repetitions = int(dim * dim)
+        mac_count = k * k * fm * num_repetitions
+        # cannonicalize op type: highest bitwidth operand first s.t.
+        # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
+        bw1 = min(inp_bits, weight_bits)
+        bw2 = max(inp_bits, weight_bits)
+        mac_op_type = "mac_%dbx%db" % (bw1, bw2)
+        return {mac_op_type: mac_count}

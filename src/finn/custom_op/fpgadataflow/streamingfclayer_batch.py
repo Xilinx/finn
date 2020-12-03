@@ -1298,3 +1298,18 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             if runtime_writable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
+
+    def get_op_counts(self):
+        in_features = self.get_nodeattr("MW")
+        out_features = self.get_nodeattr("MH")
+        weight_bits = self.get_weight_datatype().bitwidth()
+        inp_bits = self.get_input_datatype().bitwidth()
+        num_inp_vec = self.get_nodeattr("numInputVectors")
+        num_repetitions = int(np.prod(num_inp_vec))
+        mac_count = in_features * out_features * num_repetitions
+        # cannonicalize op type: highest bitwidth operand first s.t.
+        # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
+        bw1 = min(inp_bits, weight_bits)
+        bw2 = max(inp_bits, weight_bits)
+        mac_op_type = "mac_%dbx%db" % (bw1, bw2)
+        return {mac_op_type: mac_count}

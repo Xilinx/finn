@@ -244,6 +244,11 @@ class HLSCustomOp(CustomOp):
         by every node"""
         return 0
 
+    def get_op_counts(self):
+        """Return a dictionary with number of ops needed per inference for
+        this layer, in the format {op_type : count}."""
+        return {}
+
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
         node = self.onnx_node
