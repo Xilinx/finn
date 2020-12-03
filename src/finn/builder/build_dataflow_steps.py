@@ -89,6 +89,7 @@ from finn.builder.build_dataflow_config import (
     DataflowOutputType,
     ShellFlowType,
 )
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 
 
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -202,14 +203,24 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     if DataflowOutputType.ESTIMATE_REPORTS in cfg.generate_outputs:
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
+        ops_and_params = model.analysis(op_and_param_counts)
+        with open(report_dir + "/op_and_param_counts.json", "w") as f:
+            json.dump(ops_and_params, f, indent=2)
         estimate_layer_cycles = model.analysis(exp_cycles_per_layer)
+        with open(report_dir + "/estimate_layer_cycles.json", "w") as f:
+            json.dump(estimate_layer_cycles, f, indent=2)
         estimate_layer_resources = model.analysis(res_estimation)
         estimate_layer_resources["total"] = aggregate_dict_keys(
             estimate_layer_resources
         )
+        with open(report_dir + "/estimate_layer_resources.json", "w") as f:
+            json.dump(estimate_layer_resources, f, indent=2)
         estimate_layer_resources_complete = model.analysis(res_estimation_complete)
+        with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
+            json.dump(estimate_layer_resources_complete, f, indent=2)
+        # need to call AnnotateCycles before dataflow_performance
+        model = model.transform(AnnotateCycles())
         estimate_network_performance = model.analysis(dataflow_performance)
-        ops_and_params = model.analysis(op_and_param_counts)
         # add some more metrics to estimated performance
         n_clock_cycles_per_sec = (10 ** 9) / cfg.synth_clk_period_ns
         est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
@@ -219,14 +230,6 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
             * cfg.synth_clk_period_ns
         )
         estimate_network_performance["estimated_latency_ns"] = est_latency_ns
-        with open(report_dir + "/op_and_param_counts.json", "w") as f:
-            json.dump(ops_and_params, f, indent=2)
-        with open(report_dir + "/estimate_layer_cycles.json", "w") as f:
-            json.dump(estimate_layer_cycles, f, indent=2)
-        with open(report_dir + "/estimate_layer_resources.json", "w") as f:
-            json.dump(estimate_layer_resources, f, indent=2)
-        with open(report_dir + "/estimate_layer_config_alternatives.json", "w") as f:
-            json.dump(estimate_layer_resources_complete, f, indent=2)
         with open(report_dir + "/estimate_network_performance.json", "w") as f:
             json.dump(estimate_network_performance, f, indent=2)
     return model
