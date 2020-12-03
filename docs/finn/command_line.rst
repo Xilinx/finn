@@ -105,6 +105,7 @@ build configuration), and are detailed below.
   * ``report/estimate_layer_resources.json`` -- resources per layer estimation from analytical model
   * ``report/estimate_layer_config_alternatives.json`` -- resources per layer estimation from analytical model, including what other config alternatives would have yielded
   * ``report/estimate_network_performance.json`` -- whole-network performance estimation from analytical model
+  * ``report/op_and_param_counts.json`` -- per-layer and total number of operations and parameters (independent of parallelization)
 
 * :py:mod:`finn.builder.build_dataflow.DataflowOutputType.STITCHED_IP`: produces a stitched Vivado IP block design that can be integrated with other FPGA designs in Vivado IPI:
 

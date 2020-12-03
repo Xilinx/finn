@@ -76,6 +76,10 @@ from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
     res_estimation_complete,
 )
+from finn.analysis.fpgadataflow.op_and_param_counts import (
+    aggregate_dict_keys,
+    op_and_param_counts,
+)
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.util.config import extract_model_config_to_json
@@ -192,22 +196,6 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def _aggregate_resources(res_dict):
-    total_dict = {}
-    for layer in res_dict:
-        layer_res_dict = res_dict[layer]
-        for r_type in layer_res_dict.keys():
-            if "efficiency" in r_type:
-                continue
-            r_amount = layer_res_dict[r_type]
-            r_amount = float(r_amount)
-            if r_type in total_dict.keys():
-                total_dict[r_type] += r_amount
-            else:
-                total_dict[r_type] = r_amount
-    return total_dict
-
-
 def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig):
     "Generate per-layer resource and cycle estimates using analytical models."
 
@@ -216,11 +204,12 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         os.makedirs(report_dir, exist_ok=True)
         estimate_layer_cycles = model.analysis(exp_cycles_per_layer)
         estimate_layer_resources = model.analysis(res_estimation)
-        estimate_layer_resources["total"] = _aggregate_resources(
+        estimate_layer_resources["total"] = aggregate_dict_keys(
             estimate_layer_resources
         )
         estimate_layer_resources_complete = model.analysis(res_estimation_complete)
         estimate_network_performance = model.analysis(dataflow_performance)
+        ops_and_params = model.analysis(op_and_param_counts)
         # add some more metrics to estimated performance
         n_clock_cycles_per_sec = (10 ** 9) / cfg.synth_clk_period_ns
         est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
@@ -230,6 +219,8 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
             * cfg.synth_clk_period_ns
         )
         estimate_network_performance["estimated_latency_ns"] = est_latency_ns
+        with open(report_dir + "/op_and_param_counts.json", "w") as f:
+            json.dump(ops_and_params, f, indent=2)
         with open(report_dir + "/estimate_layer_cycles.json", "w") as f:
             json.dump(estimate_layer_cycles, f, indent=2)
         with open(report_dir + "/estimate_layer_resources.json", "w") as f:
