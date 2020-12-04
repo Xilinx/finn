@@ -347,8 +347,8 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
 create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_0
 create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 smartconnect_0
 #set number of axilite interfaces, and number of axi master interfaces
-set_property -dict [list CONFIG.NUM_SI $NUM_AXILITE] [get_bd_cells smartconnect_0]
-set_property -dict [list CONFIG.NUM_MI $NUM_AXIMM] [get_bd_cells axi_interconnect_0]
+set_property -dict [list CONFIG.NUM_SI $NUM_AXIMM] [get_bd_cells smartconnect_0]
+set_property -dict [list CONFIG.NUM_MI $NUM_AXILITE] [get_bd_cells axi_interconnect_0]
 
 #create reset controller and connect interconnects to PS
 if {$ZYNQ_TYPE == "zynq_us+"} {
