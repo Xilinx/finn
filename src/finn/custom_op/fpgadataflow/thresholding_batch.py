@@ -29,7 +29,7 @@
 from math import ceil, log2
 import textwrap
 import os
-
+import warnings
 import numpy as np
 
 from onnx import TensorProto, helper
@@ -127,10 +127,15 @@ class Thresholding_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # check input datatype against property
-        idt_name = self.get_input_datatype().name
-        exp_idt_name = self.get_nodeattr("inputDataType")
-        assert exp_idt_name == idt_name, "Bad input DataType for Thresholding layer"
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
         # set output datatype from property
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
