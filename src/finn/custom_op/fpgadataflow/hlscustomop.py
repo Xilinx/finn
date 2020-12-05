@@ -210,12 +210,18 @@ class HLSCustomOp(CustomOp):
         ret["BRAM_efficiency"] = self.bram_efficiency_estimation()
         ret["LUT"] = self.lut_estimation()
         ret["URAM"] = self.uram_estimation()
+        ret["URAM_efficiency"] = self.uram_efficiency_estimation()
         ret["DSP"] = self.dsp_estimation()
         return ret
 
     def bram_efficiency_estimation(self):
         """Function for BRAM efficiency estimation: actual parameter storage
         needed divided by the allocated BRAM storage (from estimation)"""
+        return 1
+
+    def uram_efficiency_estimation(self):
+        """Function for URAM efficiency estimation: actual parameter storage
+        needed divided by the allocated URAM storage (from estimation)"""
         return 1
 
     def bram_estimation(self):
