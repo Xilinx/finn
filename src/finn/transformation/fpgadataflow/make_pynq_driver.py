@@ -32,7 +32,8 @@ from finn.transformation.base import Transformation
 from finn.util.basic import gen_finn_dt_tensor, make_build_dir
 import finn.util.data_packing as dpk
 import finn.core.datatype as dtp
-
+from finn.custom_op.registry import getCustomOp
+import os
 from . import templates
 
 
@@ -145,5 +146,19 @@ class MakePYNQDriver(Transformation):
         dtp_root = dtp_root.replace("datatype.py", "")
         shutil.copytree(dpk_root, pynq_driver_dir + "/finn/util")
         shutil.copytree(dtp_root, pynq_driver_dir + "/finn/core")
+
+        # generate weight files for runtime-writable layers
+        weights_dir = pynq_driver_dir + "/runtime_weights"
+        rt_layer_ind = 0
+        os.makedirs(weights_dir)
+        fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+        for fcl in fc_layers:
+            fcl_inst = getCustomOp(fcl)
+            is_rt_weights = fcl_inst.get_nodeattr("runtime_writeable_weights")
+            if is_rt_weights == 1:
+                fcl_w = model.get_initializer(fcl.input[1])
+                w_filename = weights_dir + "/%d_%s.dat" % (rt_layer_ind, fcl.name)
+                fcl_inst.make_weight_file(fcl_w, "decoupled_runtime", w_filename)
+                rt_layer_ind += 1
 
         return (model, False)
