@@ -145,6 +145,29 @@ class FINNAccelDriver():
         else:
             self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8, cacheable=True)
             self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8, cacheable=True)
+        # load any runtime weights
+        self.load_runtime_weights()
+
+    def load_runtime_weights(self):
+        w_filenames = []
+        runtime_weight_dir = "runtime_weights/"
+        for (dirpath, dirnames, filenames) in os.walk(runtime_weight_dir):
+            w_filenames.extend(filenames)
+        rt_weight_dict = {}
+        for w_filename in w_filenames:
+            if w_filename.endswith(".dat"):
+                with open(runtime_weight_dir + "/" + w_filename, "r") as f:
+                    dat = f.read()
+            layer_w=np.fromiter([int(x,16) for x in dat.strip().split("\n")], dtype=np.uint32)
+            layer_ind=int(w_filename.split("_")[0])
+            rt_weight_dict[layer_ind] = layer_w
+        for layer_ind in rt_weight_dict.keys():
+            cand_if_name = "StreamingDataflowPartition_1/s_axilite_%d" % layer_ind
+            if cand_if_name in self.ol.ip_dict.keys():
+                layer_mmio = getattr(self.ol.StreamingDataflowPartition_1, "s_axilite_%d" % layer_ind).mmio
+                layer_w = rt_weight_dict[layer_ind]
+                old_w = np.copy(layer_mmio.array[:layer_w.shape[0]])
+                np.copyto(layer_mmio.array[:layer_w.shape[0]], layer_w)
 
     def fold_input(self, ibuf_normal):
         \"\"\"Reshapes input in desired shape.
