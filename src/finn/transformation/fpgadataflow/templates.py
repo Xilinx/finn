@@ -148,7 +148,7 @@ class FINNAccelDriver():
         # load any runtime weights
         self.load_runtime_weights()
 
-    def load_runtime_weights(self):
+    def load_runtime_weights(self, flush_accel=True, verify=True):
         w_filenames = []
         runtime_weight_dir = "runtime_weights/"
         for (dirpath, dirnames, filenames) in os.walk(runtime_weight_dir):
@@ -166,8 +166,13 @@ class FINNAccelDriver():
             if cand_if_name in self.ol.ip_dict.keys():
                 layer_mmio = getattr(self.ol.StreamingDataflowPartition_1, "s_axilite_%d" % layer_ind).mmio
                 layer_w = rt_weight_dict[layer_ind]
-                old_w = np.copy(layer_mmio.array[:layer_w.shape[0]])
-                np.copyto(layer_mmio.array[:layer_w.shape[0]], layer_w)
+                layer_mmio.write_mm(0, layer_w.tobytes())
+                if verify:
+                    new_w = np.copy(layer_mmio.array[:layer_w.shape[0]])
+                    assert (layer_w == new_w).all()
+        if flush_accel:
+            # run accelerator to flush any stale weights from weight streamer FIFOs
+            self.execute()
 
     def fold_input(self, ibuf_normal):
         \"\"\"Reshapes input in desired shape.
