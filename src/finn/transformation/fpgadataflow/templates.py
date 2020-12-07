@@ -158,7 +158,7 @@ class FINNAccelDriver():
             if w_filename.endswith(".dat"):
                 with open(runtime_weight_dir + "/" + w_filename, "r") as f:
                     dat = f.read()
-            layer_w=np.fromiter([int(x,16) for x in dat.strip().split("\n")], dtype=np.uint32)
+            layer_w=np.fromiter([int(x,16) for x in dat.strip().split()], dtype=np.uint32)
             layer_ind=int(w_filename.split("_")[0])
             rt_weight_dict[layer_ind] = layer_w
         for layer_ind in rt_weight_dict.keys():
