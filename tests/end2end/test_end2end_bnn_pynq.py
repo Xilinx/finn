@@ -145,6 +145,8 @@ def fold_tfc(model):
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
+    inp_qnt.set_nodeattr("mem_mode", "decoupled")
+    inp_qnt.set_nodeattr("runtime_writeable_weights", 1)
     return model
 
 
@@ -363,6 +365,9 @@ class TestEnd2End:
     def test_convert_to_hls_layers(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "streamline")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        if topology == "tfc" and wbits == 1 and abits == 1:
+            # use standalone thresholds for tfc-w1a1 to also exercise that option
+            model = model.transform(to_hls.InferThresholdingLayer())
         # needed for bipolar MatMul layers
         model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
         # needed for non-bipolar MatMul layers
