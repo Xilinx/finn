@@ -12,7 +12,7 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-FINN_BASE_COMMIT=888ef9c31314f9368aec0fc14b2ba0ec8673fd88
+FINN_BASE_COMMIT=607c201dabf99643ba71cdd708cda6e7be694053
 BREVITAS_COMMIT=aff49758ec445d77c75721c7de3091a2a1797ca8
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=cfafe11a93b79ab1af7529d68f08886913a6466e
@@ -47,6 +47,8 @@ pip install --user -e /workspace/pyverilator
 gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
 git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
+# remove old version egg-info, if any
+rm -rf $FINN_ROOT/src/FINN.egg-info
 # run pip install for finn
 pip install --user -e $FINN_ROOT
 
