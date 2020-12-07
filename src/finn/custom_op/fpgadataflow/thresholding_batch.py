@@ -929,3 +929,14 @@ class Thresholding_Batch(HLSCustomOp):
             if runtime_writable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
+
+    def get_op_and_param_counts(self):
+        ret_dict = {}
+        weight_bits = self.get_weight_datatype().bitwidth()
+        out_features = self.get_nodeattr("NumChannels")
+        num_steps = self.get_nodeattr("numSteps")
+        # thresholds are called weights in this layer
+        thres_param_type = "param_threshold_%db" % (weight_bits)
+        thres_count = out_features * num_steps
+        ret_dict[thres_param_type] = thres_count
+        return ret_dict
