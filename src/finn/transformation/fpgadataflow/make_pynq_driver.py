@@ -40,14 +40,16 @@ from . import templates
 
 class MakePYNQDriver(Transformation):
     """Create PYNQ Python code to correctly interface the generated
-    accelerator, including data packing/unpacking. The MakePYNQProject
-    transformation must have been already applied.
+    accelerator, including data packing/unpacking. Should be called
+    after conversion to HLS layers and folding, but prior to the creation of
+    dataflow partitions for correct operation.
 
     platform: one of ["zynq-iodma", "alveo"]
 
     Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the
-    value.
+    value. If any layers use runtime-writable parameters, those will be gathered
+    under the runtime_weights/ subfolder of the pynq_driver_dir.
     """
 
     def __init__(self, platform):
