@@ -94,9 +94,17 @@ class StreamingFIFO(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("dataType", idt.name)
         # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        model.set_tensor_datatype(node.output[0], dtype)
+        model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
         pass
