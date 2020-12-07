@@ -4,6 +4,7 @@
   "mvau_wwidth_max": 10000,
   "synth_clk_period_ns": 10.0,
   "board": "Pynq-Z1",
+  "standalone_thresholds": true,
   "shell_flow_type": "vivado_zynq",
   "generate_outputs": [
     "estimate_reports",

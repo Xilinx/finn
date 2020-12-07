@@ -136,14 +136,16 @@ def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     is limited, see the source code of the `convert_to_hls` module for more. """
 
     mem_mode = cfg.default_mem_mode.value
+    if cfg.standalone_thresholds:
+        # doing this first causes all threshold layers to be standalone
+        model = model.transform(to_hls.InferThresholdingLayer())
     # needed for bipolar MatMul layers
     model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
     # needed for non-bipolar MatMul layers
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     # TopK to LabelSelect
     model = model.transform(to_hls.InferLabelSelectLayer())
-    # input quantization (if any) to standalone thresholding
-    # TODO call first if standalone thresholding is desired
+    # input quantization (if any) as standalone threshold
     model = model.transform(to_hls.InferThresholdingLayer())
     # needed for convolutions -- TODO always exec?
     need_conv = len(model.get_nodes_by_op_type("Im2Col")) > 0
