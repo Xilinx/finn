@@ -347,18 +347,18 @@ def step_out_of_context_synthesis(model: ModelWrapper, cfg: DataflowBuildConfig)
                 part=cfg._resolve_fpga_part(), clk_period_ns=cfg.synth_clk_period_ns
             )
         )
-    report_dir = cfg.output_dir + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-    ooc_res_dict = model.get_metadata_prop("res_total_ooc_synth")
-    ooc_res_dict = eval(ooc_res_dict)
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        ooc_res_dict = model.get_metadata_prop("res_total_ooc_synth")
+        ooc_res_dict = eval(ooc_res_dict)
 
-    estimate_network_performance = model.analysis(dataflow_performance)
-    # add some more metrics to estimated performance
-    n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
-    est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
-    ooc_res_dict["estimated_throughput_fps"] = est_fps
-    with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
-        json.dump(ooc_res_dict, f, indent=2)
+        estimate_network_performance = model.analysis(dataflow_performance)
+        # add some more metrics to estimated performance
+        n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
+        est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+        ooc_res_dict["estimated_throughput_fps"] = est_fps
+        with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
+            json.dump(ooc_res_dict, f, indent=2)
     return model
 
 
