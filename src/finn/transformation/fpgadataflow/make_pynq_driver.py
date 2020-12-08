@@ -35,7 +35,7 @@ import finn.core.datatype as dtp
 from finn.custom_op.registry import getCustomOp
 import os
 import warnings
-from . import templates
+from . import template_driver
 
 
 class MakePYNQDriver(Transformation):
@@ -61,8 +61,13 @@ class MakePYNQDriver(Transformation):
         pynq_driver_dir = make_build_dir(prefix="pynq_driver_")
         model.set_metadata_prop("pynq_driver_dir", pynq_driver_dir)
 
+        # create the base FINN driver -- same for all accels
+        driver_base_py = pynq_driver_dir + "/driver_base.py"
+        with open(driver_base_py, "w") as f:
+            f.write(template_driver.driver_base)
+
         # extract input-output shapes from the graph
-        # TODO convert this to an analysis pass
+        # TODO convert this to an analysis pass?
         i_tensor_name = model.graph.input[0].name
         o_tensor_name = model.graph.output[0].name
         i_tensor_shape_normal = tuple(model.get_tensor_shape(i_tensor_name))
@@ -93,9 +98,9 @@ class MakePYNQDriver(Transformation):
 
         # fill in the driver template
         driver_py = pynq_driver_dir + "/driver.py"
-        driver = templates.pynq_driver_template
+        driver = template_driver.pynq_driver_template
 
-        def mss(x, batch_var_name="N"):
+        def mss(x, batch_var_name="1"):
             # "make shape string"
             # for a shape like (1, ...) emit a string (N, ...)
             # where N is the default value for batch_var_name
@@ -115,24 +120,12 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", mss(o_tensor_shape_folded))
         driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
 
-        # clock settings for driver
-        clk_ns = model.get_metadata_prop("clk_ns")
-        # default to 10ns / 100 MHz if property not set
-        if clk_ns is None:
-            clk_ns = 10.0
-        else:
-            clk_ns = float(clk_ns)
-        fclk_mhz = 1 / (clk_ns * 0.001)
-        # TODO change according to PYNQ board?
-        driver = driver.replace("$CLK_NAME$", "fclk0_mhz")
-        driver = driver.replace("$CLOCK_FREQ_MHZ$", str(fclk_mhz))
-
         with open(driver_py, "w") as f:
             f.write(driver)
 
         # add validate.py to run full top-1 test (only for suitable networks)
         validate_py = pynq_driver_dir + "/validate.py"
-        validate_src = templates.pynq_validation_template
+        validate_src = template_driver.pynq_validation_template
         with open(validate_py, "w") as f:
             f.write(validate_src)
 
