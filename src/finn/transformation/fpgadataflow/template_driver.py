@@ -121,7 +121,7 @@ class FINNExampleOverlay(Overlay):
         rt_weight_dict = {}
         for w_filename in w_filenames:
             if w_filename.endswith(".dat"):
-                with open(runtime_weight_dir + "/" + w_filename, "r") as f:
+                with open(self.runtime_weight_dir + "/" + w_filename, "r") as f:
                     dat = f.read()
             layer_w=np.fromiter([int(x,16) for x in dat.strip().split()], dtype=np.uint32)
             layer_ind=int(w_filename.split("_")[0])
