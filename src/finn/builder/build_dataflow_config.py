@@ -93,8 +93,6 @@ class VerificationStepType(str, Enum):
     STREAMLINED_PYTHON = "streamlined_python"
     #: verify after step_apply_folding_config, using C++ for each HLS node
     FOLDED_HLS_CPPSIM = "folded_hls_cppsim"
-    #: verify after step_hls_ipgen, using Verilog for each HLS node
-    IPGEN_RTLSIM = "ipgen_rtlsim"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
@@ -158,15 +156,15 @@ class DataflowBuildConfig:
     #: (Optional) At which steps the generated intermediate output model
     #: will be verified. See documentation of VerificationStepType for
     #: available options.
-    verify_steps: Optional[List[VerificationStepType]] = []
+    verify_steps: Optional[List[VerificationStepType]] = None
 
     #: (Optional) Name of .npy file that will be used as the input for
     #: verification. Only required if verify_steps is not empty.
-    verify_input_npy: Optional[str] = None
+    verify_input_npy: Optional[str] = "input.npy"
 
     #: (Optional) Name of .npy file that will be used as the expected output for
     #: verification. Only required if verify_steps is not empty.
-    verify_expected_output_npy: Optional[str] = None
+    verify_expected_output_npy: Optional[str] = "expected_output.npy"
 
     #: (Optional) Control the maximum width of the per-PE MVAU stream while
     #: exploring the parallelization attributes to reach target_fps
@@ -297,8 +295,14 @@ class DataflowBuildConfig:
         }
         return name_to_strategy[self.vitis_opt_strategy]
 
+    def _resolve_verification_steps(self):
+        if self.verify_steps is None:
+            return []
+        else:
+            return self.verify_steps
+
     def _resolve_verification_io_pair(self):
-        if self.verify_steps == []:
+        if self.verify_steps is None:
             return None
         else:
             assert os.path.isfile(self.verify_input_npy), (
