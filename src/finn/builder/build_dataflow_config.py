@@ -32,6 +32,8 @@ from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
 from enum import Enum
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
+import os
+import numpy as np
 
 
 class ShellFlowType(str, Enum):
@@ -80,6 +82,21 @@ class LargeFIFOMemStyle(str, Enum):
     BRAM = "block"
     LUTRAM = "distributed"
     URAM = "ultra"
+
+
+class VerificationStepType(str, Enum):
+    "Steps at which FINN ONNX execution can be launched for verification."
+
+    #: verify after step_tidy_up, using Python execution
+    TIDY_UP_PYTHON = "initial_python"
+    #: verify after step_streamline , using Python execution
+    STREAMLINED_PYTHON = "streamlined_python"
+    #: verify after step_apply_folding_config, using C++ for each HLS node
+    FOLDED_HLS_CPPSIM = "folded_hls_cppsim"
+    #: verify after step_hls_ipgen, using Verilog for each HLS node
+    IPGEN_RTLSIM = "ipgen_rtlsim"
+    #: verify after step_create_stitched_ip, using stitched-ip Verilog
+    STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
 
 #: List of steps that will be run as part of the standard dataflow build, in the
@@ -137,6 +154,19 @@ class DataflowBuildConfig:
     #: If parallelization attributes are specified as part of folding_config_file
     #: that will override the target_fps setting here.
     target_fps: Optional[int] = None
+
+    #: (Optional) At which steps the generated intermediate output model
+    #: will be verified. See documentation of VerificationStepType for
+    #: available options.
+    verify_steps: Optional[List[VerificationStepType]] = []
+
+    #: (Optional) Name of .npy file that will be used as the input for
+    #: verification. Only required if verify_steps is not empty.
+    verify_input_npy: Optional[str] = None
+
+    #: (Optional) Name of .npy file that will be used as the expected output for
+    #: verification. Only required if verify_steps is not empty.
+    verify_expected_output_npy: Optional[str] = None
 
     #: (Optional) Control the maximum width of the per-PE MVAU stream while
     #: exploring the parallelization attributes to reach target_fps
@@ -266,3 +296,18 @@ class DataflowBuildConfig:
             VitisOptStrategyCfg.BUILD_SPEED: VitisOptStrategy.BUILD_SPEED,
         }
         return name_to_strategy[self.vitis_opt_strategy]
+
+    def _resolve_verification_io_pair(self):
+        if self.verify_steps == []:
+            return None
+        else:
+            assert os.path.isfile(self.verify_input_npy), (
+                "verify_input_npy not found: " + self.verify_input_npy
+            )
+            verify_input_npy = np.load(self.verify_input_npy)
+            assert os.path.isfile(self.verify_expected_output_npy), (
+                "verify_expected_output_npy not found: "
+                + self.verify_expected_output_npy
+            )
+            verify_expected_output_npy = np.load(self.verify_expected_output_npy)
+            return (verify_input_npy, verify_expected_output_npy)
