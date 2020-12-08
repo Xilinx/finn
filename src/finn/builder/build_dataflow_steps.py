@@ -437,7 +437,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     if DataflowOutputType.BITFILE in cfg.generate_outputs:
         bitfile_dir = cfg.output_dir + "/bitfile"
-        os.makedirs(bitfile_dir)
+        os.makedirs(bitfile_dir, exist_ok=True)
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
         if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
@@ -487,7 +487,7 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         deploy_dir = cfg.output_dir + "/deploy"
         bitfile_dir = cfg.output_dir + "/bitfile"
         driver_dir = cfg.output_dir + "/driver"
-        os.makedirs(deploy_dir)
+        os.makedirs(deploy_dir, exist_ok=True)
         copytree(bitfile_dir, deploy_dir + "/bitfile")
         copytree(driver_dir, deploy_dir + "/driver")
     return model
