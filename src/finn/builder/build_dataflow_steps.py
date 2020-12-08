@@ -136,14 +136,16 @@ def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     is limited, see the source code of the `convert_to_hls` module for more. """
 
     mem_mode = cfg.default_mem_mode.value
+    if cfg.standalone_thresholds:
+        # doing this first causes all threshold layers to be standalone
+        model = model.transform(to_hls.InferThresholdingLayer())
     # needed for bipolar MatMul layers
     model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
     # needed for non-bipolar MatMul layers
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     # TopK to LabelSelect
     model = model.transform(to_hls.InferLabelSelectLayer())
-    # input quantization (if any) to standalone thresholding
-    # TODO call first if standalone thresholding is desired
+    # input quantization (if any) as standalone threshold
     model = model.transform(to_hls.InferThresholdingLayer())
     # needed for convolutions -- TODO always exec?
     need_conv = len(model.get_nodes_by_op_type("Im2Col")) > 0
@@ -347,18 +349,18 @@ def step_out_of_context_synthesis(model: ModelWrapper, cfg: DataflowBuildConfig)
                 part=cfg._resolve_fpga_part(), clk_period_ns=cfg.synth_clk_period_ns
             )
         )
-    report_dir = cfg.output_dir + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-    ooc_res_dict = model.get_metadata_prop("res_total_ooc_synth")
-    ooc_res_dict = eval(ooc_res_dict)
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        ooc_res_dict = model.get_metadata_prop("res_total_ooc_synth")
+        ooc_res_dict = eval(ooc_res_dict)
 
-    estimate_network_performance = model.analysis(dataflow_performance)
-    # add some more metrics to estimated performance
-    n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
-    est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
-    ooc_res_dict["estimated_throughput_fps"] = est_fps
-    with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
-        json.dump(ooc_res_dict, f, indent=2)
+        estimate_network_performance = model.analysis(dataflow_performance)
+        # add some more metrics to estimated performance
+        n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
+        est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+        ooc_res_dict["estimated_throughput_fps"] = est_fps
+        with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
+            json.dump(ooc_res_dict, f, indent=2)
     return model
 
 

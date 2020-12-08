@@ -145,6 +145,12 @@ class DataflowBuildConfig:
     #: very high performance.
     mvau_wwidth_max: Optional[int] = 36
 
+    #: (Optional) Whether thresholding layers (which implement quantized
+    #: activations in FINN) will be implemented as stand-alone HLS layers,
+    #: instead of being part of StreamingFCLayer. This gives larger flexibility,
+    #: and makes it possible to have runtime-writable thresholds.
+    standalone_thresholds: Optional[bool] = False
+
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
     #: e.g. "Pynq-Z1" or "U250"
