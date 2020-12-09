@@ -53,7 +53,7 @@ def dataflow_performance(model):
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:
             inst = getCustomOp(node)
-            node_cycles = inst.get_nodeattr("cycles_estimate")
+            node_cycles = int(inst.get_nodeattr("cycles_estimate"))
             if node_cycles > max_cycles:
                 max_cycles = node_cycles
                 max_node_name = node.name
@@ -72,7 +72,7 @@ def dataflow_performance(model):
                 latency_at_node_output[node.name] = node_cycles + max_pred_latency
     critical_path_cycles = max(latency_at_node_output.values())
     return {
-        "critical_path_cycles": critical_path_cycles,
-        "max_cycles": max_cycles,
+        "critical_path_cycles": int(critical_path_cycles),
+        "max_cycles": int(max_cycles),
         "max_cycles_node_name": max_node_name,
     }

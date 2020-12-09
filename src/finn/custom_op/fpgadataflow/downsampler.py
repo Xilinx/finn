@@ -4,6 +4,7 @@ from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+import warnings
 
 
 class DownSampler(HLSCustomOp):
@@ -98,10 +99,16 @@ class DownSampler(HLSCustomOp):
     def infer_node_datatype(self, model):
         node = self.onnx_node
         # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        exp_idtype = self.get_input_datatype()
-        assert dtype == exp_idtype, "Unexpected datatype for DownSampler"
-        model.set_tensor_datatype(node.output[0], dtype)
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
+        model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
         pass

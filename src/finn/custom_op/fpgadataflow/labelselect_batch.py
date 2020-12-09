@@ -253,6 +253,12 @@ class LabelSelect_Batch(HLSCustomOp):
         assert (
             context[node.output[0]].shape == exp_oshape
         ), """Output shape doesn't match expected shape."""
+        # TopK ind output normally uses TensorProto.INT64, which
+        # can cause issues for the node-by-node simulation in FINN
+        # (as the custom DataType system always assumes float containers)
+        # so cast the output to int64
+        ret = context[node.output[0]]
+        context[node.output[0]] = ret.astype(np.int64)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
@@ -346,3 +352,9 @@ class LabelSelect_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def get_exp_cycles(self):
+        nlabels = self.get_nodeattr("Labels")
+        pe = self.get_nodeattr("PE")
+        exp_cycles = nlabels / pe
+        return int(exp_cycles)

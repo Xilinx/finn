@@ -1,4 +1,4 @@
-# Copyright (c) 2020 Xilinx, Inc.
+# Copyright (c) 2020, Xilinx
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -11,7 +11,7 @@
 #   this list of conditions and the following disclaimer in the documentation
 #   and/or other materials provided with the distribution.
 #
-# * Neither the name of Xilinx nor the names of its
+# * Neither the name of FINN nor the names of its
 #   contributors may be used to endorse or promote products derived from
 #   this software without specific prior written permission.
 #
@@ -26,35 +26,35 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# This file is intended to serve as an example showing how to set up custom builds
-# using FINN. The custom build can be launched like this:
-# ./run-docker.sh build_custom /path/to/folder
+import finn.custom_op.registry as registry
+from finn.util.basic import is_finn_op
 
 
-import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
+def aggregate_dict_keys(res_dict):
+    total_dict = {}
+    for layer in res_dict:
+        layer_res_dict = res_dict[layer]
+        for r_type in layer_res_dict.keys():
+            if "efficiency" in r_type:
+                continue
+            r_amount = layer_res_dict[r_type]
+            r_amount = float(r_amount)
+            if r_type in total_dict.keys():
+                total_dict[r_type] += r_amount
+            else:
+                total_dict[r_type] = r_amount
+    return total_dict
 
-model_name = "tfc_w1a1"
-platform_name = "Pynq-Z1"
 
-cfg = build.DataflowBuildConfig(
-    output_dir="output_%s_%s" % (model_name, platform_name),
-    target_fps=100000,
-    mvau_wwidth_max=10000,
-    # can specify detailed folding/FIFO/etc config with:
-    # folding_config_file="folding_config.json",
-    synth_clk_period_ns=10.0,
-    board=platform_name,
-    shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-    generate_outputs=[
-        build_cfg.DataflowOutputType.PYNQ_DRIVER,
-        build_cfg.DataflowOutputType.STITCHED_IP,
-        build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-        build_cfg.DataflowOutputType.OOC_SYNTH,
-        build_cfg.DataflowOutputType.BITFILE,
-        build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
-    ],
-    save_intermediate_models=True,
-)
-model_file = "model.onnx"
-build.build_dataflow_cfg(model_file, cfg)
+def op_and_param_counts(model):
+    """Return per-node and aggregate op counts per inference."""
+
+    ret_dict = {}
+    for node in model.graph.node:
+        if is_finn_op(node.domain):
+            inst = registry.getCustomOp(node)
+            if hasattr(inst, "get_op_and_param_counts"):
+                node_op_and_param_counts = inst.get_op_and_param_counts()
+                ret_dict[node.name] = node_op_and_param_counts
+    ret_dict["total"] = aggregate_dict_keys(ret_dict)
+    return ret_dict
