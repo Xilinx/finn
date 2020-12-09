@@ -98,6 +98,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from copy import deepcopy
 
 
 def verify_step(
@@ -378,7 +379,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         print("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
-        verify_model = copy.deepcopy(model)
+        verify_model = deepcopy(model)
         # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
         for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
             getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
