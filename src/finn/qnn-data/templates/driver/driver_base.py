@@ -268,23 +268,32 @@ class FINNExampleOverlay(Overlay):
         self.obuf_packed_device.invalidate()
         np.copyto(data, self.obuf_packed_device)
 
-    def execute_on_buffers(self, asynch=False):
+    def execute_on_buffers(self, asynch=False, batch_size=None):
         """Executes accelerator by setting up the DMA(s) on pre-allocated buffers.
         Blocking behavior depends on the asynch parameter:
-        * if ``asynch=True``: will block until all transfers are complete.
-        * if ``asynch=False``, won't block, do wait_until_finished() to check completion
+        * ``asynch=True`` will block until all transfers are complete.
+        * ``asynch=False`` won't block, use ``wait_until_finished()`` to check
+           completion
+
+        The optional batch_size parameter can be used to execute on a smaller
+        batch than the initialized ``self.batch_size``.
         """
+        assert batch_size <= self.batch_size, "Specified batch_size is too large."
+        if batch_size is None:
+            batch_size = self.batch_size
         if self.platform == "zynq-iodma":
+            assert self.odma.read(0x00) & 0x2 != 0, "Output DMA is already running"
             # manually launch IODMAs since signatures are missing
             self.idma.write(0x10, self.ibuf_packed_device.device_address)
-            self.idma.write(0x1C, self.batch_size)
+            self.idma.write(0x1C, batch_size)
             self.odma.write(0x10, self.obuf_packed_device.device_address)
-            self.odma.write(0x1C, self.batch_size)
+            self.odma.write(0x1C, batch_size)
             self.idma.write(0x00, 1)
             self.odma.write(0x00, 1)
         elif self.platform == "alveo":
-            self.idma.start(self.ibuf_packed_device, self.batch_size)
-            self.odma_handle = self.odma.start(self.obuf_packed_device, self.batch_size)
+            assert self.odma_handle is None, "Output DMA is already running"
+            self.idma.start(self.ibuf_packed_device, batch_size)
+            self.odma_handle = self.odma.start(self.obuf_packed_device, batch_size)
         else:
             raise Exception("Unrecognized platform: %s" % self.platform)
         # blocking behavior depends on asynch parameter
