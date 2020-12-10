@@ -35,6 +35,7 @@ import finn.core.datatype as dtp
 from finn.custom_op.registry import getCustomOp
 import os
 import warnings
+import pkg_resources as pk
 from . import template_driver
 
 
@@ -62,9 +63,11 @@ class MakePYNQDriver(Transformation):
         model.set_metadata_prop("pynq_driver_dir", pynq_driver_dir)
 
         # create the base FINN driver -- same for all accels
+        driver_base_template = pk.resource_filename(
+            "finn.qnn-data", "templates/driver/driver_base.py"
+        )
         driver_base_py = pynq_driver_dir + "/driver_base.py"
-        with open(driver_base_py, "w") as f:
-            f.write(template_driver.driver_base)
+        shutil.copy(driver_base_template, driver_base_py)
 
         # extract input-output shapes from the graph
         # TODO convert this to an analysis pass?
@@ -125,6 +128,11 @@ class MakePYNQDriver(Transformation):
 
         # add validate.py to run full top-1 test (only for suitable networks)
         validate_py = pynq_driver_dir + "/validate.py"
+        validate_template = pk.resource_filename(
+            "finn.qnn-data", "templates/driver/validate.py"
+        )
+        shutil.copy(validate_template, validate_py)
+
         validate_src = template_driver.pynq_validation_template
         with open(validate_py, "w") as f:
             f.write(validate_src)
