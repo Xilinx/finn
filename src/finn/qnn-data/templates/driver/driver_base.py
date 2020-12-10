@@ -269,7 +269,7 @@ class FINNExampleOverlay(Overlay):
             batch_size = self.batch_size
         assert batch_size <= self.batch_size, "Specified batch_size is too large."
         if self.platform == "zynq-iodma":
-            assert self.odma.read(0x00) & 0x2 != 0, "Output DMA is already running"
+            assert self.odma.read(0x00) & 0x4 != 0, "Output DMA is not idle"
             # manually launch IODMAs since signatures are missing
             self.idma.write(0x10, self.ibuf_packed_device.device_address)
             self.idma.write(0x1C, batch_size)
