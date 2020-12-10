@@ -110,6 +110,19 @@ class FINNExampleOverlay(Overlay):
         self.load_runtime_weights()
 
     def load_runtime_weights(self, flush_accel=True, verify=True):
+        """Load any existing runtime weights from the specified dir into the
+        appropriate layer of the accelerator. Note that this must be enabled
+        during the accelerator build process. The runtime weights directory
+        is specified as the class member ``runtime_weight_dir``.
+
+        Parameters
+        ----------
+        flush_accel: bool
+            Run the accelerator with dummy input after weights are written to
+            flush any stale weight data in the weight streamer FIFOs.
+        verify: bool
+            Whether the written weights will be re-read and verified.
+        """
         w_filenames = []
         for (dirpath, dirnames, filenames) in os.walk(self.runtime_weight_dir):
             w_filenames.extend(filenames)
@@ -289,7 +302,8 @@ class FINNExampleOverlay(Overlay):
         return obuf_normal
 
     def throughput_test(self):
-        "Run accelerator with empty inputs to measure throughput and other metrics."
+        """Run accelerator with empty inputs to measure throughput and other metrics.
+        Returns dictionary with various metrics."""
         # dictionary for results of throughput test
         res = {}
         start = time.time()

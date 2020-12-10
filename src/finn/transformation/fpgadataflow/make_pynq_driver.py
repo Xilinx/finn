@@ -133,10 +133,6 @@ class MakePYNQDriver(Transformation):
         )
         shutil.copy(validate_template, validate_py)
 
-        validate_src = template_driver.pynq_validation_template
-        with open(validate_py, "w") as f:
-            f.write(validate_src)
-
         # copy all the dependencies into the driver folder
         # driver imports utils/data_packing and core/datatype
         # both of which are in finn-base
