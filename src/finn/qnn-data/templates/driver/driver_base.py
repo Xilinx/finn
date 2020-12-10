@@ -99,13 +99,16 @@ class FINNExampleOverlay(Overlay):
         if self.platform == "alveo":
             self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8)
             self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8)
-        else:
+            self.odma_handle = None
+        elif self.platform == "zynq-iodma":
             self.ibuf_packed_device = allocate(
                 shape=self.ishape_packed, dtype=np.uint8, cacheable=True
             )
             self.obuf_packed_device = allocate(
                 shape=self.oshape_packed, dtype=np.uint8, cacheable=True
             )
+        else:
+            raise ValueError("Supported platforms are zynq-iodma alveo")
         # load any runtime weights
         self.load_runtime_weights()
 
@@ -202,11 +205,12 @@ class FINNExampleOverlay(Overlay):
     @batch_size.setter
     def batch_size(self, value):
         self._batch_size = value
-        # free the old buffers
+        # free the old buffers by setting to None
+        # (reference counting should care of it)
         if self.ibuf_packed_device is not None:
-            self.ibuf_packed_device.freebuffer()
+            self.ibuf_packed_device = None
         if self.obuf_packed_device is not None:
-            self.obuf_packed_device.freebuffer()
+            self.obuf_packed_device = None
         if self.platform == "alveo":
             self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8)
             self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8)
@@ -264,10 +268,12 @@ class FINNExampleOverlay(Overlay):
         self.obuf_packed_device.invalidate()
         np.copyto(data, self.obuf_packed_device)
 
-    def execute_on_buffers(self):
-        """Executes accelerator by setting up the DMA(s) and
-        waiting until all transfers/calls complete. Uses only member variables and
-        returns nothing."""
+    def execute_on_buffers(self, asynch=False):
+        """Executes accelerator by setting up the DMA(s) on pre-allocated buffers.
+        Blocking behavior depends on the asynch parameter:
+        * if ``asynch=True``: will block until all transfers are complete.
+        * if ``asynch=False``, won't block, do wait_until_finished() to check completion
+        """
         if self.platform == "zynq-iodma":
             # manually launch IODMAs since signatures are missing
             self.idma.write(0x10, self.ibuf_packed_device.device_address)
@@ -276,14 +282,26 @@ class FINNExampleOverlay(Overlay):
             self.odma.write(0x1C, self.batch_size)
             self.idma.write(0x00, 1)
             self.odma.write(0x00, 1)
-            # wait until output IODMA is finished
+        elif self.platform == "alveo":
+            self.idma.start(self.ibuf_packed_device, self.batch_size)
+            self.odma_handle = self.odma.start(self.obuf_packed_device, self.batch_size)
+        else:
+            raise Exception("Unrecognized platform: %s" % self.platform)
+        # blocking behavior depends on asynch parameter
+        if asynch is False:
+            self.wait_until_finished()
+
+    def wait_until_finished(self):
+        "Block until the output DMA has finished writing."
+        if self.platform == "zynq-iodma":
+            # check if output IODMA is finished via register reads
             status = self.odma.read(0x00)
             while status & 0x2 == 0:
                 status = self.odma.read(0x00)
         elif self.platform == "alveo":
-            self.idma.start_sw(self.ibuf_packed_device, self.batch_size)
-            odma_handle = self.odma.start_sw(self.obuf_packed_device, self.batch_size)
-            odma_handle.wait()
+            assert self.odma_handle is not None, "No odma_handle to wait on"
+            self.odma_handle.wait()
+            self.odma_handle = None
         else:
             raise Exception("Unrecognized platform: %s" % self.platform)
 
