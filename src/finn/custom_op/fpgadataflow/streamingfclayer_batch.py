@@ -96,8 +96,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
+            # ultra -- use UltraRAM (URAM), must have runtime_writeable_weights=1
             # see also https://www.xilinx.com/support/answers/38070.html
-            "ram_style": ("s", False, "auto", {"auto", "block", "distributed"}),
+            "ram_style": (
+                "s",
+                False,
+                "auto",
+                {"auto", "block", "distributed", "ultra"},
+            ),
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -150,10 +156,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # check input datatype against property
-        idt_name = self.get_input_datatype().name
-        exp_idt_name = self.get_nodeattr("inputDataType")
-        assert exp_idt_name == idt_name, "Bad input DataType for StreamingFCLayer"
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
         # set output datatype from property
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
@@ -216,6 +227,25 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         return info_messages
 
+    def uram_estimation(self):
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_nodeattr("MW")
+        D_out = self.get_nodeattr("MH")
+        omega = (D_in * D_out) / (Q * P)
+        mem_width = Q * W * P
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle != "ultra") or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            return 0
+        width_multiplier = math.ceil(mem_width / 72)
+        depth_multiplier = math.ceil(omega / 4096)
+        return width_multiplier * depth_multiplier
+
     def bram_estimation(self):
         """Calculates resource estimation for BRAM based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
@@ -235,7 +265,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mem_width = Q * W * P
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
-        if (mmode == "decoupled" and mstyle == "distributed") or (
+        if (mmode == "decoupled" and mstyle in ["distributed", "ultra"]) or (
             mmode == "const" and self.calc_wmem() <= 128
         ):
             return 0
@@ -265,6 +295,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         wbits = W * D_in * D_out
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
+
+    def uram_efficiency_estimation(self):
+        """Function for URAM efficiency estimation: actual parameter storage
+        needed divided by the allocated URAM storage (from estimation)"""
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_nodeattr("MW")
+        D_out = self.get_nodeattr("MH")
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        wbits = W * D_in * D_out
+        uram_est_capacity = uram_est * 72 * 4096
+        return wbits / uram_est_capacity
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs based on:
@@ -745,6 +789,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
                 weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+                ram_style = self.get_nodeattr("ram_style")
+                if ram_style == "ultra":
+                    # UltraRAM must have no memory initializer, or only zeroes
+                    # otherwise BRAM will be inferred instead of URAM
+                    # as a workaround we provide a zero-weight init here
+                    # TODO handle this in Verilog with an if statement
+                    weights = np.zeros_like(weights)
                 self.make_weight_file(
                     weights, "decoupled_verilog_dat", weight_filename_rtl
                 )
@@ -1186,8 +1237,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
-            node_name = self.onnx_node.name
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if self.get_nodeattr("ram_style") == "ultra":
+                assert (
+                    runtime_writable == 1
+                ), "Layer with URAM weights must have runtime_writeable_weights=1"
+            node_name = self.onnx_node.name
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]

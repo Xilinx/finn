@@ -116,6 +116,10 @@ elif [ "$1" = "quicktest" ]; then
 elif [ "$1" = "notebook" ]; then
   gecho "Running Jupyter notebook server"
   DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
+  DOCKER_EXTRA+="-e JUPYTER_PORT=$JUPYTER_PORT "
+  DOCKER_EXTRA+="-e NETRON_PORT=$NETRON_PORT "
+  DOCKER_EXTRA+="-p $JUPYTER_PORT:$JUPYTER_PORT "
+  DOCKER_EXTRA+="-p $NETRON_PORT:$NETRON_PORT "
 elif [ "$1" = "build_dataflow" ]; then
   BUILD_DATAFLOW_DIR=$(readlink -f "$2")
   DOCKER_EXTRA="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR"
@@ -172,13 +176,12 @@ cd $OLD_PWD
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-DOCKER_EXEC="docker run -t --rm --name $DOCKER_INST_NAME $DOCKER_INTERACTIVE --init "
+DOCKER_EXEC="docker run -t --rm $DOCKER_INTERACTIVE --init "
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/home/$DOCKER_UNAME/.ssh "
-DOCKER_EXEC+="-e FINN_INST_NAME=$DOCKER_INST_NAME "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
 DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
@@ -188,10 +191,6 @@ DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
 DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
 DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
-DOCKER_EXEC+="-e JUPYTER_PORT=$JUPYTER_PORT "
-DOCKER_EXEC+="-e NETRON_PORT=$NETRON_PORT "
-DOCKER_EXEC+="-p $JUPYTER_PORT:$JUPYTER_PORT "
-DOCKER_EXEC+="-p $NETRON_PORT:$NETRON_PORT "
 if [ ! -z "$IMAGENET_VAL_PATH" ];then
   DOCKER_EXEC+="-v $IMAGENET_VAL_PATH:$IMAGENET_VAL_PATH "
   DOCKER_EXEC+="-e IMAGENET_VAL_PATH=$IMAGENET_VAL_PATH "

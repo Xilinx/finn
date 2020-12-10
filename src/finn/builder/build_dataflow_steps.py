@@ -88,8 +88,47 @@ from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
+    VerificationStepType,
 )
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.core.onnx_exec import execute_onnx
+import numpy as np
+from finn.util.test import execute_parent
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from copy import deepcopy
+
+
+def verify_step(
+    model: ModelWrapper, cfg: DataflowBuildConfig, step_name: str, need_parent: bool
+):
+    print("Running verification for " + step_name)
+    verify_out_dir = cfg.output_dir + "/verification_output"
+    intermediate_models_dir = cfg.output_dir + "/intermediate_models"
+    os.makedirs(verify_out_dir, exist_ok=True)
+    (in_npy, exp_out_npy) = cfg._resolve_verification_io_pair()
+    if need_parent:
+        assert (
+            cfg.save_intermediate_models
+        ), "Enable save_intermediate_models for verification"
+        parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
+        child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
+        model.save(child_model_fn)
+        out_npy = execute_parent(parent_model_fn, child_model_fn, in_npy)
+    else:
+        inp_tensor_name = model.graph.input[0].name
+        out_tensor_name = model.graph.output[0].name
+        inp_dict = {inp_tensor_name: in_npy}
+        out_dict = execute_onnx(model, inp_dict)
+        out_npy = out_dict[out_tensor_name]
+    res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
+    res_to_str = {True: "SUCCESS", False: "FAIL"}
+    res_str = res_to_str[res]
+    verification_output_fn = verify_out_dir + "/verify_%s_%s.npy" % (step_name, res_str)
+    np.save(verification_output_fn, out_npy)
+    print("Verification for %s : %s" % (step_name, res_str))
 
 
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -103,6 +142,10 @@ def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
     model = model.transform(RemoveStaticGraphInputs())
+
+    if VerificationStepType.TIDY_UP_PYTHON in cfg._resolve_verification_steps():
+        verify_step(model, cfg, "initial_python", need_parent=False)
+
     return model
 
 
@@ -127,6 +170,10 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
     model = model.transform(InferDataLayouts())
     model = model.transform(RemoveUnusedTensors())
+
+    if VerificationStepType.STREAMLINED_PYTHON in cfg._resolve_verification_steps():
+        verify_step(model, cfg, "streamlined_python", need_parent=False)
+
     return model
 
 
@@ -136,14 +183,16 @@ def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     is limited, see the source code of the `convert_to_hls` module for more. """
 
     mem_mode = cfg.default_mem_mode.value
+    if cfg.standalone_thresholds:
+        # doing this first causes all threshold layers to be standalone
+        model = model.transform(to_hls.InferThresholdingLayer())
     # needed for bipolar MatMul layers
     model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
     # needed for non-bipolar MatMul layers
     model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
     # TopK to LabelSelect
     model = model.transform(to_hls.InferLabelSelectLayer())
-    # input quantization (if any) to standalone thresholding
-    # TODO call first if standalone thresholding is desired
+    # input quantization (if any) as standalone threshold
     model = model.transform(to_hls.InferThresholdingLayer())
     # needed for convolutions -- TODO always exec?
     need_conv = len(model.get_nodes_by_op_type("Im2Col")) > 0
@@ -194,6 +243,13 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.folding_config_file is not None:
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(ApplyConfig(cfg.folding_config_file))
+
+    if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
+        # prepare cppsim
+        model = model.transform(PrepareCppSim())
+        model = model.transform(CompileCppSim())
+        model = model.transform(SetExecMode("cppsim"))
+        verify_step(model, cfg, "folded_hls_cppsim", need_parent=True)
     return model
 
 
@@ -321,6 +377,20 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         # TODO copy all ip sources into output dir? as zip?
         copytree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
         print("Vivado stitched IP written into " + stitched_ip_dir)
+    if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
+        # prepare ip-stitched rtlsim
+        verify_model = deepcopy(model)
+        # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
+        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
+            getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
+        # similarly for StreamingDataWidthConverter with impl_style=hls
+        for dwc_layer in verify_model.get_nodes_by_op_type(
+            "StreamingDataWidthConverter_Batch"
+        ):
+            getCustomOp(dwc_layer).set_nodeattr("impl_style", "hls")
+        verify_model = verify_model.transform(PrepareRTLSim())
+        verify_model.set_metadata_prop("exec_mode", "rtlsim")
+        verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
     return model
 
 
@@ -347,18 +417,18 @@ def step_out_of_context_synthesis(model: ModelWrapper, cfg: DataflowBuildConfig)
                 part=cfg._resolve_fpga_part(), clk_period_ns=cfg.synth_clk_period_ns
             )
         )
-    report_dir = cfg.output_dir + "/report"
-    os.makedirs(report_dir, exist_ok=True)
-    ooc_res_dict = model.get_metadata_prop("res_total_ooc_synth")
-    ooc_res_dict = eval(ooc_res_dict)
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
+        ooc_res_dict = model.get_metadata_prop("res_total_ooc_synth")
+        ooc_res_dict = eval(ooc_res_dict)
 
-    estimate_network_performance = model.analysis(dataflow_performance)
-    # add some more metrics to estimated performance
-    n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
-    est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
-    ooc_res_dict["estimated_throughput_fps"] = est_fps
-    with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
-        json.dump(ooc_res_dict, f, indent=2)
+        estimate_network_performance = model.analysis(dataflow_performance)
+        # add some more metrics to estimated performance
+        n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
+        est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
+        ooc_res_dict["estimated_throughput_fps"] = est_fps
+        with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
+            json.dump(ooc_res_dict, f, indent=2)
     return model
 
 
@@ -368,7 +438,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     if DataflowOutputType.BITFILE in cfg.generate_outputs:
         bitfile_dir = cfg.output_dir + "/bitfile"
-        os.makedirs(bitfile_dir)
+        os.makedirs(bitfile_dir, exist_ok=True)
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
         if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
@@ -418,7 +488,7 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         deploy_dir = cfg.output_dir + "/deploy"
         bitfile_dir = cfg.output_dir + "/bitfile"
         driver_dir = cfg.output_dir + "/driver"
-        os.makedirs(deploy_dir)
+        os.makedirs(deploy_dir, exist_ok=True)
         copytree(bitfile_dir, deploy_dir + "/bitfile")
         copytree(driver_dir, deploy_dir + "/driver")
     return model
