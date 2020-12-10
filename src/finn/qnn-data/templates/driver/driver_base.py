@@ -86,27 +86,13 @@ class FINNExampleOverlay(Overlay):
         if self.platform == "alveo":
             self.idma = self.idma0
             self.odma = self.odma0
+            self.odma_handle = None
         elif self.platform == "zynq-iodma":
             self.idma = self.idma0
             self.odma = self.odma0
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
                 Clocks.fclk0_mhz = self.fclk_mhz
-        else:
-            raise ValueError("Supported platforms are zynq-iodma alveo")
-
-        # allocate a PYNQ buffer for the packed input and buffer
-        if self.platform == "alveo":
-            self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8)
-            self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8)
-            self.odma_handle = None
-        elif self.platform == "zynq-iodma":
-            self.ibuf_packed_device = allocate(
-                shape=self.ishape_packed, dtype=np.uint8, cacheable=True
-            )
-            self.obuf_packed_device = allocate(
-                shape=self.oshape_packed, dtype=np.uint8, cacheable=True
-            )
         else:
             raise ValueError("Supported platforms are zynq-iodma alveo")
         # load any runtime weights
@@ -221,6 +207,7 @@ class FINNExampleOverlay(Overlay):
             self.obuf_packed_device = allocate(
                 shape=self.oshape_packed, dtype=np.uint8, cacheable=True
             )
+        self.obuf_packed = np.empty_like(self.obuf_packed_device)
 
     def fold_input(self, ibuf_normal):
         """Reshapes input in desired shape.
@@ -278,9 +265,9 @@ class FINNExampleOverlay(Overlay):
         The optional batch_size parameter can be used to execute on a smaller
         batch than the initialized ``self.batch_size``.
         """
-        assert batch_size <= self.batch_size, "Specified batch_size is too large."
         if batch_size is None:
             batch_size = self.batch_size
+        assert batch_size <= self.batch_size, "Specified batch_size is too large."
         if self.platform == "zynq-iodma":
             assert self.odma.read(0x00) & 0x2 != 0, "Output DMA is already running"
             # manually launch IODMAs since signatures are missing
@@ -322,9 +309,8 @@ class FINNExampleOverlay(Overlay):
         ibuf_packed = self.pack_input(ibuf_folded)
         self.copy_input_data_to_device(ibuf_packed)
         self.execute_on_buffers()
-        obuf_packed = np.empty_like(self.obuf_packed_device)
-        self.copy_output_data_from_device(obuf_packed)
-        obuf_folded = self.unpack_output(obuf_packed)
+        self.copy_output_data_from_device(self.obuf_packed)
+        obuf_folded = self.unpack_output(self.obuf_packed)
         obuf_normal = self.unfold_output(obuf_folded)
         return obuf_normal
 
