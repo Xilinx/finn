@@ -29,8 +29,8 @@
 import os
 import numpy as np
 import math
-
-from finn.custom_op.fpgadataflow import HLSCustomOp
+import warnings
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
@@ -55,7 +55,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             # Toggle between hls or IPI implementation
             # hls - use the hls generated IP during stitching
             # vivado - use the AXI Infrastructure DWC
-            "impl_style": ("s", False, "hls"),
+            "impl_style": ("s", False, "hls", {"hls", "vivado"}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -180,20 +180,20 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("dataType", idt.name)
         # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        model.set_tensor_datatype(node.output[0], dtype)
+        model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
         info_messages = []
-
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":
@@ -214,11 +214,9 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
     def defines(self, var):
         numReps = 1
-        numInWords = 1
+        numInWords = int(np.prod(self.get_folded_input_shape()[:-1]))
         inWidth = self.get_nodeattr("inWidth")
         outWidth = self.get_nodeattr("outWidth")
-        if outWidth > inWidth:
-            numInWords = int(outWidth // inWidth)
         self.code_gen_dict["$DEFINES$"] = [
             "#define InWidth %d " % inWidth,
             "#define OutWidth %d " % outWidth,
@@ -418,8 +416,13 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict "
-                "[list CONFIG.S_TDATA_NUM_BYTES.VALUE_SRC PROPAGATED] "
+                "[list CONFIG.S_TDATA_NUM_BYTES.VALUE_SRC USER] "
                 "[get_bd_cells /%s/dwc]" % node_name
+            )
+            cmd.append(
+                "set_property -dict "
+                "[list CONFIG.S_TDATA_NUM_BYTES {%d}] [get_bd_cells /%s/dwc]"
+                % (np.ceil(self.get_instream_width() / 8), node_name)
             )
             cmd.append(
                 "set_property -dict "
@@ -451,7 +454,6 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs"""
-        impl = self.get_nodeattr("impl_style")
         inw = self.get_instream_width()
         outw = self.get_outstream_width()
 
@@ -461,7 +463,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         # sometimes withs aren't directly divisible
         # this requires going up from input width to least common multiple
         # then down to output width
-        intw = abs(maxw*minw) // math.gcd(maxw, minw)
+        intw = abs(maxw * minw) // math.gcd(maxw, minw)
 
         # we assume a shift-based implementation
         # even if we don't use LUTs explicitly, we make some unavailable
@@ -471,11 +473,10 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         cset_luts = 0
 
         if inw != intw:
-            cnt_luts += abs(math.ceil(math.log(inw/intw, 2)))
+            cnt_luts += abs(math.ceil(math.log(inw / intw, 2)))
             cset_luts += intw
         if intw != outw:
             cnt_luts += abs(math.ceil(math.log(intw / outw, 2)))
             cset_luts += outw
 
-        return int(cnt_luts+cset_luts)
-
+        return int(cnt_luts + cset_luts)

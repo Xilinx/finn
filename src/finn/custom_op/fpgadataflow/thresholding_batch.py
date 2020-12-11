@@ -26,19 +26,24 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from math import ceil
+from math import ceil, log2
+import textwrap
 import os
-
+import warnings
 import numpy as np
 
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
-from finn.util.basic import interleave_matrix_outer_dim_from_partitions
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+)
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     rtlsim_output_to_npy,
+    pack_innermost_dim_as_hex_string,
 )
 from . import templates
 
@@ -58,12 +63,17 @@ class Thresholding_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
+            # parallelization; channels thresholded per cycle
             "PE": ("i", True, 0),
+            # number of channels (each may have different thresholds)
             "NumChannels": ("i", True, 0),
+            # number of steps in thresholding function
+            "numSteps": ("i", True, 1),
             # string defining memory type
-            "ram_style": ("s", False, "distributed"),
-            # FINN DataTypes for inputs, weights, outputs
+            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
+            # FINN DataTypes for inputs, outputs
             "inputDataType": ("s", True, ""),
+            "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 0),
@@ -75,6 +85,20 @@ class Thresholding_Batch(HLSCustomOp):
             "numInputVectors": ("ints", False, [1]),
             # initialization value for the thresholding accumulator
             "ActVal": ("i", False, 0),
+            # memory mode for the thresholds
+            # const -- embedded thresholds, default
+            # decoupled -- streaming thresholds with  streamer packaged inside IP
+            "mem_mode": ("s", False, "const", {"const", "decoupled"}),
+            # (mem_mode = decoupled only) whether weights (thresholds) will be
+            # writable through an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            # see finn-rtllib/memstream/doc/README for more about the memory
+            # address map used for writable weights
+            # IMPORTANT: After using AXI lite to either read or write the weights,
+            # always "flush" the accelerator by first passing a dummy input
+            # vector through the accelerator. This will get rid of any old
+            # weight data from the weight FIFOs.
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -103,23 +127,21 @@ class Thresholding_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # check input datatype against property
-        idt_name = self.get_input_datatype().name
-        exp_idt_name = self.get_nodeattr("inputDataType")
-        assert exp_idt_name == idt_name, "Bad input DataType for Thresholding layer"
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
         # set output datatype from property
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
         info_messages = []
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":
@@ -183,6 +205,34 @@ class Thresholding_Batch(HLSCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
+    def get_weight_datatype(self):
+        """Returns FINN DataType of thresholds, here called weights."""
+        return DataType[self.get_nodeattr("weightDataType")]
+
+    def minimize_accumulator_width(self, model):
+        "Minimize threshold width ('accumulator width' here due to convention)"
+        thresholds = model.get_initializer(self.onnx_node.input[1])
+        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+        min_threshold = thresholds.min()
+        max_threshold = thresholds.max()
+        min_input = self.get_input_datatype().min()
+        max_input = self.get_input_datatype().max()
+        # get range required by threshold values
+        tdt_min = min(min_input, min_threshold)
+        tdt_max = max(max_input, max_threshold)
+        if tdt_min < 0:
+            if abs(tdt_min) > tdt_max:
+                tdt = DataType.get_smallest_possible(tdt_min)
+            else:
+                tdt = DataType.get_smallest_possible(0 - tdt_max - 1)
+        else:
+            tdt = DataType.get_smallest_possible(tdt_max)
+        assert np.vectorize(tdt.allowed)(
+            threshold_tensor
+        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+        self.set_nodeattr("weightDataType", tdt.name)
+        return DataType[self.get_nodeattr("weightDataType")]
+
     def get_instream_width(self):
         i_bits = self.get_input_datatype().bitwidth()
         return i_bits * self.get_nodeattr("PE")
@@ -190,6 +240,28 @@ class Thresholding_Batch(HLSCustomOp):
     def get_outstream_width(self):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
+
+    def get_weightstream_width(self):
+        """Returns weight stream width. Used only in decoupled mode."""
+        if self.get_nodeattr("mem_mode") == "decoupled":
+            pe = self.get_nodeattr("PE")
+            wp = self.get_weight_datatype().bitwidth()
+            n_thres_steps = self.get_nodeattr("numSteps")
+            w_width = pe * wp * n_thres_steps
+            return w_width
+        else:
+            return 0
+
+    def get_weightstream_width_padded(self):
+        """Returns weight stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec. Used in decoupled mode."""
+        weight_width = self.get_weightstream_width()
+        return roundup_to_integer_multiple(weight_width, 8)
+
+    def get_ap_int_max_w(self):
+        temp_value = super().get_ap_int_max_w()
+        weightstream = self.get_weightstream_width()
+        return max([weightstream, temp_value])
 
     def get_folded_input_shape(self):
         ich = self.get_nodeattr("NumChannels")
@@ -251,11 +323,16 @@ class Thresholding_Batch(HLSCustomOp):
         ), """Threshold matrix dimension is
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
+        assert n_thres_steps == self.get_nodeattr(
+            "numSteps"
+        ), "Mismatch in threshold steps"
         if not self.get_input_datatype().signed():
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
         # ensure all thresholds are integer
-        assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
+        assert np.equal(
+            np.mod(orig_thres_matrix, 1), 0
+        ).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
@@ -279,56 +356,126 @@ class Thresholding_Batch(HLSCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def generate_params(self, model, path):
-        code_gen_dir = path
-        # save thresholds in thresh.h
-        thresholds = model.get_initializer(self.onnx_node.input[1])
+    def make_weight_file(self, weights, weight_file_mode, weight_file_name):
+        """Produce a file containing given weights (thresholds) in appropriate
+        format for this layer. This file can be used for either synthesis or
+        run-time reconfig of weights.
 
-        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-
-        min_threshold = thresholds.min()
-        max_threshold = thresholds.max()
-        min_input = self.get_input_datatype().min()
-        max_input = self.get_input_datatype().max()
-        # get range required by threshold values
-        tdt_min = min(min_input, min_threshold)
-        tdt_max = max(max_input, max_threshold)
-        if tdt_min < 0:
-            if abs(tdt_min) > tdt_max:
-                tdt = DataType.get_smallest_possible(tdt_min)
-            else:
-                tdt = DataType.get_smallest_possible(0 - tdt_max - 1)
-        else:
-            tdt = DataType.get_smallest_possible(tdt_max)
+        Arguments:
+        * weights : numpy array with weights to be put into the file
+        * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
+          decoupled_runtime}
+        * weight_file_name : filename for the weight file to be generated
+        """
+        threshold_tensor = self.get_hls_compatible_threshold_tensor(weights)
+        tdt = self.get_weight_datatype()
         assert np.vectorize(tdt.allowed)(
             threshold_tensor
         ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
-
-        thresholds_hls_code = numpy_to_hls_code(
-            threshold_tensor, tdt, "thresholds", False, True
-        )
-        # write thresholds into thresh.h
-        f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
-        tdt_hls = tdt.get_hls_datatype_str()
-        # use binary to export bipolar activations
-        export_odt = self.get_output_datatype()
-        if self.get_output_datatype() == DataType.BIPOLAR:
-            export_odt = DataType.BINARY
-        odt_hls = export_odt.get_hls_datatype_str()
-        f_thresh.write(
-            "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
-            = ".format(
-                self.calc_tmem(),
-                self.get_nodeattr("PE"),
-                threshold_tensor.shape[-1],
-                tdt_hls,
-                odt_hls,
-                self.get_nodeattr("ActVal"),
-                "std::less_equal<%s>" % tdt_hls,
+        if weight_file_mode == "hls_header":
+            # save thresholds in thresh.h
+            thresholds_hls_code = numpy_to_hls_code(
+                threshold_tensor, tdt, "thresholds", False, True
             )
-        )
-        f_thresh.write(thresholds_hls_code)
-        f_thresh.close()
+            # write thresholds into thresh.h
+            f_thresh = open(weight_file_name, "w")
+            tdt_hls = tdt.get_hls_datatype_str()
+            # use binary to export bipolar activations
+            export_odt = self.get_output_datatype()
+            if self.get_output_datatype() == DataType.BIPOLAR:
+                export_odt = DataType.BINARY
+            odt_hls = export_odt.get_hls_datatype_str()
+            f_thresh.write(
+                "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
+                = ".format(
+                    self.calc_tmem(),
+                    self.get_nodeattr("PE"),
+                    threshold_tensor.shape[-1],
+                    tdt_hls,
+                    odt_hls,
+                    self.get_nodeattr("ActVal"),
+                    "std::less_equal<%s>" % tdt_hls,
+                )
+            )
+            f_thresh.write(thresholds_hls_code)
+            f_thresh.close()
+        elif "decoupled" in weight_file_mode:
+            # streaming thresholds need to be organized differently
+            # (1, pe, tmem, n_thres_steps) -> (1, tmem, pe, n_thres_steps)
+            decoupled_thres = np.transpose(threshold_tensor, (0, 2, 1, 3))
+            # TODO add flips/reversals as needed here
+            # (1, tmem, pe, n_thres_steps) -(1, tmem, pe * n_thres_steps)
+            pe = self.get_nodeattr("PE")
+            n_thres_steps = self.get_nodeattr("numSteps")
+            decoupled_thres_pe_flipped = np.flip(decoupled_thres, axis=-2)
+            decoupled_thres = decoupled_thres.reshape(1, -1, pe * n_thres_steps)
+            decoupled_thres = decoupled_thres.copy()
+            decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.reshape(
+                1, -1, pe * n_thres_steps
+            )
+            decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.copy()
+
+            if weight_file_mode == "decoupled_npy":
+                # save weight stream into npy for cppsim
+                np.save(weight_file_name, decoupled_thres)
+            elif weight_file_mode == "decoupled_verilog_dat":
+                # convert weight values into hexstring
+                weight_width = self.get_weightstream_width()
+                # pad to nearest 4 bits to get hex strings
+                weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
+                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+                    decoupled_thres_pe_flipped, tdt, weight_width_padded, prefix=""
+                )
+                weight_stream = weight_tensor_pe_flipped.flatten()
+                weight_stream = weight_stream.copy()
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
+                        f.write(val + "\n")
+            elif weight_file_mode == "decoupled_runtime":
+                # memstream axi-lite interface will map each mem line to
+                # one or multiple 32-bit words
+                weight_width = self.get_weightstream_width()
+                words_per_memwidth = 2 ** ceil(log2(weight_width / 32))
+                if words_per_memwidth < 1:
+                    words_per_memwidth = 1
+                weight_width_padded = words_per_memwidth * 32
+                # first, pack and ensure padding to 32 bits
+                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+                    decoupled_thres_pe_flipped, tdt, weight_width_padded, prefix=""
+                )
+                weight_stream = weight_tensor_pe_flipped.flatten()
+                weight_stream = weight_stream.copy()
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
+                        # split into groups of 8 hex digits (= 32 bits)
+                        words_32b = textwrap.wrap(val, 8)
+                        words_32b.reverse()
+                        for word_32b in words_32b:
+                            f.write(word_32b + "\n")
+            else:
+                raise Exception("Decoupled weight export not yet implemented")
+        else:
+            raise Exception("Unknown weight_file_mode")
+
+    def generate_params(self, model, path):
+        code_gen_dir = path
+        thresholds = model.get_initializer(self.onnx_node.input[1])
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "const":
+            # save thresholds in thresh.h
+            weight_filename = "{}/thresh.h".format(code_gen_dir)
+            self.make_weight_file(thresholds, "hls_header", weight_filename)
+        elif mem_mode == "decoupled":
+            # save decoupled weights for cppsim
+            weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
+            self.make_weight_file(thresholds, "decoupled_npy", weight_filename_sim)
+            # also save weights as Verilog .dat file
+            weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+            self.make_weight_file(
+                thresholds, "decoupled_verilog_dat", weight_filename_rtl
+            )
+        else:
+            raise Exception("Unrecognized mem_mode")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -373,7 +520,7 @@ class Thresholding_Batch(HLSCustomOp):
                     reshaped_input,
                 )
             elif in_ind > 2:
-                raise Exception("Unexpected input found for StreamingFCLayer")
+                raise Exception("Unexpected input found for Thresholding_Batch")
             in_ind += 1
 
         if mode == "cppsim":
@@ -400,7 +547,23 @@ class Thresholding_Batch(HLSCustomOp):
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            output = self.rtlsim(sim, inp)
+            if self.get_nodeattr("mem_mode") == "decoupled":
+                wnbits = self.get_weightstream_width()
+                export_wdt = self.get_weight_datatype()
+                wei = npy_to_rtlsim_input(
+                    "{}/thresholds.npy".format(code_gen_dir), export_wdt, wnbits
+                )
+                num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+                io_dict = {
+                    "inputs": {"in0": inp, "weights": wei * num_w_reps},
+                    "outputs": {"out": []},
+                }
+                self.rtlsim_multi_io(sim, io_dict)
+                output = io_dict["outputs"]["out"]
+            elif self.get_nodeattr("mem_mode") == "const":
+                output = self.rtlsim(sim, inp)
+            else:
+                raise Exception("Unrecognized mem_mode")
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -425,7 +588,8 @@ class Thresholding_Batch(HLSCustomOp):
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"']
-        self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
+        if self.get_nodeattr("mem_mode") == "const":
+            self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     # TODO check and add whatever missing
     def defines(self, var):
@@ -436,6 +600,21 @@ class Thresholding_Batch(HLSCustomOp):
                 self.get_nodeattr("NumChannels"), self.get_nodeattr("PE"), numReps,
             )
         ]
+        if self.get_nodeattr("mem_mode") == "decoupled":
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define ActVal1 %d" % self.get_nodeattr("ActVal")
+            )
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define ThresType1 %s"
+                % self.get_weight_datatype().get_hls_datatype_str()
+            )
+            self.code_gen_dict["$DEFINES$"].append(
+                "#define NumSteps1 %d" % self.get_nodeattr("numSteps")
+            )
+            # TODO remove once Thresholding_Stream_Batch is in hlslib:
+            self.code_gen_dict["$DEFINES$"].append(
+                templates.decoupled_thresholding_template
+            )
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -452,6 +631,20 @@ class Thresholding_Batch(HLSCustomOp):
             'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
             % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
         )
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            tdt = self.get_weight_datatype()
+            elem_bits = tdt.bitwidth()
+            packed_bits = self.get_weightstream_width()
+            packed_hls_type = "ap_uint<%d>" % packed_bits
+            elem_hls_type = tdt.get_hls_datatype_str()
+            npy_type = "float"
+            npy_in = "%s/thresholds.npy" % code_gen_dir
+
+            self.code_gen_dict["$READNPYDATA$"].append(
+                'npy2apintstream<%s, %s, %d, %s>("%s", weights, false, numReps);'
+                % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
@@ -461,6 +654,13 @@ class Thresholding_Batch(HLSCustomOp):
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
         )
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> weights ("weights");'.format(
+                    self.get_weightstream_width()
+                )
+            )
 
     def docompute(self):
         tmpl_args = self.get_template_param_values()
@@ -474,12 +674,26 @@ class Thresholding_Batch(HLSCustomOp):
             imgdim = ishape[1]
         else:
             raise Exception("""Unexpeted input shape""")
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, NumChannels1, PE1, {}, {}>
-            (in0, out, threshs, numReps);""".format(
-                node.op_type, imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"],
-            )
-        ]
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "const":
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<{}, NumChannels1, PE1, {}, {}>
+                (in0, out, threshs, numReps);""".format(
+                    node.op_type, imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"],
+                )
+            ]
+        elif mem_mode == "decoupled":
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<{}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
+                (in0, out, weights, numReps);""".format(
+                    "Thresholding_Stream_Batch",
+                    imgdim,
+                    tmpl_args["TSrcI"],
+                    tmpl_args["TDstI"],
+                )
+            ]
+        else:
+            raise Exception("Unrecognized mem_mode")
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -513,15 +727,30 @@ class Thresholding_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0,
-                hls::stream<ap_uint<{}>> &out
-                )""".format(
-                self.onnx_node.name,
-                self.get_instream_width(),
-                self.get_outstream_width(),
-            )
-        ]
+        if self.get_nodeattr("mem_mode") == "const":
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void {}(hls::stream<ap_uint<{}>> &in0,
+                    hls::stream<ap_uint<{}>> &out
+                    )""".format(
+                    self.onnx_node.name,
+                    self.get_instream_width(),
+                    self.get_outstream_width(),
+                )
+            ]
+        elif self.get_nodeattr("mem_mode") == "decoupled":
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void {}(hls::stream<ap_uint<{}>> &in0,
+                    hls::stream<ap_uint<{}>> &weights,
+                    hls::stream<ap_uint<{}>> &out
+                    )""".format(
+                    self.onnx_node.name,
+                    self.get_instream_width(),
+                    self.get_weightstream_width(),
+                    self.get_outstream_width(),
+                )
+            ]
+        else:
+            raise Exception("Unrecognized mem_mode")
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
@@ -530,46 +759,184 @@ class Thresholding_Batch(HLSCustomOp):
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
 
-        # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-        # partition for parallel access along PE and N_THRES
-        # dimensions (dims 1 and 3)
-        self.code_gen_dict["$PRAGMAS$"].append(
-            (
-                "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                "complete dim=1"
+        if self.get_nodeattr("mem_mode") == "const":
+            # the threshold tensor is acc_type [PE][TMEM][N_THRES]
+            # partition for parallel access along PE and N_THRES
+            # dimensions (dims 1 and 3)
+            self.code_gen_dict["$PRAGMAS$"].append(
+                (
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=1"
+                )
             )
-        )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            (
-                "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                "complete dim=3"
+            self.code_gen_dict["$PRAGMAS$"].append(
+                (
+                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
+                    "complete dim=3"
+                )
             )
-        )
-        # set resource type
-        ram_style = self.get_nodeattr("ram_style")
-        pe = self.get_nodeattr("PE")
-        ich = self.get_nodeattr("NumChannels")
-        # if PE less than NumChannels, assign cores according to ram_style;
-        # otherwise if PE == NumChannels, Vivado HLS will unroll to FFs
-        if pe < ich:
-            if ram_style == "distributed":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.m_thresholds "
-                        "core=ROM_2P_LUTRAM"
+            # set resource type
+            ram_style = self.get_nodeattr("ram_style")
+            pe = self.get_nodeattr("PE")
+            ich = self.get_nodeattr("NumChannels")
+            # if PE less than NumChannels, assign cores according to ram_style;
+            # otherwise if PE == NumChannels, Vivado HLS will unroll to FFs
+            if pe < ich:
+                if ram_style == "distributed":
+                    self.code_gen_dict["$PRAGMAS$"].append(
+                        (
+                            "#pragma HLS RESOURCE variable=threshs.m_thresholds "
+                            "core=ROM_2P_LUTRAM"
+                        )
                     )
-                )
-            elif ram_style == "block":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.m_thresholds "
-                        "core=ROM_2P_BRAM"
+                elif ram_style == "block":
+                    self.code_gen_dict["$PRAGMAS$"].append(
+                        (
+                            "#pragma HLS RESOURCE variable=threshs.m_thresholds "
+                            "core=ROM_2P_BRAM"
+                        )
                     )
-                )
-            else:
-                raise Exception(
-                    """Invalid value for attribute ram_style! Is currently set to: {}
-                has to be set to one of ("block", "distributed")""".format(
-                        ram_style
+                else:
+                    raise Exception(
+                        """Invalid value for attribute ram_style! Is currently set to: {}
+                    has to be set to one of ("block", "distributed")""".format(
+                            ram_style
+                        )
                     )
+        elif self.get_nodeattr("mem_mode") == "decoupled":
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS INTERFACE axis port=weights"
+            )
+
+    def code_generation_ipi(self):
+        cmd = []
+        # add streamer if needed
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            node_name = self.onnx_node.name
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            # create a hierarchy for this layer, with the same port names
+            clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
+            rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
+            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
+            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
+            cmd.append("create_bd_cell -type hier %s" % node_name)
+            cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
+            cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
+            cmd.append(
+                "create_bd_intf_pin -mode Master "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
+                % (node_name, dout_name)
+            )
+            cmd.append(
+                "create_bd_intf_pin -mode Slave "
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
+            )
+            # instantiate the hls ip
+            cmd.append(
+                "create_bd_cell -type ip -vlnv %s /%s/%s"
+                % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
+            )
+            # instantiate a streamer and connect it to the HLS IP
+            strm_vlnv = "xilinx.com:user:memstream:1.0"
+            strm_inst = node_name + "_wstrm"
+            cmd.append(
+                "create_bd_cell -type ip -vlnv %s /%s/%s"
+                % (strm_vlnv, node_name, strm_inst)
+            )
+            cmd.append(
+                "set_property -dict [list "
+                "CONFIG.NSTREAMS {1} "
+                "CONFIG.MEM_DEPTH {%d} "
+                "CONFIG.MEM_WIDTH {%d} "
+                "CONFIG.MEM_INIT {%s} "
+                "CONFIG.RAM_STYLE {%s} "
+                "CONFIG.STRM0_DEPTH {%d} "
+                "CONFIG.STRM0_WIDTH {%d} "
+                "CONFIG.STRM0_OFFSET {0} "
+                "] [get_bd_cells /%s/%s]"
+                % (
+                    self.calc_tmem(),
+                    self.get_weightstream_width_padded(),
+                    self.get_nodeattr("code_gen_dir_ipgen") + "/",
+                    self.get_nodeattr("ram_style"),
+                    self.calc_tmem(),
+                    self.get_weightstream_width_padded(),
+                    node_name,
+                    strm_inst,
                 )
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
+                "[get_bd_intf_pins %s/%s/weights_V_V]"
+                % (node_name, strm_inst, node_name, node_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aresetn]"
+                % (node_name, rst_name, node_name, strm_inst)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aclk]"
+                % (node_name, clk_name, node_name, strm_inst)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, rst_name, node_name, node_name, rst_name)
+            )
+            cmd.append(
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/%s]"
+                % (node_name, clk_name, node_name, node_name, clk_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                "[get_bd_intf_pins %s/%s/%s]"
+                % (node_name, din_name, node_name, node_name, din_name)
+            )
+            cmd.append(
+                "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                "[get_bd_intf_pins %s/%s/%s]"
+                % (node_name, dout_name, node_name, node_name, dout_name)
+            )
+            if runtime_writable:
+                # expose axi lite interface for writeable weights
+                axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
+                cmd.append(
+                    "create_bd_intf_pin -mode Slave "
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
+                    % (node_name, axilite_name)
+                )
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                    "[get_bd_intf_pins %s/%s/%s]"
+                    % (node_name, axilite_name, node_name, strm_inst, axilite_name)
+                )
+                # TODO calculate and pass in segment size here
+                cmd.append("assign_bd_address")
+            cmd.append("save_bd_design")
+        elif mem_mode == "const":
+            # base class impl sufficient for const mode
+            return super().code_generation_ipi()
+        else:
+            raise Exception("Unrecognized mem_mode for Thresholding_Batch")
+        return cmd
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "decoupled":
+            # only expose axilite interface if attribute is set
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writable:
+                intf_names["axilite"] = ["s_axilite"]
+        return intf_names
+
+    def get_op_and_param_counts(self):
+        ret_dict = {}
+        weight_bits = self.get_weight_datatype().bitwidth()
+        out_features = self.get_nodeattr("NumChannels")
+        num_steps = self.get_nodeattr("numSteps")
+        # thresholds are called weights in this layer
+        thres_param_type = "param_threshold_%db" % (weight_bits)
+        thres_count = out_features * num_steps
+        ret_dict[thres_param_type] = thres_count
+        return ret_dict

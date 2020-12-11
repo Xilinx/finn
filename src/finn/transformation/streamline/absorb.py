@@ -32,7 +32,7 @@ import warnings
 
 from finn.core.datatype import DataType
 import finn.core.data_layout as DataLayout
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.infer_shapes import InferShapes

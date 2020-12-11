@@ -1,0 +1,23 @@
+{
+  "output_dir": "output_tfc_w1a1_Pynq-Z1",
+  "target_fps": 100000,
+  "mvau_wwidth_max": 10000,
+  "synth_clk_period_ns": 10.0,
+  "board": "Pynq-Z1",
+  "standalone_thresholds": true,
+  "shell_flow_type": "vivado_zynq",
+  "verify_steps": [
+    "initial_python",
+    "streamlined_python",
+    "folded_hls_cppsim",
+    "stitched_ip_rtlsim"
+  ],
+  "generate_outputs": [
+    "estimate_reports",
+    "stitched_ip",
+    "pynq_driver",
+    "out_of_context_synth",
+    "bitfile",
+    "deployment_package"
+  ]
+}

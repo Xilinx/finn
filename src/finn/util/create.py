@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020 Xilinx, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -11,7 +11,7 @@
 #   this list of conditions and the following disclaimer in the documentation
 #   and/or other materials provided with the distribution.
 #
-# * Neither the name of FINN nor the names of its
+# * Neither the name of Xilinx nor the names of its
 #   contributors may be used to endorse or promote products derived from
 #   this software without specific prior written permission.
 #
@@ -27,9 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-from finn.core.modelwrapper import ModelWrapper
 from onnx import TensorProto, helper
+
 from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
 from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 
@@ -37,13 +38,13 @@ def hls_random_mlp_maker(layer_spec):
     """Create an MLP of given specification using HLSCustomOp instances.
     Generate random weights/thresholds of appropriate size."""
     ret = []
-    for l in layer_spec:
-        idt = l["idt"]
-        wdt = l["wdt"]
-        mw = l["mw"]
-        mh = l["mh"]
-        act = l["act"]
-        l["W"] = gen_finn_dt_tensor(wdt, (mw, mh))
+    for lyr in layer_spec:
+        idt = lyr["idt"]
+        wdt = lyr["wdt"]
+        mw = lyr["mw"]
+        mh = lyr["mh"]
+        act = lyr["act"]
+        lyr["W"] = gen_finn_dt_tensor(wdt, (mw, mh))
         if act is None:
             # no activation, produce accumulators
             T = None
@@ -67,10 +68,10 @@ def hls_random_mlp_maker(layer_spec):
                 assert (T >= 0).all()
             else:
                 tdt = DataType.INT32
-        l["T"] = T
-        l["tdt"] = tdt
-        l["odt"] = odt
-        ret.append(l)
+        lyr["T"] = T
+        lyr["tdt"] = tdt
+        lyr["odt"] = odt
+        ret.append(lyr)
 
     return hls_mlp_maker(ret)
 
@@ -87,21 +88,21 @@ def hls_mlp_maker(layer_spec):
     model = helper.make_model(graph, producer_name="finn")
     model = ModelWrapper(model)
 
-    for l in layer_spec:
+    for lyr in layer_spec:
         current_W_name = "W_%d" % i
         current_T_name = "T_%d" % i
         current_in_name = "act_%d" % i
         current_out_name = "act_%d" % (i + 1)
 
-        W = l["W"]
+        W = lyr["W"]
         (mw, mh) = W.shape
-        T = l["T"]
-        pe = l["pe"]
-        simd = l["simd"]
-        wdt = l["wdt"]
-        idt = l["idt"]
-        tdt = l["tdt"]
-        odt = l["odt"]
+        T = lyr["T"]
+        pe = lyr["pe"]
+        simd = lyr["simd"]
+        wdt = lyr["wdt"]
+        idt = lyr["idt"]
+        tdt = lyr["tdt"]
+        odt = lyr["odt"]
 
         if i == 0:
             global_in = helper.make_tensor_value_info(
@@ -146,9 +147,8 @@ def hls_mlp_maker(layer_spec):
             "StreamingFCLayer_Batch",
             node_inp_list,
             [current_out_name],
-            domain="finn",
+            domain="finn.custom_op.fpgadataflow",
             backend="fpgadataflow",
-            resType="ap_resource_lut()",
             MW=mw,
             MH=mh,
             SIMD=simd,

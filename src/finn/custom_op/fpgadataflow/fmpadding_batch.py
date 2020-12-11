@@ -2,8 +2,9 @@ import os
 import numpy as np
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+import warnings
 
 
 class FMPadding_Batch(HLSCustomOp):
@@ -28,7 +29,7 @@ class FMPadding_Batch(HLSCustomOp):
             # controls distribution of padded pixels
             # in case of uneven padding -- see FMPadding fxn
             # in hlslib
-            "PaddingStyle": ("i", False, 2),
+            "PaddingStyle": ("i", False, 2, {2, 1}),
             # shape describing input vecs per execution
             "numInputVectors": ("i", False, 1),
         }
@@ -48,7 +49,7 @@ class FMPadding_Batch(HLSCustomOp):
         simd = self.get_nodeattr("SIMD")
         batch_size = self.get_nodeattr("numInputVectors")
         exp_cycles = (channels / simd) * batch_size * odim * odim
-        return exp_cycles
+        return int(exp_cycles)
 
     def get_normal_input_shape(self):
         idim = self.get_nodeattr("ImgDim")
@@ -103,11 +104,16 @@ class FMPadding_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        exp_idtype = self.get_input_datatype()
-        assert dtype == exp_idtype, "Unexpected datatype for FMPadding_Batch"
-        model.set_tensor_datatype(node.output[0], dtype)
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
+        model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
         pass

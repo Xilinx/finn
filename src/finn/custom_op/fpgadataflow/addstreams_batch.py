@@ -29,9 +29,9 @@
 import os
 
 import numpy as np
-
+import warnings
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -99,23 +99,22 @@ class AddStreams_Batch(HLSCustomOp):
         )
 
     def infer_node_datatype(self, model):
-        # check input datatype against property
-        exp_idt_name = self.get_input_datatype().name
-        idt_name = self.get_nodeattr("inputDataType")
-        assert exp_idt_name == idt_name, "Bad input DataType for AddStreams layer"
-        # enforce output data type
+        node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
+        # enforce output data type (calculated based on idt)
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
 
     def verify_node(self):
         info_messages = []
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":

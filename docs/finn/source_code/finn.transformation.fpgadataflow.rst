@@ -101,14 +101,6 @@ finn.transformation.fpgadataflow.make\_pynq\_driver
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.make\_pynq\_proj
---------------------------------------------------------
-
-.. automodule:: finn.transformation.fpgadataflow.make_pynq_proj
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
 finn.transformation.fpgadataflow.prepare\_cppsim
 -------------------------------------------------------
 
@@ -145,14 +137,6 @@ finn.transformation.fpgadataflow.set\_exec\_mode
 -------------------------------------------------------
 
 .. automodule:: finn.transformation.fpgadataflow.set_exec_mode
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.transformation.fpgadataflow.synth\_pynq\_proj
----------------------------------------------------------
-
-.. automodule:: finn.transformation.fpgadataflow.synth_pynq_proj
    :members:
    :undoc-members:
    :show-inheritance:

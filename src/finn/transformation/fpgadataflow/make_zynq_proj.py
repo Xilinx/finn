@@ -30,10 +30,9 @@ import os
 import subprocess
 
 from finn.custom_op.registry import getCustomOp
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 from finn.core.modelwrapper import ModelWrapper
 from finn.util.basic import get_by_name, make_build_dir
-from finn.util.basic import get_num_default_workers
 from finn.util.basic import pynq_part_map
 
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -136,6 +135,8 @@ class MakeZYNQProject(Transformation):
             if clk_ns > global_clk_ns:
                 global_clk_ns = clk_ns
 
+            ifnames = eval(kernel_model.get_metadata_prop("vivado_stitch_ifnames"))
+
             # gather info on connectivity
             # assume each node connected to outputs/inputs is DMA:
             # has axis, aximm and axilite
@@ -162,10 +163,15 @@ class MakeZYNQProject(Transformation):
                     "[get_bd_intf_pins smartconnect_0/S%02d_AXI]"
                     % (instance_names[node.name], aximm_idx)
                 )
+                assert (
+                    len(ifnames["axilite"]) == 1
+                ), "Must have 1 AXI lite interface on IODMA nodes"
+                axilite_intf_name = ifnames["axilite"][0]
+                assert axilite_intf_name is not None
                 config.append(
-                    "connect_bd_intf_net [get_bd_intf_pins %s/s_axi_control] "
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                     "[get_bd_intf_pins axi_interconnect_0/M%02d_AXI]"
-                    % (instance_names[node.name], axilite_idx)
+                    % (instance_names[node.name], axilite_intf_name, axilite_idx)
                 )
                 idma_idx += 1
                 aximm_idx += 1
@@ -176,6 +182,14 @@ class MakeZYNQProject(Transformation):
                     "create_bd_cell -type ip -vlnv %s %s"
                     % (vivado_stitch_vlnv, instance_names[node.name])
                 )
+                for axilite_intf_name in ifnames["axilite"]:
+                    config.append(
+                        "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                        "[get_bd_intf_pins axi_interconnect_0/M%02d_AXI]"
+                        % (instance_names[node.name], axilite_intf_name, axilite_idx)
+                    )
+                    axilite_idx += 1
+
             config.append(
                 "connect_bd_net [get_bd_pins %s/ap_clk] "
                 "[get_bd_pins smartconnect_0/aclk]" % instance_names[node.name]
@@ -221,7 +235,6 @@ class MakeZYNQProject(Transformation):
                     pynq_part_map[self.platform],
                     config,
                     self.enable_debug,
-                    get_num_default_workers(),
                 )
             )
 
@@ -231,7 +244,7 @@ class MakeZYNQProject(Transformation):
         with open(synth_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_pynq_proj_dir))
-            f.write("vivado -mode tcl -source %s\n" % ipcfg)
+            f.write("vivado -mode batch -source %s\n" % ipcfg)
             f.write("cd {}\n".format(working_dir))
 
         # call the synthesis script

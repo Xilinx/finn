@@ -28,7 +28,7 @@
 
 import numpy as np
 
-from finn.transformation import Transformation
+from finn.transformation.base import Transformation
 
 
 class RoundAndClipThresholds(Transformation):

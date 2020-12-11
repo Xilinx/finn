@@ -30,8 +30,8 @@ import numpy as np
 import math
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
-
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+import warnings
 
 # the IODMA inerfaces a memory-mapped AXI interface and an AXI stream
 # direction "in": pulls data from AXI-MM to AXI stream
@@ -87,8 +87,8 @@ class IODMA(HLSCustomOp):
             "streamWidth": ("i", False, 32),
             # DMA-specific parameters
             "intfWidth": ("i", False, 32),
-            "burstMode": ("s", False, "increment"),
-            "direction": ("s", False, "in"),
+            "burstMode": ("s", False, "increment", {"wrap", "increment"}),
+            "direction": ("s", False, "in", {"in", "out"}),
             # shape describing input vecs per execution
             "numInputVectors": ("ints", False, [1]),
             # name of axi-mm interface
@@ -161,11 +161,16 @@ class IODMA(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        exp_idtype = self.get_input_datatype()
-        assert dtype == exp_idtype, "Unexpected datatype."
-        model.set_tensor_datatype(node.output[0], dtype)
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("dataType", idt.name)
+        model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
         pass
