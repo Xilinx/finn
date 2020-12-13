@@ -113,6 +113,8 @@ class FINNExampleOverlay(Overlay):
             Whether the written weights will be re-read and verified.
         """
         w_filenames = []
+        if not os.path.isdir(self.runtime_weight_dir):
+            return
         for (dirpath, dirnames, filenames) in os.walk(self.runtime_weight_dir):
             w_filenames.extend(filenames)
         rt_weight_dict = {}
