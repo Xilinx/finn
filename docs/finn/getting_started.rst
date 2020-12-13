@@ -17,8 +17,8 @@ steps and adding calls to new transformations as needed.
 Once you have a working flow, you can implement a command line entry for this
 by using the "advanced mode" described in the :ref:`command_line` section.
 
-Requirements
-============
+System Requirements
+====================
 
 * Ubuntu 18.04 with ``bash`` installed
 * Docker
@@ -27,6 +27,34 @@ Requirements
 * (optional) A PYNQ board with a network connection
    * the ``bitstring`` package must be installed on the PYNQ: ``sudo pip3 install bitstring``
 * (optional) An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ below)
+
+We also recommend running the FINN compiler on a system with sufficiently
+strong hardware, as follows:
+
+**RAM.**
+Depending on your target FPGA platform, your system must have sufficient RAM to be
+able to run Vivado/Vitis synthesis for that part. See [this page](https://www.xilinx.com/products/design-tools/vivado/memory.html)
+for more information.
+
+* For targeting Zynq and Zynq UltraScale+ parts, at least 8 GB is recommended.
+  Larger parts may require up to 16 GB.
+* For targeting Alveo parts with Vitis, at least 64 GB RAM is recommended.
+
+**CPU.**
+FINN can parallelize HLS synthesis and several other operations for different
+layers, so using a multi-core CPU is recommended. However, this should be balanced
+against the memory usage as a high degree of parallelization will require more
+memory. See the ``NUM_DEFAULT_WORKERS`` environment variable below for more on
+how to control the degree of parallelization.
+
+**Storage.**
+While going through the build steps, FINN will generate many files as part of
+the process. For larger networks, you may need 10s of GB of space for the temporary
+files generated during the build.
+By default, these generated files will be placed under ``/tmp/finn_dev_<username>``.
+You can override this location by using the ``FINN_HOST_BUILD_DIR`` environment
+variable.
+Mapping the generated file dir to a fast SSD will result in quicker builds.
 
 Running FINN in Docker
 ======================
