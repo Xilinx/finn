@@ -1,3 +1,5 @@
+.. _command_line:
+
 *******************
 Command Line Entry
 *******************
