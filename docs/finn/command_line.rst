@@ -1,3 +1,5 @@
+.. _command_line:
+
 *******************
 Command Line Entry
 *******************
@@ -60,23 +62,26 @@ as it go through numerous steps:
   Building dataflow accelerator from /home/maltanar/sandbox/build_dataflow/model.onnx
   Outputs will be generated at output_tfc_w1a1_Pynq-Z1
   Build log is at output_tfc_w1a1_Pynq-Z1/build_dataflow.log
-  Running step: step_tidy_up [1/14]
-  Running step: step_streamline [2/14]
-  Running step: step_convert_to_hls [3/14]
-  Running step: step_create_dataflow_partition [4/14]
-  Running step: step_target_fps_parallelization [5/14]
-  Running step: step_apply_folding_config [6/14]
-  Running step: step_generate_estimate_reports [7/14]
-  Running step: step_hls_ipgen [8/14]
-  Running step: step_set_fifo_depths [9/14]
-  Running step: step_create_stitched_ip [10/14]
-  Running step: step_make_pynq_driver [11/14]
-  Running step: step_out_of_context_synthesis [12/14]
-  Running step: step_synthesize_bitfile [13/14]
-  Running step: step_deployment_package [14/14]
+  Running step: step_tidy_up [1/15]
+  Running step: step_streamline [2/15]
+  Running step: step_convert_to_hls [3/15]
+  Running step: step_create_dataflow_partition [4/15]
+  Running step: step_target_fps_parallelization [5/15]
+  Running step: step_apply_folding_config [6/15]
+  Running step: step_generate_estimate_reports [7/15]
+  Running step: step_hls_ipgen [8/15]
+  Running step: step_set_fifo_depths [9/15]
+  Running step: step_create_stitched_ip [10/15]
+  Running step: step_measure_rtlsim_performance [11/15]
+  Running step: step_make_pynq_driver [12/15]
+  Running step: step_out_of_context_synthesis [13/15]
+  Running step: step_synthesize_bitfile [14/15]
+  Running step: step_deployment_package [15/15]
+
 
 You can read a brief description of what each step does on
-:py:mod:`finn.builder.build_dataflow_steps`.
+:py:mod:`finn.builder.build_dataflow_steps`. Note that a step whose output
+products are not enabled will still run, but will do nothing.
 
 
 Generated outputs
@@ -112,6 +117,9 @@ build configuration), and are detailed below.
   * ``stitched_ip/finn_vivado_stitch_proj.xpr`` -- Vivado project (including Vivado IP Integrator block design) to generate the stitched IP
   * ``stitched_ip/ip`` -- exported Vivado IP for the stitched design
 
+* :py:mod:`finn.builder.build_dataflow.DataflowOutputType.RTLSIM_PERFORMANCE`: measure latency and performance for the stitched IP in RTL simulation, using PyVerilator
+
+  * ``report/rtlsim_performance.json`` -- accelerator throughput and latency from RTL simulation
 
 * :py:mod:`finn.builder.build_dataflow.DataflowOutputType.OOC_SYNTH` runs out-of-context synthesis for the stitched IP. This is useful for getting post-synthesis resource counts and achievable clock frequency without having to produce a full bitfile with DMA engines:
 
