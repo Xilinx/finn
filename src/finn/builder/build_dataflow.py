@@ -86,8 +86,10 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     """
     model = ModelWrapper(model_filename)
     assert type(model) is ModelWrapper
+    finn_build_dir = os.environ["FINN_BUILD_DIR"]
     print("Building dataflow accelerator from " + model_filename)
-    print("Outputs will be generated at " + cfg.output_dir)
+    print("Intermediate outputs will be generated in " + finn_build_dir)
+    print("Final outputs will be generated in " + cfg.output_dir)
     print("Build log is at " + cfg.output_dir + "/build_dataflow.log")
     # create the output dir if it doesn't exist
     if not os.path.exists(cfg.output_dir):
