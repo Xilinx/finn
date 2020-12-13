@@ -15,6 +15,7 @@
   "generate_outputs": [
     "estimate_reports",
     "stitched_ip",
+    "rtlsim_performance",
     "pynq_driver",
     "out_of_context_synth",
     "bitfile",
