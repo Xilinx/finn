@@ -338,10 +338,10 @@ class FINNExampleOverlay(Overlay):
         res["DRAM_out_bandwidth[Mb/s]"] = (
             np.prod(self.oshape_packed) * 0.000001 / runtime
         )
-        if self.platform != "alveo":
+        if self.platform == "zynq-iodma":
             res["fclk[mhz]"] = Clocks.fclk0_mhz
-        else:
-            res["fclk[mhz]"] = self.fclk_mhz
+        elif self.platform == "alveo":
+            res["fclk[mhz]"] = self.clock_dict["clock0"]["frequency"]
         res["batch_size"] = self.batch_size
         # also benchmark driver-related overheads
         input_npy = np.zeros(self.ishape_normal, dtype=self.idt.to_numpy_dt())
