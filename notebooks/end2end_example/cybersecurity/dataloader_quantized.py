@@ -66,8 +66,6 @@ class UNSW_NB15_quantized(torch.utils.data.Dataset):
         else:
             self.data = torch.FloatTensor(self.test_df.astype("float"))
 
-        print(self.data.shape)
-
     def get_dataframe(self):
         return self.dataframe
 
