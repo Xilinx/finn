@@ -119,6 +119,17 @@ default_build_dataflow_steps = [
     "step_deployment_package",
 ]
 
+#: List of steps to run for an estimate-only (no synthesis) dataflow build
+estimate_only_dataflow_steps = [
+    "step_tidy_up",
+    "step_streamline",
+    "step_convert_to_hls",
+    "step_create_dataflow_partition",
+    "step_target_fps_parallelization",
+    "step_apply_folding_config",
+    "step_generate_estimate_reports",
+]
+
 
 @dataclass_json
 @dataclass
