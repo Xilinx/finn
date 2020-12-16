@@ -574,8 +574,9 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         thresholds neither 1 nor MH."""
                         odt = model.get_tensor_datatype(mt_output)
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
+                        bipolar_ok = odt == DataType.BIPOLAR and scale == 2.0
                         assert (
-                            scale == 1.0
+                            scale == 1.0 or bipolar_ok
                         ), "out_scale must be equal to 1.0 for HLS conversion."
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert (
