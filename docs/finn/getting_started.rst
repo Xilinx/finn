@@ -4,18 +4,35 @@
 Getting Started
 ***************
 
-.. note:: **This website is currently under construction.**
-
 How to use the FINN compiler
 ============================
-The FINN compiler should not be thought of a single pushbutton tool that does everything for you, but rather as a collection of scripts/tools that will help you convert a QNN into a custom FPGA accelerator that performs high-performance inference. We do provide several examples of taking trained networks all the way down to FPGA bitfiles, but if you are trying to do this for custom networks you will have to write your own Python scripts that call the appropriate FINN Compiler functions that process your design correctly, or adding new functions as required.
-You should first familiarize with the existing end-to-end examples that FINN
-offers to understand the general flow.
+Currently, it's best to think of the FINN compiler as *compiler infrastructure*
+instead of a full *compiler* like `gcc` (although the aim is to get there).
+Although we provide a :ref:`command_line` entry for building dataflow
+accelerators, this only exposes a basic flow that works for simpler networks.
+A better way of looking at the FINN compiler is as a collection of scripts/tools that will help
+you convert a QNN into a custom FPGA accelerator that performs high-performance inference.
+
+**So where do I get started?** The best way of getting started with the FINN
+compiler is to follow the existing
+`Jupyter notebooks <tutorials>`_ and check out the prebuilt
+`examples <https://github.com/Xilinx/finn-examples>`_.
+
+**How do I compile my custom network?**
+This depends on how similar your custom network is to the examples we provide.
+If there are substantial differences, you will most likely have to write your own
+Python scripts that call the appropriate FINN compiler
+functions that process your design correctly, or adding new functions (including
+Vivado HLS layers)
+as required.
 For custom networks, we recommend making a copy of the end-to-end
 Jupyter notebook as a starting point, visualizing the model at intermediate
 steps and adding calls to new transformations as needed.
 Once you have a working flow, you can implement a command line entry for this
 by using the "advanced mode" described in the :ref:`command_line` section.
+
+
+
 
 System Requirements
 ====================
