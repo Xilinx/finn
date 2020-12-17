@@ -7,8 +7,9 @@ author: "Yaman Umuroglu"
 We're happy to announce that FINN v0.5b is now available on GitHub. This is
 one of the most feature-rich updates we've made so far, here are the highlights:
 
-
+<a href="https://github.com/Xilinx/finn-examples" target="_blank">
 <img src="https://xilinx.github.io/finn/img/finn-examples-header.png" width="450" align="center"/>
+</a>
 
 **New finn-examples repo for PYNQ on Zynq and Alveo.** We now have a new repo
 called [finn-examples](https://github.com/Xilinx/finn-examples), which hosts
@@ -16,7 +17,9 @@ several neural network accelerators built with the FINN compiler. It comes with
 prebuilt bitfiles for several platforms and PYNQ Python drivers. It's also on
 pypi, so can simply `pip3 install finn-examples` on your board to try it out.
 
+<a href="https://github.com/Xilinx/finn-examples/blob/main/finn_examples/notebooks/2_imagenet_with_mobilenet_v1.ipynb" target="_blank">
 <img src="https://xilinx.github.io/finn/img/imagenet.jpg" width="300" align="center"/>
+</a>
 
 **4-bit MobileNet-v1 for Alveo U250.** As [part of finn-examples](https://github.com/Xilinx/finn-examples/blob/main/finn_examples/notebooks/2_imagenet_with_mobilenet_v1.ipynb),
 we are releasing a streaming dataflow accelerator for MobileNet-v1 on ImageNet.
@@ -25,7 +28,9 @@ accuracy on ImageNet-1K and runs at 1800 FPS on the Alveo U250.
 You can [rebuild it from source](https://github.com/Xilinx/finn-examples/tree/main/build/mobilenet-v1)
 with the scripts provided in finn-examples.
 
+<a href="https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/cybersecurity" target="_blank">
 <img src="https://xilinx.github.io/finn/img/cybsec.jpeg" width="300" align="center"/>
+</a>
 
 **New tutorial: train and deploy a cybersecurity MLP.** v0.5b adds a new [three-part tutorial](https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/cybersecurity)
 Jupyter on first training a quantized MLP with Brevitas, then deploying this
@@ -33,7 +38,9 @@ with the new `build_dataflow` system discussed below.  Here, the example applica
 is classifying network packets as malicious or not by training an MLP on the
 UNSW-NB15 cybersecurity dataset.
 
+<a href="https://finn.readthedocs.io/en/latest/command_line.html" target="_blank">
 <img src="https://xilinx.github.io/finn/img/build-cfg.png" width="400" align="center"/>
+</a>
 
 **New build system.** We have introduced a new build system
 and command-line entrypoint called [`build_dataflow`](https://finn.readthedocs.io/en/latest/command_line.html) for productivity and ease-of-use. With this new system,
