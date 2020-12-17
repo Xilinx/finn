@@ -9,9 +9,9 @@ repository. This repo includes prebuilt bitfiles for various PYNQ and Alveo
 platforms, as well as the scripts to rebuild these examples using the FINN
 compiler.
 
-****************************
+
 End-to-end Integration tests
-****************************
+============================
 
 The FINN compiler uses `several pre-trained QNNs <https://github.com/Xilinx/brevitas/tree/master/brevitas_examples/bnn_pynq>`_
 that serve as both examples and testcases.

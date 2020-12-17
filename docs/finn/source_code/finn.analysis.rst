@@ -15,6 +15,15 @@ Submodules
 Analysis Passes
 ===============
 
+finn.analysis.base
+-----------------------------
+
+.. automodule:: finn.analysis.base
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.analysis.topology
 -----------------------------
 
