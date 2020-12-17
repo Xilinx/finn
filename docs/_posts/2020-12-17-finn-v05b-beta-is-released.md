@@ -4,7 +4,7 @@ title:  "FINN v0.5b (beta) and finn-examples released"
 author: "Yaman Umuroglu"
 ---
 
-We're happy to announce that FINN v0.5b is now available on GitHub. This is
+We're happy to announce that FINN v0.5b is now available [on GitHub](https://github.com/Xilinx/finn/tree/v0.5b). This is
 one of the most feature-rich updates we've made so far, here are the highlights:
 
 <a href="https://github.com/Xilinx/finn-examples" target="_blank">
@@ -59,7 +59,7 @@ the [`SetFolding` transform for setting parallelization parameters](https://gith
 and the separation of the FINN compiler's core components into a new repo
 called [finn-base](https://github.com/Xilinx/finn-base/) for more modularity.
 
-The release (tagged 0.5b) is now available on GitHub.
+The release ([tag v0.5b](https://github.com/Xilinx/finn/tree/v0.5b)) is now available on GitHub.
 We're continuously working to improve FINN in terms of layer, network and
 infrastructure.
 If you'd like to help out, please check out the <a href="https://github.com/Xilinx/finn/blob/master/CONTRIBUTING.md">contribution guidelines</a> and
