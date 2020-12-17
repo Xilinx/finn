@@ -323,7 +323,7 @@ class HLSCustomOp(CustomOp):
         ip_path = ipgen_path + "/sol1/impl/ip"
         assert os.path.isdir(
             ip_path
-        ), "IPGen failed: %s not found. Check log under %s" % (ip_path, ipgen_path)
+        ), "IPGen failed: %s not found. Check log under %s" % (ip_path, code_gen_dir)
         self.set_nodeattr("ip_path", ip_path)
         vlnv = "xilinx.com:hls:%s:1.0" % node.name
         self.set_nodeattr("ip_vlnv", vlnv)
