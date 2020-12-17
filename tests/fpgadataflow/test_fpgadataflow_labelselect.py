@@ -53,7 +53,7 @@ def make_labelselect_modelwrapper(labels, pe, k, idt):
         "LabelSelect_Batch",
         ["inp"],
         ["outp"],
-        domain="finn",
+        domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         Labels=labels,
         PE=pe,

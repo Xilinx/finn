@@ -29,7 +29,7 @@
 import os
 import finn.custom_op.registry as registry
 from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.transformation import NodeLocalTransformation
+from finn.transformation.base import NodeLocalTransformation
 import warnings
 
 
@@ -56,7 +56,7 @@ class HLSSynthIP(NodeLocalTransformation):
         if is_fpgadataflow_node(node) is True:
             try:
                 # lookup op_type in registry of CustomOps
-                inst = registry.custom_op[op_type](node)
+                inst = registry.getCustomOp(node)
                 # ensure that code is generated
                 assert (
                     inst.get_nodeattr("code_gen_dir_ipgen") != ""

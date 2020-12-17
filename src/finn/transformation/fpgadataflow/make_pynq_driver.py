@@ -28,23 +28,29 @@
 
 
 import shutil
-from finn.transformation import Transformation
-from finn.util.basic import gen_finn_dt_tensor, get_finn_root, make_build_dir
-from finn.util.data_packing import finnpy_to_packed_bytearray
-
-from . import templates
+from finn.transformation.base import Transformation
+from finn.util.basic import gen_finn_dt_tensor, make_build_dir
+import finn.util.data_packing as dpk
+import finn.core.datatype as dtp
+from finn.custom_op.registry import getCustomOp
+import os
+import warnings
+import pkg_resources as pk
+from . import template_driver
 
 
 class MakePYNQDriver(Transformation):
     """Create PYNQ Python code to correctly interface the generated
-    accelerator, including data packing/unpacking. The MakePYNQProject
-    transformation must have been already applied.
+    accelerator, including data packing/unpacking. Should be called
+    after conversion to HLS layers and folding, but prior to the creation of
+    dataflow partitions for correct operation.
 
     platform: one of ["zynq-iodma", "alveo"]
 
     Outcome if successful: sets the pynq_driver_dir attribute in the ONNX
     ModelProto's metadata_props field, with the created driver dir as the
-    value.
+    value. If any layers use runtime-writable parameters, those will be gathered
+    under the runtime_weights/ subfolder of the pynq_driver_dir.
     """
 
     def __init__(self, platform):
@@ -56,8 +62,15 @@ class MakePYNQDriver(Transformation):
         pynq_driver_dir = make_build_dir(prefix="pynq_driver_")
         model.set_metadata_prop("pynq_driver_dir", pynq_driver_dir)
 
+        # create the base FINN driver -- same for all accels
+        driver_base_template = pk.resource_filename(
+            "finn.qnn-data", "templates/driver/driver_base.py"
+        )
+        driver_base_py = pynq_driver_dir + "/driver_base.py"
+        shutil.copy(driver_base_template, driver_base_py)
+
         # extract input-output shapes from the graph
-        # TODO convert this to an analysis pass
+        # TODO convert this to an analysis pass?
         i_tensor_name = model.graph.input[0].name
         o_tensor_name = model.graph.output[0].name
         i_tensor_shape_normal = tuple(model.get_tensor_shape(i_tensor_name))
@@ -77,10 +90,10 @@ class MakePYNQDriver(Transformation):
         # generate dummy folded i/o tensors and their packed versions
         i_tensor_dummy_folded = gen_finn_dt_tensor(i_tensor_dt, i_tensor_shape_folded)
         o_tensor_dummy_folded = gen_finn_dt_tensor(o_tensor_dt, o_tensor_shape_folded)
-        i_tensor_dummy_packed = finnpy_to_packed_bytearray(
+        i_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
             i_tensor_dummy_folded, i_tensor_dt
         )
-        o_tensor_dummy_packed = finnpy_to_packed_bytearray(
+        o_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
             o_tensor_dummy_folded, o_tensor_dt
         )
         i_tensor_shape_packed = i_tensor_dummy_packed.shape
@@ -88,9 +101,9 @@ class MakePYNQDriver(Transformation):
 
         # fill in the driver template
         driver_py = pynq_driver_dir + "/driver.py"
-        driver = templates.pynq_driver_template
+        driver = template_driver.pynq_driver_template
 
-        def mss(x, batch_var_name="N"):
+        def mss(x, batch_var_name="1"):
             # "make shape string"
             # for a shape like (1, ...) emit a string (N, ...)
             # where N is the default value for batch_var_name
@@ -110,33 +123,50 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", mss(o_tensor_shape_folded))
         driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
 
-        # clock settings for driver
-        clk_ns = model.get_metadata_prop("clk_ns")
-        # default to 10ns / 100 MHz if property not set
-        if clk_ns is None:
-            clk_ns = 10.0
-        else:
-            clk_ns = float(clk_ns)
-        fclk_mhz = 1 / (clk_ns * 0.001)
-        # TODO change according to PYNQ board?
-        driver = driver.replace("$CLK_NAME$", "fclk0_mhz")
-        driver = driver.replace("$CLOCK_FREQ_MHZ$", str(fclk_mhz))
-
         with open(driver_py, "w") as f:
             f.write(driver)
 
         # add validate.py to run full top-1 test (only for suitable networks)
         validate_py = pynq_driver_dir + "/validate.py"
-        validate_src = templates.pynq_validation_template
-        with open(validate_py, "w") as f:
-            f.write(validate_src)
+        validate_template = pk.resource_filename(
+            "finn.qnn-data", "templates/driver/validate.py"
+        )
+        shutil.copy(validate_template, validate_py)
 
         # copy all the dependencies into the driver folder
-        shutil.copytree(
-            get_finn_root() + "/src/finn/util", pynq_driver_dir + "/finn/util"
-        )
-        shutil.copytree(
-            get_finn_root() + "/src/finn/core", pynq_driver_dir + "/finn/core"
-        )
+        # driver imports utils/data_packing and core/datatype
+        # both of which are in finn-base
+        # e.g. /workspace/finn-base/src/finn/util/data_packing.py
+        dpk_root = dpk.__file__
+        # e.g. /workspace/finn-base/src/finn/util
+        dpk_root = dpk_root.replace("data_packing.py", "")
+        # e.g. /workspace/finn-base/src/finn/core/datatype.py
+        dtp_root = dtp.__file__
+        # e.g. /workspace/finn-base/src/finn/core
+        dtp_root = dtp_root.replace("datatype.py", "")
+        shutil.copytree(dpk_root, pynq_driver_dir + "/finn/util")
+        shutil.copytree(dtp_root, pynq_driver_dir + "/finn/core")
 
+        # generate weight files for runtime-writable layers
+        weights_dir = pynq_driver_dir + "/runtime_weights"
+        rt_layer_ind = 0
+        os.makedirs(weights_dir)
+        for node in model.graph.node:
+            if node.op_type in ["StreamingFCLayer_Batch", "Thresholding_Batch"]:
+                node_inst = getCustomOp(node)
+                is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
+                if is_rt_weights == 1:
+                    fcl_w = model.get_initializer(node.input[1])
+                    w_filename = weights_dir + "/%d_%s.dat" % (rt_layer_ind, node.name)
+                    node_inst.make_weight_file(fcl_w, "decoupled_runtime", w_filename)
+                    rt_layer_ind += 1
+            elif node.op_type == "StreamingDataflowPartition":
+                warnings.warn(
+                    """Please call MakePYNQDriver prior to
+                CreateDataflowPartition. Can only extract runtime-writable
+                weights from HLSCustomOp instances and not StreamingDataflowPartition.
+                """
+                )
+            else:
+                continue
         return (model, False)

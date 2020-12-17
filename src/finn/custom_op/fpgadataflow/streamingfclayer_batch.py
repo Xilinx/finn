@@ -26,13 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import warnings
 import math
 import os
 import numpy as np
 
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
@@ -45,6 +46,7 @@ from finn.util.data_packing import (
     pack_innermost_dim_as_hex_string,
 )
 from . import templates
+import textwrap
 
 # ONNX i/o tensor shape assumptions for StreamingFCLayer:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -67,7 +69,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
-            "resType": ("s", True, ""),
+            "resType": ("s", False, "lut", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
@@ -77,9 +79,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             "accDataType": ("s", False, "INT32"),
             # use xnor-popcount for binary weights/inputs, thus treating them
             # as bipolar
-            "binaryXnorMode": ("i", False, 0),
+            "binaryXnorMode": ("i", False, 0, {0, 1}),
             # no-activation mode (produce accumulators)
-            "noActivation": ("i", False, 0),
+            "noActivation": ("i", False, 0, {0, 1}),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -89,13 +91,29 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # const -- embedded weights, default, long compile/synth times
             # decoupled -- streaming weights with weight streamer packaged inside IP
             # external -- streaming weights with external streamer
-            "mem_mode": ("s", False, "const"),
+            "mem_mode": ("s", False, "const", {"const", "decoupled", "external"}),
             # FPGA resource type for memories in decoupled mode
             # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
+            # ultra -- use UltraRAM (URAM), must have runtime_writeable_weights=1
             # see also https://www.xilinx.com/support/answers/38070.html
-            "ram_style": ("s", False, "auto"),
+            "ram_style": (
+                "s",
+                False,
+                "auto",
+                {"auto", "block", "distributed", "ultra"},
+            ),
+            # (mem_mode = decoupled only) whether weights will be writable through
+            # an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            # see finn-rtllib/memstream/doc/README for more about the memory
+            # address map used for writable weights
+            # IMPORTANT: After using AXI lite to either read or write the weights,
+            # always "flush" the accelerator by first passing a dummy input
+            # vector through the accelerator. This will get rid of any old
+            # weight data from the weight FIFOs.
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -138,23 +156,21 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # check input datatype against property
-        idt_name = self.get_input_datatype().name
-        exp_idt_name = self.get_nodeattr("inputDataType")
-        assert exp_idt_name == idt_name, "Bad input DataType for StreamingFCLayer"
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
         # set output datatype from property
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
         info_messages = []
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":
@@ -211,6 +227,25 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         return info_messages
 
+    def uram_estimation(self):
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_nodeattr("MW")
+        D_out = self.get_nodeattr("MH")
+        omega = (D_in * D_out) / (Q * P)
+        mem_width = Q * W * P
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle != "ultra") or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            return 0
+        width_multiplier = math.ceil(mem_width / 72)
+        depth_multiplier = math.ceil(omega / 4096)
+        return width_multiplier * depth_multiplier
+
     def bram_estimation(self):
         """Calculates resource estimation for BRAM based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
@@ -227,7 +262,27 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
         omega = (D_in * D_out) / (Q * P)
-        return P * (math.ceil(omega / 512)) * (math.ceil((Q * W) / 36))
+        mem_width = Q * W * P
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle in ["distributed", "ultra"]) or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            return 0
+        # assuming SDP mode RAMB18s (see UG573 Table 1-10)
+        # assuming decoupled (RTL) memory, which is more efficient than const (HLS)
+        if mem_width == 1:
+            return math.ceil(omega / 16384)
+        elif mem_width == 2:
+            return math.ceil(omega / 8192)
+        elif mem_width <= 4:
+            return (math.ceil(omega / 4096)) * (math.ceil(mem_width / 4))
+        elif mem_width <= 9:
+            return (math.ceil(omega / 2048)) * (math.ceil(mem_width / 9))
+        elif mem_width <= 18 or omega > 512:
+            return (math.ceil(omega / 1024)) * (math.ceil(mem_width / 18))
+        else:
+            return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
 
     def bram_efficiency_estimation(self):
         wdt = self.get_weight_datatype()
@@ -235,9 +290,25 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         D_in = self.get_nodeattr("MW")
         D_out = self.get_nodeattr("MH")
         bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
         wbits = W * D_in * D_out
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
+
+    def uram_efficiency_estimation(self):
+        """Function for URAM efficiency estimation: actual parameter storage
+        needed divided by the allocated URAM storage (from estimation)"""
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_nodeattr("MW")
+        D_out = self.get_nodeattr("MH")
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        wbits = W * D_in * D_out
+        uram_est_capacity = uram_est * 72 * 4096
+        return wbits / uram_est_capacity
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs based on:
@@ -250,6 +321,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # TODO add in/out FIFO contributions
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
+        MW = self.get_nodeattr("MW")
         wdt = self.get_weight_datatype()
         W = wdt.bitwidth()
         # determine tdt with input and weight data types
@@ -258,8 +330,55 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # parameters from experiments in paper mentioned above
         c0 = 300
         c1 = 1.1
+        c2 = 0
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle == "distributed") or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            c2 = (P * Q * W) * math.ceil(self.calc_wmem() / 64)
 
-        return c0 + c1 * (P * Q) * (W * A)
+        # multiplication
+        res_type = self.get_nodeattr("resType")
+        if res_type == "dsp":
+            mult_luts = 0
+        else:
+            mult_luts = Q * (2 * math.ceil((W + A) / 6) - 1) * (W + A)
+        # adder tree
+        addertree_luts = (W + A) * (2 * Q - 1)
+        # accumulator
+        acc_bits = W + A + np.ceil(math.log(MW, 2))
+        acc_luts = acc_bits
+        # thresholds and threshold comparators
+        thr_luts = 0
+        comp_luts = 0
+        noact = self.get_nodeattr("noActivation")
+        if noact == 0:
+            odt = self.get_output_datatype()
+            B = odt.bitwidth()
+            thr_luts = (2 ** B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
+            comp_luts = (2 ** B - 1) * acc_bits
+
+        return int(
+            c0
+            + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts))
+            + c2
+        )
+
+    def dsp_estimation(self):
+        # multiplication
+        P = self.get_nodeattr("PE")
+        res_type = self.get_nodeattr("resType")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        if res_type == "dsp":
+            mult_dsp = P * Q * np.ceil((W + A) / 48)  # TODO: more accurate modelling
+        else:
+            mult_dsp = 0
+        return int(mult_dsp)
 
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
@@ -315,9 +434,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return roundup_to_integer_multiple(weight_width, 8)
 
     def get_ap_int_max_w(self):
-        temp_value = super().get_ap_int_max_w()
+        # base class impl (max of inp/out stream widths)
+        max_of_io = super().get_ap_int_max_w()
+        # decoupled mode weight stream
         weightstream = self.get_weightstream_width()
-        return max([weightstream, temp_value])
+        # single PE weight entry
+        weight_bits = self.get_weight_datatype().bitwidth()
+        simd = self.get_nodeattr("SIMD")
+        single_pe_w = simd * weight_bits
+        return max([weightstream, max_of_io, single_pe_w])
 
     def get_folded_input_shape(self):
         mw = self.get_nodeattr("MW")
@@ -441,6 +566,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # set threshold datatype (and accumulator datatype implicitly)
             min_threshold = thresholds.min()
             max_threshold = thresholds.max()
+            # clip threshold values
+            clip_upper = None
+            clip_lower = None
+            if max_threshold > acc_max + 1:
+                clip_upper = acc_max + 1
+            if min_threshold < acc_min:
+                clip_lower = acc_min
+            if (clip_lower is not None) or (clip_upper is not None):
+                warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
+                thresholds = np.clip(thresholds, clip_lower, clip_upper)
+                model.set_initializer(self.onnx_node.input[2], thresholds)
+                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                min_threshold = thresholds.min()
+                max_threshold = thresholds.max()
             # get range required by threshold values
             tdt_min = min(acc_min, min_threshold)
             tdt_max = max(acc_max, max_threshold)
@@ -451,9 +590,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     tdt = DataType.get_smallest_possible(0 - tdt_max)
             else:
                 tdt = DataType.get_smallest_possible(tdt_max)
-            assert np.vectorize(tdt.allowed)(
-                threshold_tensor
-            ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+            assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
+                "Thresholds in %s can't be expressed with type %s"
+                % (self.onnx_node.name, str(tdt))
+            )
             self.set_nodeattr("accDataType", tdt.name)
         else:
             if acc_min < 0:
@@ -525,11 +665,17 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def generate_params(self, model, path):
-        mem_mode = self.get_nodeattr("mem_mode")
-        code_gen_dir = path
-        # weights, if not external
-        weights = model.get_initializer(self.onnx_node.input[1])
+    def make_weight_file(self, weights, weight_file_mode, weight_file_name):
+        """Produce a file containing given weights in appropriate format for this
+        layer. This file can be used for either synthesis or run-time reconfig
+        of weights.
+
+        Arguments:
+        * weights : numpy array with weights to be put into the file
+        * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
+          decoupled_runtime}
+        * weight_file_name : filename for the weight file to be generated
+        """
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hls_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
@@ -537,15 +683,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # so use it as such for weight generation
         if self.get_weight_datatype() == DataType.BIPOLAR:
             export_wdt = DataType.BINARY
-
-        if mem_mode == "const":
-            """Saves weights into params.h"""
+        if weight_file_mode == "hls_header":
             weight_hls_code = numpy_to_hls_code(
                 weight_tensor, export_wdt, "weights", True, True
             )
-            # write weights into params.h
-            f_weights = open("{}/params.h".format(code_gen_dir), "w")
-
+            # write weights into C++ header file as dictated by finn-hlslib
+            f_weights = open(weight_file_name, "w")
             if export_wdt.bitwidth() != 1:
                 f_weights.write(
                     "const FixedPointWeights<{},{},{},{}> weights = ".format(
@@ -565,17 +708,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 )
             f_weights.write(weight_hls_code)
             f_weights.close()
-
-        elif mem_mode == "decoupled" or mem_mode == "external":
-            """Saves weights in corresponding file format for cppsim or rtlsim"""
+        elif "decoupled" in weight_file_mode:
+            # create a weight stream for various flavors of decoupled mode:
             # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
             weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
-
             # reverse SIMD flip for saving weights in .npy
             weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
             # PE flip for saving weights in .dat
             weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
-
             # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
@@ -589,14 +729,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 1, -1, pe * simd
             )
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
-
-            """Saves weights into .npy file"""
-            np.save(
-                os.path.join(code_gen_dir, "weights.npy"), weight_tensor_simd_flipped
-            )
-
-            if mem_mode == "decoupled":
-                """Saves weights into .dat file"""
+            if weight_file_mode == "decoupled_npy":
+                # save weight stream into npy for cppsim
+                np.save(weight_file_name, weight_tensor_simd_flipped)
+            elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_weightstream_width()
                 # pad to nearest 4 bits to get hex strings
@@ -607,9 +743,62 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 # add zeroes to pad out file to 1024 entries
                 weight_stream = weight_tensor_pe_flipped.flatten()
                 weight_stream = weight_stream.copy()
-                with open("{}/memblock_0.dat".format(code_gen_dir), "a+") as f:
+                with open(weight_file_name, "w") as f:
                     for val in weight_stream:
                         f.write(val + "\n")
+            elif weight_file_mode == "decoupled_runtime":
+                # memstream axi-lite interface will map each mem line to
+                # one or multiple 32-bit words
+                weight_width = self.get_weightstream_width()
+                words_per_memwidth = 2 ** math.ceil(math.log2(weight_width / 32))
+                if words_per_memwidth < 1:
+                    words_per_memwidth = 1
+                weight_width_padded = words_per_memwidth * 32
+                # first, pack and ensure padding to 32 bits
+                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+                    weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+                )
+                weight_stream = weight_tensor_pe_flipped.flatten()
+                weight_stream = weight_stream.copy()
+                with open(weight_file_name, "w") as f:
+                    for val in weight_stream:
+                        # split into groups of 8 hex digits (= 32 bits)
+                        words_32b = textwrap.wrap(val, 8)
+                        words_32b.reverse()
+                        for word_32b in words_32b:
+                            f.write(word_32b + "\n")
+            else:
+                raise Exception("Unknown weight_file_mode")
+
+        else:
+            raise Exception("Unknown weight_file_mode")
+
+    def generate_params(self, model, path):
+        mem_mode = self.get_nodeattr("mem_mode")
+        code_gen_dir = path
+        # weights, if not external
+        weights = model.get_initializer(self.onnx_node.input[1])
+        if mem_mode == "const":
+            # save hlslib-compatible weights in params.h
+            weight_filename = "{}/params.h".format(code_gen_dir)
+            self.make_weight_file(weights, "hls_header", weight_filename)
+        elif mem_mode == "decoupled" or mem_mode == "external":
+            weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
+            # save decoupled weights for cppsim
+            self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
+            if mem_mode == "decoupled":
+                # also save weights as Verilog .dat file
+                weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+                ram_style = self.get_nodeattr("ram_style")
+                if ram_style == "ultra":
+                    # UltraRAM must have no memory initializer, or only zeroes
+                    # otherwise BRAM will be inferred instead of URAM
+                    # as a workaround we provide a zero-weight init here
+                    # TODO handle this in Verilog with an if statement
+                    weights = np.zeros_like(weights)
+                self.make_weight_file(
+                    weights, "decoupled_verilog_dat", weight_filename_rtl
+                )
         else:
             raise Exception(
                 """Please set mem_mode to "const", "decoupled", or "external",
@@ -633,9 +822,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 # get computed threshold datatype from attribute
                 tdt = DataType[self.get_nodeattr("accDataType")]
 
-                assert np.vectorize(tdt.allowed)(
-                    threshold_tensor
-                ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+                assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
+                    "Thresholds in %s can't be expressed with type %s"
+                    % (self.onnx_node.name, str(tdt))
+                )
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True
                 )
@@ -869,6 +1059,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def docompute(self):
         mem_mode = self.get_nodeattr("mem_mode")
+        map_to_hls_mult_style = {
+            "auto": "ap_resource_dflt()",
+            "lut": "ap_resource_lut()",
+            "dsp": "ap_resource_dsp()",
+        }
         tmpl_args = self.get_template_param_values()
         if self.calc_tmem() == 0:
             odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
@@ -885,7 +1080,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
                     threshs,
-                    self.get_nodeattr("resType"),
+                    map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
             ]
         elif mem_mode == "decoupled" or mem_mode == "external":
@@ -903,7 +1098,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     tmpl_args["TWeightI"],
                     wdtype_hls_str,
                     threshs,
-                    self.get_nodeattr("resType"),
+                    map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
             ]
 
@@ -1042,6 +1237,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if self.get_nodeattr("ram_style") == "ultra":
+                assert (
+                    runtime_writable == 1
+                ), "Layer with URAM weights must have runtime_writeable_weights=1"
             node_name = self.onnx_node.name
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
@@ -1125,6 +1325,21 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 "[get_bd_intf_pins %s/%s/%s]"
                 % (node_name, dout_name, node_name, node_name, dout_name)
             )
+            if runtime_writable:
+                # expose axi lite interface for writeable weights
+                axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
+                cmd.append(
+                    "create_bd_intf_pin -mode Slave "
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
+                    % (node_name, axilite_name)
+                )
+                cmd.append(
+                    "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
+                    "[get_bd_intf_pins %s/%s/%s]"
+                    % (node_name, axilite_name, node_name, strm_inst, axilite_name)
+                )
+                # TODO calculate and pass in segment size here
+                cmd.append("assign_bd_address")
             cmd.append("save_bd_design")
         elif mem_mode == "const":
             # base class impl sufficient for const mode
@@ -1138,4 +1353,33 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "external":
             intf_names["s_axis"] = ["in0_V_V", "weights_V_V"]
+        if mem_mode == "decoupled":
+            # only expose axilite interface if attribute is set
+            runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if runtime_writable:
+                intf_names["axilite"] = ["s_axilite"]
         return intf_names
+
+    def get_op_and_param_counts(self):
+        in_features = self.get_nodeattr("MW")
+        out_features = self.get_nodeattr("MH")
+        weight_bits = self.get_weight_datatype().bitwidth()
+        inp_bits = self.get_input_datatype().bitwidth()
+        num_inp_vec = self.get_nodeattr("numInputVectors")
+        num_repetitions = int(np.prod(num_inp_vec))
+        mac_count = in_features * out_features * num_repetitions
+        # cannonicalize op type: highest bitwidth operand first s.t.
+        # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
+        bw1 = min(inp_bits, weight_bits)
+        bw2 = max(inp_bits, weight_bits)
+        mac_op_type = "op_mac_%dbx%db" % (bw1, bw2)
+        weight_param_type = "param_weight_%db" % (weight_bits)
+        weight_count = in_features * out_features
+        ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
+        if self.get_nodeattr("noActivation") == 0:
+            tdt = DataType[self.get_nodeattr("accDataType")]
+            thres_bits = tdt.bitwidth()
+            thres_param_type = "param_threshold_%db" % (thres_bits)
+            thres_count = out_features
+            ret_dict[thres_param_type] = thres_count
+        return ret_dict

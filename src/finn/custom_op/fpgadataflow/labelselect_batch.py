@@ -31,7 +31,7 @@ import os
 import numpy as np
 
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 from finn.util.basic import roundup_to_integer_multiple
@@ -128,13 +128,6 @@ class LabelSelect_Batch(HLSCustomOp):
 
     def verify_node(self):
         info_messages = []
-        # verify that "domain" is set to "finn"
-        domain_value = self.onnx_node.domain
-        if domain_value == "finn":
-            info_messages.append("Attribute domain is set correctly")
-        else:
-            info_messages.append('Attribute domain should be set to "finn"')
-
         # verify that "backend" is set to "fpgadataflow"
         backend_value = self.get_nodeattr("backend")
         if backend_value == "fpgadataflow":
@@ -260,6 +253,12 @@ class LabelSelect_Batch(HLSCustomOp):
         assert (
             context[node.output[0]].shape == exp_oshape
         ), """Output shape doesn't match expected shape."""
+        # TopK ind output normally uses TensorProto.INT64, which
+        # can cause issues for the node-by-node simulation in FINN
+        # (as the custom DataType system always assumes float containers)
+        # so cast the output to int64
+        ret = context[node.output[0]]
+        context[node.output[0]] = ret.astype(np.int64)
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
@@ -353,3 +352,9 @@ class LabelSelect_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+
+    def get_exp_cycles(self):
+        nlabels = self.get_nodeattr("Labels")
+        pe = self.get_nodeattr("PE")
+        exp_cycles = nlabels / pe
+        return int(exp_cycles)

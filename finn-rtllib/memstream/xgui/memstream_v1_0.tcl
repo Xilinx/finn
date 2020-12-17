@@ -1,14 +1,19 @@
+
+# Loading additional proc with user specified bodies to compute parameter values.
+source [file join [file dirname [file dirname [info script]]] gui/memstream_v1_0.gtcl]
+
 # Definitional proc to organize widgets for parameters.
 proc init_gui { IPINST } {
   ipgui::add_param $IPINST -name "Component_Name"
   #Adding Page
   set Page_0 [ipgui::add_page $IPINST -name "Page 0"]
+  ipgui::add_param $IPINST -name "AXILITE_ADDR_WIDTH" -parent ${Page_0}
   ipgui::add_param $IPINST -name "CONFIG_EN" -parent ${Page_0}
   ipgui::add_param $IPINST -name "MEM_DEPTH" -parent ${Page_0}
   ipgui::add_param $IPINST -name "MEM_INIT" -parent ${Page_0}
   ipgui::add_param $IPINST -name "MEM_WIDTH" -parent ${Page_0}
-  ipgui::add_param $IPINST -name "RAM_STYLE" -parent ${Page_0} -widget comboBox
   ipgui::add_param $IPINST -name "NSTREAMS" -parent ${Page_0}
+  ipgui::add_param $IPINST -name "RAM_STYLE" -parent ${Page_0} -widget comboBox
   ipgui::add_param $IPINST -name "STRM0_DEPTH" -parent ${Page_0}
   ipgui::add_param $IPINST -name "STRM0_OFFSET" -parent ${Page_0}
   ipgui::add_param $IPINST -name "STRM0_WIDTH" -parent ${Page_0}
@@ -29,6 +34,22 @@ proc init_gui { IPINST } {
   ipgui::add_param $IPINST -name "STRM5_WIDTH" -parent ${Page_0}
 
 
+}
+
+proc update_PARAM_VALUE.AXILITE_ADDR_WIDTH { PARAM_VALUE.AXILITE_ADDR_WIDTH PARAM_VALUE.MEM_DEPTH PARAM_VALUE.MEM_WIDTH } {
+	# Procedure called to update AXILITE_ADDR_WIDTH when any of the dependent parameters in the arguments change
+
+	set AXILITE_ADDR_WIDTH ${PARAM_VALUE.AXILITE_ADDR_WIDTH}
+	set MEM_DEPTH ${PARAM_VALUE.MEM_DEPTH}
+	set MEM_WIDTH ${PARAM_VALUE.MEM_WIDTH}
+	set values(MEM_DEPTH) [get_property value $MEM_DEPTH]
+	set values(MEM_WIDTH) [get_property value $MEM_WIDTH]
+	set_property value [gen_USERPARAMETER_AXILITE_ADDR_WIDTH_VALUE $values(MEM_DEPTH) $values(MEM_WIDTH)] $AXILITE_ADDR_WIDTH
+}
+
+proc validate_PARAM_VALUE.AXILITE_ADDR_WIDTH { PARAM_VALUE.AXILITE_ADDR_WIDTH } {
+	# Procedure called to validate AXILITE_ADDR_WIDTH
+	return true
 }
 
 proc update_PARAM_VALUE.CONFIG_EN { PARAM_VALUE.CONFIG_EN } {
@@ -368,3 +389,7 @@ proc update_MODELPARAM_VALUE.STRM5_OFFSET { MODELPARAM_VALUE.STRM5_OFFSET PARAM_
 	set_property value [get_property value ${PARAM_VALUE.STRM5_OFFSET}] ${MODELPARAM_VALUE.STRM5_OFFSET}
 }
 
+proc update_MODELPARAM_VALUE.AXILITE_ADDR_WIDTH { MODELPARAM_VALUE.AXILITE_ADDR_WIDTH PARAM_VALUE.AXILITE_ADDR_WIDTH } {
+	# Procedure called to set VHDL generic/Verilog parameter value(s) based on TCL parameter value
+	set_property value [get_property value ${PARAM_VALUE.AXILITE_ADDR_WIDTH}] ${MODELPARAM_VALUE.AXILITE_ADDR_WIDTH}
+}

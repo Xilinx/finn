@@ -1,15 +1,20 @@
 import os
 import numpy as np
-
+import math
 from onnx import TensorProto, helper
 from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow import HLSCustomOp
-from finn.util.basic import interleave_matrix_outer_dim_from_partitions
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+    calculate_matvec_accumulator_range,
+)
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     rtlsim_output_to_npy,
 )
+import warnings
 
 
 class Vector_Vector_Activate_Batch(HLSCustomOp):
@@ -24,17 +29,83 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             "Dim": ("i", True, 0),
             "Channels": ("i", True, 0),
             "Kernel": ("i", True, 0),
-            "resType": ("s", True, ""),
+            "resType": ("s", False, "auto", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
+            # FINN DataType for accumulator -- auto-computed and updated
+            "accDataType": ("s", False, "INT32"),
             # no-activation mode (produce accumulators)
-            "noActivation": ("i", False, 0),
+            "noActivation": ("i", False, 0, {0, 1}),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def minimize_accumulator_width(self, model):
+        weights = model.get_initializer(self.onnx_node.input[1])
+        k = self.get_nodeattr("Kernel")
+        fm = self.get_nodeattr("Channels")
+        # put weights into the shape expected by calculate_matvec_accumulator_range
+        weights = weights.reshape(fm, k * k).transpose()
+        if len(self.onnx_node.input) > 2:
+            thresholds = model.get_initializer(self.onnx_node.input[2])
+        else:
+            thresholds = None
+        idt = self.get_input_datatype()
+        # calculate minimum and maximum values of accumulator
+        (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
+        if thresholds is not None:
+            threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+            # set threshold datatype (and accumulator datatype implicitly)
+            min_threshold = thresholds.min()
+            max_threshold = thresholds.max()
+            # clip threshold values
+            clip_upper = None
+            clip_lower = None
+            if max_threshold > acc_max + 1:
+                clip_upper = acc_max + 1
+            if min_threshold < acc_min:
+                clip_lower = acc_min
+            if (clip_lower is not None) or (clip_upper is not None):
+                warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
+                thresholds = np.clip(thresholds, clip_lower, clip_upper)
+                model.set_initializer(self.onnx_node.input[2], thresholds)
+                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                min_threshold = thresholds.min()
+                max_threshold = thresholds.max()
+            # get range required by threshold values
+            tdt_min = min(acc_min, min_threshold)
+            tdt_max = max(acc_max, max_threshold)
+            if tdt_min < 0:
+                if abs(tdt_min) > tdt_max:
+                    tdt = DataType.get_smallest_possible(tdt_min)
+                else:
+                    tdt = DataType.get_smallest_possible(0 - tdt_max)
+            else:
+                tdt = DataType.get_smallest_possible(tdt_max)
+            assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
+                "Thresholds in %s can't be expressed with type %s"
+                % (self.onnx_node.name, str(tdt))
+            )
+            self.set_nodeattr("accDataType", tdt.name)
+        else:
+            if acc_min < 0:
+                if abs(acc_min) > acc_max:
+                    adt = DataType.get_smallest_possible(acc_min)
+                else:
+                    adt = DataType.get_smallest_possible(0 - acc_max)
+            else:
+                adt = DataType.get_smallest_possible(acc_max)
+            # ensure a datatype divisible by 8-bits in case this is the last node
+            bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
+            new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
+            adt = DataType[new_adt_name]
+            self.set_nodeattr("accDataType", adt.name)
+            # for no-activation nodes, output dt = acc dt
+            self.set_nodeattr("outputDataType", adt.name)
+        return DataType[self.get_nodeattr("accDataType")]
 
     def calc_wmem(self):
         """Calculates and returns WMEM."""
@@ -71,10 +142,15 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # check input datatype against property
-        idt_name = self.get_input_datatype().name
-        exp_idt_name = self.get_nodeattr("inputDataType")
-        assert exp_idt_name == idt_name, "Bad input DataType for VVAU  node"
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
         # set output datatype from property
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
@@ -253,10 +329,12 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             thresholds = model.get_initializer(self.onnx_node.input[2])
             if thresholds is not None:
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-                tdt = DataType.INT32
-                assert np.vectorize(tdt.allowed)(
-                    threshold_tensor
-                ).all(), "Thresholds are not int"
+                # get computed threshold datatype from attribute
+                tdt = DataType[self.get_nodeattr("accDataType")]
+                assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
+                    "Thresholds in %s can't be expressed with type %s"
+                    % (self.onnx_node.name, str(tdt))
+                )
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True
                 )
@@ -408,6 +486,11 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         )
 
     def docompute(self):
+        map_to_hls_mult_style = {
+            "auto": "ap_resource_dflt()",
+            "lut": "ap_resource_lut()",
+            "dsp": "ap_resource_dsp()",
+        }
         tmpl_args = self.get_template_param_values()
         if self.calc_tmem() == 0:
             odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
@@ -423,7 +506,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                 tmpl_args["TDstI"],
                 tmpl_args["TWeightI"],
                 threshs,
-                self.get_nodeattr("resType"),
+                map_to_hls_mult_style[self.get_nodeattr("resType")],
             )
         ]
 
@@ -504,3 +587,123 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                     "complete dim=3"
                 )
             )
+
+    def bram_estimation(self):
+        """Calculates resource estimation for BRAM"""
+        # TODO add in/out FIFO contributions
+        P = self.get_nodeattr("PE")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        omega = self.calc_wmem()
+        # assuming SDP mode RAMB18s (see UG573 Table 1-10)
+        # since this is HLS memory, not using the full width of a BRAM
+        # assuming memories up to 128 deep get implemented in LUTs
+        if self.calc_wmem() <= 128:
+            return 0
+
+        if W == 1:
+            return math.ceil(omega / 16384) * P
+        elif W == 2:
+            return math.ceil(omega / 8192) * P
+        elif W <= 4:
+            return (math.ceil(omega / 4096)) * (math.ceil(W / 4)) * P
+        elif W <= 9:
+            return (math.ceil(omega / 2048)) * (math.ceil(W / 8)) * P
+        elif W <= 18 or omega > 512:
+            return (math.ceil(omega / 1024)) * (math.ceil(W / 16)) * P
+        else:
+            return (math.ceil(omega / 512)) * (math.ceil(W / 32)) * P
+
+    def bram_efficiency_estimation(self):
+        P = self.get_nodeattr("PE")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        omega = self.calc_wmem()
+        bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
+        wbits = W * P * omega
+        bram16_est_capacity = bram16_est * 36 * 512
+        return wbits / bram16_est_capacity
+
+    def lut_estimation(self):
+        """Calculates resource estimations for LUTs based on:
+        - FINN-R: An End-to-End Deep-Learning Framework for Fast
+        Exploration of Quantized Neural Networks
+        - M. Blott, T. B. Preusser, N. J. Fraser, G. Gambardella, K. O'Brien,
+        Y. Umuroglu, M. Leeser and K. Vissers
+        - 12. Sep 2018
+        """
+        # TODO add in/out FIFO contributions
+        P = self.get_nodeattr("PE")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        # determine tdt with input and weight data types
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        # parameters from experiments in paper mentioned above
+        c0 = 300
+        c1 = 1.1
+        c2 = 0
+        if self.calc_wmem() <= 128:
+            c2 = P * W * math.ceil(self.calc_wmem() / 64)
+
+        # multiplication
+        res_type = self.get_nodeattr("resType")
+        if res_type == "dsp":
+            mult_luts = 0
+        else:
+            mult_luts = (2 * math.ceil((W + A) / 6) - 1) * (W + A)
+        # accumulator
+        k = self.get_nodeattr("Kernel")
+        acc_bits = W + A + math.ceil(math.log(k * k, 2))
+        acc_luts = acc_bits
+        # thresholds and threshold comparators
+        thr_luts = 0
+        comp_luts = 0
+        noact = self.get_nodeattr("noActivation")
+        if noact == 0:
+            odt = self.get_output_datatype()
+            B = odt.bitwidth()
+            thr_luts = (2 ** B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
+            comp_luts = (2 ** B - 1) * acc_bits
+
+        return int(c0 + c1 * (P * (mult_luts + acc_luts + thr_luts + comp_luts)) + c2)
+
+    def dsp_estimation(self):
+        # multiplication
+        P = self.get_nodeattr("PE")
+        res_type = self.get_nodeattr("resType")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        idt = self.get_input_datatype()
+        A = idt.bitwidth()
+        if res_type == "dsp":
+            mult_dsp = P * np.ceil((W + A) / 48)  # TODO: more accurate modelling
+        else:
+            mult_dsp = 0
+        return int(mult_dsp)
+
+    def get_op_and_param_counts(self):
+        k = self.get_nodeattr("Kernel")
+        fm = self.get_nodeattr("Channels")
+        dim = self.get_nodeattr("Dim")
+        weight_bits = self.get_weight_datatype().bitwidth()
+        inp_bits = self.get_input_datatype().bitwidth()
+        num_repetitions = int(dim * dim)
+        mac_count = k * k * fm * num_repetitions
+        # cannonicalize op type: highest bitwidth operand first s.t.
+        # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
+        bw1 = min(inp_bits, weight_bits)
+        bw2 = max(inp_bits, weight_bits)
+        mac_op_type = "op_mac_%dbx%db" % (bw1, bw2)
+        weight_param_type = "param_weight_%db" % (weight_bits)
+        weight_count = k * k * fm
+        ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
+        if self.get_nodeattr("noActivation") == 0:
+            tdt = DataType[self.get_nodeattr("accDataType")]
+            thres_bits = tdt.bitwidth()
+            thres_param_type = "param_threshold_%db" % (thres_bits)
+            thres_count = fm
+            ret_dict[thres_param_type] = thres_count
+        return ret_dict

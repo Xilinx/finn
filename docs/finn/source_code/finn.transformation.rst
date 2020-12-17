@@ -40,6 +40,15 @@ finn.transformation.bipolar\_to\_xnor
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.change\_datalayout
+--------------------------------------------
+
+.. automodule:: finn.transformation.change_datalayout
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 finn.transformation.double\_to\_single\_float
 ----------------------------------------------------
 
@@ -63,6 +72,14 @@ finn.transformation.general
    :members:
    :undoc-members:
    :show-inheritance:
+
+finn.transformation.infer\_data\_layouts
+-------------------------------------------
+
+.. automodule:: finn.transformation.infer_data_layouts
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 finn.transformation.infer\_datatypes
 -------------------------------------------
@@ -95,6 +112,16 @@ finn.transformation.lower\_convs\_to\_matmul
    :members:
    :undoc-members:
    :show-inheritance:
+
+
+finn.transformation.merge\_onnx\_models
+----------------------------------------
+
+.. automodule:: finn.transformation.merge_onnx_models
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 
 finn.transformation.move\_reshape
 ----------------------------------------

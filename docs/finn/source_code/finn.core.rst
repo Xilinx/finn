@@ -5,6 +5,14 @@ Core
 Modules
 =======
 
+finn.core.data\_layout
+-------------------------
+
+.. automodule:: finn.core.data_layout
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.core.datatype
 -------------------------
 

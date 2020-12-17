@@ -4,9 +4,8 @@
 Tutorials
 *********
 
-.. note:: **This website is currently under construction.**
-
-FINN provides several Jupyter notebooks that can help to get familiar with the basics, the internals and the end-to-end flow in FINN. All Jupyter notebooks can be found in the repo in the `notebook folder <https://github.com/Xilinx/finn/tree/master/notebooks>`_.
+FINN provides several Jupyter notebooks that can help to get familiar with the basics, the internals and the end-to-end flow in FINN.
+All Jupyter notebooks can be found in the repo in the `notebook folder <https://github.com/Xilinx/finn/tree/master/notebooks>`_.
 
 Basics
 ======
@@ -19,7 +18,17 @@ The notebooks in this folder should give a basic insight into FINN, how to get s
 
 * 1_brevitas_network_import
 
-  * This notebook shows how to import a brevitas network and prepare it for the FINN flow.
+  * This notebook shows how to import a Brevitas network and prepare it for the FINN flow.
+
+End-to-End Flow
+===============
+
+There are two groups of notebooks currently available under `the end2end_example directory <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example>`_ :
+
+* ``cybersecurity`` shows how to train a quantized MLP with Brevitas and deploy it with FINN using the :ref:`command_line` build system.
+
+* ``bnn-pynq`` shows the internal compiler steps that take pretrained Brevitas QNNs on MNIST and CIFAR-10 and generate the FPGA accelerator.
+
 
 Advanced
 ========
@@ -33,20 +42,3 @@ The notebooks in this folder are more developer oriented. They should help you t
 * 1_custom_transformation_pass
 
   * This notebook explains what a transformation pass is and how to write one for FINN.
-
-End-to-End Flow
-===============
-
-This notebook shows the FINN end-to-end flow step by step using an example of a simple, binarized, fully-connected network trained on the MNIST data set. Starting with the brevitas export and taking this particular network all the way down to hardware by using a specific sequence of transformations.
-
-* cnv_end2end_example
-
-  * This notebook takes a simple convolutional model step-by-step from a trained Brevitas net to a running FPGA bitfile.
-
-* tfc_end2end_example
-
-  * This notebook takes a simple fully-connected  model step-by-step from a trained Brevitas net to a running FPGA bitfile.
-
-* tfc_end2end_verification
-
-  * This notebook runs parellel to the tfc_end2end_example notebook above, and shows how the output of each step can be verified.

@@ -12,17 +12,19 @@ inference on FPGAs.
 It specifically targets <a href="https://github.com/maltanar/qnn-inference-examples" target="_blank">quantized neural
 networks</a>, with emphasis on
 generating dataflow-style architectures customized for each network.
-The resulting FPGA accelerators can yield very high classification rates, or conversely be run with a slow clock for very low power consumption.
+The resulting FPGA accelerators are highly efficient and can yield high throughput and low latency.
 The framework is fully open-source in order to give a higher degree of flexibility, and is intended to enable neural network research spanning several layers of the software/hardware abstraction stack.
 
-For more general information about FINN, please visit the [project page](https://xilinx.github.io/finn/), check out the [publications](https://xilinx.github.io/finn/publications) or some of the [demos](https://xilinx.github.io/finn/demos).
+We have a separate repository [finn-examples](https://github.com/Xilinx/finn-examples) that houses pre-built examples for several neural networks.
+For more general information about FINN, please visit the [project page](https://xilinx.github.io/finn/) and check out the [publications](https://xilinx.github.io/finn/publications).
 
 ## Getting Started
 
-Please see the [Getting Started](https://finn.readthedocs.io/en/latest/getting_started.html) page for more information on requirements, installation, and how to run FINN in different modes. Due to the complex nature of the dependencies of the project, we only support Docker-based deployment at this time.
+Please see the [Getting Started](https://finn.readthedocs.io/en/latest/getting_started.html) page for more information on requirements, installation, and how to run FINN in different modes. Due to the complex nature of the dependencies of the project, **we only support Docker-based execution of the FINN compiler at this time**.
 
 ## What's New in FINN?
 
+* **2020-12-17:** v0.5b (beta) is released, with a new [examples repo](https://github.com/Xilinx/finn-examples) including MobileNet-v1. Read more on the <a href="https://xilinx.github.io/finn/2020/12/17/finn-v05b-beta-is-released.html">release blog post</a>.
 * **2020-09-21:** v0.4b (beta) is released. Read more on the <a href="https://xilinx.github.io/finn/2020/09/21/finn-v04b-beta-is-released.html">release blog post</a>.
 * **2020-05-08:** v0.3b (beta) is released, with initial support for convolutions, parallel transformations, more flexible memory allocation for MVAUs, throughput testing and many other smaller improvements and bugfixes. Read more on the <a href="https://xilinx.github.io/finn/2020/05/08/finn-v03b-beta-is-released.html">release blog post</a>.
 * **2020-04-15:** FINN v0.2.1b (beta): use fixed commit versions for dependency repos, otherwise identical to 0.2b

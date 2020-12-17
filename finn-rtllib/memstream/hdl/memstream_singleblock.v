@@ -65,6 +65,7 @@ module memstream_singleblock
 	input config_we,
 	input [MEM_WIDTH-1:0] config_d0,
 	output [MEM_WIDTH-1:0] config_q0,
+    output config_rack,
 
     //multiple output AXI Streams, TDATA width rounded to multiple of 8 bits
     input m_axis_0_tready,
@@ -96,6 +97,8 @@ wire strm1_incr_en;
 
 assign strm0_incr_en = m_axis_0_tready | ~m_axis_0_tvalid;
 assign strm1_incr_en = m_axis_1_tready | ~m_axis_1_tvalid;
+
+reg rack_shift[1:0];
 
 generate
 if(MEM_DEPTH > 1) begin: use_ram
@@ -135,9 +138,9 @@ ram
 	.addra(config_address[BLOCKADRWIDTH-1:0]),
     .wdataa(config_d0),
 
-    .enb(strm0_incr_en),
-    .enqb(strm0_incr_en),
-	.addrb(strm0_addr),
+    .enb(strm0_incr_en | config_ce),
+    .enqb(strm0_incr_en | rack_shift[0]),
+	.addrb(config_ce ? config_address[BLOCKADRWIDTH-1:0] : strm0_addr),
 	.rdqb(m_axis_0_tdata)
 );
 
@@ -170,7 +173,7 @@ ram
 
 	.wea(config_we),
     .ena(strm0_incr_en | config_ce),
-    .enqa(strm0_incr_en | config_ce),
+    .enqa(strm0_incr_en | config_ce_r),
 	.addra(config_we ? config_address[BLOCKADRWIDTH-1:0] : strm0_addr),
 	.wdataa(config_d0),
 	.rdqa(m_axis_0_tdata),
@@ -191,6 +194,10 @@ reg [MEM_WIDTH-1:0] singleval[0:0];
 initial begin
     $readmemh({MEM_INIT,"memblock_0.dat"}, singleval, 0, 0);
 end
+
+always @(posedge aclk)
+    if(config_ce & config_we)
+        singleval[0] <= config_d0;
 
 assign m_axis_0_tdata = singleval[0];
 assign m_axis_1_tdata = singleval[0];
@@ -224,6 +231,12 @@ always @(posedge aclk) begin
     end
 end
 
+always @(posedge aclk) begin
+    rack_shift[0] <= config_ce & ~config_we;
+    rack_shift[1] <= rack_shift[0];
+end
+
+assign config_rack = rack_shift[1];
 assign config_q0 = m_axis_0_tdata;
 
 endmodule

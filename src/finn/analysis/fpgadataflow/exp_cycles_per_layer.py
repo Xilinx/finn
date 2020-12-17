@@ -41,8 +41,7 @@ def exp_cycles_per_layer(model):
     cycle_dict = {}
     for node in model.graph.node:
         if is_fpgadataflow_node(node) is True:
-            op_type = node.op_type
-            inst = registry.custom_op[op_type](node)
-            cycle_dict[node.name] = inst.get_exp_cycles()
+            inst = registry.getCustomOp(node)
+            cycle_dict[node.name] = int(inst.get_exp_cycles())
 
     return cycle_dict
