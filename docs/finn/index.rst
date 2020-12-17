@@ -6,7 +6,7 @@ Welcome to the FINN Read the Docs website!
 
 What is FINN?
 =============
-.. image:: https://xilinx.github.io/finn/img/finn-stack.png
+.. image:: img/finn-stack.png
    :scale: 40%
    :align: center
 
