@@ -25,7 +25,7 @@ accuracy on ImageNet-1K and runs at 1800 FPS on the Alveo U250.
 You can [rebuild it from source](https://github.com/Xilinx/finn-examples/tree/main/build/mobilenet-v1)
 with the scripts provided in finn-examples.
 
-<img src="https://xilinx.github.io/finn/img/cybsec.jpg" width="300" align="center"/>
+<img src="https://xilinx.github.io/finn/img/cybsec.jpeg" width="300" align="center"/>
 
 **New tutorial: train and deploy a cybersecurity MLP.** v0.5b adds a new [three-part tutorial](https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/cybersecurity)
 Jupyter on first training a quantized MLP with Brevitas, then deploying this
