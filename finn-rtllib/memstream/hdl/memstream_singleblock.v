@@ -98,7 +98,7 @@ wire strm1_incr_en;
 assign strm0_incr_en = m_axis_0_tready | ~m_axis_0_tvalid;
 assign strm1_incr_en = m_axis_1_tready | ~m_axis_1_tvalid;
 
-reg rack_shift[1:0]; 
+reg rack_shift[1:0];
 
 generate
 if(MEM_DEPTH > 1) begin: use_ram

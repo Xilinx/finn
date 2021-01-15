@@ -28,8 +28,6 @@
 
 import pytest
 import numpy as np
-import math
-import random
 from onnx import TensorProto, helper
 
 from finn.custom_op.registry import getCustomOp
@@ -43,45 +41,53 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.util.test import load_test_checkpoint_or_skip
 
+
 def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
 
-    W = np.random.randint(wdt.min(), wdt.max()+1, size=(ch, ch))
+    W = np.random.randint(wdt.min(), wdt.max() + 1, size=(ch, ch))
     W = W.astype(np.float32)
 
-    T = np.random.randint(tdt.min(), tdt.max()+1, size=(ch, 2**adt.bitwidth()-1))
+    T = np.random.randint(tdt.min(), tdt.max() + 1, size=(ch, 2 ** adt.bitwidth() - 1))
     T = T.astype(np.float32)
 
     tensors = []
     tensors.append(helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ch]))
     for i in range(1, nnodes):
-        inter = helper.make_tensor_value_info("inter_"+str(i), TensorProto.FLOAT, [1, ch])
+        inter = helper.make_tensor_value_info(
+            "inter_" + str(i), TensorProto.FLOAT, [1, ch]
+        )
         tensors.append(inter)
     tensors.append(helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ch]))
-        
+
     FCLayer_nodes = []
     for i in range(nnodes):
         pe = 1
         simd = 1
-        FCLayer_nodes += [helper.make_node(
-            "StreamingFCLayer_Batch",
-            [tensors[i].name, "weights_"+str(i), "thresh_"+str(i)],
-            [tensors[i+1].name],
-            domain="finn.custom_op.fpgadataflow",
-            backend="fpgadataflow",
-            MW=ch,
-            MH=ch,
-            SIMD=simd,
-            PE=pe,
-            inputDataType=adt.name,
-            weightDataType=wdt.name,
-            outputDataType=adt.name,
-            ActVal=0,
-            binaryXnorMode=0,
-            noActivation=0,
-        )]
+        FCLayer_nodes += [
+            helper.make_node(
+                "StreamingFCLayer_Batch",
+                [tensors[i].name, "weights_" + str(i), "thresh_" + str(i)],
+                [tensors[i + 1].name],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                MW=ch,
+                MH=ch,
+                SIMD=simd,
+                PE=pe,
+                inputDataType=adt.name,
+                weightDataType=wdt.name,
+                outputDataType=adt.name,
+                ActVal=0,
+                binaryXnorMode=0,
+                noActivation=0,
+            )
+        ]
 
     graph = helper.make_graph(
-        nodes=FCLayer_nodes, name="fclayer_graph", inputs=[tensors[0]], outputs=[tensors[-1]]
+        nodes=FCLayer_nodes,
+        name="fclayer_graph",
+        inputs=[tensors[0]],
+        outputs=[tensors[-1]],
     )
 
     model = helper.make_model(graph, producer_name="fclayer-model")
@@ -89,15 +95,16 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
 
     model.set_tensor_datatype("inp", adt)
     model.set_tensor_datatype("outp", adt)
-    
-    for i in range(1, nnodes+1):
+
+    for i in range(1, nnodes + 1):
         model.graph.value_info.append(tensors[i])
-        model.set_initializer("weights_"+str(i-1), W)
-        model.set_initializer("thresh_"+str(i-1), T)
-        model.set_tensor_datatype("weights_"+str(i-1), wdt)
-        model.set_tensor_datatype("thresh_"+str(i-1), tdt)
+        model.set_initializer("weights_" + str(i - 1), W)
+        model.set_initializer("thresh_" + str(i - 1), T)
+        model.set_tensor_datatype("weights_" + str(i - 1), wdt)
+        model.set_tensor_datatype("thresh_" + str(i - 1), tdt)
 
     return model
+
 
 # desired frames per second
 @pytest.mark.parametrize("target_fps", [30, 10 ** 5, 10 ** 7])
@@ -105,8 +112,10 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
 @pytest.mark.parametrize("platform", ["Pynq-Z1", "Ultra96", "U200"])
 def test_set_folding(target_fps, platform):
 
-    model = make_multi_fclayer_model(128, DataType.INT4, DataType.INT2, DataType.INT16, 5)
-    
+    model = make_multi_fclayer_model(
+        128, DataType.INT4, DataType.INT2, DataType.INT16, 5
+    )
+
     model = model.transform(GiveUniqueNodeNames())
     parent_model = model.transform(CreateDataflowPartition())
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
@@ -125,7 +134,6 @@ def test_set_folding(target_fps, platform):
     min_cycles["Pynq-Z1"] = 128
     min_cycles["Ultra96"] = 64
     min_cycles["U200"] = 1
-    
 
     assert achieved_cycles_per_frame <= max(
         min_cycles[platform], target_cycles_per_frame

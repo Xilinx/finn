@@ -38,7 +38,6 @@ proc init_gui { IPINST } {
 
 proc update_PARAM_VALUE.AXILITE_ADDR_WIDTH { PARAM_VALUE.AXILITE_ADDR_WIDTH PARAM_VALUE.MEM_DEPTH PARAM_VALUE.MEM_WIDTH } {
 	# Procedure called to update AXILITE_ADDR_WIDTH when any of the dependent parameters in the arguments change
-	
 	set AXILITE_ADDR_WIDTH ${PARAM_VALUE.AXILITE_ADDR_WIDTH}
 	set MEM_DEPTH ${PARAM_VALUE.MEM_DEPTH}
 	set MEM_WIDTH ${PARAM_VALUE.MEM_WIDTH}
@@ -393,4 +392,3 @@ proc update_MODELPARAM_VALUE.AXILITE_ADDR_WIDTH { MODELPARAM_VALUE.AXILITE_ADDR_
 	# Procedure called to set VHDL generic/Verilog parameter value(s) based on TCL parameter value
 	set_property value [get_property value ${PARAM_VALUE.AXILITE_ADDR_WIDTH}] ${MODELPARAM_VALUE.AXILITE_ADDR_WIDTH}
 }
-

@@ -179,7 +179,6 @@ task axi_read;
                     data = data | (rdata<<(32*j));
                 end
             join
-            
             @(posedge clk);
         end
     end
@@ -270,7 +269,6 @@ memstream
     MEM_WIDTH,
     ".",
     "auto",
-    
     //widths per stream
     STRM0_WIDTH,
     STRM1_WIDTH,
@@ -278,7 +276,6 @@ memstream
     STRM3_WIDTH,
     STRM4_WIDTH,
     STRM5_WIDTH,
-    
     //depths per stream
     STRM0_DEPTH,
     STRM1_DEPTH,
@@ -286,7 +283,6 @@ memstream
     STRM3_DEPTH,
     STRM4_DEPTH,
     STRM5_DEPTH,
-    
     //offsets for each stream
     STRM0_OFFSET,
     STRM1_OFFSET,
@@ -332,32 +328,26 @@ dut
     m_axis_0_tready,
     m_axis_0_tvalid,
     m_axis_0_tdata,
-    
     m_axis_1_afull,
     m_axis_1_tready,
     m_axis_1_tvalid,
     m_axis_1_tdata,
-    
     m_axis_2_afull,
     m_axis_2_tready,
     m_axis_2_tvalid,
     m_axis_2_tdata,
-    
     m_axis_3_afull,
     m_axis_3_tready,
     m_axis_3_tvalid,
     m_axis_3_tdata,
-    
     m_axis_4_afull,
     m_axis_4_tready,
     m_axis_4_tvalid,
     m_axis_4_tdata,
-    
     m_axis_5_afull,
     m_axis_5_tready,
     m_axis_5_tvalid,
     m_axis_5_tdata
-    
 
 );
 
@@ -406,7 +396,6 @@ initial begin
 				end
 			end
 		end
-		
 		//check stream 2
 	    begin
 		    $display("Starting stream 2 checker");

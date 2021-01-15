@@ -127,7 +127,7 @@ always @(posedge aclk or negedge aresetn)
 always @(*) begin
     internal_waddr = awaddr >> $clog2(DATA_WIDTH/8);
     internal_wdata = wdata;
-    internal_wen = (state == STATE_IDLE) & awvalid & wvalid; 
+    internal_wen = (state == STATE_IDLE) & awvalid & wvalid;
 end
 
 always @(posedge aclk) begin
@@ -208,4 +208,3 @@ always @(posedge aclk or negedge aresetn)
     end
 
 endmodule
-
