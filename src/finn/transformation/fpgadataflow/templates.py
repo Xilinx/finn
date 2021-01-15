@@ -89,208 +89,6 @@ make %s
 cd %s
 """
 
-pynq_driver_template = """
-import argparse
-import os
-from pynq import Overlay
-import numpy as np
-from pynq import allocate
-import time
-from finn.util.data_packing import (
-    finnpy_to_packed_bytearray,
-    packed_bytearray_to_finnpy
-)
-from finn.core.datatype import DataType
-from pynq.ps import Clocks
-
-class FINNAccelDriver():
-    def __init__(self, N, bitfile, platform="$PLATFORM$"):
-        \"\"\"Instantiate the FINN accelerator driver.
-        Gets batchsize (N) as integer and path to bitfile as string.\"\"\"
-        self.platform = platform
-        self.N = N
-        # input FINN DataType
-        self.idt = $INPUT_FINN_DATATYPE$
-        # output FINN DataType
-        self.odt = $OUTPUT_FINN_DATATYPE$
-        # input and output shapes
-        self.ishape_normal = $INPUT_SHAPE_NORMAL$
-        self.oshape_normal = $OUTPUT_SHAPE_NORMAL$
-        self.ishape_folded = $INPUT_SHAPE_FOLDED$
-        self.oshape_folded = $OUTPUT_SHAPE_FOLDED$
-        self.ishape_packed = $INPUT_SHAPE_PACKED$   # datatype np.uint8
-        self.oshape_packed = $OUTPUT_SHAPE_PACKED$  # datatype np.uint8
-        # load bitfile and set up accelerator
-        self.ol = Overlay(bitfile)
-        # neuron folding factor of output = iterations per sample
-        self.itersPerSample = self.oshape_packed[-2]
-        # clock frequency as specified by user
-        self.fclk_mhz = $CLOCK_FREQ_MHZ$
-        if self.platform == "alveo":
-            self.idma = self.ol.idma0
-            self.odma = self.ol.odma0
-        elif self.platform == "zynq-iodma":
-            self.idma = self.ol.idma0
-            self.odma = self.ol.odma0
-            # set the clock frequency as specified by user during transformations
-            if self.fclk_mhz > 0:
-                Clocks.$CLK_NAME$ = self.fclk_mhz
-        else:
-            raise ValueError("Supported platforms are zynq-iodma alveo")
-
-        # allocate a PYNQ buffer for the packed input and buffer
-        if self.platform == "alveo":
-            self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8)
-            self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8)
-        else:
-            self.ibuf_packed_device = allocate(shape=self.ishape_packed, dtype=np.uint8, cacheable=True)
-            self.obuf_packed_device = allocate(shape=self.oshape_packed, dtype=np.uint8, cacheable=True)
-
-    def fold_input(self, ibuf_normal):
-        \"\"\"Reshapes input in desired shape.
-        Gets input data (ibuf_normal), checks if data is in expected normal shape.
-        Returns folded input.\"\"\"
-        # ensure that shape is as expected
-        assert ibuf_normal.shape == self.ishape_normal
-        # convert to folded form
-        ibuf_folded = ibuf_normal.reshape(self.ishape_folded)
-        return ibuf_folded
-
-    def pack_input(self, ibuf_folded):
-        \"\"\"Packs folded input and reverses both SIMD dim and endianness.
-        Gets input data in folded shape and returns packed input data.\"\"\"
-        ibuf_packed = finnpy_to_packed_bytearray(
-            ibuf_folded, self.idt, reverse_endian=True, reverse_inner=True
-        )
-        return ibuf_packed
-
-    def unpack_output(self, obuf_packed):
-        \"\"\"Unpacks the packed output buffer from accelerator.
-        Gets packed output and returns output data in folded shape.\"\"\"
-        obuf_folded = packed_bytearray_to_finnpy(
-            obuf_packed, self.odt, self.oshape_folded, reverse_endian=True, reverse_inner=True
-        )
-        return obuf_folded
-
-    def unfold_output(self, obuf_folded):
-        \"\"\"Unfolds output data to normal shape.
-        Gets folded output data and returns output data in normal shape.\"\"\"
-        obuf_normal = obuf_folded.reshape(self.oshape_normal)
-        return obuf_normal
-
-    def copy_input_data_to_device(self, data):
-        \"\"\"Copies given input data to PYNQ buffer.\"\"\"
-        np.copyto(self.ibuf_packed_device, data)
-        self.ibuf_packed_device.flush()
-
-    def copy_output_data_from_device(self, data):
-        \"\"\"Copies PYNQ output buffer from device.\"\"\"
-        self.obuf_packed_device.invalidate()
-        np.copyto(data, self.obuf_packed_device)
-
-    def execute(self):
-        \"\"\"Executes accelerator by setting up the DMA(s) and
-        waiting until all transfers/calls complete. Uses only member variables and
-        returns nothing.\"\"\"
-        if self.platform == "zynq-iodma":
-            # manually launch IODMAs since signatures are missing
-            self.idma.write(0x10, self.ibuf_packed_device.device_address)
-            self.idma.write(0x1c, self.N)
-            self.odma.write(0x10, self.obuf_packed_device.device_address)
-            self.odma.write(0x1c, self.N)
-            self.idma.write(0x00, 1)
-            self.odma.write(0x00, 1)
-            # wait until output IODMA is finished
-            status = self.odma.read(0x00)
-            while status & 0x2 == 0:
-                status = self.odma.read(0x00)
-        elif self.platform == "alveo":
-            idma_handle = self.idma.start_sw(self.ibuf_packed_device, self.N)
-            odma_handle = self.odma.start_sw(self.obuf_packed_device, self.N)
-            odma_handle.wait()
-
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Set exec mode, batchsize N, bitfile name, inputfile name and outputfile name')
-    parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
-    parser.add_argument('--platform', help='Target platform: zynq-iodma alveo', default="$PLATFORM$")
-    parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
-    parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
-    parser.add_argument('--inputfile', help='name of input npy file (i.e. "input.npy")', default="input.npy")
-    parser.add_argument('--outputfile', help='name of output npy file (i.e. "output.npy")', default="output.npy")
-    # parse arguments
-    args = parser.parse_args()
-    exec_mode = args.exec_mode
-    platform = args.platform
-    N = args.batchsize
-    bitfile = args.bitfile
-    inputfile = args.inputfile
-    outputfile = args.outputfile
-
-    # instantiate FINN accelerator driver and pass batchsize and bitfile
-    finnDriver = FINNAccelDriver(N, bitfile, platform)
-
-    # for the remote execution the data from the input npy file has to be loaded,
-    # packed and copied to the PYNQ buffer
-    if exec_mode == "execute":
-        # remove old output file to prevent reusing old output
-        # in case execution fails
-        try:
-            os.remove(outputfile)
-        except FileNotFoundError:
-            pass
-        # load desired input .npy file
-        ibuf_normal = np.load(inputfile)
-        ibuf_folded = finnDriver.fold_input(ibuf_normal)
-        ibuf_packed = finnDriver.pack_input(ibuf_folded)
-        finnDriver.copy_input_data_to_device(ibuf_packed)
-    elif exec_mode != "throughput_test":
-        raise Exception("Exec mode has to be set to remote_pynq or throughput_test")
-
-    # for the throughput test the runtime of the network has to be measured
-    if exec_mode == "throughput_test":
-        # remove old metrics file
-        try:
-            os.remove("nw_metrics.txt")
-        except FileNotFoundError:
-            pass
-        # dictionary for results of throughput test
-        res={}
-        # measure runtime of network
-        start = time.time()
-
-    # execute accelerator
-    finnDriver.execute()
-
-    # measure run time and fill dictionary with results of the throughput test
-    if exec_mode == "throughput_test":
-        end = time.time()
-        runtime = end - start
-        res["runtime[ms]"] = runtime*1000
-        res["throughput[images/s]"] = N / runtime
-        res["DRAM_in_bandwidth[Mb/s]"] = np.prod(finnDriver.ishape_packed)*0.000001 / runtime
-        res["DRAM_out_bandwidth[Mb/s]"] = np.prod(finnDriver.oshape_packed)*0.000001 / runtime
-        if platform != "alveo":
-            res["fclk[mhz]"] = Clocks.fclk0_mhz
-        else:
-            res["fclk[mhz]"] = finnDriver.fclk_mhz
-        res["N"] = N
-        file = open("nw_metrics.txt", "w")
-        file.write(str(res))
-        file.close()
-
-    # if execution is selected unpack, unfold and save output to output npy file
-    else:
-        obuf_packed = np.empty_like(finnDriver.obuf_packed_device)
-        finnDriver.copy_output_data_from_device(obuf_packed)
-        obuf_folded = finnDriver.unpack_output(obuf_packed)
-        obuf_normal = finnDriver.unfold_output(obuf_folded)
-        np.save(outputfile, obuf_normal)
-
-
-"""
-
 custom_zynq_shell_template = """
 set FREQ_MHZ %s
 set NUM_AXILITE %d
@@ -347,8 +145,8 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
 create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_0
 create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 smartconnect_0
 #set number of axilite interfaces, and number of axi master interfaces
-set_property -dict [list CONFIG.NUM_SI $NUM_AXILITE] [get_bd_cells smartconnect_0]
-set_property -dict [list CONFIG.NUM_MI $NUM_AXIMM] [get_bd_cells axi_interconnect_0]
+set_property -dict [list CONFIG.NUM_SI $NUM_AXIMM] [get_bd_cells smartconnect_0]
+set_property -dict [list CONFIG.NUM_MI $NUM_AXILITE] [get_bd_cells axi_interconnect_0]
 
 #create reset controller and connect interconnects to PS
 if {$ZYNQ_TYPE == "zynq_us+"} {
@@ -407,12 +205,13 @@ set_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]
 
 # out-of-context synth can't be used for bitstream generation
 # set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} -value {-mode out_of_context} -objects [get_runs synth_1]
-launch_runs -to_step write_bitstream impl_1 -jobs %d
+launch_runs -to_step write_bitstream impl_1
 wait_on_run [get_runs impl_1]
 
 # generate synthesis report
-open_run synth_1 -name synth_1
+open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -format xml
+close_project
 """
 
 alveo_run_sh_template = """#!/bin/bash
@@ -435,56 +234,4 @@ vitis_gen_xml_report_tcl_template = """
 open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/synth_report.xml -format xml
-"""
-
-pynq_validation_template = """
-import argparse
-from driver import FINNAccelDriver
-import numpy as np
-
-if __name__ == "__main__":
-  parser = argparse.ArgumentParser(description='Validate top-1 accuracy for FINN accelerator')
-  parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=100)
-  parser.add_argument('--dataset', help='dataset to use (mnist of cifar10)', required=True)
-  # parse arguments
-  args = parser.parse_args()
-  bsize = args.batchsize
-  dataset = args.dataset
-
-  if dataset == "mnist":
-    from dataset_loading import mnist
-    trainx, trainy, testx, testy, valx, valy = mnist.load_mnist_data("/tmp", download=True, one_hot=False)
-  elif dataset == "cifar10":
-    from dataset_loading import cifar
-    trainx, trainy, testx, testy, valx, valy = cifar.load_cifar_data("/tmp", download=True, one_hot=False)
-  else:
-    raise Exception("Unrecognized dataset")
-
-  test_imgs = testx
-  test_labels = testy
-
-  ok = 0
-  nok = 0
-  total = test_imgs.shape[0]
-  driver = FINNAccelDriver(bsize, "resizer.bit", "zynq-iodma")
-
-  n_batches = int(total / bsize)
-
-  test_imgs = test_imgs.reshape(n_batches, bsize, -1)
-  test_labels = test_labels.reshape(n_batches, bsize)
-
-  for i in range(n_batches):
-    ibuf_normal = test_imgs[i].reshape(driver.ibuf_packed_device.shape)
-    exp = test_labels[i]
-    driver.copy_input_data_to_device(ibuf_normal)
-    driver.execute()
-    obuf_normal = np.empty_like(driver.obuf_packed_device)
-    driver.copy_output_data_from_device(obuf_normal)
-    ret = np.bincount(obuf_normal.flatten() == exp.flatten())
-    nok += ret[0]
-    ok += ret[1]
-    print("batch %d / %d : total OK %d NOK %d" % (i, n_batches, ok, nok))
-
-  acc = 100.0 * ok / (total)
-  print("Final accuracy: %f" % acc)
 """

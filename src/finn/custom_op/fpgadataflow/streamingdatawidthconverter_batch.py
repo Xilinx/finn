@@ -29,7 +29,7 @@
 import os
 import numpy as np
 import math
-
+import warnings
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.core.datatype import DataType
 from onnx import TensorProto, helper
@@ -180,9 +180,17 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("dataType", idt.name)
         # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        model.set_tensor_datatype(node.output[0], dtype)
+        model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
         info_messages = []
@@ -408,8 +416,13 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict "
-                "[list CONFIG.S_TDATA_NUM_BYTES.VALUE_SRC PROPAGATED] "
+                "[list CONFIG.S_TDATA_NUM_BYTES.VALUE_SRC USER] "
                 "[get_bd_cells /%s/dwc]" % node_name
+            )
+            cmd.append(
+                "set_property -dict "
+                "[list CONFIG.S_TDATA_NUM_BYTES {%d}] [get_bd_cells /%s/dwc]"
+                % (np.ceil(self.get_instream_width() / 8), node_name)
             )
             cmd.append(
                 "set_property -dict "

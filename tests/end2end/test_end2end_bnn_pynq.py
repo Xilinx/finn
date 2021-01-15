@@ -98,7 +98,7 @@ import subprocess
 from finn.util.gdrive import upload_to_end2end_dashboard
 from collections import OrderedDict
 
-build_dir = "/tmp/" + os.environ["FINN_INST_NAME"]
+build_dir = os.environ["FINN_BUILD_DIR"]
 target_clk_ns = 10
 mem_mode = "decoupled"
 rtlsim_trace = False
@@ -140,10 +140,13 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
+        fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
     inp_qnt.set_nodeattr("PE", 49)
+    inp_qnt.set_nodeattr("mem_mode", "decoupled")
+    inp_qnt.set_nodeattr("runtime_writeable_weights", 1)
     return model
 
 
@@ -387,6 +390,9 @@ class TestEnd2End:
     def test_convert_to_hls_layers(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "streamline")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        if topology == "tfc" and wbits == 1 and abits == 1:
+            # use standalone thresholds for tfc-w1a1 to also exercise that option
+            model = model.transform(to_hls.InferThresholdingLayer())
         # needed for bipolar MatMul layers
         model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
         # needed for non-bipolar MatMul layers

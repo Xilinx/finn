@@ -5,6 +5,15 @@ Transformation - fpgadataflow
 Transformations (fpgadataflow)
 ==============================
 
+finn.transformation.fpgadataflow.annotate\_cycles
+-----------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.annotate_cycles
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.transformation.fpgadataflow.annotate\_resources
 -----------------------------------------------------------
 
@@ -53,6 +62,15 @@ finn.transformation.fpgadataflow.create\_stitched\_ip
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.fpgadataflow.floorplan
+----------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.floorplan
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 finn.transformation.fpgadataflow.hlssynth\_ip
 ----------------------------------------------------
 
@@ -76,6 +94,15 @@ finn.transformation.fpgadataflow.insert\_fifo
    :members:
    :undoc-members:
    :show-inheritance:
+
+finn.transformation.fpgadataflow.insert\_iodma
+----------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.insert_iodma
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 
 finn.transformation.fpgadataflow.insert\_tlastmarker
 -----------------------------------------------------------
@@ -101,13 +128,23 @@ finn.transformation.fpgadataflow.make\_pynq\_driver
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.make\_pynq\_proj
---------------------------------------------------------
+finn.transformation.fpgadataflow.make\_zynq\_proj
+----------------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.make_pynq_proj
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. automodule:: finn.transformation.fpgadataflow.make_zynq_proj
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+finn.transformation.fpgadataflow.minimize\_accumulator\_width
+--------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.minimize_accumulator_width
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 
 finn.transformation.fpgadataflow.prepare\_cppsim
 -------------------------------------------------------
@@ -149,10 +186,34 @@ finn.transformation.fpgadataflow.set\_exec\_mode
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.fpgadataflow.synth\_pynq\_proj
----------------------------------------------------------
+finn.transformation.fpgadataflow.set\_fifo\_depths
+-------------------------------------------------------
 
-.. automodule:: finn.transformation.fpgadataflow.synth_pynq_proj
+.. automodule:: finn.transformation.fpgadataflow.set_fifo_depths
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+finn.transformation.fpgadataflow.set\_folding
+-------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.set_folding
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+finn.transformation.fpgadataflow.synth\_ooc
+-------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.synth_ooc
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+finn.transformation.fpgadataflow.template\_driver
+-------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.template_driver
    :members:
    :undoc-members:
    :show-inheritance:
@@ -161,6 +222,14 @@ finn.transformation.fpgadataflow.templates
 -------------------------------------------------
 
 .. automodule:: finn.transformation.fpgadataflow.templates
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+finn.transformation.fpgadataflow.vitis\_build
+-------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.vitis_build
    :members:
    :undoc-members:
    :show-inheritance:

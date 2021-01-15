@@ -2,7 +2,7 @@
 Internals
 *********
 
-.. note:: **This website is currently under construction.**
+.. note:: **More developer-oriented documentation will be coming in future releases.**
 
 Intermediate Representation: FINN-ONNX
 ======================================

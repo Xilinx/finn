@@ -12,11 +12,11 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-FINN_BASE_COMMIT=3c379063610f7b9add083c1b73fb087fa1dc166b
-BREVITAS_COMMIT=b75e0408d9759ed519296e3af29b9c16fb94b0b8
+FINN_BASE_COMMIT=1363981654009067790d5f2d0c3dd303b5fa05cb
+BREVITAS_COMMIT=aff49758ec445d77c75721c7de3091a2a1797ca8
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=2e49322d1bbc4969ca293843bda1f3f9c05456fc
-PYVERILATOR_COMMIT=06c29ecf3ba0361e3d0a75c98f6918ba67bf0e27
+PYVERILATOR_COMMIT=e2ff74030de3992dcac54bf1b6aad2915946e8cb
 OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
 
 gecho "Setting up known-good commit versions for FINN dependencies"
@@ -42,10 +42,15 @@ git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT --quiet
 gecho "PyVerilator @ $PYVERILATOR_COMMIT"
 git -C /workspace/pyverilator pull --quiet
 git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT --quiet
+pip install --user -e /workspace/pyverilator
 # oh-my-xilinx
 gecho "oh-my-xilinx @ $OMX_COMMIT"
 git -C /workspace/oh-my-xilinx pull --quiet
 git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT --quiet
+# remove old version egg-info, if any
+rm -rf $FINN_ROOT/src/FINN.egg-info
+# run pip install for finn
+pip install --user -e $FINN_ROOT
 
 if [ ! -z "$VIVADO_PATH" ];then
   # source Vivado env.vars
@@ -56,6 +61,8 @@ fi
 # download PYNQ board files if not already there
 if [ ! -d "/workspace/finn/board_files" ]; then
     gecho "Downloading PYNQ board files for Vivado"
+    OLD_PWD=$(pwd)
+    cd /workspace/finn
     wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
     wget -q https://d2m32eurp10079.cloudfront.net/Download/pynq-z2.zip
     unzip -q pynq-z1.zip
@@ -65,21 +72,22 @@ if [ ! -d "/workspace/finn/board_files" ]; then
     mv pynq-z2/ board_files/
     rm pynq-z1.zip
     rm pynq-z2.zip
+    cd $OLD_PWD
 fi
 if [ ! -d "/workspace/finn/board_files/ultra96v1" ]; then
     gecho "Downloading Avnet BDF files into board_files"
+    OLD_PWD=$(pwd)
+    cd /workspace/finn
     git clone https://github.com/Avnet/bdf.git
     mv /workspace/finn/bdf/* /workspace/finn/board_files/
     rm -rf /workspace/finn/bdf
+    cd $OLD_PWD
 fi
 if [ ! -z "$VITIS_PATH" ];then
   # source Vitis env.vars
   export XILINX_VITIS=$VITIS_PATH
   source $VITIS_PATH/settings64.sh
   if [ ! -z "$XILINX_XRT" ];then
-    gecho "For VitisBuild, please ensure the XRT dependencies are correctly installed"
-    gecho "by downloading and running:"
-    gecho "https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh"
     # source XRT
     source $XILINX_XRT/setup.sh
   fi

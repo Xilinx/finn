@@ -310,6 +310,7 @@ set_property core_revision 2 [ipx::current_core]
 ipx::create_xgui_files [ipx::current_core]
 ipx::update_checksums [ipx::current_core]
 ipx::save_core [ipx::current_core]
+ipx::archive_core $Top.zip [ipx::current_core]
 """
 
 strm_fifo_wrapper = """

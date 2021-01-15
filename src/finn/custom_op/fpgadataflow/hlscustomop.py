@@ -210,12 +210,18 @@ class HLSCustomOp(CustomOp):
         ret["BRAM_efficiency"] = self.bram_efficiency_estimation()
         ret["LUT"] = self.lut_estimation()
         ret["URAM"] = self.uram_estimation()
+        ret["URAM_efficiency"] = self.uram_efficiency_estimation()
         ret["DSP"] = self.dsp_estimation()
         return ret
 
     def bram_efficiency_estimation(self):
         """Function for BRAM efficiency estimation: actual parameter storage
         needed divided by the allocated BRAM storage (from estimation)"""
+        return 1
+
+    def uram_efficiency_estimation(self):
+        """Function for URAM efficiency estimation: actual parameter storage
+        needed divided by the allocated URAM storage (from estimation)"""
         return 1
 
     def bram_estimation(self):
@@ -243,6 +249,13 @@ class HLSCustomOp(CustomOp):
         is member function of HLSCustomOp class but has to be filled
         by every node"""
         return 0
+
+    def get_op_and_param_counts(self):
+        """Return a dictionary with number of ops needed per inference for
+        this layer as well as parameter count (weights, thresholds, etc.).
+        Entries should be in the format:
+        {op_<optype> : <count>, param_<paramtype>: <count>}."""
+        return {}
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Generates c++ code and tcl script for ip generation."""
@@ -304,8 +317,14 @@ class HLSCustomOp(CustomOp):
         builder.append_tcl(code_gen_dir + "/hls_syn_{}.tcl".format(node.name))
         builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
         builder.build(code_gen_dir)
-        self.set_nodeattr("ipgen_path", builder.ipgen_path)
-        self.set_nodeattr("ip_path", builder.ipgen_path + "/sol1/impl/ip")
+        ipgen_path = builder.ipgen_path
+        assert os.path.isdir(ipgen_path), "IPGen failed: %s not found" % (ipgen_path)
+        self.set_nodeattr("ipgen_path", ipgen_path)
+        ip_path = ipgen_path + "/sol1/impl/ip"
+        assert os.path.isdir(
+            ip_path
+        ), "IPGen failed: %s not found. Check log under %s" % (ip_path, code_gen_dir)
+        self.set_nodeattr("ip_path", ip_path)
         vlnv = "xilinx.com:hls:%s:1.0" % node.name
         self.set_nodeattr("ip_vlnv", vlnv)
 
@@ -643,7 +662,12 @@ compilation transformations?
         return roundup_to_integer_multiple(out_width, 8)
 
     def get_ap_int_max_w(self):
-        "Return the maximum width of any ap_int used in this module."
+        """Return the maximum width of any ap_int used in this module. Used to set the
+        AP_INT_MAX_W definition for HLS."""
         instream = self.get_instream_width()
         outstream = self.get_outstream_width()
-        return max([instream, outstream])
+        ret = max([instream, outstream])
+        assert ret <= 32768, (
+            "AP_INT_MAX_W=%d is larger than allowed maximum of 32768" % ret
+        )
+        return ret

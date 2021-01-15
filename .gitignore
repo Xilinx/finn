@@ -39,7 +39,7 @@
 __pycache__/*
 .cache/*
 .*.swp
-*/.ipynb_checkpoints/*
+*.ipynb_checkpoints*
 
 # Project files
 .ropeproject
@@ -88,6 +88,10 @@ MANIFEST
 # datasets for testing
 /dataset/
 /data/
+*.csv
 
 # Google Drive key for dashboard
 /gdrive-key/
+
+# generated files as part of end2end notebooks
+/notebooks/end2end_example/**/*.onnx

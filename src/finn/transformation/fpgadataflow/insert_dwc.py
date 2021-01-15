@@ -17,10 +17,14 @@ def _is_dwc_node(node):
 def _suitable_node(node):
     if node is not None:
         if is_fpgadataflow_node(node) is True:
-            if _is_dwc_node(node) is False:
-                return True
-            else:
+            if _is_dwc_node(node):
+                # no DWC for DWCs
                 return False
+            elif node.op_type == "IODMA":
+                # IODMA data shapes/widths need special handling
+                return False
+            else:
+                return True
         else:
             return False
     else:
@@ -28,8 +32,7 @@ def _suitable_node(node):
 
 
 class InsertDWC(Transformation):
-    """Ensure that the graph is terminated with a TLastMarker node, inserting
-    one if necessary."""
+    """Add data width converters between layers where necessary."""
 
     def __init__(self):
         super().__init__()

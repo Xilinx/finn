@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import warnings
 import math
 import os
 import numpy as np
@@ -95,8 +96,14 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
+            # ultra -- use UltraRAM (URAM), must have runtime_writeable_weights=1
             # see also https://www.xilinx.com/support/answers/38070.html
-            "ram_style": ("s", False, "auto", {"auto", "block", "distributed"}),
+            "ram_style": (
+                "s",
+                False,
+                "auto",
+                {"auto", "block", "distributed", "ultra"},
+            ),
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -149,10 +156,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # check input datatype against property
-        idt_name = self.get_input_datatype().name
-        exp_idt_name = self.get_nodeattr("inputDataType")
-        assert exp_idt_name == idt_name, "Bad input DataType for StreamingFCLayer"
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
         # set output datatype from property
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
@@ -215,6 +227,25 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
         return info_messages
 
+    def uram_estimation(self):
+        P = self.get_nodeattr("PE")
+        Q = self.get_nodeattr("SIMD")
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_nodeattr("MW")
+        D_out = self.get_nodeattr("MH")
+        omega = (D_in * D_out) / (Q * P)
+        mem_width = Q * W * P
+        mmode = self.get_nodeattr("mem_mode")
+        mstyle = self.get_nodeattr("ram_style")
+        if (mmode == "decoupled" and mstyle != "ultra") or (
+            mmode == "const" and self.calc_wmem() <= 128
+        ):
+            return 0
+        width_multiplier = math.ceil(mem_width / 72)
+        depth_multiplier = math.ceil(omega / 4096)
+        return width_multiplier * depth_multiplier
+
     def bram_estimation(self):
         """Calculates resource estimation for BRAM based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
@@ -234,7 +265,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mem_width = Q * W * P
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
-        if (mmode == "decoupled" and mstyle == "distributed") or (
+        if (mmode == "decoupled" and mstyle in ["distributed", "ultra"]) or (
             mmode == "const" and self.calc_wmem() <= 128
         ):
             return 0
@@ -264,6 +295,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         wbits = W * D_in * D_out
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
+
+    def uram_efficiency_estimation(self):
+        """Function for URAM efficiency estimation: actual parameter storage
+        needed divided by the allocated URAM storage (from estimation)"""
+        wdt = self.get_weight_datatype()
+        W = wdt.bitwidth()
+        D_in = self.get_nodeattr("MW")
+        D_out = self.get_nodeattr("MH")
+        uram_est = self.uram_estimation()
+        if uram_est == 0:
+            return 1
+        wbits = W * D_in * D_out
+        uram_est_capacity = uram_est * 72 * 4096
+        return wbits / uram_est_capacity
 
     def lut_estimation(self):
         """Calculates resource estimations for LUTs based on:
@@ -389,9 +434,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         return roundup_to_integer_multiple(weight_width, 8)
 
     def get_ap_int_max_w(self):
-        temp_value = super().get_ap_int_max_w()
+        # base class impl (max of inp/out stream widths)
+        max_of_io = super().get_ap_int_max_w()
+        # decoupled mode weight stream
         weightstream = self.get_weightstream_width()
-        return max([weightstream, temp_value])
+        # single PE weight entry
+        weight_bits = self.get_weight_datatype().bitwidth()
+        simd = self.get_nodeattr("SIMD")
+        single_pe_w = simd * weight_bits
+        return max([weightstream, max_of_io, single_pe_w])
 
     def get_folded_input_shape(self):
         mw = self.get_nodeattr("MW")
@@ -515,6 +566,20 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # set threshold datatype (and accumulator datatype implicitly)
             min_threshold = thresholds.min()
             max_threshold = thresholds.max()
+            # clip threshold values
+            clip_upper = None
+            clip_lower = None
+            if max_threshold > acc_max + 1:
+                clip_upper = acc_max + 1
+            if min_threshold < acc_min:
+                clip_lower = acc_min
+            if (clip_lower is not None) or (clip_upper is not None):
+                warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
+                thresholds = np.clip(thresholds, clip_lower, clip_upper)
+                model.set_initializer(self.onnx_node.input[2], thresholds)
+                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                min_threshold = thresholds.min()
+                max_threshold = thresholds.max()
             # get range required by threshold values
             tdt_min = min(acc_min, min_threshold)
             tdt_max = max(acc_max, max_threshold)
@@ -525,9 +590,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     tdt = DataType.get_smallest_possible(0 - tdt_max)
             else:
                 tdt = DataType.get_smallest_possible(tdt_max)
-            assert np.vectorize(tdt.allowed)(
-                threshold_tensor
-            ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+            assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
+                "Thresholds in %s can't be expressed with type %s"
+                % (self.onnx_node.name, str(tdt))
+            )
             self.set_nodeattr("accDataType", tdt.name)
         else:
             if acc_min < 0:
@@ -723,6 +789,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
                 weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+                ram_style = self.get_nodeattr("ram_style")
+                if ram_style == "ultra":
+                    # UltraRAM must have no memory initializer, or only zeroes
+                    # otherwise BRAM will be inferred instead of URAM
+                    # as a workaround we provide a zero-weight init here
+                    # TODO handle this in Verilog with an if statement
+                    weights = np.zeros_like(weights)
                 self.make_weight_file(
                     weights, "decoupled_verilog_dat", weight_filename_rtl
                 )
@@ -749,9 +822,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 # get computed threshold datatype from attribute
                 tdt = DataType[self.get_nodeattr("accDataType")]
 
-                assert np.vectorize(tdt.allowed)(
-                    threshold_tensor
-                ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+                assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
+                    "Thresholds in %s can't be expressed with type %s"
+                    % (self.onnx_node.name, str(tdt))
+                )
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True
                 )
@@ -1163,8 +1237,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # add streamer if needed
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
-            node_name = self.onnx_node.name
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            if self.get_nodeattr("ram_style") == "ultra":
+                assert (
+                    runtime_writable == 1
+                ), "Layer with URAM weights must have runtime_writeable_weights=1"
+            node_name = self.onnx_node.name
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
@@ -1281,3 +1359,27 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             if runtime_writable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
+
+    def get_op_and_param_counts(self):
+        in_features = self.get_nodeattr("MW")
+        out_features = self.get_nodeattr("MH")
+        weight_bits = self.get_weight_datatype().bitwidth()
+        inp_bits = self.get_input_datatype().bitwidth()
+        num_inp_vec = self.get_nodeattr("numInputVectors")
+        num_repetitions = int(np.prod(num_inp_vec))
+        mac_count = in_features * out_features * num_repetitions
+        # cannonicalize op type: highest bitwidth operand first s.t.
+        # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
+        bw1 = min(inp_bits, weight_bits)
+        bw2 = max(inp_bits, weight_bits)
+        mac_op_type = "op_mac_%dbx%db" % (bw1, bw2)
+        weight_param_type = "param_weight_%db" % (weight_bits)
+        weight_count = in_features * out_features
+        ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
+        if self.get_nodeattr("noActivation") == 0:
+            tdt = DataType[self.get_nodeattr("accDataType")]
+            thres_bits = tdt.bitwidth()
+            thres_param_type = "param_threshold_%db" % (thres_bits)
+            thres_count = out_features
+            ret_dict[thres_param_type] = thres_count
+        return ret_dict
