@@ -450,11 +450,13 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
     def defines(self, var):
         dim = self.get_nodeattr("Dim")
         numReps = 1 * dim * dim
+        kernel = self.get_nodeattr("Kernel")
+        innerProdDim = kernel * kernel
         self.code_gen_dict["$DEFINES$"] = [
-            """#define Channels1 {}\n #define Kernel1 {}\n
+            """#define Channels1 {}\n #define InnerProdDim {}\n
             #define SIMD1 1\n #define PE1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("Channels"),
-                self.get_nodeattr("Kernel"),
+                innerProdDim,
                 self.get_nodeattr("PE"),
                 numReps,
             )
@@ -499,7 +501,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             threshs = "threshs"
         node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<Channels1, Kernel1, SIMD1, PE1, 1, {}, {}, {}>
+            """{}<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}>
             (in0, out, weights, {}, numReps, {});""".format(
                 node.op_type,
                 tmpl_args["TSrcI"],
