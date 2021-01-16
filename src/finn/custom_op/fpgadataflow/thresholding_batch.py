@@ -334,6 +334,13 @@ class Thresholding_Batch(HLSCustomOp):
             np.mod(orig_thres_matrix, 1), 0
         ).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
+        # workaround for vivado_hls threshold bug
+        if ret[0][0] == 0:
+            ret = np.copy(ret)
+            ret[0][0] = 1
+            warnings.warn(
+                "Setting 0-valued first threshold to 1 to avoid vivado_hls bug"
+            )
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))

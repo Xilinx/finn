@@ -278,6 +278,13 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
         ret = orig_thres_matrix
+        # workaround for vivado_hls threshold bug
+        if ret[0][0] == 0:
+            ret = np.copy(ret)
+            ret[0][0] = 1
+            warnings.warn(
+                "Setting 0-valued first threshold to 1 to avoid vivado_hls bug"
+            )
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         assert (
