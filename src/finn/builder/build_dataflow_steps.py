@@ -292,12 +292,19 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
-def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
-    "Run Vivado HLS synthesis on any HLSCustomOp nodes to generate IP blocks."
+def step_hls_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
+    "Generate Vivado HLS code to prepare HLSCustomOp nodes for IP generation."
 
     model = model.transform(
         PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
     )
+    return model
+
+
+def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Run Vivado HLS synthesis on generated code for HLSCustomOp nodes,
+    in order to generate IP blocks."""
+
     model = model.transform(HLSSynthIP())
     model = model.transform(ReplaceVerilogRelPaths())
     report_dir = cfg.output_dir + "/report"
@@ -543,6 +550,7 @@ build_dataflow_step_lookup = {
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
     "step_generate_estimate_reports": step_generate_estimate_reports,
+    "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,

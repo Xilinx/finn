@@ -62,21 +62,22 @@ as it go through numerous steps:
   Building dataflow accelerator from /home/maltanar/sandbox/build_dataflow/model.onnx
   Outputs will be generated at output_tfc_w1a1_Pynq-Z1
   Build log is at output_tfc_w1a1_Pynq-Z1/build_dataflow.log
-  Running step: step_tidy_up [1/15]
-  Running step: step_streamline [2/15]
-  Running step: step_convert_to_hls [3/15]
-  Running step: step_create_dataflow_partition [4/15]
-  Running step: step_target_fps_parallelization [5/15]
-  Running step: step_apply_folding_config [6/15]
-  Running step: step_generate_estimate_reports [7/15]
-  Running step: step_hls_ipgen [8/15]
-  Running step: step_set_fifo_depths [9/15]
-  Running step: step_create_stitched_ip [10/15]
-  Running step: step_measure_rtlsim_performance [11/15]
-  Running step: step_make_pynq_driver [12/15]
-  Running step: step_out_of_context_synthesis [13/15]
-  Running step: step_synthesize_bitfile [14/15]
-  Running step: step_deployment_package [15/15]
+  Running step: step_tidy_up [1/16]
+  Running step: step_streamline [2/16]
+  Running step: step_convert_to_hls [3/16]
+  Running step: step_create_dataflow_partition [4/16]
+  Running step: step_target_fps_parallelization [5/16]
+  Running step: step_apply_folding_config [6/16]
+  Running step: step_generate_estimate_reports [7/16]
+  Running step: step_hls_codegen [8/16]
+  Running step: step_hls_ipgen [9/16]
+  Running step: step_set_fifo_depths [10/16]
+  Running step: step_create_stitched_ip [11/16]
+  Running step: step_measure_rtlsim_performance [12/16]
+  Running step: step_make_pynq_driver [13/16]
+  Running step: step_out_of_context_synthesis [14/16]
+  Running step: step_synthesize_bitfile [15/16]
+  Running step: step_deployment_package [16/16]
 
 
 You can read a brief description of what each step does on
