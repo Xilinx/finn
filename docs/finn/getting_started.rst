@@ -111,43 +111,6 @@ http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc
 
 The ``run-docker.sh`` script forwards ports 8888 for Jupyter and 8081 for Netron, and launches the notebook server with appropriate arguments.
 
-Running the test suite directly
-*******************************
-FINN comes with a set of tests to check for regressions. The full test suite
-(which will take several hours to run and require a PYNQ board) can be executed
-by:
-
-::
-
-  bash ./run-docker.sh test
-
-There is a quicker variant of the test suite that skips the tests marked as
-requiring Vivado or as slow-running tests:
-
-::
-
-  bash ./run-docker.sh quicktest
-
-If you want to run individual tests, you can do this *inside the Docker container
-from the FINN root directory* as follows:
-
-::
-
-  python setup.py test --addopts "-k test_brevitas_debug"
-
-If you want to run tests in parallel (e.g. to take advantage of a multi-core CPU)
-you can use:
-
-* pytest-parallel for any rtlsim tests, e.g. `python setup.py test --addopts "-k rtlsim --workers auto"`
-* pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `python setup.py test --addopts "-k mytest -n auto --dist=loadfile"`
-
-Please see the pytest documentation for more about picking tests by marks or by name.
-
-Finally, the full test suite with appropriate parallelization can be run inside the container by:
-
-::
-
-  quicktest.sh full
 
 Environment variables
 **********************
@@ -169,7 +132,7 @@ These are summarized below:
 
 Supported Hardware
 ===================
-**End-to-end support including driver:** For quick deployment, FINN targets boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
 As of FINN v0.4b we also have preliminary support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis, see instructions below for Alveo setup.
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
