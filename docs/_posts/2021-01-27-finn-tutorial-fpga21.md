@@ -9,12 +9,12 @@ author: "Yaman Umuroglu"
 We're delighted to announce a two-hour FINN tutorial as part of the [FPGA'21 conference](https://www.isfpga.org).
 Details are as follows:
 
-* Date: 28 February 2021 (Sunday)
-* Time:
+* **Date:** 28 February 2021 (Sunday)
+* **Time:**
     * Pacific Standard Time (PST) 10:30 AM – 1:30 PM
     * Central European Time (CET) 19:30 PM – 21:30 PM
-* Format: Virtual event, Zoom call with hands-on Jupyter notebook lab
-* Registration:
+* **Format:** Virtual event, Zoom call with hands-on Jupyter notebook lab
+* **Registration:**
     * FPGA'21 conference registration: https://www.isfpga.org/registration
     * **Important:** You must fill out [this form](https://forms.gle/Cm9LwoeSjeoetYqX7) in addition to the FPGA conference registration.
     * The hands-on part is limited to 40 participants.
@@ -33,7 +33,8 @@ This will be a virtual event, with a Zoom video call and a hands-on Jupyter note
 Registered participants will get access to a FINN setup running in the cloud.
 There are no special technical requirements besides a browser and Zoom client.
 
-During the event, you can connect with us and the FINN community on https://gitter.im/xilinx-finn/tutorial-fpga21
+Connect with us and the other participants on the [tutorial Gitter channel](https://gitter.im/xilinx-finn/tutorial-fpga21),
+or join the [FINN Gitter channel](https://gitter.im/xilinx-finn/community).
 
 ## Agenda
 
