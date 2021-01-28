@@ -14,8 +14,9 @@ Details are as follows:
     * Pacific Standard Time (PST) 10:30 AM – 1:30 PM
     * Central European Time (CET) 19:30 PM – 21:30 PM
 * **Format:** Virtual event, Zoom call with hands-on Jupyter notebook lab
+    * Zoom and AWS links will be sent to confirmed participants via e-mail
 * **Registration:**
-    * FPGA'21 conference registration: https://www.isfpga.org/registration
+    * FPGA'21 conference registration: [https://www.isfpga.org/registration](https://www.isfpga.org/registration)
     * **Important:** You must fill out [this form](https://forms.gle/Cm9LwoeSjeoetYqX7) in addition to the FPGA conference registration.
     * The hands-on part is limited to 40 participants.
 
@@ -50,8 +51,7 @@ or join the [FINN Gitter channel](https://gitter.im/xilinx-finn/community).
 
 * Conclusion
 
-## Presenters
+## Organization
 
-* Michaela Blott, Xilinx Research Labs
-* Zaid Al-Ars, TU Delft
-* Yaman Umuroglu, Xilinx Research Labs
+* Yaman Umuroglu, Michaela Blott, Jon Ander Lezeta and Felix Paul Jentzsch, Xilinx Research Labs
+* Zaid Al-Ars and Jakoba Petri-Koenig, TU Delft
