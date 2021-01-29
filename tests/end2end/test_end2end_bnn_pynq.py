@@ -592,6 +592,12 @@ class TestEnd2End:
         cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
         # check list of interfaces
+        # model = model.transform(AnnotateResources("synth"))
+        # synth_dct = eval(model.get_metadata_prop("res_total_top_synth"))
+        # for (k, v) in synth_dct.items():
+        #     update_dashboard_data(topology, wbits, abits, k, v)
+        # update_dashboard_data(topology, wbits, abits, "board", cfg["board"])
+        model.save(get_checkpoint_name(topology, wbits, abits, "build_" + kind+"_extweights"))
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_deploy(self, topology, wbits, abits, kind):
