@@ -56,7 +56,20 @@ class InsertDWC(Transformation):
                         n0 = getCustomOp(n)
                         n1 = getCustomOp(consumer)
                         n0_out_shape = n0.get_folded_output_shape()
-                        n1_in_shape = n1.get_folded_input_shape()
+
+                        # If FC and external mem, it could be connected to input 1
+                        if (consumer.op_type == "StreamingFCLayer_Batch" and 
+                            n1.get_nodeattr("mem_mode") == "external"):
+                            # get input idx
+                            in_idx = None
+                            for idx, n_input in enumerate(consumer.input):
+                                if n_output == n_input:
+                                    in_idx = idx
+                            assert in_idx is not None,"Malformed model"
+                            n1_in_shape = n1.get_folded_input_shape(in_idx)
+                        else:
+                            n1_in_shape = n1.get_folded_input_shape()
+
                         if n0_out_shape[-1] != n1_in_shape[-1]:
                             graph_modified = True
                             # determine dwc inwidth
