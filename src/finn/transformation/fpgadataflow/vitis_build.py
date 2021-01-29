@@ -252,6 +252,19 @@ class VitisLink(Transformation):
         link_dir = make_build_dir(prefix="vitis_link_proj_")
         model.set_metadata_prop("vitis_link_proj", link_dir)
 
+        # add Vivado physopt directives if desired
+        if self.strategy == VitisOptStrategy.PERFORMANCE_BEST:
+            config.append("[vivado]")
+            config.append(
+                "prop=run.impl_1.STEPS.OPT_DESIGN.ARGS.DIRECTIVE=ExploreWithRemap"
+            )
+            config.append("prop=run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=Explore")
+            config.append("prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.IS_ENABLED=true")
+            config.append(
+                "prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE=Explore"
+            )
+            config.append("prop=run.impl_1.STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE=Explore")
+
         config = "\n".join(config) + "\n"
         with open(link_dir + "/config.txt", "w") as f:
             f.write(config)
@@ -303,7 +316,7 @@ class VitisLink(Transformation):
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(link_dir))
             f.write(
-                "vivado -mode tcl -source %s\n" % (link_dir + "/gen_report_xml.tcl")
+                "vivado -mode batch -source %s\n" % (link_dir + "/gen_report_xml.tcl")
             )
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", gen_rep_xml_sh]
@@ -316,7 +329,18 @@ class VitisLink(Transformation):
 
 
 class VitisBuild(Transformation):
-    """Best-effort attempt at building the accelerator with Vitis."""
+    """Best-effort attempt at building the accelerator with Vitis.
+
+    fpga_part: string identifying the target FPGA
+    period_ns: target clock period
+    platform: target Alveo platform, one of ["U50", "U200", "U250", "U280"]
+    strategy: Vitis optimization strategy
+    enable_debug: add Chipscope to all AXI interfaces
+    floorplan_file: path to a JSON containing a dictionary with SLR assignments
+                    for each node in the ONNX graph. Must be parse-able by
+                    the ApplyConfig transform.
+
+    """
 
     def __init__(
         self,
@@ -325,6 +349,7 @@ class VitisBuild(Transformation):
         platform,
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
+        floorplan_file=None,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -332,6 +357,7 @@ class VitisBuild(Transformation):
         self.platform = platform
         self.strategy = strategy
         self.enable_debug = enable_debug
+        self.floorplan_file = floorplan_file
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -342,13 +368,18 @@ class VitisBuild(Transformation):
             MakePYNQDriver(platform="alveo"),
             InsertIODMA(512),
             InsertDWC(),
-            Floorplan(),
-            CreateDataflowPartition(),
         ]
         for trn in prep_transforms:
             model = model.transform(trn)
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
+
+        model = model.transform(Floorplan(floorplan=self.floorplan_file))
+
+        model = model.transform(CreateDataflowPartition())
+        model = model.transform(GiveUniqueNodeNames())
+        model = model.transform(GiveReadableTensorNames())
+
         # Build each kernel individually
         sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
         for sdp_node in sdp_nodes:

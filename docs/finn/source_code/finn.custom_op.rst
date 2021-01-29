@@ -9,6 +9,7 @@ Submodules
    :maxdepth: 2
 
    finn.custom_op.fpgadataflow
+   finn.custom_op.general
 
 Custom Op Nodes
 ===============
@@ -16,55 +17,15 @@ Custom Op Nodes
 Base Class
 ----------
 
-.. automodule:: finn.custom_op
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.im2col
------------------------------
-
-.. automodule:: finn.custom_op.general.im2col
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.maxpoolnhwc
-----------------------------------
-
-.. automodule:: finn.custom_op.general.maxpoolnhwc
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.multithreshold
--------------------------------------
-
-.. automodule:: finn.custom_op.general.multithreshold
+.. automodule:: finn.custom_op.base
    :members:
    :undoc-members:
    :show-inheritance:
 
 finn.custom\_op.registry
--------------------------------
+-------------------------
 
 .. automodule:: finn.custom_op.registry
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.streamingdataflowpartition
--------------------------------------------------
-
-.. automodule:: finn.custom_op.general.streamingdataflowpartition
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.xnorpopcount
------------------------------------
-
-.. automodule:: finn.custom_op.general.xnorpopcount
-   :members:
-   :undoc-members:
-   :show-inheritance:
+  :members:
+  :undoc-members:
+  :show-inheritance:

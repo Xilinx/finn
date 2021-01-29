@@ -4,7 +4,7 @@
 Hardware Build and Deployment
 *****************************
 
-.. image:: /img/finn-hw-build.png
+.. image:: img/finn-hw-build.png
    :scale: 70%
    :align: center
 
@@ -66,7 +66,7 @@ block. **
 
 
 FIFO Insertion and IP Generation
--------------------------------
+---------------------------------
 
 FINN will descend into each partition and insert FIFO nodes between streaming nodes,
 where FIFO depths dictated by the node attributes, using the :py:mod:`finn.transformation.fpgadataflow.insert_fifo.InsertFIFO`

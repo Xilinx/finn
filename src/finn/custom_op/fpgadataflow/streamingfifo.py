@@ -94,9 +94,17 @@ class StreamingFIFO(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("dataType", idt.name)
         # data type stays the same
-        dtype = model.get_tensor_datatype(node.input[0])
-        model.set_tensor_datatype(node.output[0], dtype)
+        model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
         pass
@@ -154,7 +162,9 @@ class StreamingFIFO(HLSCustomOp):
         template = templates.ip_package_tcl
         self.code_gen_dict.clear()
         self.code_gen_dict["$TOPNAME$"] = ["{}".format(self.onnx_node.name)]
-        self.code_gen_dict["$VERILOG_DIR$"] = [verilog_dir]
+        # note: setting the root dir as absolute can cause path problems
+        # the ipgen script will be invoked from the sources dir so root_dir=. is OK
+        self.code_gen_dict["$VERILOG_DIR$"] = ["."]
         for key in self.code_gen_dict:
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])

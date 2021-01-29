@@ -26,6 +26,14 @@ finn.transformation.streamline.collapse\_repeated
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.streamline.remove
+-------------------------------------
+
+.. automodule:: finn.transformation.streamline.remove
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 finn.transformation.streamline.reorder
 ---------------------------------------------
 

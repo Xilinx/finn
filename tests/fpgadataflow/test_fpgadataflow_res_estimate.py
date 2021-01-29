@@ -99,6 +99,7 @@ def test_res_estimate():
             "BRAM_efficiency": 1,
             "LUT": 357,
             "DSP": 0,
+            "URAM_efficiency": 1,
             "URAM": 0,
         }
     }
@@ -111,8 +112,22 @@ def test_res_estimate():
     prod_resource_estimation = model.analysis(res_estimation_complete)
     expect_resource_estimation = {
         "StreamingFCLayer_Batch_0": [
-            {"BRAM_18K": 0, "BRAM_efficiency": 1, "LUT": 352, "DSP": 1, "URAM": 0},
-            {"BRAM_18K": 0, "BRAM_efficiency": 1, "LUT": 357, "DSP": 0, "URAM": 0},
+            {
+                "BRAM_18K": 0,
+                "BRAM_efficiency": 1,
+                "LUT": 352,
+                "DSP": 1,
+                "URAM": 0,
+                "URAM_efficiency": 1,
+            },
+            {
+                "BRAM_18K": 0,
+                "BRAM_efficiency": 1,
+                "LUT": 357,
+                "DSP": 0,
+                "URAM": 0,
+                "URAM_efficiency": 1,
+            },
         ]
     }
 

@@ -29,7 +29,7 @@
 from math import ceil, log2
 import textwrap
 import os
-
+import warnings
 import numpy as np
 
 from onnx import TensorProto, helper
@@ -127,10 +127,15 @@ class Thresholding_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # check input datatype against property
-        idt_name = self.get_input_datatype().name
-        exp_idt_name = self.get_nodeattr("inputDataType")
-        assert exp_idt_name == idt_name, "Bad input DataType for Thresholding layer"
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype()),
+                str(idt),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
         # set output datatype from property
         odt = self.get_output_datatype()
         model.set_tensor_datatype(node.output[0], odt)
@@ -325,8 +330,17 @@ class Thresholding_Batch(HLSCustomOp):
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
         # ensure all thresholds are integer
-        assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
+        assert np.equal(
+            np.mod(orig_thres_matrix, 1), 0
+        ).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
+        # workaround for vivado_hls threshold bug
+        if ret[0][0] == 0:
+            ret = np.copy(ret)
+            ret[0][0] = 1
+            warnings.warn(
+                "Setting 0-valued first threshold to 1 to avoid vivado_hls bug"
+            )
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))
@@ -387,7 +401,7 @@ class Thresholding_Batch(HLSCustomOp):
                     tdt_hls,
                     odt_hls,
                     self.get_nodeattr("ActVal"),
-                    "std::less_equal<%s>" % tdt_hls,
+                    "comp::less_equal<%s>" % tdt_hls,
                 )
             )
             f_thresh.write(thresholds_hls_code)
@@ -922,3 +936,14 @@ class Thresholding_Batch(HLSCustomOp):
             if runtime_writable:
                 intf_names["axilite"] = ["s_axilite"]
         return intf_names
+
+    def get_op_and_param_counts(self):
+        ret_dict = {}
+        weight_bits = self.get_weight_datatype().bitwidth()
+        out_features = self.get_nodeattr("NumChannels")
+        num_steps = self.get_nodeattr("numSteps")
+        # thresholds are called weights in this layer
+        thres_param_type = "param_threshold_%db" % (weight_bits)
+        thres_count = out_features * num_steps
+        ret_dict[thres_param_type] = thres_count
+        return ret_dict
