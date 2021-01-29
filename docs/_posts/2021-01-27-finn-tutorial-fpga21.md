@@ -55,3 +55,4 @@ or join the [FINN Gitter channel](https://gitter.im/xilinx-finn/community).
 
 * Yaman Umuroglu, Michaela Blott, Jon Ander Lezeta and Felix Paul Jentzsch, Xilinx Research Labs
 * Zaid Al-Ars and Jakoba Petri-Koenig, TU Delft
+* Holger Froening and Hendrik Borras, Heidelberg University
