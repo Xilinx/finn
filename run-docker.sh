@@ -89,6 +89,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 # the settings below will be taken from environment variables if available,
 # otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
+: ${JUPYTER_PASSWD_HASH=""}
 : ${NETRON_PORT=8081}
 : ${PYNQ_USERNAME="xilinx"}
 : ${PYNQ_PASSWORD="xilinx"}
@@ -115,7 +116,12 @@ elif [ "$1" = "quicktest" ]; then
   DOCKER_CMD="quicktest.sh"
 elif [ "$1" = "notebook" ]; then
   gecho "Running Jupyter notebook server"
-  DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
+  if [ -z "$JUPYTER_PASSWD_HASH" ]; then
+    JUPYTER_PASSWD_ARG=""
+  else
+    JUPYTER_PASSWD_ARG="--NotebookApp.password='$JUPYTER_PASSWD_HASH'"
+  fi
+  DOCKER_CMD="jupyter notebook --no-browser --ip=0.0.0.0 --port $JUPYTER_PORT $JUPYTER_PASSWD_ARG notebooks"
   DOCKER_EXTRA+="-e JUPYTER_PORT=$JUPYTER_PORT "
   DOCKER_EXTRA+="-e NETRON_PORT=$NETRON_PORT "
   DOCKER_EXTRA+="-p $JUPYTER_PORT:$JUPYTER_PORT "
