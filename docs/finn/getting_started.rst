@@ -120,13 +120,15 @@ These are summarized below:
 
 * ``VIVADO_PATH`` points to your Vivado installation on the host
 * (optional, for Vitis & Alveo only) ``VITIS_PATH``, ``PLATFORM_REPO_PATHS`` and ``XILINX_XRT`` respectively point to your Vitis installation, the Vitis platform files, and Xilinx XRT
-* ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
-* ``NETRON_PORT`` (default 8081) changes the port for Netron inside Docker
-* ``NUM_DEFAULT_WORKERS`` (default 1) specifies the degree of parallelization for the transformations that can be run in parallel
-* ``PYNQ_BOARD`` or ``ALVEO_BOARD`` specifies the type of PYNQ/Alveo board used (see "supported hardware" below) for the test suite
-* ``PYNQ_IP`` and ``PYNQ_PORT`` (or ``ALVEO_IP`` and ``ALVEO_PORT``) specify ip address and port number to access the PYNQ board / Alveo target
-* ``PYNQ_USERNAME`` and ``PYNQ_PASSWORD`` (or ``ALVEO_USERNAME`` and ``ALVEO_PASSWORD``) specify the PYNQ board / Alveo host access credentials for the test suite. For PYNQ, password is always needed to run as sudo. For Alveo, you can leave the password empty and place your ssh private key in the ``finn/ssh_keys`` folder to use keypair authentication.
-* ``PYNQ_TARGET_DIR`` (or ``ALVEO_TARGET_DIR``) specifies the target dir on the PYNQ board / Alveo host for the test suite
+* (optional) ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
+* (optional) ``JUPYTER_PASSWD_HASH`` (default "") Set the Jupyter notebook password hash. If set to empty string, token authentication will be used (token printed in terminal on launch).
+* (optional) ``LOCALHOST_URL`` (default localhost) sets the base URL for accessing e.g. Netron from inside the container. Useful when running FINN remotely.
+* (optional) ``NETRON_PORT`` (default 8081) changes the port for Netron inside Docker
+* (optional) ``NUM_DEFAULT_WORKERS`` (default 1) specifies the degree of parallelization for the transformations that can be run in parallel
+* (optional) ``PYNQ_BOARD`` or ``ALVEO_BOARD`` specifies the type of PYNQ/Alveo board used (see "supported hardware" below) for the test suite
+* (optional) ``PYNQ_IP`` and ``PYNQ_PORT`` (or ``ALVEO_IP`` and ``ALVEO_PORT``) specify ip address and port number to access the PYNQ board / Alveo target
+* (optional) ``PYNQ_USERNAME`` and ``PYNQ_PASSWORD`` (or ``ALVEO_USERNAME`` and ``ALVEO_PASSWORD``) specify the PYNQ board / Alveo host access credentials for the test suite. For PYNQ, password is always needed to run as sudo. For Alveo, you can leave the password empty and place your ssh private key in the ``finn/ssh_keys`` folder to use keypair authentication.
+* (optional) ``PYNQ_TARGET_DIR`` (or ``ALVEO_TARGET_DIR``) specifies the target dir on the PYNQ board / Alveo host for the test suite
 * (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
 * (optional) ``IMAGENET_VAL_PATH`` specifies the path to the ImageNet validation directory for tests.
 
