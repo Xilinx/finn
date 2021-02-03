@@ -35,8 +35,8 @@ What OS is supported by FINN other than Ubuntu 18.04?
 =====================================================
 
 FINN should work fine under Linux based Operating Systems itself. However, FINN relies 
-on Vivado(e.g. for Synthesis). Make sure the OS being used is supported by Vivado “2019.1” 
-or “2020.1”. You should be able to install Docker engine in your machine (“docker-ce”).
+on Vivado(e.g. for Synthesis). Make sure the OS being used is supported by Vivado 2019.1 
+or 2020.1 installations. You should be able to install Docker engine in your machine ``docker-ce``.
 
 I am getting DocNav and Model_Composer errors when launching the Docker image.
 ==============================================================================
@@ -48,6 +48,6 @@ What board do you recommend to start working with FINN?
 =============================================================================
 
 FINN currently offers End-to-end deployment including the driver for PYNQ supported boards. 
-You can have a look into what are the available PYNQ supported boards in (http://www.pynq.io/board.html). 
+You can have a look into what are the available PYNQ supported boards in the `PYNQ webpage <http://www.pynq.io/board.html>`_ 
 However, FINN now supports Vivado IP Integrator designs. The IPs connect using AXI stream (FIFO) 
 in-and-out interfaces. This means that it can be integrated into any Xilinx FPGA board.
