@@ -39,8 +39,8 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.general import GiveUniqueNodeNames, GiveReadableTensorNames
-from finn.util.fpgadataflow import pyverilate_stitched_ip, is_fpgadataflow_node
-from finn.util.pyverilator import reset_rtlsim, toggle_clk
+from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.pyverilator import reset_rtlsim, toggle_clk, pyverilate_stitched_ip
 
 
 def reset_implementation(node):
