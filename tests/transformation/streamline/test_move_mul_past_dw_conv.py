@@ -32,8 +32,8 @@ def test_move_mul_past_dw_conv(ifm_dim, ifm_ch, k, stride, pad_amt, dw):
         ofm_ch = ifm_ch + 2
         groups = 1
         W_shape = [ofm_ch, ifm_ch, k, k]
-
-    ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad_amt)
+    total_pad = 2 * pad_amt
+    ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, total_pad)
 
     # set up onnx model
     inp = helper.make_tensor_value_info(
