@@ -57,7 +57,8 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 
     # set up reference model consisting of Im2Col + MatMul (+ MultiThreshold)
     ofm_ch = ifm_ch
-    ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad=padding)
+    total_pad = 2 * padding
+    ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, total_pad=total_pad)
 
     if act is None:
         odt = DataType.INT32
@@ -96,9 +97,9 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         domain="finn.custom_op.general",
         inputs=["inp"],
         outputs=["im2col_out"],
-        kernel_size=k,
+        kernel_size=[k, k],
         stride=stride,
-        pad_amount=padding,
+        pad_amount=[padding, padding, padding, padding],
         input_shape="(1, {}, {}, {})".format(ifm_dim, ifm_dim, ifm_ch),
         depthwise=1,
     )
