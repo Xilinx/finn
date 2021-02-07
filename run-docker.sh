@@ -103,9 +103,10 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${XILINX_XRT="/opt/xilinx/xrt"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
+: ${FINN_DOCKER_EXTRA=""}
 
 DOCKER_INTERACTIVE=""
-DOCKER_EXTRA=""
+DOCKER_EXTRA="$FINN_DOCKER_EXTRA "
 
 if [ "$1" = "test" ]; then
   gecho "Running test suite (all tests)"

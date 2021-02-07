@@ -1250,6 +1250,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     runtime_writable == 1
                 ), "Layer with URAM weights must have runtime_writeable_weights=1"
             node_name = self.onnx_node.name
+            sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
@@ -1303,8 +1304,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-                "[get_bd_intf_pins %s/%s/weights_V_V]"
-                % (node_name, strm_inst, node_name, node_name)
+                "[get_bd_intf_pins %s/%s/weights_%s]"
+                % (node_name, strm_inst, node_name, node_name, sname)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aresetn]"
@@ -1358,8 +1359,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
+        sname = self.hls_sname()
         if mem_mode == "external":
-            intf_names["s_axis"] = ["in0_V_V", "weights_V_V"]
+            intf_names["s_axis"] = ["in0_" + sname, "weights_" + sname]
         if mem_mode == "decoupled":
             # only expose axilite interface if attribute is set
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1

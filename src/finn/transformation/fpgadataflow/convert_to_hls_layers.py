@@ -65,8 +65,17 @@ class InferConvInpGen(Transformation):
                     continue
                 i2c_inst = getCustomOp(n)
                 stride = i2c_inst.get_nodeattr("stride")
-                k = i2c_inst.get_nodeattr("kernel_size")
-                pad = i2c_inst.get_nodeattr("pad_amount")
+                k_attr = i2c_inst.get_nodeattr("kernel_size")
+                k_h = k_attr[0]
+                k_w = k_attr[1]
+                pad_attr = i2c_inst.get_nodeattr("pad_amount")
+                pad_h = pad_attr[0] + pad_attr[2]
+                pad_w = pad_attr[1] + pad_attr[3]
+                # temporary checks until non-square conv support is finalized
+                assert pad_h == pad_w, "Non-square images not yet supported."
+                assert k_h == k_w, "Non-square kernels not yet supported."
+                k = k_h
+                pad = pad_attr[0]
                 pad_val = i2c_inst.get_nodeattr("pad_value")
                 depthwise = i2c_inst.get_nodeattr("depthwise")
                 ifm_ch = i2c_in_shape[-1]
@@ -330,8 +339,8 @@ class InferPool_Batch(Transformation):
                     [im2col_out],
                     domain="finn.custom_op.general",
                     stride=stride,
-                    kernel_size=k,
-                    pad_amount=pad,
+                    kernel_size=[k, k],
+                    pad_amount=[pad, pad, pad, pad],
                     pad_value=pad_value,
                     depthwise=1,
                     input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),

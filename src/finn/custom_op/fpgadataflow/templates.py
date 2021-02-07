@@ -99,9 +99,7 @@ set_top $config_toplevelfxn
 open_solution sol1
 set_part $config_proj_part
 
-config_compile -ignore_long_run_time -disable_unroll_code_size_check
-config_interface -m_axi_addr64
-config_rtl -auto_prefix
+$DEFAULT_DIRECTIVES$
 $EXTRA_DIRECTIVES$
 
 create_clock -period $config_clkperiod -name default
@@ -115,22 +113,22 @@ decoupled_wrapper = """
 module $TOPNAME$(
 ap_clk,
 ap_rst_n,
-in0_V_V_TDATA,
-in0_V_V_TVALID,
-in0_V_V_TREADY,
-out_V_V_TDATA,
-out_V_V_TVALID,
-out_V_V_TREADY
+in0_$HLS_SNAME$_TDATA,
+in0_$HLS_SNAME$_TVALID,
+in0_$HLS_SNAME$_TREADY,
+out_$HLS_SNAME$_TDATA,
+out_$HLS_SNAME$_TVALID,
+out_$HLS_SNAME$_TREADY
 );
 
 input   ap_clk;
 input   ap_rst_n;
-input  $IN_RANGE$ in0_V_V_TDATA;
-input   in0_V_V_TVALID;
-output   in0_V_V_TREADY;
-output  $OUT_RANGE$ out_V_V_TDATA;
-output   out_V_V_TVALID;
-input   out_V_V_TREADY;
+input  $IN_RANGE$ in0_$HLS_SNAME$_TDATA;
+input   in0_$HLS_SNAME$_TVALID;
+output   in0_$HLS_SNAME$_TREADY;
+output  $OUT_RANGE$ out_$HLS_SNAME$_TDATA;
+output   out_$HLS_SNAME$_TVALID;
+input   out_$HLS_SNAME$_TREADY;
 
 reg [31:0] config_address = 0;
 reg config_ce = 0;
@@ -197,15 +195,15 @@ MVA_Stream_U
 (
 .ap_clk(ap_clk),			//input
 .ap_rst_n(ap_rst_n), 			//input
-.in0_V_V_TDATA(in0_V_V_TDATA),		//$IN_RANGE$ input
-.in0_V_V_TVALID(in0_V_V_TVALID),  	//input
-.in0_V_V_TREADY(in0_V_V_TREADY),	//output
-.weights_V_V_TDATA(m_axis_0_tdata),	//$WEIGHT_RANGE$ input
-.weights_V_V_TVALID(m_axis_0_tvalid),	//input
-.weights_V_V_TREADY(m_axis_0_tready),	//output
-.out_V_V_TDATA(out_V_V_TDATA),		//$OUT_RANGE$ output
-.out_V_V_TVALID(out_V_V_TVALID),	//output
-.out_V_V_TREADY(out_V_V_TREADY)		//input
+.in0_$HLS_SNAME$_TDATA(in0_$HLS_SNAME$_TDATA),		//$IN_RANGE$ input
+.in0_$HLS_SNAME$_TVALID(in0_$HLS_SNAME$_TVALID),  	//input
+.in0_$HLS_SNAME$_TREADY(in0_$HLS_SNAME$_TREADY),	//output
+.weights_$HLS_SNAME$_TDATA(m_axis_0_tdata),	//$WEIGHT_RANGE$ input
+.weights_$HLS_SNAME$_TVALID(m_axis_0_tvalid),	//input
+.weights_$HLS_SNAME$_TREADY(m_axis_0_tready),	//output
+.out_$HLS_SNAME$_TDATA(out_$HLS_SNAME$_TDATA),		//$OUT_RANGE$ output
+.out_$HLS_SNAME$_TVALID(out_$HLS_SNAME$_TVALID),	//output
+.out_$HLS_SNAME$_TREADY(out_$HLS_SNAME$_TREADY)		//input
 );
 
 endmodule
@@ -300,10 +298,10 @@ ipx::add_ports_from_hdl \
 ## Infer interfaces
 ipx::infer_bus_interface ap_clk xilinx.com:signal:clock_rtl:1.0 [ipx::current_core]
 ipx::infer_bus_interface ap_rst_n xilinx.com:signal:reset_rtl:1.0 [ipx::current_core]
-ipx::infer_bus_interface {in0_V_V_TDATA in0_V_V_TVALID in0_V_V_TREADY} xilinx.com:interface:axis_rtl:1.0 [ipx::current_core]
-ipx::infer_bus_interface {out_V_V_TREADY out_V_V_TDATA out_V_V_TVALID} xilinx.com:interface:axis_rtl:1.0 [ipx::current_core]
-ipx::associate_bus_interfaces -busif in0_V_V -clock ap_clk [ipx::current_core]
-ipx::associate_bus_interfaces -busif out_V_V -clock ap_clk [ipx::current_core]
+ipx::infer_bus_interface {in0_$HLS_SNAME$_TDATA in0_$HLS_SNAME$_TVALID in0_$HLS_SNAME$_TREADY} xilinx.com:interface:axis_rtl:1.0 [ipx::current_core]
+ipx::infer_bus_interface {out_$HLS_SNAME$_TREADY out_$HLS_SNAME$_TDATA out_$HLS_SNAME$_TVALID} xilinx.com:interface:axis_rtl:1.0 [ipx::current_core]
+ipx::associate_bus_interfaces -busif in0_$HLS_SNAME$ -clock ap_clk [ipx::current_core]
+ipx::associate_bus_interfaces -busif out_$HLS_SNAME$ -clock ap_clk [ipx::current_core]
 
 ## Finalize
 set_property core_revision 2 [ipx::current_core]
@@ -318,23 +316,23 @@ module $TOPNAME$(
 ap_clk,
 ap_rst_n,
 count,
-in0_V_V_TDATA,
-in0_V_V_TVALID,
-in0_V_V_TREADY,
-out_V_V_TDATA,
-out_V_V_TVALID,
-out_V_V_TREADY
+in0_$HLS_SNAME$_TDATA,
+in0_$HLS_SNAME$_TVALID,
+in0_$HLS_SNAME$_TREADY,
+out_$HLS_SNAME$_TDATA,
+out_$HLS_SNAME$_TVALID,
+out_$HLS_SNAME$_TREADY
 );
 
 input   ap_clk;
 input   ap_rst_n;
 output $COUNT_RANGE$ count;
-input  $IN_RANGE$ in0_V_V_TDATA;
-input   in0_V_V_TVALID;
-output   in0_V_V_TREADY;
-output  $OUT_RANGE$ out_V_V_TDATA;
-output   out_V_V_TVALID;
-input   out_V_V_TREADY;
+input  $IN_RANGE$ in0_$HLS_SNAME$_TDATA;
+input   in0_$HLS_SNAME$_TVALID;
+output   in0_$HLS_SNAME$_TREADY;
+output  $OUT_RANGE$ out_$HLS_SNAME$_TDATA;
+output   out_$HLS_SNAME$_TVALID;
+input   out_$HLS_SNAME$_TREADY;
 
 Q_srl #(
 .depth($DEPTH$),
@@ -345,12 +343,12 @@ $LAYER_NAME$
  .clock(ap_clk),
  .reset(!ap_rst_n),
  .count(count),
- .i_d(in0_V_V_TDATA),
- .i_v(in0_V_V_TVALID),
- .i_r(in0_V_V_TREADY),
- .o_d(out_V_V_TDATA),
- .o_v(out_V_V_TVALID),
- .o_r(out_V_V_TREADY)
+ .i_d(in0_$HLS_SNAME$_TDATA),
+ .i_v(in0_$HLS_SNAME$_TVALID),
+ .i_r(in0_$HLS_SNAME$_TREADY),
+ .o_d(out_$HLS_SNAME$_TDATA),
+ .o_v(out_$HLS_SNAME$_TVALID),
+ .o_r(out_$HLS_SNAME$_TREADY)
 );
 
 endmodule
