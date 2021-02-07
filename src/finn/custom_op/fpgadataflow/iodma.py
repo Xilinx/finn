@@ -354,12 +354,13 @@ class IODMA(HLSCustomOp):
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
+        sname = self.hls_sname()
         if self.get_nodeattr("direction") == "out":
-            intf_names["s_axis"] = ["in0_V_V"]
+            intf_names["s_axis"] = ["in0_" + sname]
             intf_names["m_axis"] = []
         else:
             intf_names["s_axis"] = []
-            intf_names["m_axis"] = ["out_V_V"]
+            intf_names["m_axis"] = ["out_" + sname]
         intf_names["axilite"] = ["s_axi_control"]
         intf_names["aximm"] = ["m_axi_gmem"]
         return intf_names
