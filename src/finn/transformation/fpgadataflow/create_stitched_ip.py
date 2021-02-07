@@ -434,4 +434,13 @@ class CreateStitchedIP(Transformation):
         bash_command = ["bash", make_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+        # wrapper may be created in different location depending on Vivado version
+        if not os.path.isfile(wrapper_filename):
+            # check in alternative location (.gen instead of .srcs)
+            wrapper_filename_alt = wrapper_filename.replace(".srcs", ".gen")
+            if os.path.isfile(wrapper_filename_alt):
+                model.set_metadata_prop("wrapper_filename", wrapper_filename_alt)
+            else:
+                raise Exception("CreateStitchedIP failed, no wrapper HDL found.")
+
         return (model, False)
