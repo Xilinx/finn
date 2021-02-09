@@ -18,7 +18,7 @@ Details are as follows:
 * **Registration:**
     * FPGA'21 conference registration: [https://www.isfpga.org/registration](https://www.isfpga.org/registration)
     * **Important:** You must fill out [this form](https://forms.gle/Cm9LwoeSjeoetYqX7) in addition to the FPGA conference registration.
-    * The hands-on part is limited to 40 participants.
+    * The hands-on part is limited to 50 participants.
 
 ## Description
 
