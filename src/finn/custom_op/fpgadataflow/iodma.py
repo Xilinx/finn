@@ -83,11 +83,14 @@ class IODMA(HLSCustomOp):
             "NumChannels": ("i", True, 0),
             # FINN input datatype
             "dataType": ("s", True, ""),
-            # Stream parameters
+            # Width of input or output stream
             "streamWidth": ("i", False, 32),
             # DMA-specific parameters
+            # width of axi-mm interface
             "intfWidth": ("i", False, 32),
+            # burst mode for axi-mm interface (wrap used for DRAM weights)
             "burstMode": ("s", False, "increment", {"wrap", "increment"}),
+            # IODMA direction: in = read from DRAM, out = write to DRAM
             "direction": ("s", False, "in", {"in", "out"}),
             # shape describing input vecs per execution
             "numInputVectors": ("ints", False, [1]),
@@ -236,20 +239,19 @@ class IODMA(HLSCustomOp):
     def docompute(self):
         direction = self.get_nodeattr("direction")
         mode = self.get_nodeattr("burstMode")
+        dwc_func = "StreamingDataWidthConverter_Batch"
         if direction == "in":
             if mode == "wrap":
                 func = "Mem2Stream_Batch_external_wmem"
             else:
                 func = "Mem2Stream_Batch"
-            dwc_func = "WidthAdjustedOutputStream"
         elif direction == "out":
             func = "Stream2Mem_Batch"
-            dwc_func = "WidthAdjustedInputStream"
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")
         # define templates for instantiation
         dma_inst_template = func + "<DataWidth1, NumBytes1>(%s, %s, numReps);"
-        dwc_inst_template = dwc_func + "<%d, %d, %d> %s(%s, numReps);"
+        dwc_inst_template = dwc_func + "<%d, %d, %d>(%s, %s, numReps);"
         # do stream infrastructure and instantiations
         intfw = self.get_nodeattr("intfWidth")
         strmw = self.get_nodeattr("streamWidth")
@@ -258,22 +260,65 @@ class IODMA(HLSCustomOp):
         # because we use WidthAdjustedInputStream,
         dtype_bits = self.get_input_datatype().bitwidth()
         total_bits = dtype_bits * np.prod(self.get_normal_input_shape())
+
         if direction == "in":
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                dwc_inst_template
-                % (width_lcm, strmw, total_bits // width_lcm, "dwc_lcm", "out"),
-                dwc_inst_template
-                % (intfw, width_lcm, total_bits // intfw, "dwc_intfw", "dwc_lcm"),
-                dma_inst_template % ("in0", "dwc_intfw"),
-            ]
+            # AXI MM -> IODMA -> (DWCs) -> out
+            # DWCs depend on AXI MM and out interface width
+            if strmw == intfw:
+                # case 0: AXI MM width = out width, no DWCs needed
+                self.code_gen_dict["$DOCOMPUTE$"] = [dma_inst_template % ("in0", "out")]
+            elif (strmw % intfw == 0) or (intfw % strmw == 0):
+                # case 1: AXI MM width divisible by out width or vice versa
+                # single DWC + single extra stream needed
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    "hls::stream<ap_uint<%d> > dma2dwc;" % intfw,
+                    dma_inst_template % ("in0", "dma2dwc"),
+                    dwc_inst_template
+                    % (intfw, strmw, total_bits // intfw, "dma2dwc", "out"),
+                ]
+            else:
+                # case 2: AXI MM width not divisible by out width or vice versa
+                # need 2 DWCs (going through the least common multiple width)
+                # and 2 streams
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    "hls::stream<ap_uint<%d> > dma2lcm;" % intfw,
+                    "hls::stream<ap_uint<%d> > lcm2out;" % width_lcm,
+                    dma_inst_template % ("in0", "dma2lcm"),
+                    dwc_inst_template
+                    % (intfw, width_lcm, total_bits // intfw, "dma2lcm", "lcm2out"),
+                    dwc_inst_template
+                    % (width_lcm, strmw, total_bits // width_lcm, "lcm2out", "out"),
+                ]
+        elif direction == "out":
+            # in0 -> (DWCs) -> IODMA -> AXI MM
+            # DWCs depend on AXI MM and out interface width
+            if strmw == intfw:
+                # case 0: in width = AXI MM width, no DWCs needed
+                self.code_gen_dict["$DOCOMPUTE$"] = [dma_inst_template % ("in0", "out")]
+            elif (strmw % intfw == 0) or (intfw % strmw == 0):
+                # case 1: AXI MM width divisible by in width or vice versa
+                # single DWC + single extra stream needed
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    "hls::stream<ap_uint<%d> > dwc2dma;" % intfw,
+                    dwc_inst_template
+                    % (strmw, intfw, total_bits // strmw, "in0", "dwc2dma"),
+                    dma_inst_template % ("dwc2dma", "out"),
+                ]
+            else:
+                # case 2: AXI MM width not divisible by out width or vice versa
+                # need 2 DWCs (going through the least common multiple width)
+                # and 2 streams
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    "hls::stream<ap_uint<%d> > in2lcm;" % width_lcm,
+                    "hls::stream<ap_uint<%d> > lcm2dma;" % intfw,
+                    dwc_inst_template
+                    % (strmw, width_lcm, total_bits // strmw, "in0", "in2lcm"),
+                    dwc_inst_template
+                    % (width_lcm, intfw, total_bits // width_lcm, "in2lcm", "lcm2dma"),
+                    dma_inst_template % ("lcm2dma", "out"),
+                ]
         else:
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                dwc_inst_template
-                % (strmw, width_lcm, total_bits // strmw, "dwc_lcm", "in0"),
-                dwc_inst_template
-                % (width_lcm, intfw, total_bits // width_lcm, "dwc_intfw", "dwc_lcm"),
-                dma_inst_template % ("dwc_intfw", "out"),
-            ]
+            raise Exception("Unknown IODMA direction: %s" % direction)
 
     def blackboxfunction(self):
         packed_ibits = self.get_instream_width()
