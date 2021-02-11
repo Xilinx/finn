@@ -260,11 +260,17 @@ class MakeZYNQProject(Transformation):
         copy(bitfile_name, deploy_bitfile_name)
         # set bitfile attribute
         model.set_metadata_prop("bitfile", deploy_bitfile_name)
-        hwh_name = (
+        hwh_name_alts = [
             vivado_pynq_proj_dir
-            + "/finn_zynq_link.srcs/sources_1/bd/top/hw_handoff/top.hwh"
-        )
-        if not os.path.isfile(hwh_name):
+            + "/finn_zynq_link.srcs/sources_1/bd/top/hw_handoff/top.hwh",
+            vivado_pynq_proj_dir
+            + "/finn_zynq_link.gen/sources_1/bd/top/hw_handoff/top.hwh",
+        ]
+        hwh_name = None
+        for hwh_name_cand in hwh_name_alts:
+            if os.path.isfile(hwh_name_cand):
+                hwh_name = hwh_name_cand
+        if hwh_name is None:
             raise Exception("Synthesis failed, no hardware handoff file found")
         deploy_hwh_name = vivado_pynq_proj_dir + "/resizer.hwh"
         copy(hwh_name, deploy_hwh_name)
