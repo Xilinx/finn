@@ -59,6 +59,7 @@ from finn.transformation.streamline.reorder import (
     MoveScalarAddPastMatMul,
     MoveAddPastConv,
     MoveScalarMulPastConv,
+    MoveMulPastMaxPool,
 )
 
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
@@ -76,6 +77,7 @@ class Streamline(Transformation):
             ConvertDivToMul(),
             BatchNormToAffine(),
             ConvertSignToThres(),
+            MoveMulPastMaxPool(),
             AbsorbSignBiasIntoMultiThreshold(),
             MoveAddPastMul(),
             MoveScalarAddPastMatMul(),
