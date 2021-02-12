@@ -63,9 +63,9 @@ def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, simd, stride, i
         domain="finn.custom_op.general",
         backend="fpgadataflow",
         stride=stride,
-        kernel_size=k,
+        kernel_size=[k, k],
         input_shape=str((1, ifm_dim, ifm_dim, ifm_ch)),
-        pad_amount=0,
+        pad_amount=[0, 0, 0, 0],
         pad_value=0,
     )
     graph = helper.make_graph(

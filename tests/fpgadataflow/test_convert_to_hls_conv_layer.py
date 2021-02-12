@@ -77,7 +77,10 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
         out_chn = 20
         conv_param_shape = [out_chn, in_chn, kernel_size, kernel_size]
 
-    out_feature_dim = compute_conv_output_dim(in_feature_dim, kernel_size, stride, pad)
+    total_pad = 2 * pad
+    out_feature_dim = compute_conv_output_dim(
+        in_feature_dim, kernel_size, stride, total_pad
+    )
 
     input_shape = [1, in_chn, in_feature_dim, in_feature_dim]
     output_shape = [1, out_chn, out_feature_dim, out_feature_dim]

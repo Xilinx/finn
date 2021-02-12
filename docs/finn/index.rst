@@ -48,5 +48,6 @@ More FINN Resources
    example_networks
    internals
    developers
+   faq
    source_code/finn
    genindex
