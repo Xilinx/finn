@@ -4,29 +4,69 @@
 Getting Started
 ***************
 
-.. note:: **This website is currently under construction.**
-
 How to use the FINN compiler
 ============================
-The FINN compiler should not be thought of a single pushbutton tool that does everything for you, but rather as a collection of scripts/tools that will help you convert a QNN into a custom FPGA accelerator that performs high-performance inference. We do provide several examples of taking trained networks all the way down to FPGA bitfiles, but if you are trying to do this for custom networks you will have to write your own Python scripts that call the appropriate FINN Compiler functions that process your design correctly, or adding new functions as required.
-You should first familiarize with the existing end-to-end examples that FINN
-offers to understand the general flow.
+Currently, it's best to think of the FINN compiler as *compiler infrastructure*
+instead of a full *compiler* like `gcc` (although the aim is to get there).
+Although we provide a :ref:`command_line` entry for building dataflow
+accelerators, this only exposes a basic flow that works for simpler networks.
+A better way of looking at the FINN compiler is as a collection of scripts/tools that will help
+you convert a QNN into a custom FPGA accelerator that performs high-performance inference.
+
+**So where do I get started?** The best way of getting started with the FINN
+compiler is to follow the existing
+`Jupyter notebooks <tutorials>`_ and check out the prebuilt
+`examples <https://github.com/Xilinx/finn-examples>`_.
+
+**How do I compile my custom network?**
+This depends on how similar your custom network is to the examples we provide.
+If there are substantial differences, you will most likely have to write your own
+Python scripts that call the appropriate FINN compiler
+functions that process your design correctly, or adding new functions (including
+Vivado HLS layers)
+as required.
 For custom networks, we recommend making a copy of the end-to-end
 Jupyter notebook as a starting point, visualizing the model at intermediate
 steps and adding calls to new transformations as needed.
 Once you have a working flow, you can implement a command line entry for this
 by using the "advanced mode" described in the :ref:`command_line` section.
 
-Requirements
-============
+
+
+
+System Requirements
+====================
 
 * Ubuntu 18.04 with ``bash`` installed
-* Docker
+* Docker `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
 * A working Vivado 2019.1 or 2020.1 installation
 * A ``VIVADO_PATH`` environment variable pointing to the Vivado installation directory (e.g. the directory where settings64.sh is located)
-* (optional) A PYNQ board with a network connection
+* *(optional)* A PYNQ board with a network connection
    * the ``bitstring`` package must be installed on the PYNQ: ``sudo pip3 install bitstring``
-* (optional) An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ below)
+* *(optional)* An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ below)
+
+We also recommend running the FINN compiler on a system with sufficiently
+strong hardware:
+
+* **RAM.** Depending on your target FPGA platform, your system must have sufficient RAM to be
+  able to run Vivado/Vitis synthesis for that part. See `this page <https://www.xilinx.com/products/design-tools/vivado/memory.html>`_
+  for more information. For targeting Zynq and Zynq UltraScale+ parts, at least 8 GB is recommended. Larger parts may require up to 16 GB.
+  For targeting Alveo parts with Vitis, at least 64 GB RAM is recommended.
+
+* **CPU.** FINN can parallelize HLS synthesis and several other operations for different
+  layers, so using a multi-core CPU is recommended. However, this should be balanced
+  against the memory usage as a high degree of parallelization will require more
+  memory. See the ``NUM_DEFAULT_WORKERS`` environment variable below for more on
+  how to control the degree of parallelization.
+
+* **Storage.** While going through the build steps, FINN will generate many files as part of
+  the process. For larger networks, you may need 10s of GB of space for the temporary
+  files generated during the build.
+  By default, these generated files will be placed under ``/tmp/finn_dev_<username>``.
+  You can override this location by using the ``FINN_HOST_BUILD_DIR`` environment
+  variable.
+  Mapping the generated file dir to a fast SSD will result in quicker builds.
+
 
 Running FINN in Docker
 ======================
@@ -34,11 +74,11 @@ We use Docker extensively for developing and deploying FINN. If you are not fami
 
 Getting an interactive shell for development or experimentation
 ***************************************************************
-.. note:: **run-docker.sh requires bash to execute correctly.**
+.. warning:: Do not use ``sudo`` to launch the FINN Docker. Instead, setup Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
 
 ::
 
-  ./run_docker.sh
+  bash ./run_docker.sh
 
 Simply running sh run-docker.sh without any additional arguments will clone the dependency repos, create a Docker container and give you a terminal with you can use for development for experimentation.
 If you want a new terminal on an already-running container, you can do this with `docker exec -it finn_dev_<username> bash`.
@@ -55,58 +95,22 @@ or a user-defined flow from the command line as follows:
 
 ::
 
-  ./run_docker.sh build_dataflow <path/to/dataflow_build_dir/>
-  ./run_docker.sh build_custom <path/to/custom_build_dir/>
+  bash ./run_docker.sh build_dataflow <path/to/dataflow_build_dir/>
+  bash ./run_docker.sh build_custom <path/to/custom_build_dir/>
 
 
 Running the Jupyter notebooks
 *****************************
 ::
 
-  ./run-docker.sh notebook
+  bash ./run-docker.sh notebook
 
 This will launch the `Jupyter notebook <https://jupyter.org/>`_ server inside a Docker container, and print a link on the terminal that you can open in your browser to run the FINN notebooks or create new ones.
 .. note:: The link will look something like this (the token you get will be different):
 http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc
 
-The run-docker.sh script forwards ports 8888 for Jupyter and 8081 for Netron, and launches the notebook server with appropriate arguments.
+The ``run-docker.sh`` script forwards ports 8888 for Jupyter and 8081 for Netron, and launches the notebook server with appropriate arguments.
 
-Running the test suite directly
-*******************************
-FINN comes with a set of tests to check for regressions. The full test suite
-(which will take several hours to run and require a PYNQ board) can be executed
-by:
-
-::
-
-  ./run-docker.sh test
-
-There is a quicker variant of the test suite that skips the tests marked as
-requiring Vivado or as slow-running tests:
-
-::
-
-  ./run-docker.sh quicktest
-
-If you want to run individual tests, you can do this *inside the Docker container
-from the FINN root directory* as follows:
-
-::
-
-  python setup.py test --addopts "-k test_brevitas_debug"
-
-If you want to run tests in parallel (e.g. to take advantage of a multi-core CPU)
-you can use:
- * pytest-parallel for any rtlsim tests, e.g. `python setup.py test --addopts "-k rtlsim --workers auto"`
- * pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `python setup.py test --addopts "-k mytest -n auto --dist=loadfile"`
-
-Please see the pytest documentation for more about picking tests by marks or by name.
-
-Finally, the full test suite with appropriate parallelization can be run inside the container by:
-
-::
-
-  quicktest.sh full
 
 Environment variables
 **********************
@@ -128,8 +132,8 @@ These are summarized below:
 
 Supported Hardware
 ===================
-**End-to-end support including driver:** For quick deployment, FINN targets boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
-As of FINN v0.4b we also have preliminary support for `Xilinx Alveo boards <>`_ using PYNQ and Vitis, see instructions below for Alveo setup.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
+As of FINN v0.4b we also have preliminary support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis, see instructions below for Alveo setup.
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
@@ -142,9 +146,9 @@ On the target side:
 1. Install Xilinx XRT and set up the ``XILINX_XRT`` environment variable to point to your installation, for instance ``/opt/xilinx/xrt``.
 2. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation, for instance ``/opt/xilinx/platforms``.
 3. Create a conda environment named *finn-pynq-alveo* by following this guide `to set up PYNQ for Alveo <https://pynq.readthedocs.io/en/latest/getting_started/alveo_getting_started.html>`_. It's best to follow the recommended environment.yml (set of package versions) in this guide.
-4. Activate the environment with `conda activate finn-pynq-alveo` and install the bitstring package with ``pip install bitstring``
+4. Activate the environment with `conda activate finn-pynq-alveo` and install the bitstring package with ``pip install bitstring``.
 5. Done! You should now be able to e.g. ``import pynq`` in Python scripts.
-6 (optional) If you don't want to specify the ``ALVEO_PASSWORD`` environment variable, you can `set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
+6. (optional) If you don't want to specify the ``ALVEO_PASSWORD`` environment variable, you can `set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
 
 
 On the host side:

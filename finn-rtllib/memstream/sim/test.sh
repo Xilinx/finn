@@ -30,4 +30,3 @@
 
 iverilog ../hdl/*.v tb_memstream_writes.v -o sim
 ./sim
-

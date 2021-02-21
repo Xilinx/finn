@@ -643,6 +643,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # ensure all thresholds are integer
             assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
+        # workaround for vivado_hls threshold bug
+        if ret[0][0] == 0:
+            ret = np.copy(ret)
+            ret[0][0] = 1
+            warnings.warn(
+                "Setting 0-valued first threshold to 1 to avoid vivado_hls bug"
+            )
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))
@@ -846,7 +853,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                         tdt_hls,
                         odt_hls,
                         self.get_nodeattr("ActVal"),
-                        "std::less_equal<%s>" % tdt_hls,
+                        "comp::less_equal<%s>" % tdt_hls,
                     )
                 )
                 f_thresh.write(thresholds_hls_code)
