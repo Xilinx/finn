@@ -37,8 +37,12 @@ The notebooks in this folder are more developer oriented. They should help you t
 
 * 0_custom_analysis_pass
 
-  * This notebook explains what an analysis pass is and how to write one for FINN.
+  * Explains what an analysis pass is and how to write one for FINN.
 
 * 1_custom_transformation_pass
 
-  * This notebook explains what a transformation pass is and how to write one for FINN.
+  * Explains what a transformation pass is and how to write one for FINN.
+
+* 2_custom_op
+
+  * Explains the basics of FINN custom ops and how to define a new one.
