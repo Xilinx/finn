@@ -4,9 +4,7 @@
 Brevitas Export
 ***************
 
-.. note:: **This website is currently under construction.**
-
-.. image:: /img/brevitas-export.png
+.. image:: img/brevitas-export.png
    :scale: 70%
    :align: center
 

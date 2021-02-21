@@ -87,7 +87,6 @@ class Floorplan(Transformation):
                     narrow_neighbour = model.find_consumer(node.output[0])
                 else:
                     narrow_neighbour = model.find_producer(node.input[0])
-                    
                 node_slr = getCustomOp(narrow_neighbour).get_nodeattr("slr")
                 node_inst.set_nodeattr("slr", node_slr)
             if node.op_type == "StreamingFIFO":
@@ -98,14 +97,12 @@ class Floorplan(Transformation):
                 node_slr = getCustomOp(srcnode).get_nodeattr("slr")
                 node_inst.set_nodeattr("slr", node_slr)
 
-
         if unassigned_nodes > 0:
             warnings.warn(
                 str(unassigned_nodes)
                 + " nodes have no entry in the provided floorplan "
                 + "and no default value was set"
             )
-
 
         # partition id generation
         partition_cnt = 0

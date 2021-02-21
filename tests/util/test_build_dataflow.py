@@ -55,6 +55,7 @@ def test_build_dataflow_directory():
     )
     assert os.path.isfile(output_dir + "/report/estimate_network_performance.json")
     assert os.path.isfile(output_dir + "/report/ooc_synth_and_timing.json")
+    assert os.path.isfile(output_dir + "/report/rtlsim_performance.json")
     assert os.path.isfile(output_dir + "/bitfile/finn-accel.bit")
     assert os.path.isfile(output_dir + "/bitfile/finn-accel.hwh")
     assert os.path.isfile(output_dir + "/report/post_synth_resources.xml")

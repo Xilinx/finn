@@ -4,13 +4,11 @@
 Functional Verification
 ***********************
 
-.. note:: **This website is currently under construction.**
-
-.. image:: ../../notebooks/end2end_example/verification.png
+.. image:: ../../notebooks/end2end_example/bnn-pynq/verification.png
    :scale: 70%
    :align: center
 
-This part of the flow is covered by the Jupyter notebook about the verification of a simple fully-connected network, which you can find in the `end2end notebook folder <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/tfc_end2end_verification.ipynb>`_.
+This part of the flow is covered by the Jupyter notebook about the verification of a simple fully-connected network, which you can find in the `end2end notebook folder <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/bnn-pynq/tfc_end2end_verification.ipynb>`_.
 
 When the network is transformed it is important to verify the functionality to make sure the transformation did not change the behaviour of the model. There are multiple ways of verification that can be applied in different stages of the network inside FINN. All can be accessed using the execution function in module :py:mod:`finn.core.onnx_exec`. The execution happens in most cases node by node, which supports networks that have a mixture of standard ONNX nodes, custom nodes and HLS custom nodes. A single node can be executed using one or more of the following methods:
 

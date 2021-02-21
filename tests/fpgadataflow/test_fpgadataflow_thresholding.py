@@ -122,6 +122,10 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     odt = act
     n_steps = act.get_num_possible_values() - 1
     T = np.random.randint(idt.min(), idt.max() + 1, (ich, n_steps)).astype(np.float32)
+    # make the vivado_hls threshold bug appear (incorrect rtlsim result when first
+    # threshold of first channel is zero, while using BIPOLAR output)
+    if act == DataType.BIPOLAR:
+        T[0][0] = 0
     # provide non-decreasing thresholds
     T = np.sort(T, axis=1)
 

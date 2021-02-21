@@ -49,10 +49,17 @@ cfg = build.DataflowBuildConfig(
     generate_outputs=[
         build_cfg.DataflowOutputType.PYNQ_DRIVER,
         build_cfg.DataflowOutputType.STITCHED_IP,
+        build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
         build_cfg.DataflowOutputType.OOC_SYNTH,
         build_cfg.DataflowOutputType.BITFILE,
         build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
+    ],
+    verify_steps=[
+        build_cfg.VerificationStepType.TIDY_UP_PYTHON,
+        build_cfg.VerificationStepType.STREAMLINED_PYTHON,
+        build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM,
+        build_cfg.VerificationStepType.STITCHED_IP_RTLSIM,
     ],
     save_intermediate_models=True,
 )

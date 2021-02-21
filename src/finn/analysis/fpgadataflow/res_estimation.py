@@ -61,7 +61,10 @@ def res_estimation_complete(model):
         if is_fpgadataflow_node(node) is True:
             op_type = node.op_type
             inst = registry.getCustomOp(node)
-            if op_type == "StreamingFCLayer_Batch" or op_type == "Vector_Vector_Activate_Batch":
+            if (
+                op_type == "StreamingFCLayer_Batch"
+                or op_type == "Vector_Vector_Activate_Batch"
+            ):
                 orig_restype = inst.get_nodeattr("resType")
                 res_dict[node.name] = []
                 inst.set_nodeattr("resType", "dsp")

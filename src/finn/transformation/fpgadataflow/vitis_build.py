@@ -328,7 +328,7 @@ class VitisLink(Transformation):
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(link_dir))
             f.write(
-                "vivado -mode tcl -source %s\n" % (link_dir + "/gen_report_xml.tcl")
+                "vivado -mode batch -source %s\n" % (link_dir + "/gen_report_xml.tcl")
             )
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", gen_rep_xml_sh]

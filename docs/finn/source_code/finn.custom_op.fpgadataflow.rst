@@ -1,5 +1,5 @@
 ************************
-Custom Op - FPGADataFlow
+Custom Op - fpgadataflow
 ************************
 
 HLS Custom Op Nodes
