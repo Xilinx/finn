@@ -87,6 +87,7 @@ class Streamline(Transformation):
             MoveAddPastMul(),
             CollapseRepeatedAdd(),
             CollapseRepeatedMul(),
+            MoveMulPastMaxPool(),
             AbsorbAddIntoMultiThreshold(),
             FactorOutMulSignMagnitude(),
             AbsorbMulIntoMultiThreshold(),
