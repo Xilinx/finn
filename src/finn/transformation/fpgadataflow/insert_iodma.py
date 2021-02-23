@@ -138,7 +138,7 @@ class InsertIODMA(Transformation):
                 padded_instream_width = first_node_inst.get_instream_width_padded()
                 padded_instream_bytes = padded_instream_width // 8
                 # determine the feasible interface width
-                transfer_bits = padded_instream_width * np.prod(out_folded_shape[:-1])
+                transfer_bits = padded_instream_width * np.prod(in_folded_shape[:-1])
                 intfwidth = math.gcd(transfer_bits, self.max_intfwidth)
                 assert (
                     intfwidth % 8 == 0
