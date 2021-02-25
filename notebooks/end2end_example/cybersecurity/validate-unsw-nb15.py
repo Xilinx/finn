@@ -47,7 +47,7 @@ if __name__ == "__main__":
         description="Validate top-1 accuracy for FINN-generated accelerator"
     )
     parser.add_argument(
-        "--batchsize", help="number of samples for inference", type=int, default=10
+        "--batchsize", help="number of samples for inference", type=int, default=1000
     )
     parser.add_argument(
         "--platform", help="Target platform: zynq-iodma alveo", default="zynq-iodma"
