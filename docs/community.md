@@ -5,6 +5,8 @@ We have a Gitter channel for all things FINN-related here:
 
 
 ### External Collaborators
+* TU Delft, Netherlands: Jakoba Petri-Koenig, Mirza Mrahorovic, Zaid Al-Ars
+* Heidelberg University: Hendrik Borras, Holger Froening
 * NTNU, Norway: Magnus Jahre, Magnus Sjalander
 * University of Sydney, Australia: Julian Faraone, Philip Leong
 * ETH Zurich, Switzerland: Kaan Kara, Ce Zhang, Lois Orosa, Onur Mutlu
