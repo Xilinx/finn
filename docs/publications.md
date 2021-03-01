@@ -24,7 +24,7 @@
 ## External Publications and Projects Based on FINN
 
 If you are using FINN in your
-work and would like to be listed here, please contact us!
+work and would like to be listed here, please contact us! (yamanu@xilinx.com)
 
 * <a href="https://coefs.uncc.edu/htabkhiv/teaching/hardware-software-co-design-real-time-ai/" target="_blank">Hardware-Software Co-Design Real-time AI (UNC Charlotte)</a>
 * <a href="https://ieeexplore.ieee.org/abstract/document/8442108" target="_blank">BinaryEye: A 20 kfps Streaming Camera System on FPGA with Real-Time On-Device Image Recognition Using Binary Neural Networks</a>
