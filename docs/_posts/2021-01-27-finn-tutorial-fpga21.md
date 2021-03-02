@@ -55,9 +55,9 @@ or join the [FINN Gitter channel](https://gitter.im/xilinx-finn/community).
 ## Materials
 
 * Part I: Introduction
-    * Live recording: https://www.youtube.com/watch?v=zw2aG4PhzmA&amp%3Bindex=2
-    * Slides: https://github.com/Xilinx/finn/blob/github-pages/docs/finn-isfpga21-tutorial-part1-slides.pdf
+    * [Live recording](https://www.youtube.com/watch?v=zw2aG4PhzmA&amp%3Bindex=2)
+    * [Slides](https://github.com/Xilinx/finn/blob/github-pages/docs/finn-isfpga21-tutorial-part1-slides.pdf)
 
 * Part II: Hands-on lab: Training and deploying an MLP for network intrusion detection
-   * Slides: http://bit.ly/finn-tutorial-fpga21-hands-on-slides
-   * Jupyter notebooks: http://bit.ly/finn-tutorial-fpga21-notebooks
+   * [Slides](http://bit.ly/finn-tutorial-fpga21-hands-on-slides)
+   * [Jupyter notebooks](http://bit.ly/finn-tutorial-fpga21-notebooks)
