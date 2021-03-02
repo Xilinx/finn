@@ -4,7 +4,7 @@ title:  "FINN tutorial at FPGA'21"
 author: "Yaman Umuroglu"
 ---
 
-*Please check back regularly for updates*
+*This event has now concluded. You can find the materials at the bottom of this page.*
 
 We're delighted to announce a two-hour FINN tutorial as part of the [FPGA'21 conference](https://www.isfpga.org).
 Details are as follows:
@@ -15,10 +15,6 @@ Details are as follows:
     * Central European Time (CET) 19:30 PM – 21:30 PM
 * **Format:** Virtual event, Zoom call with hands-on Jupyter notebook lab
     * Zoom and Jupyter links will be sent to confirmed participants via e-mail
-* **Registration:**
-    * FPGA'21 conference registration: [https://www.isfpga.org/registration](https://www.isfpga.org/registration)
-    * **Important:** You must fill out [this form](https://forms.gle/Cm9LwoeSjeoetYqX7) in addition to the FPGA conference registration.
-    * The hands-on part is limited to 50 participants.
 
 ## Description
 
@@ -46,13 +42,22 @@ or join the [FINN Gitter channel](https://gitter.im/xilinx-finn/community).
 
 * Part II: Hands-on lab: Training and deploying an MLP for network intrusion detection
     * Training a quantized MLP on the UNSW-NB15 dataset with Brevitas
-    * Exporting the trained network to FINN-ONNX + verification with the FINN compiler
     * Design space exploration and accelerator generation with the FINN compiler
 
-* Conclusion
+* Demo + Conclusion
 
 ## Organization
 
 * Yaman Umuroglu, Michaela Blott, Jon Ander Lezeta and Felix Paul Jentzsch, Xilinx Research Labs
 * Zaid Al-Ars and Jakoba Petri-Koenig, TU Delft
 * Holger Froening and Hendrik Borras, Heidelberg University
+
+## Materials
+
+* Part I: Introduction
+    * Live recording: https://www.youtube.com/watch?v=zw2aG4PhzmA&amp%3Bindex=2
+    * Slides: https://github.com/Xilinx/finn/blob/github-pages/docs/finn-isfpga21-tutorial-part1-slides.pdf
+
+* Part II: Hands-on lab: Training and deploying an MLP for network intrusion detection
+   * Slides: http://bit.ly/finn-tutorial-fpga21-hands-on-slides
+   * Jupyter notebooks: http://bit.ly/finn-tutorial-fpga21-notebooks
