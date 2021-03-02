@@ -11,12 +11,12 @@ from finn.util.basic import gen_finn_dt_tensor
 import finn.core.onnx_exec as oxe
 
 
-def create_model(permutation, default_data_layout):
-    if permutation == [0, 3, 1, 2]:
+def create_model(perm, default_data_layout):
+    if perm == [0, 3, 1, 2]:
         in_shape = [1, 128, 1, 256]
         out_shape = [1, 256, 128, 1]
         data_layout = "NCHW"
-    if permutation == [0, 2, 3, 1]:
+    if perm == [0, 2, 3, 1]:
         in_shape = [1, 256, 128, 1]
         out_shape = [1, 128, 1, 256]
         data_layout = "NHWC"
@@ -25,14 +25,14 @@ def create_model(permutation, default_data_layout):
         "Transpose",
         inputs=["in_transpose1"],
         outputs=["out_transpose1"],
-        perm=permutation,
+        perm=perm,
     )
 
     Transpose2_node = oh.make_node(
         "Transpose",
         inputs=["in_transpose2"],
         outputs=["out_transpose2"],
-        perm=permutation,
+        perm=perm,
     )
 
     if (

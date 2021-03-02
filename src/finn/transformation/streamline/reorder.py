@@ -33,6 +33,7 @@ from onnx import TensorProto
 
 from finn.transformation.base import Transformation
 import finn.core.data_layout as DataLayout
+from finn.transformation.general import SortGraph
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_data_layouts import InferDataLayouts
