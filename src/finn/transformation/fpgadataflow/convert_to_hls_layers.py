@@ -65,8 +65,17 @@ class InferConvInpGen(Transformation):
                     continue
                 i2c_inst = getCustomOp(n)
                 stride = i2c_inst.get_nodeattr("stride")
-                k = i2c_inst.get_nodeattr("kernel_size")
-                pad = i2c_inst.get_nodeattr("pad_amount")
+                k_attr = i2c_inst.get_nodeattr("kernel_size")
+                k_h = k_attr[0]
+                k_w = k_attr[1]
+                pad_attr = i2c_inst.get_nodeattr("pad_amount")
+                pad_h = pad_attr[0] + pad_attr[2]
+                pad_w = pad_attr[1] + pad_attr[3]
+                # temporary checks until non-square conv support is finalized
+                assert pad_h == pad_w, "Non-square images not yet supported."
+                assert k_h == k_w, "Non-square kernels not yet supported."
+                k = k_h
+                pad = pad_attr[0]
                 pad_val = i2c_inst.get_nodeattr("pad_value")
                 depthwise = i2c_inst.get_nodeattr("depthwise")
                 ifm_ch = i2c_in_shape[-1]
@@ -330,8 +339,8 @@ class InferPool_Batch(Transformation):
                     [im2col_out],
                     domain="finn.custom_op.general",
                     stride=stride,
-                    kernel_size=k,
-                    pad_amount=pad,
+                    kernel_size=[k, k],
+                    pad_amount=[pad, pad, pad, pad],
                     pad_value=pad_value,
                     depthwise=1,
                     input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
@@ -557,7 +566,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                     wmem = mw * mh // (pe * simd)
                     assert (
                         mw * mh == wmem * pe * simd
-                    ), """Requirement (MW * MH) divisiable by
+                    ), """Requirement (MW * MH) divisible by
                     (WMEM * PE * SIMD) is violated."""
                     # see if we have any following thresholds
                     consumer = model.find_consumer(mm_output)
@@ -574,20 +583,27 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         thresholds neither 1 nor MH."""
                         odt = model.get_tensor_datatype(mt_output)
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
-                        bipolar_ok = odt == DataType.BIPOLAR and scale == 2.0
-                        assert (
-                            scale == 1.0 or bipolar_ok
-                        ), "out_scale must be equal to 1.0 for HLS conversion."
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert (
                             int(actval) == actval
                         ), "out_bias must be integer for HLS conversion."
                         actval = int(actval)
+                        odt_is_bipolar = odt == DataType.BIPOLAR
+                        bipolar_ok = (
+                            odt_is_bipolar and (scale == 2.0) and (actval == -1)
+                        )
+                        assert (
+                            scale == 1.0 or bipolar_ok
+                        ), "out_scale = 1.0 or bipolar output needed for conversion."
                         assert (not odt.signed()) or (
                             actval < 0
                         ), "Signed output requres actval < 0"
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
+                        if bipolar_ok:
+                            # remove bias for bipolar, since
+                            # binary->bipolar is achieved by reinterpretation
+                            actval = 0
                         # create and insert new StreamingFCLayer node
                         new_node = helper.make_node(
                             "StreamingFCLayer_Batch",

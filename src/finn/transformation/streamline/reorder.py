@@ -425,12 +425,86 @@ class MoveMulPastDWConv(Transformation):
         return (model, graph_modified)
 
 
+class MoveMulPastMaxPool(Transformation):
+    """Move non-negative scalar or channelwise mul operations past max pool operations.
+    We want to have muls next to each other such that they can be collapsed into a
+    single mul."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if (
+                n.op_type == "Mul"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
+                consumer = model.find_consumer(n.output[0])
+                if (
+                    consumer is not None
+                    and consumer.op_type == "MaxPool"
+                    and not model.is_join_node(consumer)
+                ):
+                    mul_weight_name = n.input[1]
+                    A = model.get_initializer(mul_weight_name)
+                    if A is None:
+                        warnings.warn(
+                            """Mul weight tensor is not set. If it is a constant,
+                                please use set_initializer to set the tensor."""
+                        )
+                        continue
+                    maxpool_node = consumer
+                    mul_node = n
+                    start_name = mul_node.input[0]
+                    maxpool_in_name = maxpool_node.input[0]
+                    maxpool_in_shape = model.get_tensor_shape(maxpool_in_name)
+                    ifm_ch = maxpool_in_shape[1]
+                    maxpool_out_name = maxpool_node.output[0]
+                    maxpool_out_shape = model.get_tensor_shape(maxpool_out_name)
+
+                    # do not support non-2D MaxPool
+                    kernel_shape = list(
+                        get_by_name(maxpool_node.attribute, "kernel_shape").ints
+                    )
+                    if len(kernel_shape) != 2:
+                        continue
+
+                    # do not move negative multiplication factor(s)
+                    if (A < 0).any():
+                        continue
+
+                    if all(x == 1 for x in A.shape) or A.shape == (1, ifm_ch, 1, 1):
+                        # if the mul is scalar or channelwise,
+                        # we can simply swap the order of ops
+                        # rewire mul input to be maxpool input
+                        maxpool_node.input[0] = start_name
+                        model.set_tensor_shape(start_name, maxpool_in_shape)
+                        model.set_tensor_datatype(start_name, DataType.FLOAT32)
+                        # use old maxpool input tensor as maxpool output
+                        maxpool_node.output[0] = maxpool_in_name
+                        model.set_tensor_shape(maxpool_in_name, maxpool_out_shape)
+                        model.set_tensor_datatype(maxpool_in_name, DataType.FLOAT32)
+                        # use new maxpool output as new mul node input
+                        mul_node.input[0] = maxpool_in_name
+                        # use old maxpool output as new mul node output
+                        mul_node.output[0] = maxpool_out_name
+                        model.set_tensor_datatype(maxpool_out_name, DataType.FLOAT32)
+                        # move mul node past maxpool node
+                        graph.node.remove(mul_node)
+                        graph.node.insert(node_ind, mul_node)
+                        graph_modified = True
+        model = model.transform(InferShapes())
+        return (model, graph_modified)
+
+
 class MoveLinearPastEltwiseAdd(Transformation):
     """Move linear operations (mul, add) past elementwise add operations where possible.
-       Specifically,matches and transforms the following patterns:
-       (x*C) + (y*C) -> (x + y) * C
-       (x+A) + (y+B) -> (x + y) + (A + B)
-       where x and y are dynamic inputs, A, B, C are constant tensors (in general).
+    Specifically,matches and transforms the following patterns:
+    (x*C) + (y*C) -> (x + y) * C
+    (x+A) + (y+B) -> (x + y) + (A + B)
+    where x and y are dynamic inputs, A, B, C are constant tensors (in general).
     """
 
     def move_node(self, graph, n, prod0, prod1, node_ind):
@@ -504,12 +578,12 @@ class MoveLinearPastEltwiseAdd(Transformation):
 
 class MoveScalarLinearPastInvariants(Transformation):
     """Move scalar linear operations (mul, add) past functions which are invariant
-       to them. Specifically, matches and transforms the following patterns:
-       f(x*C) -> f(x) * C
-       f(x+C) -> f(x) + C
-       where x is a dynamic input, C is a constant tensor.
-       Known f which obey this property are: Reshape, Flatten, Transpose,
-       GlobalAveragePool
+    to them. Specifically, matches and transforms the following patterns:
+    f(x*C) -> f(x) * C
+    f(x+C) -> f(x) + C
+    where x is a dynamic input, C is a constant tensor.
+    Known f which obey this property are: Reshape, Flatten, Transpose,
+    GlobalAveragePool
     """
 
     def apply(self, model):
@@ -604,7 +678,7 @@ class MakeMaxPoolNHWC(Transformation):
 
 class MoveOpPastFork(Transformation):
     """Move node operations past graph forks. Used when a node before a fork
-     can be merged with nodes in the branches
+    can be merged with nodes in the branches
     """
 
     def __init__(self, op_name_list):
