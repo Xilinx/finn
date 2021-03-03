@@ -34,7 +34,6 @@ from IPython.display import IFrame
 def showSrc(what):
     print("".join(inspect.getsourcelines(what)[0]))
 
-
 def showInNetron(model_filename):
-    netron.start(model_filename, port=8081, host="0.0.0.0")
+    netron.start(model_filename, address=("0.0.0.0", 8081))
     return IFrame(src="http://0.0.0.0:8081/", width="100%", height=400)
