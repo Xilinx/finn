@@ -176,7 +176,7 @@ proc assign_axi_addr_proc {axi_intf_path} {
     global axi_peripheral_base
     #infer range
     set range [expr 2**[get_property CONFIG.ADDR_WIDTH [get_bd_intf_pins $axi_intf_path]]]
-    set range [expr $range < 128 ? 128 : $range]
+    set range [expr $range < 4096 ? 4096 : $range]
     #align base address to range
     set offset [expr ($axi_peripheral_base + ($range-1)) & ~($range-1)]
     #perform assignment
