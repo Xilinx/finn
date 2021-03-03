@@ -37,12 +37,12 @@ import os
 import warnings
 import pkg_resources as pk
 from . import template_driver
-
+from finn.core.modelwrapper import ModelWrapper
 
 class MakePYNQDriver(Transformation):
     """Create PYNQ Python code to correctly interface the generated
     accelerator, including data packing/unpacking. Should be called
-    after conversion to HLS layers and folding, but prior to the creation of
+    after conversion to HLS layers, folding and the creation of
     dataflow partitions for correct operation.
 
     platform: one of ["zynq-iodma", "alveo"]
@@ -149,24 +149,29 @@ class MakePYNQDriver(Transformation):
 
         # generate weight files for runtime-writable layers
         weights_dir = pynq_driver_dir + "/runtime_weights"
-        rt_layer_ind = 0
+        
         os.makedirs(weights_dir)
-        for node in model.graph.node:
-            if node.op_type in ["StreamingFCLayer_Batch", "Thresholding_Batch"]:
-                node_inst = getCustomOp(node)
-                is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
-                if is_rt_weights == 1:
-                    fcl_w = model.get_initializer(node.input[1])
-                    w_filename = weights_dir + "/%d_%s.dat" % (rt_layer_ind, node.name)
-                    node_inst.make_weight_file(fcl_w, "decoupled_runtime", w_filename)
-                    rt_layer_ind += 1
-            elif node.op_type == "StreamingDataflowPartition":
-                warnings.warn(
-                    """Please call MakePYNQDriver prior to
-                CreateDataflowPartition. Can only extract runtime-writable
-                weights from HLSCustomOp instances and not StreamingDataflowPartition.
-                """
-                )
-            else:
-                continue
+        for sdp_ind, sdp_node in enumerate(model.graph.node):
+            assert sdp_node.op_type == "StreamingDataflowPartition"
+            # get dataflow model
+            sdp_node = getCustomOp(sdp_node)
+            dataflow_model_filename = sdp_node.get_nodeattr("model")
+            dataflow_model = ModelWrapper(dataflow_model_filename)
+            rt_layer_ind = 0
+            for node in dataflow_model.graph.node:
+                if node.op_type in ["StreamingFCLayer_Batch", "Thresholding_Batch"]:
+                    node_inst = getCustomOp(node)
+                    is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
+                    if is_rt_weights == 1:
+                        fcl_w = dataflow_model.get_initializer(node.input[1])
+                        w_filename = weights_dir + "/%d_%d_%s.dat" % (sdp_ind,rt_layer_ind, node.name)
+                        node_inst.make_weight_file(fcl_w, "decoupled_runtime", w_filename)
+                        rt_layer_ind += 1
+                elif node.op_type == "StreamingDataflowPartition":
+                    warnings.warn(
+                        """Nested StreamingDataflowPartition are not supported
+                    """
+                    )
+                else:
+                    continue
         return (model, False)

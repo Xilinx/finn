@@ -125,15 +125,16 @@ class FINNExampleOverlay(Overlay):
             layer_w = np.fromiter(
                 [int(x, 16) for x in dat.strip().split()], dtype=np.uint32
             )
-            layer_ind = int(w_filename.split("_")[0])
-            rt_weight_dict[layer_ind] = layer_w
-        for layer_ind in rt_weight_dict.keys():
-            cand_if_name = "StreamingDataflowPartition_1/s_axilite_%d" % layer_ind
+            sdp_ind = int(w_filename.split("_")[0])
+            layer_ind = int(w_filename.split("_")[1])
+            rt_weight_dict[(sdp_ind,layer_ind)] = layer_w
+        for sdp_ind,layer_ind in rt_weight_dict.keys():
+            cand_if_name = "StreamingDataflowPartition_%d/s_axilite_%d" % (sdp_ind,layer_ind)
             if cand_if_name in self.ip_dict.keys():
                 layer_mmio = getattr(
-                    self.StreamingDataflowPartition_1, "s_axilite_%d" % layer_ind
+                    getattr(self,"StreamingDataflowPartition_%d" % sdp_ind), "s_axilite_%d" % layer_ind
                 ).mmio
-                layer_w = rt_weight_dict[layer_ind]
+                layer_w = rt_weight_dict[(sdp_ind,layer_ind)]
                 layer_mmio.write_mm(0, layer_w.tobytes())
                 if verify:
                     new_w = np.copy(layer_mmio.array[: layer_w.shape[0]])
