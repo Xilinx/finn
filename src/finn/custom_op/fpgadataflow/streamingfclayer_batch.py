@@ -1078,11 +1078,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         else:
             threshs = "threshs"
         if mem_mode == "const":
-            node = self.onnx_node
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<MW1, MH1, SIMD1, PE1, {}, {}, {}>
+                """{}<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
                 (in0, out, weights, {}, numReps, {});""".format(
-                    node.op_type,
+                    "Matrix_Vector_Activate_Batch",
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
