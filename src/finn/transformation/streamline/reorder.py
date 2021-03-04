@@ -1114,3 +1114,77 @@ class MoveTransposePastMultiThreshold(Transformation):
             model = model.transform(SortGraph(), make_deepcopy=False, cleanup=False)
 
         return (model, graph_modified)
+
+
+class MoveIdenticalOpPastJoinOp(Transformation):
+    """
+    Move identical operations on different branches past the common join node.
+    This transformation assumes that the identical operations only change the
+    data layout. For linear operations, see the transformation MoveLinearPastEltwiseAdd.
+    Specifically, this transformation matches and transforms the following patterns:
+    f(x) + f(y) -> f(x + y)
+    where f(.) is currently only supporting 'Transpose', and an 'Add' node is
+    the join node.
+    """
+
+    def __init__(self, identical_op_list, join_node_list):
+        super().__init__()
+        self.ops_to_move = identical_op_list
+        self.join_node_op = join_node_list
+
+    def move_node(self, model, n, prod0, prod1):
+        # Found! move one of the identical_ops to output, remove the other one
+        identical_op0_in0 = prod0.input[0]
+        identical_op1_in0 = prod1.input[0]
+        add_in0 = n.input[0]
+        add_out = n.output[0]
+
+        # Rewire
+        n.input[0] = identical_op0_in0
+        n.input[1] = identical_op1_in0
+
+        # Output tensor of the join node must have the same shape as
+        # its input tensor (original shape is preserved)
+        new_shape = model.get_tensor_shape(identical_op0_in0)
+
+        # Set new tensor shape
+        model.set_tensor_shape(tensor_name=add_in0, tensor_shape=new_shape)
+
+        n.output[0] = add_in0
+        prod0.input[0] = add_in0
+        prod0.output[0] = add_out
+
+        model.graph.node.remove(prod1)
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for n in graph.node:
+            if n.op_type in self.join_node_op and model.is_join_node(n):
+                in0 = n.input[0]
+                in1 = n.input[1]
+                if in0 is None or in1 is None:
+                    continue
+
+                prod0 = model.find_producer(in0)
+                prod1 = model.find_producer(in1)
+                # Checks if the join node is preceded by
+                # two different, but identical operations
+                if prod0 == prod1:
+                    continue
+
+                identical_op = prod0.op_type == prod1.op_type
+
+                if identical_op and prod0.op_type in self.ops_to_move:
+                    self.move_node(model, n, prod0, prod1)
+                    graph_modified = True
+
+        if graph_modified:
+            model = model.transform(SortGraph(), make_deepcopy=False, cleanup=False)
+
+        return (model, graph_modified)
+
+
+class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
+    def __init__(self):
+        super().__init__(["Transpose"], ["Add"])
