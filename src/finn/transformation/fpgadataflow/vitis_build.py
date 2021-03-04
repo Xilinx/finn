@@ -330,6 +330,7 @@ class VitisLink(Transformation):
 
 class VitisBuild(Transformation):
     """Best-effort attempt at building the accelerator with Vitis.
+    It assumes the model has only fpgadataflow nodes
 
     fpga_part: string identifying the target FPGA
     period_ns: target clock period
@@ -365,7 +366,6 @@ class VitisBuild(Transformation):
         model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels
         prep_transforms = [
-            MakePYNQDriver(platform="alveo"),
             InsertIODMA(512),
             InsertDWC(),
         ]
@@ -416,4 +416,6 @@ class VitisBuild(Transformation):
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "alveo")
 
+        #create driver
+        model = model.transform(MakePYNQDriver(platform="alveo"))
         return (model, False)
