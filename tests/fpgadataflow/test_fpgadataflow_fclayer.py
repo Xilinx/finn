@@ -94,6 +94,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         MH=mh,
         SIMD=simd,
         PE=pe,
+        rtlsim_trace="trace.vcd",
         inputDataType=export_idt.name,
         weightDataType=export_wdt.name,
         outputDataType=odt.name,
