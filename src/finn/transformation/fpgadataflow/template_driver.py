@@ -78,6 +78,7 @@ io_shape_dict = {
     "oshape_folded" : $OUTPUT_SHAPE_FOLDED$,
     "ishape_packed" : $INPUT_SHAPE_PACKED$,
     "oshape_packed" : $OUTPUT_SHAPE_PACKED$
+    "input_dma_name" : $INPUT_DMA_NAME$
 }
 
 if __name__ == "__main__":

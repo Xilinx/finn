@@ -38,6 +38,37 @@ import warnings
 import pkg_resources as pk
 from . import template_driver
 from finn.core.modelwrapper import ModelWrapper
+import numpy as np
+from bitstring import BitArray
+
+
+def to_external_tensor(init,w_dtype):
+    driver_datatype_width = 8 # driver_base.py assumes uint8
+
+    init_f =init.flatten()
+    dim = np.prod(init.shape)
+    weight_width = w_dtype.bitwidth()
+    assert (dim*weight_width) %8 == 0, "Weight tensor not supported as external weight"
+
+    ext_weight_size = int(dim*weight_width/8)
+    ext_weight_tensor = np.zeros(ext_weight_size)
+
+    ext_weight_ptr = 0
+    mem_line = BitArray(length=0)
+    for w in init_f:
+        if w_dtype.signed():
+            mem_line.prepend(BitArray(int=int(w), length=weight_width))
+        else:
+            mem_line.prepend(BitArray(uint=int(w), length=weight_width))
+
+        if mem_line.len == driver_datatype_width:
+            ext_weight_tensor[ext_weight_ptr] = mem_line.uint
+
+            mem_line = BitArray(length=0)
+            ext_weight_ptr +=1
+
+    assert ext_weight_ptr == ext_weight_size
+    return ext_weight_tensor
 
 class MakePYNQDriver(Transformation):
     """Create PYNQ Python code to correctly interface the generated
@@ -98,7 +129,36 @@ class MakePYNQDriver(Transformation):
         )
         i_tensor_shape_packed = i_tensor_dummy_packed.shape
         o_tensor_shape_packed = o_tensor_dummy_packed.shape
-
+        
+        
+        #generate external weights npy files
+        weights_dir = pynq_driver_dir + "/runtime_weights"
+        
+        os.makedirs(weights_dir)
+        idma_idx = 0
+            
+        for node in model.graph.node:
+            assert node.op_type == "StreamingDataflowPartition", (
+                "CreateDataflowPartition needs to be applied before driver generation")
+            
+            producer = model.find_producer(node.input[0])
+            init_tensor = model.get_initializer(node.input[0])
+            
+            if producer is None : # input dma?
+                idma_name = "idma" + str(idma_idx)
+                if init_tensor is not None: # input weights dma?
+                    w_dtype = model.get_tensor_datatype(node.input[0])
+                    init_external_tensor = to_external_tensor(init_tensor,w_dtype)
+                    np.save(weights_dir+"/"+ idma_name+".npy",init_external_tensor)
+                    if self.platform != "alveo":
+                        #Todo: add support in driver_base.py
+                        warn("external_weights are not yet supported for non-Alveo builds")
+                else:
+                    net_input_name = idma_name
+                
+                idma_idx += 1
+                        
+        
         # fill in the driver template
         driver_py = pynq_driver_dir + "/driver.py"
         driver = template_driver.pynq_driver_template
@@ -122,6 +182,7 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$OUTPUT_SHAPE_NORMAL$", mss(o_tensor_shape_normal))
         driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", mss(o_tensor_shape_folded))
         driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
+        driver = driver.replace("$INPUT_DMA_NAME$", "'%s'" %net_input_name)
 
         with open(driver_py, "w") as f:
             f.write(driver)
@@ -148,9 +209,7 @@ class MakePYNQDriver(Transformation):
         shutil.copytree(dtp_root, pynq_driver_dir + "/finn/core")
 
         # generate weight files for runtime-writable layers
-        weights_dir = pynq_driver_dir + "/runtime_weights"
         
-        os.makedirs(weights_dir)
         for sdp_ind, sdp_node in enumerate(model.graph.node):
             assert sdp_node.op_type == "StreamingDataflowPartition"
             # get dataflow model
@@ -174,4 +233,7 @@ class MakePYNQDriver(Transformation):
                     )
                 else:
                     continue
+                    
+        
+
         return (model, False)
