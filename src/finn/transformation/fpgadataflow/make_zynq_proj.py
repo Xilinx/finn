@@ -173,6 +173,11 @@ class MakeZYNQProject(Transformation):
                     "[get_bd_intf_pins axi_interconnect_0/M%02d_AXI]"
                     % (instance_names[node.name], axilite_intf_name, axilite_idx)
                 )
+                # assign_bd_address with appropriate range/offset
+                config.append(
+                    "assign_axi_addr_proc %s/%s"
+                    % (instance_names[node.name], axilite_intf_name)
+                )
                 idma_idx += 1
                 aximm_idx += 1
                 axilite_idx += 1
@@ -187,6 +192,11 @@ class MakeZYNQProject(Transformation):
                         "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                         "[get_bd_intf_pins axi_interconnect_0/M%02d_AXI]"
                         % (instance_names[node.name], axilite_intf_name, axilite_idx)
+                    )
+                    # assign_bd_address with appropriate range/offset
+                    config.append(
+                        "assign_axi_addr_proc %s/%s"
+                        % (instance_names[node.name], axilite_intf_name)
                     )
                     axilite_idx += 1
 
