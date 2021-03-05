@@ -39,36 +39,23 @@ import pkg_resources as pk
 from . import template_driver
 from finn.core.modelwrapper import ModelWrapper
 import numpy as np
-from bitstring import BitArray
+
+from finn.util.data_packing import pack_innermost_dim_as_hex_string, hexstring2npbytearray
+from finn.util.basic import (
+    roundup_to_integer_multiple,
+)
 
 
 def to_external_tensor(init,w_dtype):
-    driver_datatype_width = 8 # driver_base.py assumes uint8
-
-    init_f =init.flatten()
-    dim = np.prod(init.shape)
-    weight_width = w_dtype.bitwidth()
-    assert (dim*weight_width) %8 == 0, "Weight tensor not supported as external weight"
-
-    ext_weight_size = int(dim*weight_width/8)
-    ext_weight_tensor = np.zeros(ext_weight_size)
-
-    ext_weight_ptr = 0
-    mem_line = BitArray(length=0)
-    for w in init_f:
-        if w_dtype.signed():
-            mem_line.prepend(BitArray(int=int(w), length=weight_width))
-        else:
-            mem_line.prepend(BitArray(uint=int(w), length=weight_width))
-
-        if mem_line.len == driver_datatype_width:
-            ext_weight_tensor[ext_weight_ptr] = mem_line.uint
-
-            mem_line = BitArray(length=0)
-            ext_weight_ptr +=1
-
-    assert ext_weight_ptr == ext_weight_size
-    return ext_weight_tensor
+    weight_width = init.shape[1]*w_dtype.bitwidth()
+    weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
+    hex_init = pack_innermost_dim_as_hex_string(init,w_dtype,weight_width_padded, prefix="0x")
+    ext_weight=np.array([], dtype=np.uint8)
+    for line in hex_init:
+        array_line = [x for x in reversed(hexstring2npbytearray(line, remove_prefix="0x"))]
+        ext_weight = np.append( ext_weight, array_line)
+        
+    return ext_weight
 
 class MakePYNQDriver(Transformation):
     """Create PYNQ Python code to correctly interface the generated

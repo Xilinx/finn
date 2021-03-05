@@ -85,15 +85,15 @@ class FINNExampleOverlay(Overlay):
         self.batch_size = batch_size
         self.fclk_mhz = fclk_mhz
         if self.platform == "alveo":
-            if "input_dma_name" in runtime_weight_dir.keys():
-                self.idma = getattr(self,runtime_weight_dir["input_dma_name"])
+            if "input_dma_name" in io_shape_dict.keys():
+                self.idma = getattr(self,io_shape_dict["input_dma_name"])
             else:
                 self.idma = self.idma0
             self.odma = self.odma0
             self.odma_handle = None
         elif self.platform == "zynq-iodma":
-            if "input_dma_name" in runtime_weight_dir.keys():
-                self.idma = getattr(self,runtime_weight_dir["input_dma_name"])
+            if "input_dma_name" in io_shape_dict.keys():
+                self.idma = getattr(self,io_shape_dict["input_dma_name"])
             else:
                 self.idma = self.idma0
             self.odma = self.odma0
@@ -103,9 +103,9 @@ class FINNExampleOverlay(Overlay):
         else:
             raise ValueError("Supported platforms are zynq-iodma alveo")
         # load any runtime weights
-        self.load_runtime_weights()
         self.external_weights = []
         self.load_external_weights()
+        self.load_runtime_weights()
 
     def load_external_weights(self):
         """Load any existing runtime weights from the specified dir into the
@@ -150,7 +150,7 @@ class FINNExampleOverlay(Overlay):
             if idma_name in self.ip_dict.keys():
                 iwdma = getattr(self, idma_name)
                 weight_tensor = tmp_weight_dict[idma_name]
-                weight_buf = pynq.allocate(weight_tensor.shape, dtype=np.uint8)
+                weight_buf = allocate(weight_tensor.shape, dtype=np.uint8)
                 weight_buf[:] = weight_tensor
                 weight_buf.sync_to_device()
 

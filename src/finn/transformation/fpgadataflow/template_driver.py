@@ -77,7 +77,7 @@ io_shape_dict = {
     "ishape_folded" : $INPUT_SHAPE_FOLDED$,
     "oshape_folded" : $OUTPUT_SHAPE_FOLDED$,
     "ishape_packed" : $INPUT_SHAPE_PACKED$,
-    "oshape_packed" : $OUTPUT_SHAPE_PACKED$
+    "oshape_packed" : $OUTPUT_SHAPE_PACKED$,
     "input_dma_name" : $INPUT_DMA_NAME$
 }
 
