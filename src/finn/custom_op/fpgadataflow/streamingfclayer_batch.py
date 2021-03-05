@@ -991,6 +991,13 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     def defines(self, var):
+        # pre-include defines
+        is_fully_unrolled_pe = self.get_nodeattr("PE") == self.get_nodeattr("MH")
+        is_fully_unrolled_simd = self.get_nodeattr("SIMD") == self.get_nodeattr("MW")
+        is_fully_unrolled = is_fully_unrolled_pe and is_fully_unrolled_simd
+        if is_fully_unrolled and var == "ipgen":
+            self.code_gen_dict["$PRE_INCLUDE_DEFINES$"].append("#define FREE_RUNNING")
+        # regular defines
         mem_mode = self.get_nodeattr("mem_mode")
         numInputVectors = list(self.get_nodeattr("numInputVectors"))
         numReps = np.prod(numInputVectors)
@@ -1195,6 +1202,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW")
 
         if mem_mode == "const":
             self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')

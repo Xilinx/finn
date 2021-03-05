@@ -274,6 +274,7 @@ class HLSCustomOp(CustomOp):
         # generate top cpp file for ip generation
         path = self.get_nodeattr("code_gen_dir_ipgen")
         self.code_gen_dict["$AP_INT_MAX_W$"] = [str(self.get_ap_int_max_w())]
+        self.code_gen_dict["$PRE_INCLUDE_DEFINES$"] = []
         self.generate_params(model, path)
         self.global_includes()
         self.defines("ipgen")

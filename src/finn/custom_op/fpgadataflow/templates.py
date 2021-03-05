@@ -62,8 +62,10 @@ $SAVEASCNPY$
 
 # cpp file
 ipgen_template = """
+// pre-include defines that may alter
+// header-only libraries
 #define AP_INT_MAX_W $AP_INT_MAX_W$
-#define FREE_RUNNING
+$PRE_INCLUDE_DEFINES$
 
 #include "bnn-library.h"
 
