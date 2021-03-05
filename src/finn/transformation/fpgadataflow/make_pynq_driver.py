@@ -123,6 +123,7 @@ class MakePYNQDriver(Transformation):
         
         os.makedirs(weights_dir)
         idma_idx = 0
+        ext_weight_dma_cnt = 0
             
         for node in model.graph.node:
             assert node.op_type == "StreamingDataflowPartition", (
@@ -134,6 +135,7 @@ class MakePYNQDriver(Transformation):
             if producer is None : # input dma?
                 idma_name = "idma" + str(idma_idx)
                 if init_tensor is not None: # input weights dma?
+                    ext_weight_dma_cnt += 1
                     w_dtype = model.get_tensor_datatype(node.input[0])
                     init_external_tensor = to_external_tensor(init_tensor,w_dtype)
                     np.save(weights_dir+"/"+ idma_name+".npy",init_external_tensor)
@@ -169,7 +171,8 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$OUTPUT_SHAPE_NORMAL$", mss(o_tensor_shape_normal))
         driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", mss(o_tensor_shape_folded))
         driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
-        driver = driver.replace("$INPUT_DMA_NAME$", "'%s'" %net_input_name)
+        driver = driver.replace("$INPUT_DMA_NAME$", "'%s'" % net_input_name)
+        driver = driver.replace("$EXT_WEIGHT_NUM$", str(ext_weight_dma_cnt) )
 
         with open(driver_py, "w") as f:
             f.write(driver)

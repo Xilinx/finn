@@ -156,6 +156,12 @@ class FINNExampleOverlay(Overlay):
 
                 self.external_weights +=[(iwdma,weight_buf)]
 
+        if "number_of_external_weights" in self._io_shape_dict:
+            hw_ext_weights = self._io_shape_dict["number_of_external_weights"]
+            assert len(self.external_weights) == hw_ext_weights, (
+                "Number of hardware external weights and number of external " +
+                "weight tensors available do not match. \n"+
+                "Is runtime_weight_dir pointing to the correct folder?")
 
 
     def load_runtime_weights(self, flush_accel=True, verify=True):
