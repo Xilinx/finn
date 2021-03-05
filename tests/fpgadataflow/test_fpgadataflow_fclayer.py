@@ -316,6 +316,16 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
 
+    from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+    from finn.core.throughput_test import throughput_test_rtlsim
+
+    model = model.transform(CreateStitchedIP("xc7z020clg400", 5.0))
+    model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", "whole.vcd")
+    model = model.transform(PrepareRTLSim())
+    ret = throughput_test_rtlsim(model, 10)
+    print(ret)
+
 
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["decoupled"])
