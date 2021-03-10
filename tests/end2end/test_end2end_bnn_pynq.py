@@ -140,7 +140,6 @@ def fold_tfc(model):
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
-        fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
@@ -164,6 +163,7 @@ def fold_lfc(model):
         fcl_inst.set_nodeattr("PE", pe)
         fcl_inst.set_nodeattr("SIMD", simd)
         fcl_inst.set_nodeattr("ram_style", ramstyle)
+        fcl_inst.set_nodeattr("runtime_writeable_weights", 1)
     # set parallelism for input quantizer to be same as first layer's SIMD
     inp_qnt_node = model.get_nodes_by_op_type("Thresholding_Batch")[0]
     inp_qnt = getCustomOp(inp_qnt_node)
