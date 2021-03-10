@@ -323,7 +323,7 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                     mt_cand = model.find_consumers(n.output[0])
                     try:
                         mt_cand = mt_cand[0]
-                    except ValueError:
+                    except TypeError:
                         continue
                     if mt_cand.op_type == "MultiThreshold" and not model.is_fork_node(
                         mt_cand
@@ -331,7 +331,7 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                         final_t_cand = model.find_consumers(mt_cand.output[0])
                         try:
                             final_t_cand = final_t_cand[0]
-                        except ValueError:
+                        except TypeError:
                             continue
                         if final_t_cand.op_type == "Transpose":
                             perms = list(
