@@ -1,20 +1,17 @@
 ---
 layout: post
-title:  "FINN tutorial at FPGA'21"
+title:  "FINN tutorial, March 2021"
 author: "Yaman Umuroglu"
 ---
 
-*This event has now concluded. You can find the materials at the bottom of this page.*
+We're delighted to announce a three-hour FINN tutorial. Details are as follows:
 
-We're delighted to announce a two-hour FINN tutorial as part of the [FPGA'21 conference](https://www.isfpga.org).
-Details are as follows:
-
-* **Date:** 28 February 2021 (Sunday)
+* **Date:** 24 March 2021 (Wednesday)
 * **Time:**
-    * Pacific Standard Time (PST) 10:30 AM – 1:30 PM
-    * Central European Time (CET) 19:30 PM – 21:30 PM
+    * Central European Time (CET) 17:30 – 20:30 PM
 * **Format:** Virtual event, Zoom call with hands-on Jupyter notebook lab
     * Zoom and Jupyter links will be sent to confirmed participants via e-mail
+* **Registration (closes 21 March 2021 17:00 CET):** https://forms.gle/JixoUdDryi7jJgrr8
 
 ## Description
 
@@ -30,18 +27,19 @@ This will be a virtual event, with a Zoom video call and a hands-on Jupyter note
 Registered participants will get access to a FINN setup running in the cloud.
 There are no special technical requirements besides a browser and Zoom client.
 
-Connect with us and the other participants on the [tutorial Gitter channel](https://gitter.im/xilinx-finn/tutorial-fpga21),
-or join the [FINN Gitter channel](https://gitter.im/xilinx-finn/community).
+Connect with us and the FINN community on the [FINN Gitter channel](https://gitter.im/xilinx-finn/community).
 
 ## Agenda
 
 * Part I: Introduction
     * An introduction to FINN, QNNs and streaming dataflow architectures
-    * The FINN open-source community
     * Tour of FINN GitHub repositories
+    * The FINN open-source community
+    * Q & A
 
 * Part II: Hands-on lab: Training and deploying an MLP for network intrusion detection
     * Training a quantized MLP on the UNSW-NB15 dataset with Brevitas
+    * Importing the MLP into FINN and verification
     * Design space exploration and accelerator generation with the FINN compiler
 
 * Demo + Conclusion
@@ -51,13 +49,3 @@ or join the [FINN Gitter channel](https://gitter.im/xilinx-finn/community).
 * Yaman Umuroglu, Michaela Blott, Jon Ander Lezeta and Felix Paul Jentzsch, Xilinx Research Labs
 * Zaid Al-Ars and Jakoba Petri-Koenig, TU Delft
 * Holger Froening and Hendrik Borras, Heidelberg University
-
-## Materials
-
-* Part I: Introduction
-    * [Live recording](https://www.youtube.com/watch?v=zw2aG4PhzmA&amp%3Bindex=2)
-    * [Slides](https://github.com/Xilinx/finn/blob/github-pages/docs/finn-isfpga21-tutorial-part1-slides.pdf)
-
-* Part II: Hands-on lab: Training and deploying an MLP for network intrusion detection
-   * [Slides](http://bit.ly/finn-tutorial-fpga21-hands-on-slides)
-   * [Jupyter notebooks](http://bit.ly/finn-tutorial-fpga21-notebooks)
