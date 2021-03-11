@@ -11,7 +11,7 @@ We're delighted to announce a three-hour FINN tutorial. Details are as follows:
     * Central European Time (CET) 17:30 – 20:30 PM
 * **Format:** Virtual event, Zoom call with hands-on Jupyter notebook lab
     * Zoom and Jupyter links will be sent to confirmed participants via e-mail
-* **Registration (closes 21 March 2021 17:00 CET):** https://forms.gle/JixoUdDryi7jJgrr8
+* **Registration (closes 21 March 2021 17:00 CET):** [Google form](https://forms.gle/JixoUdDryi7jJgrr8)
 
 ## Description
 
