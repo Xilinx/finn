@@ -60,6 +60,7 @@ def test_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/bitfile/finn-accel.hwh")
     assert os.path.isfile(output_dir + "/report/post_synth_resources.xml")
     assert os.path.isfile(output_dir + "/report/post_route_timing.rpt")
+    assert os.path.isfile(output_dir + "/report/rtlsim_perf.vcd")
     # verification outputs
     verify_out_dir = output_dir + "/verification_output"
     assert os.path.isfile(verify_out_dir + "/verify_initial_python_SUCCESS.npy")
