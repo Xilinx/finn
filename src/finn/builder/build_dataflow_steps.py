@@ -100,6 +100,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.core.throughput_test import throughput_test_rtlsim
 from copy import deepcopy
+from finn.util.basic import get_rtlsim_trace_depth
 
 
 def verify_step(
@@ -427,10 +428,27 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         # run with single input to get latency
         rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, 1)
         rtlsim_latency = rtlsim_perf_dict["cycles"]
-        # run with num inputs equal to layers to fill the whole pipeline
-        # to get the steady-state throughput
-        rtlsim_bs = len(rtlsim_model.graph.node)
-        rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
+        if cfg.rtlsim_perf_n_inputs is None:
+            # run with num inputs equal to 2*nodes to fill the whole pipeline
+            # to get the steady-state throughput
+            rtlsim_bs = 2 * int(len(rtlsim_model.graph.node))
+        else:
+            rtlsim_bs = cfg.rtlsim_perf_n_inputs
+
+        if cfg.rtlsim_perf_trace_vcd is not None:
+            report_dir = cfg.output_dir + "/report"
+            os.makedirs(report_dir, exist_ok=True)
+            rtlsim_model.set_metadata_prop(
+                "rtlsim_trace", report_dir + "/" + cfg.rtlsim_perf_trace_vcd
+            )
+            print(report_dir + "/rtlsim_throughput_trace.vcd")
+            old_trace_depth = get_rtlsim_trace_depth()
+            # use trace depth 4 to see internal layers
+            os.environ["RTLSIM_TRACE_DEPTH"] = "4"
+            rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
+            os.environ["RTLSIM_TRACE_DEPTH"] = str(old_trace_depth)
+        else:
+            rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
         rtlsim_perf_dict["latency_cycles"] = rtlsim_latency
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)

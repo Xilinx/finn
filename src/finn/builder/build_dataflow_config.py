@@ -254,6 +254,16 @@ class DataflowBuildConfig:
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
 
+    #: Filename for .vcd trace to create while running rtlsim performance
+    #: measurement, created under the reports folder.
+    #: Only relevant when RTLSIM_PERFORMANCE is part of the output products.
+    rtlsim_perf_trace_vcd: Optional[str] = None
+
+    #: Number of inputs to run for rtlsim performance. Defaults to number of
+    #: HLS nodes in the graph when not specified.
+    #: Only relevant when RTLSIM_PERFORMANCE is part of the output products.
+    rtlsim_perf_n_inputs: Optional[int] = None
+
     #: If given, only run the steps in the list. If not, run default steps.
     #: See `default_build_dataflow_steps` for the default list of steps.
     #: When specified:
