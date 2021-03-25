@@ -4,6 +4,8 @@ title:  "FINN tutorial, March 2021"
 author: "Yaman Umuroglu"
 ---
 
+*This event has now concluded. You can find the materials at the bottom of this page.*
+
 We're delighted to announce a three-hour FINN tutorial. Details are as follows:
 
 * **Date:** 24 March 2021 (Wednesday)
@@ -49,3 +51,12 @@ Connect with us and the FINN community on the [FINN Gitter channel](https://gitt
 * Yaman Umuroglu, Michaela Blott, Jon Ander Lezeta and Felix Paul Jentzsch, Xilinx Research Labs
 * Zaid Al-Ars and Jakoba Petri-Koenig, TU Delft
 * Holger Froening and Hendrik Borras, Heidelberg University
+
+## Materials
+
+* Part I: Introduction
+    * [Slides](https://github.com/Xilinx/finn/blob/github-pages/docs/finn-march21-tutorial.pdf)
+
+* Part II: Hands-on lab: Training and deploying an MLP for network intrusion detection
+   * [Slides](http://bit.ly/finn-tutorial-march21-hands-on-slides)
+   * [Jupyter notebooks](http://bit.ly/finn-tutorial-march21-notebooks)
