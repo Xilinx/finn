@@ -55,6 +55,9 @@ RUN pip install sphinx_rtd_theme==0.5.0
 RUN pip install pytest-xdist==2.0.0
 RUN pip install pytest-parallel==0.1.0
 RUN pip install netron>=4.7.9
+RUN pip install pandas==1.1.5
+RUN pip install scikit-learn==0.24.1
+RUN pip install tqdm==4.31.1
 RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
 # switch user
