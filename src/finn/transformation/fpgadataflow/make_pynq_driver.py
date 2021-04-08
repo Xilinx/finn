@@ -37,6 +37,7 @@ import os
 import warnings
 import pkg_resources as pk
 from . import template_driver
+from finn.core.modelwrapper import ModelWrapper
 
 
 class MakePYNQDriver(Transformation):
@@ -77,15 +78,38 @@ class MakePYNQDriver(Transformation):
         o_tensor_shape_normal = tuple(model.get_tensor_shape(o_tensor_name))
         i_tensor_dt = model.get_tensor_datatype(i_tensor_name)
         o_tensor_dt = model.get_tensor_datatype(o_tensor_name)
-        # folded shapes for i/o simply derived from regular tensor shapes
-        # this used to be extracted from first/last node folded shapes, but
-        # can't do this anymore due to IODMAs
-        i_tensor_shape_folded = list(i_tensor_shape_normal)
-        i_tensor_shape_folded.insert(-1, 1)
-        i_tensor_shape_folded = tuple(i_tensor_shape_folded)
-        o_tensor_shape_folded = list(o_tensor_shape_normal)
-        o_tensor_shape_folded.insert(-1, 1)
-        o_tensor_shape_folded = tuple(o_tensor_shape_folded)
+
+        first_node = model.find_consumer(i_tensor_name)
+        last_node = model.find_producer(o_tensor_name)
+        if first_node.op_type == "StreamingDataflowPartition":
+            # IODMAs and dataflow partitions have already been created
+            # extract folded i/o shapes from IODMA consumer/producer
+            first_df_model = ModelWrapper(getCustomOp(first_node).get_nodeattr("model"))
+            assert (
+                first_df_model.graph.node[0].op_type == "IODMA"
+            ), "First partition must hold input IODMA"
+            successors = model.find_direct_successors(first_node)
+            successor_sdp = getCustomOp(successors[0])
+            successor_df_model = ModelWrapper(successor_sdp.get_nodeattr("model"))
+            first_node = successor_df_model.find_consumer(
+                successor_df_model.graph.input[0].name
+            )
+
+            last_df_model = ModelWrapper(getCustomOp(last_node).get_nodeattr("model"))
+            assert (
+                last_df_model.graph.node[0].op_type == "IODMA"
+            ), "Last partition must hold output IODMA"
+            predecessors = model.find_direct_predecessors(last_node)
+            predecessor_sdp = getCustomOp(predecessors[0])
+            predecessor_df_model = ModelWrapper(predecessor_sdp.get_nodeattr("model"))
+            last_node = predecessor_df_model.find_producer(
+                predecessor_df_model.graph.output[0].name
+            )
+
+        # else: transformation called before IODMA/SDP creation (legacy flow)
+        # can access folded i/o shapes directly
+        i_tensor_shape_folded = tuple(getCustomOp(first_node).get_folded_input_shape())
+        o_tensor_shape_folded = tuple(getCustomOp(last_node).get_folded_output_shape())
 
         # generate dummy folded i/o tensors and their packed versions
         i_tensor_dummy_folded = gen_finn_dt_tensor(i_tensor_dt, i_tensor_shape_folded)
