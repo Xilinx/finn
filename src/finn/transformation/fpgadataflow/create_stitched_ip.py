@@ -32,9 +32,9 @@ import subprocess
 import json
 
 from finn.transformation.base import Transformation
-from finn.util.basic import get_by_name, make_build_dir, is_finn_op
+from finn.util.basic import make_build_dir, get_num_default_workers
+from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.custom_op.registry import getCustomOp
-from finn.util.basic import get_num_default_workers
 import multiprocessing as mp
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
@@ -223,14 +223,9 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
         # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
-            assert is_finn_op(node.domain), "Found non-FINN node"
-            backend_attribute = get_by_name(node.attribute, "backend")
-            assert backend_attribute is not None, "Backend node attribute is not set."
-            backend_value = backend_attribute.s.decode("UTF-8")
-            assert (
-                backend_value == "fpgadataflow"
-            ), """Backend node attribute is not
-            set to "fpgadataflow"."""
+            assert is_fpgadataflow_node(
+                node
+            ), "All nodes must be FINN fpgadataflow nodes."
             node_inst = getCustomOp(node)
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
