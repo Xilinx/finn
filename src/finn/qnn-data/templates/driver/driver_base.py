@@ -36,6 +36,7 @@ from finn.util.data_packing import (
     finnpy_to_packed_bytearray,
     packed_bytearray_to_finnpy,
 )
+from warnings import warn
 
 from finn.util.basic import gen_finn_dt_tensor
 
@@ -86,11 +87,17 @@ class FINNExampleOverlay(Overlay):
         self.batch_size = batch_size
         self.fclk_mhz = fclk_mhz
         if self.platform == "alveo":
-            self.idma = self.idma0
+            if "input_dma_name" in io_shape_dict.keys():
+                self.idma = getattr(self, io_shape_dict["input_dma_name"])
+            else:
+                self.idma = self.idma0
             self.odma = self.odma0
             self.odma_handle = None
         elif self.platform == "zynq-iodma":
-            self.idma = self.idma0
+            if "input_dma_name" in io_shape_dict.keys():
+                self.idma = getattr(self, io_shape_dict["input_dma_name"])
+            else:
+                self.idma = self.idma0
             self.odma = self.odma0
             # set the clock frequency as specified by user during transformations
             if self.fclk_mhz > 0:
@@ -98,7 +105,64 @@ class FINNExampleOverlay(Overlay):
         else:
             raise ValueError("Supported platforms are zynq-iodma alveo")
         # load any runtime weights
+        self.external_weights = []
+        self.load_external_weights()
         self.load_runtime_weights()
+
+    def load_external_weights(self):
+        """Load any existing runtime weights from the specified dir into the
+        appropriate layer of the accelerator. Note that this must be enabled
+        during the accelerator build process. The runtime weights directory
+        is specified as the class member ``runtime_weight_dir``.
+
+        Parameters
+        ----------
+        flush_accel: bool
+            Run the accelerator with dummy input after weights are written to
+            flush any stale weight data in the weight streamer FIFOs.
+        verify: bool
+            Whether the written weights will be re-read and verified.
+        """
+
+        w_filenames = []
+        if not os.path.isdir(self.runtime_weight_dir):
+            return
+        for (dirpath, dirnames, filenames) in os.walk(self.runtime_weight_dir):
+            w_filenames.extend(filenames)
+
+        tmp_weight_dict = {}
+
+        for w_filename in w_filenames:
+            if w_filename.endswith(".npy"):
+                weight_tensor = np.load(self.runtime_weight_dir + "/" + w_filename)
+            else:
+                continue
+
+            idma_name = w_filename.split(".")[0]
+            tmp_weight_dict[idma_name] = weight_tensor
+
+        if self.platform != "alveo" and len(tmp_weight_dict) > 0:
+            # Todo: add zynq support pynq API is different
+            warn("external_weights are not yet supported for non-Alveo builds")
+            return
+
+        for idma_name in tmp_weight_dict.keys():
+            if idma_name in self.ip_dict.keys():
+                iwdma = getattr(self, idma_name)
+                weight_tensor = tmp_weight_dict[idma_name]
+                weight_buf = allocate(weight_tensor.shape, dtype=np.uint8)
+                weight_buf[:] = weight_tensor
+                weight_buf.sync_to_device()
+
+                self.external_weights += [(iwdma, weight_buf)]
+
+        if "number_of_external_weights" in self._io_shape_dict:
+            hw_ext_weights = self._io_shape_dict["number_of_external_weights"]
+            assert len(self.external_weights) == hw_ext_weights, (
+                "Number of hardware external weights and number of external "
+                + "weight tensors available do not match. \n"
+                + "Is runtime_weight_dir pointing to the correct folder?"
+            )
 
     def load_runtime_weights(self, flush_accel=True, verify=True):
         """Load any existing runtime weights from the specified dir into the
@@ -124,18 +188,25 @@ class FINNExampleOverlay(Overlay):
             if w_filename.endswith(".dat"):
                 with open(self.runtime_weight_dir + "/" + w_filename, "r") as f:
                     dat = f.read()
+            else:
+                continue
             layer_w = np.fromiter(
                 [int(x, 16) for x in dat.strip().split()], dtype=np.uint32
             )
-            layer_ind = int(w_filename.split("_")[0])
-            rt_weight_dict[layer_ind] = layer_w
-        for layer_ind in rt_weight_dict.keys():
-            cand_if_name = "StreamingDataflowPartition_1/s_axilite_%d" % layer_ind
+            sdp_ind = int(w_filename.split("_")[0])
+            layer_ind = int(w_filename.split("_")[1])
+            rt_weight_dict[(sdp_ind, layer_ind)] = layer_w
+        for sdp_ind, layer_ind in rt_weight_dict.keys():
+            cand_if_name = "StreamingDataflowPartition_%d/s_axilite_%d" % (
+                sdp_ind,
+                layer_ind,
+            )
             if cand_if_name in self.ip_dict.keys():
                 layer_mmio = getattr(
-                    self.StreamingDataflowPartition_1, "s_axilite_%d" % layer_ind
+                    getattr(self, "StreamingDataflowPartition_%d" % sdp_ind),
+                    "s_axilite_%d" % layer_ind,
                 ).mmio
-                layer_w = rt_weight_dict[layer_ind]
+                layer_w = rt_weight_dict[(sdp_ind, layer_ind)]
                 layer_mmio.write_mm(0, layer_w.tobytes())
                 if verify:
                     new_w = np.copy(layer_mmio.array[: layer_w.shape[0]])
@@ -289,6 +360,8 @@ class FINNExampleOverlay(Overlay):
         elif self.platform == "alveo":
             assert self.odma_handle is None, "Output DMA is already running"
             self.idma.start(self.ibuf_packed_device, batch_size)
+            for iwdma, iwbuf in self.external_weights:
+                iwdma.start(iwbuf, batch_size)
             self.odma_handle = self.odma.start(self.obuf_packed_device, batch_size)
         else:
             raise Exception("Unrecognized platform: %s" % self.platform)

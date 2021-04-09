@@ -130,8 +130,8 @@ class HLSCustomOp(CustomOp):
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
-        intf_names["s_axis"] = ["in0_V_V"]
-        intf_names["m_axis"] = ["out_V_V"]
+        intf_names["s_axis"] = [("in0_V_V", self.get_instream_width_padded())]
+        intf_names["m_axis"] = [("out_V_V", self.get_outstream_width_padded())]
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         return intf_names

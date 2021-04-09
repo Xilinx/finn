@@ -286,7 +286,10 @@ class MakeZYNQProject(Transformation):
 
 
 class ZynqBuild(Transformation):
-    """Best-effort attempt at building the accelerator for Zynq."""
+    """Best-effort attempt at building the accelerator for Zynq.
+    It assumes the model has only fpgadataflow nodes
+
+    """
 
     def __init__(self, platform, period_ns, enable_debug=False):
         super().__init__()
@@ -300,7 +303,6 @@ class ZynqBuild(Transformation):
         model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels
         prep_transforms = [
-            MakePYNQDriver(platform="zynq-iodma"),
             InsertIODMA(64),
             InsertDWC(),
             Floorplan(),
@@ -335,6 +337,10 @@ class ZynqBuild(Transformation):
         model = model.transform(
             MakeZYNQProject(self.platform, enable_debug=self.enable_debug)
         )
+
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "zynq-iodma")
+
+        # create driver
+        model = model.transform(MakePYNQDriver(platform="zynq-iodma"))
         return (model, False)

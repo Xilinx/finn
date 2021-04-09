@@ -38,12 +38,38 @@ import warnings
 import pkg_resources as pk
 from . import template_driver
 from finn.core.modelwrapper import ModelWrapper
+import numpy as np
+
+from finn.util.data_packing import (
+    pack_innermost_dim_as_hex_string,
+    hexstring2npbytearray,
+)
+from finn.util.basic import roundup_to_integer_multiple
+
+
+def to_external_tensor(init, w_dtype):
+    """Return an appropriately formatted and packed numpy byte array for given
+    external parameter tensor."""
+
+    weight_width = init.shape[1] * w_dtype.bitwidth()
+    weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
+    hex_init = pack_innermost_dim_as_hex_string(
+        init, w_dtype, weight_width_padded, prefix="0x"
+    )
+    ext_weight = np.array([], dtype=np.uint8)
+    for line in hex_init:
+        array_line = [
+            x for x in reversed(hexstring2npbytearray(line, remove_prefix="0x"))
+        ]
+        ext_weight = np.append(ext_weight, array_line)
+
+    return ext_weight
 
 
 class MakePYNQDriver(Transformation):
     """Create PYNQ Python code to correctly interface the generated
     accelerator, including data packing/unpacking. Should be called
-    after conversion to HLS layers and folding, but prior to the creation of
+    after conversion to HLS layers, folding and the creation of
     dataflow partitions for correct operation.
 
     platform: one of ["zynq-iodma", "alveo"]
@@ -123,6 +149,40 @@ class MakePYNQDriver(Transformation):
         i_tensor_shape_packed = i_tensor_dummy_packed.shape
         o_tensor_shape_packed = o_tensor_dummy_packed.shape
 
+        # generate external weights npy files
+        weights_dir = pynq_driver_dir + "/runtime_weights"
+
+        os.makedirs(weights_dir)
+        idma_idx = 0
+        ext_weight_dma_cnt = 0
+
+        for node in model.graph.node:
+            assert (
+                node.op_type == "StreamingDataflowPartition"
+            ), "CreateDataflowPartition needs to be applied before driver generation"
+
+            producer = model.find_producer(node.input[0])
+            init_tensor = model.get_initializer(node.input[0])
+
+            if producer is None:  # input dma?
+                idma_name = "idma" + str(idma_idx)
+                if init_tensor is not None:  # input weights dma?
+                    ext_weight_dma_cnt += 1
+                    w_dtype = model.get_tensor_datatype(node.input[0])
+                    init_external_tensor = to_external_tensor(init_tensor, w_dtype)
+                    np.save(
+                        weights_dir + "/" + idma_name + ".npy", init_external_tensor
+                    )
+                    if self.platform != "alveo":
+                        # Todo: add support in driver_base.py
+                        warnings.warn(
+                            "external_weights not yet supported for Zynq builds"
+                        )
+                else:
+                    net_input_name = idma_name
+
+                idma_idx += 1
+
         # fill in the driver template
         driver_py = pynq_driver_dir + "/driver.py"
         driver = template_driver.pynq_driver_template
@@ -146,6 +206,8 @@ class MakePYNQDriver(Transformation):
         driver = driver.replace("$OUTPUT_SHAPE_NORMAL$", mss(o_tensor_shape_normal))
         driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", mss(o_tensor_shape_folded))
         driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
+        driver = driver.replace("$INPUT_DMA_NAME$", "'%s'" % net_input_name)
+        driver = driver.replace("$EXT_WEIGHT_NUM$", str(ext_weight_dma_cnt))
 
         with open(driver_py, "w") as f:
             f.write(driver)
@@ -172,25 +234,35 @@ class MakePYNQDriver(Transformation):
         shutil.copytree(dtp_root, pynq_driver_dir + "/finn/core")
 
         # generate weight files for runtime-writable layers
-        weights_dir = pynq_driver_dir + "/runtime_weights"
-        rt_layer_ind = 0
-        os.makedirs(weights_dir)
-        for node in model.graph.node:
-            if node.op_type in ["StreamingFCLayer_Batch", "Thresholding_Batch"]:
-                node_inst = getCustomOp(node)
-                is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
-                if is_rt_weights == 1:
-                    fcl_w = model.get_initializer(node.input[1])
-                    w_filename = weights_dir + "/%d_%s.dat" % (rt_layer_ind, node.name)
-                    node_inst.make_weight_file(fcl_w, "decoupled_runtime", w_filename)
-                    rt_layer_ind += 1
-            elif node.op_type == "StreamingDataflowPartition":
-                warnings.warn(
-                    """Please call MakePYNQDriver prior to
-                CreateDataflowPartition. Can only extract runtime-writable
-                weights from HLSCustomOp instances and not StreamingDataflowPartition.
-                """
-                )
-            else:
-                continue
+
+        for sdp_ind, sdp_node in enumerate(model.graph.node):
+            assert sdp_node.op_type == "StreamingDataflowPartition"
+            # get dataflow model
+            sdp_node = getCustomOp(sdp_node)
+            dataflow_model_filename = sdp_node.get_nodeattr("model")
+            dataflow_model = ModelWrapper(dataflow_model_filename)
+            rt_layer_ind = 0
+            for node in dataflow_model.graph.node:
+                if node.op_type in ["StreamingFCLayer_Batch", "Thresholding_Batch"]:
+                    node_inst = getCustomOp(node)
+                    is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
+                    if is_rt_weights == 1:
+                        fcl_w = dataflow_model.get_initializer(node.input[1])
+                        w_filename = weights_dir + "/%d_%d_%s.dat" % (
+                            sdp_ind,
+                            rt_layer_ind,
+                            node.name,
+                        )
+                        node_inst.make_weight_file(
+                            fcl_w, "decoupled_runtime", w_filename
+                        )
+                        rt_layer_ind += 1
+                elif node.op_type == "StreamingDataflowPartition":
+                    warnings.warn(
+                        """Nested StreamingDataflowPartition are not supported
+                    """
+                    )
+                else:
+                    continue
+
         return (model, False)
