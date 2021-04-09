@@ -153,8 +153,9 @@ def test_end2end_cybsec_mlp_run_on_hw():
     build_env = get_build_env(build_kind, target_clk_ns)
     assets_dir = pk.resource_filename("finn.qnn-data", "cybsec-mlp/")
     deploy_dir = get_checkpoint_name("build")
+    if not os.path.isdir(deploy_dir):
+        pytest.skip(deploy_dir + " not found from previous test step, skipping")
     driver_dir = deploy_dir + "/driver"
-    assert os.path.isdir(deploy_dir)
     assert os.path.isdir(driver_dir)
     # put all assets into driver dir
     shutil.copy(assets_dir + "/validate-unsw-nb15.py", driver_dir)
