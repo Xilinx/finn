@@ -12,7 +12,7 @@ However, this can come at the cost of performance. To avoid introducing bottlene
 In this demo, we take a [quantized version](https://www.researchgate.net/profile/Tadej-Murovic/publication/333563328_Massively_parallel_combinational_binary_neural_networks_for_edge_processing/links/5d01fd92299bf13a38511bca/Massively-parallel-combinational-binary-neural-networks-for-edge-processing.pdf) of the [UNSW-NB15 cybersecurity dataset](https://www.unsw.adfa.edu.au/unsw-canberra-cyber/cybersecurity/ADFA-NB15-Datasets/) and train a 2-bit quantized MLP on this dataset with [Brevitas](https://github.com/Xilinx/brevitas) that gets close to 92% accuracy. Then we use the FINN compiler to generate a fully-unrolled FPGA hardware implementation for this network that can classify incoming data at clock rate (300 million packets per second), demonstrating the performance on a Xilinx ZCU104 board.
 
 You can find the links to the demo videos below:
- * Part 1: quantized MLP training and FINN compiler toolflow https://www.youtube.com/watch?v=z49tzp3CBoM
- * Part 2: hardware demo https://www.youtube.com/watch?v=W35c5XmnlhA
+ * Part 1: quantized MLP training and FINN compiler toolflow [https://www.youtube.com/watch?v=z49tzp3CBoM](https://www.youtube.com/watch?v=z49tzp3CBoM)
+ * Part 2: hardware demo [https://www.youtube.com/watch?v=W35c5XmnlhA](https://www.youtube.com/watch?v=W35c5XmnlhA)
  
 The line-rate (300 MHz inference throughput) version of the demo will be available as part of the FINN v0.6 release, but we already have tutorial material that explains all the steps involved for a simpler design (1 MHz inference throughput) that you can find [here](https://github.com/Xilinx/finn/tree/feature/tutorial_march21/notebooks/end2end_example/cybersecurity).
