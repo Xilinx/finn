@@ -1,5 +1,7 @@
 ## Publications
 
+
+* FPGA'21: <a href="https://dl.acm.org/doi/abs/10.1145/3431920.3439283" target="_blank">S2N2: A Streaming Accelerator for Streaming Spiking Neural Networks</a> and [repository on GitHub](https://github.com/arkhodamoradi/s2n2)
 * FPT'20: <a href="https://arxiv.org/pdf/2011.07317.pdf">Memory-Efficient Dataflow Inference for Deep CNNs on FPGA</a>
 * IEEE ToC: <a href="https://ieeexplore.ieee.org/abstract/document/9187576/">Evaluation of Optimized CNNs on Heterogeneous Accelerators using a Novel Benchmarking Approach</a>
 * FPL'20: <a href="https://arxiv.org/pdf/2004.03021.pdf">LogicNets: Co-Designed Neural Networks and Circuits for Extreme-Throughput Applications</a>
