@@ -351,6 +351,7 @@ class VitisBuild(Transformation):
     floorplan_file: path to a JSON containing a dictionary with SLR assignments
                     for each node in the ONNX graph. Must be parse-able by
                     the ApplyConfig transform.
+    enable_link: enable linking .xo files
 
     """
 
@@ -362,6 +363,7 @@ class VitisBuild(Transformation):
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
         floorplan_file=None,
+        enable_link=True,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -370,6 +372,7 @@ class VitisBuild(Transformation):
         self.strategy = strategy
         self.enable_debug = enable_debug
         self.floorplan_file = floorplan_file
+        self.enable_link = enable_link
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -419,14 +422,15 @@ class VitisBuild(Transformation):
             kernel_model.set_metadata_prop("platform", "alveo")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from kernels
-        model = model.transform(
-            VitisLink(
-                self.platform,
-                round(1000 / self.period_ns),
-                strategy=self.strategy,
-                enable_debug=self.enable_debug,
+        if self.enable_link:
+            model = model.transform(
+                VitisLink(
+                    self.platform,
+                    round(1000 / self.period_ns),
+                    strategy=self.strategy,
+                    enable_debug=self.enable_debug,
+                )
             )
-        )
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "alveo")
 
