@@ -1,0 +1,30 @@
+{
+    "Defaults": {},
+    "Thresholding_Batch_0": {
+      "PE": 49,
+      "ram_style": "distributed"
+    },
+    "StreamingFCLayer_Batch_0": {
+      "PE": 16,
+      "SIMD": 49,
+      "ram_style": "block"
+    },
+    "StreamingFCLayer_Batch_1": {
+      "PE": 8,
+      "SIMD": 8,
+      "mem_mode": "external"
+    },
+    "StreamingFCLayer_Batch_2": {
+      "PE": 8,
+      "SIMD": 8,
+      "ram_style": "auto"
+    },
+    "StreamingFCLayer_Batch_3": {
+      "PE": 10,
+      "SIMD": 8,
+      "ram_style": "distributed"
+    },
+    "LabelSelect_Batch_0": {
+      "PE": 1
+    }
+  }
