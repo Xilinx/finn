@@ -17,7 +17,7 @@
     "StreamingFCLayer_Batch_2": {
       "PE": 8,
       "SIMD": 8,
-      "ram_style": "auto"
+      "mem_mode": "external"
     },
     "StreamingFCLayer_Batch_3": {
       "PE": 10,
