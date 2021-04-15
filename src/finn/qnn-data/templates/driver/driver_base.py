@@ -103,8 +103,7 @@ class FINNExampleOverlay(Overlay):
                 Clocks.fclk0_mhz = self.fclk_mhz
         else:
             raise ValueError("Supported platforms are zynq-iodma alveo")
-        # load any runtime weights
-        self.external_weights = []
+        # load any external + runtime weights
         self.load_external_weights()
         self.load_runtime_weights()
 
@@ -116,6 +115,7 @@ class FINNExampleOverlay(Overlay):
         weights are one .npy file per layer.
         """
 
+        self.external_weights = []
         w_filenames = []
         if not os.path.isdir(self.runtime_weight_dir):
             return
