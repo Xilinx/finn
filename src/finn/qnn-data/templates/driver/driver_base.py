@@ -36,7 +36,6 @@ from finn.util.data_packing import (
     finnpy_to_packed_bytearray,
     packed_bytearray_to_finnpy,
 )
-from warnings import warn
 
 from finn.util.basic import gen_finn_dt_tensor
 
@@ -141,20 +140,16 @@ class FINNExampleOverlay(Overlay):
             idma_name = w_filename.split(".")[0]
             tmp_weight_dict[idma_name] = weight_tensor
 
-        if self.platform != "alveo" and len(tmp_weight_dict) > 0:
-            # Todo: add zynq support pynq API is different
-            warn("external_weights are not yet supported for non-Alveo builds")
-            return
-
         for idma_name in tmp_weight_dict.keys():
             if idma_name in self.ip_dict.keys():
                 iwdma = getattr(self, idma_name)
                 weight_tensor = tmp_weight_dict[idma_name]
                 weight_buf = allocate(weight_tensor.shape, dtype=np.uint8)
                 weight_buf[:] = weight_tensor
-                weight_buf.sync_to_device()
+                # weight_buf.sync_to_device()
+                weight_buf.flush()
 
-                self.external_weights += [(iwdma, weight_buf)]
+                self.external_weights += [(iwdma, weight_buf, idma_name)]
 
         if "number_of_external_weights" in self._io_shape_dict:
             hw_ext_weights = self._io_shape_dict["number_of_external_weights"]
@@ -351,6 +346,10 @@ class FINNExampleOverlay(Overlay):
         if self.platform == "zynq-iodma":
             assert self.odma.read(0x00) & 0x4 != 0, "Output DMA is not idle"
             # manually launch IODMAs since signatures are missing
+            for iwdma, iwbuf, iwdma_name in self.external_weights:
+                iwdma.write(0x10, iwbuf.device_address)
+                iwdma.write(0x1C, batch_size)
+                iwdma.write(0x00, 1)
             self.idma.write(0x10, self.ibuf_packed_device.device_address)
             self.idma.write(0x1C, batch_size)
             self.odma.write(0x10, self.obuf_packed_device.device_address)
@@ -360,7 +359,7 @@ class FINNExampleOverlay(Overlay):
         elif self.platform == "alveo":
             assert self.odma_handle is None, "Output DMA is already running"
             self.idma.start(self.ibuf_packed_device, batch_size)
-            for iwdma, iwbuf in self.external_weights:
+            for iwdma, iwbuf, iwdma_name in self.external_weights:
                 iwdma.start(iwbuf, batch_size)
             self.odma_handle = self.odma.start(self.obuf_packed_device, batch_size)
         else:
@@ -413,6 +412,10 @@ class FINNExampleOverlay(Overlay):
         res["DRAM_out_bandwidth[Mb/s]"] = (
             np.prod(self.oshape_packed) * 0.000001 / runtime
         )
+        for iwdma, iwbuf, iwdma_name in self.external_weights:
+            res["DRAM_extw_%s_bandwidth[Mb/s]" % iwdma_name] = (
+                self.batch_size * np.prod(iwbuf.shape) * 0.000001 / runtime
+            )
         if self.platform == "zynq-iodma":
             res["fclk[mhz]"] = Clocks.fclk0_mhz
         elif self.platform == "alveo":
