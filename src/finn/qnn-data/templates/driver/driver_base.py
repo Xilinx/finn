@@ -109,18 +109,11 @@ class FINNExampleOverlay(Overlay):
         self.load_runtime_weights()
 
     def load_external_weights(self):
-        """Load any existing runtime weights from the specified dir into the
+        """Load any existing external (DRAM) weights from the specified dir into the
         appropriate layer of the accelerator. Note that this must be enabled
-        during the accelerator build process. The runtime weights directory
-        is specified as the class member ``runtime_weight_dir``.
-
-        Parameters
-        ----------
-        flush_accel: bool
-            Run the accelerator with dummy input after weights are written to
-            flush any stale weight data in the weight streamer FIFOs.
-        verify: bool
-            Whether the written weights will be re-read and verified.
+        during the accelerator build process. The weights directory
+        is specified as the class member ``runtime_weight_dir``. External (DRAM)
+        weights are one .npy file per layer.
         """
 
         w_filenames = []
@@ -160,10 +153,11 @@ class FINNExampleOverlay(Overlay):
             )
 
     def load_runtime_weights(self, flush_accel=True, verify=True):
-        """Load any existing runtime weights from the specified dir into the
+        """Load any existing runtime-writable weights from the specified dir into the
         appropriate layer of the accelerator. Note that this must be enabled
         during the accelerator build process. The runtime weights directory
-        is specified as the class member ``runtime_weight_dir``.
+        is specified as the class member ``runtime_weight_dir``. Runtime-writable
+        weights are provided as one .dat file per layer.
 
         Parameters
         ----------
