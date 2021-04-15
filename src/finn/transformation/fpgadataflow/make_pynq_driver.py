@@ -173,11 +173,6 @@ class MakePYNQDriver(Transformation):
                     np.save(
                         weights_dir + "/" + idma_name + ".npy", init_external_tensor
                     )
-                    if self.platform != "alveo":
-                        # Todo: add support in driver_base.py
-                        warnings.warn(
-                            "external_weights not yet supported for Zynq builds"
-                        )
                 else:
                     net_input_name = idma_name
 
