@@ -65,6 +65,8 @@ def test_end2end_ext_weights_download():
     assert os.path.isfile(get_checkpoint_name("download"))
 
 
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_end2end_ext_weights_build():
     model_file = get_checkpoint_name("download")
     load_test_checkpoint_or_skip(model_file)
