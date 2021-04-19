@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import inspect
+import os
 import netron
 from IPython.display import IFrame
 
@@ -34,6 +35,8 @@ from IPython.display import IFrame
 def showSrc(what):
     print("".join(inspect.getsourcelines(what)[0]))
 
+
 def showInNetron(model_filename):
     netron.start(model_filename, address=("0.0.0.0", 8081))
-    return IFrame(src="http://0.0.0.0:8081/", width="100%", height=400)
+    localhost_url = os.getenv("LOCALHOST_URL", default="localhost")
+    return IFrame(src="http://%s:8081/" % localhost_url, width="100%", height=400)

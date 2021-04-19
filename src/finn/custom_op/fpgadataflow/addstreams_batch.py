@@ -63,7 +63,7 @@ class AddStreams_Batch(HLSCustomOp):
         ishape = tuple(vecs + [ich])
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         assert ich % pe == 0, "PE must divide NumChannels"
@@ -363,5 +363,6 @@ class AddStreams_Batch(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         sname = self.hls_sname()
-        intf_names["s_axis"] = [x + "_" + sname for x in ["in0", "in1"]]
+        swidth = self.get_instream_width_padded()
+        intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
         return intf_names

@@ -312,7 +312,7 @@ class DuplicateStreams_Batch(HLSCustomOp):
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """DuplicateStreams_Batch<{}, {}> (in0, out0, out1, 1);""".format(
-                self.get_outstream_width(), self.get_number_output_values() // 2,
+                self.get_outstream_width(), self.get_number_output_values() // 2
             )
         ]
 
@@ -379,6 +379,6 @@ class DuplicateStreams_Batch(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         sname = self.hls_sname()
-        intf_names["m_axis"] = [x + "_" + sname for x in ["out0", "out1"]]
-
+        swidth = self.get_outstream_width_padded()
+        intf_names["m_axis"] = [(x + "_" + sname, swidth) for x in ["out0", "out1"]]
         return intf_names

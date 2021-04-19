@@ -604,7 +604,7 @@ class Thresholding_Batch(HLSCustomOp):
         numReps = numInputVectors[0]
         self.code_gen_dict["$DEFINES$"] = [
             """#define NumChannels1 {}\n #define PE1 {}\n #define numReps {}""".format(
-                self.get_nodeattr("NumChannels"), self.get_nodeattr("PE"), numReps,
+                self.get_nodeattr("NumChannels"), self.get_nodeattr("PE"), numReps
             )
         ]
         if self.get_nodeattr("mem_mode") == "decoupled":
@@ -686,7 +686,7 @@ class Thresholding_Batch(HLSCustomOp):
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<{}, NumChannels1, PE1, {}, {}>
                 (in0, out, threshs, numReps);""".format(
-                    node.op_type, imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"],
+                    node.op_type, imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"]
                 )
             ]
         elif mem_mode == "decoupled":
@@ -826,8 +826,8 @@ class Thresholding_Batch(HLSCustomOp):
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
-            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
-            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
+            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0][0]
+            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
