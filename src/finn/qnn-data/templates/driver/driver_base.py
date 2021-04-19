@@ -38,6 +38,7 @@ from finn.util.data_packing import (
 )
 
 from finn.util.basic import gen_finn_dt_tensor
+from finn.core.datatype import DataType
 
 # Driver base class for FINN-generated dataflow accelerators.
 # The particulars of the generated accelerator are specified via the
@@ -417,39 +418,44 @@ class FINNExampleOverlay(Overlay):
         res["batch_size"] = self.batch_size
         # also benchmark driver-related overheads
         input_npy = gen_finn_dt_tensor(self.idt, self.ishape_normal)
+        # provide as int8/uint8 to support fast packing path where possible
+        if self.idt == DataType.UINT8:
+            input_npy = input_npy.astype(np.uint8)
+        elif self.idt == DataType.INT8:
+            input_npy = input_npy.astype(np.int8)
         start = time.time()
         ibuf_folded = self.fold_input(input_npy)
         end = time.time()
         runtime = end - start
-        res["fold_input[ms]"] = runtime
+        res["fold_input[ms]"] = runtime * 1000
 
         start = time.time()
         ibuf_packed = self.pack_input(ibuf_folded)
         end = time.time()
         runtime = end - start
-        res["pack_input[ms]"] = runtime
+        res["pack_input[ms]"] = runtime * 1000
 
         start = time.time()
         self.copy_input_data_to_device(ibuf_packed)
         end = time.time()
         runtime = end - start
-        res["copy_input_data_to_device[ms]"] = runtime
+        res["copy_input_data_to_device[ms]"] = runtime * 1000
 
         start = time.time()
         self.copy_output_data_from_device(self.obuf_packed)
         end = time.time()
         runtime = end - start
-        res["copy_output_data_from_device[ms]"] = runtime
+        res["copy_output_data_from_device[ms]"] = runtime * 1000
 
         start = time.time()
         obuf_folded = self.unpack_output(self.obuf_packed)
         end = time.time()
         runtime = end - start
-        res["unpack_output[ms]"] = runtime
+        res["unpack_output[ms]"] = runtime * 1000
 
         start = time.time()
         self.unfold_output(obuf_folded)
         end = time.time()
         runtime = end - start
-        res["unfold_output[ms]"] = runtime
+        res["unfold_output[ms]"] = runtime * 1000
         return res
