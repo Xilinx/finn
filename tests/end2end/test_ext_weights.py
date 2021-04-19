@@ -93,6 +93,8 @@ def test_end2end_ext_weights_build():
     assert os.path.isfile(output_dir + "/deploy/bitfile/finn-accel.hwh")
     assert os.path.isfile(output_dir + "/deploy/driver/driver.py")
     assert os.path.isfile(output_dir + "/deploy/driver/runtime_weights/idma0.npy")
+    if os.path.isdir(get_checkpoint_name("build")):
+        shutil.rmtree(get_checkpoint_name("build"))
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build"))
 
 
