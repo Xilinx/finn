@@ -139,6 +139,23 @@ As of FINN v0.4b we also have preliminary support for `Xilinx Alveo boards <http
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
+Zynq first-time setup
+**********************
+We use *host* to refer to the PC running the FINN Docker environment, which will build the accelerator+driver and package it up, and *target* to refer to the PYNQ board. To be able to access the target from the host, you'll need to set up SSH public key authentication:
+
+Start on the target side:
+
+* Note down the IP address of your PYNQ board. This IP address must be accessible from the host.
+
+Continue on the host side (replace the <PYNQ_IP> and <PYNQ_USERNAME> with the IP address and username of your board from the first step):
+
+* Launch the Docker container from where you cloned finn with ``./run-docker.sh``
+* Go into the `ssh_keys` directory  (e.g. ``cd /workspace/finn/ssh_keys``)
+* Run ``ssh-keygen`` to create a key pair e.g. ``id_rsa`` private and ``id_rsa.pub`` public key
+* Run ``ssh-copy-id -i id_rsa.pub <PYNQ_USERNAME>@<PYNQ_IP>`` to install the keys on the remote system
+* Test that you can ``ssh <PYNQ_USERNAME>@<PYNQ_IP>`` without having to enter the password. Pass the ``-v`` flag to the ssh command if it doesn't work to help you debug.
+
+
 Alveo first-time setup
 **********************
 We use *host* to refer to the PC running the FINN Docker environment, which will build the accelerator+driver and package it up, and *target* to refer to the PC where the Alveo card is installed. These two can be the same PC, or connected over the network -- FINN includes some utilities to make it easier to test on remote PCs too. Prior to first usage, you need to set up both the host and the target in the following manner:
