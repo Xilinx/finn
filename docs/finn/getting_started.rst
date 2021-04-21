@@ -145,15 +145,15 @@ We use *host* to refer to the PC running the FINN Docker environment, which will
 
 Start on the target side:
 
-* Note down the IP address of your PYNQ board. This IP address must be accessible from the host.
+1. Note down the IP address of your PYNQ board. This IP address must be accessible from the host.
 
-Continue on the host side (replace the <PYNQ_IP> and <PYNQ_USERNAME> with the IP address and username of your board from the first step):
+Continue on the host side (replace the ``<PYNQ_IP>`` and ``<PYNQ_USERNAME>`` with the IP address and username of your board from the first step):
 
-* Launch the Docker container from where you cloned finn with ``./run-docker.sh``
-* Go into the `ssh_keys` directory  (e.g. ``cd /workspace/finn/ssh_keys``)
-* Run ``ssh-keygen`` to create a key pair e.g. ``id_rsa`` private and ``id_rsa.pub`` public key
-* Run ``ssh-copy-id -i id_rsa.pub <PYNQ_USERNAME>@<PYNQ_IP>`` to install the keys on the remote system
-* Test that you can ``ssh <PYNQ_USERNAME>@<PYNQ_IP>`` without having to enter the password. Pass the ``-v`` flag to the ssh command if it doesn't work to help you debug.
+1. Launch the Docker container from where you cloned finn with ``./run-docker.sh``
+2. Go into the `ssh_keys` directory  (e.g. ``cd /workspace/finn/ssh_keys``)
+3. Run ``ssh-keygen`` to create a key pair e.g. ``id_rsa`` private and ``id_rsa.pub`` public key
+4. Run ``ssh-copy-id -i id_rsa.pub <PYNQ_USERNAME>@<PYNQ_IP>`` to install the keys on the remote system
+5. Test that you can ``ssh <PYNQ_USERNAME>@<PYNQ_IP>`` without having to enter the password. Pass the ``-v`` flag to the ssh command if it doesn't work to help you debug.
 
 
 Alveo first-time setup
@@ -167,7 +167,7 @@ On the target side:
 3. Create a conda environment named *finn-pynq-alveo* by following this guide `to set up PYNQ for Alveo <https://pynq.readthedocs.io/en/latest/getting_started/alveo_getting_started.html>`_. It's best to follow the recommended environment.yml (set of package versions) in this guide.
 4. Activate the environment with `conda activate finn-pynq-alveo` and install the bitstring package with ``pip install bitstring``.
 5. Done! You should now be able to e.g. ``import pynq`` in Python scripts.
-6. (optional) If you don't want to specify the ``ALVEO_PASSWORD`` environment variable, you can `set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
+
 
 
 On the host side:
@@ -176,4 +176,5 @@ On the host side:
 2. Install Xilinx XRT and set up the ``XILINX_XRT`` environment variable to point to your installation. *This must be the same path as the target's XRT (target step 1)*
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. Set up the ``ALVEO_*`` environment variables accordingly for your target, see description of environment variables above.
+5. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
 5. Done! You can try the ``test_end2end_vitis`` tests in the FINN Docker to verify your setup, although this will take some time.
