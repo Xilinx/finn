@@ -41,8 +41,7 @@ System Requirements
 * Docker `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
 * A working Vivado 2019.1 or 2020.1 installation
 * A ``VIVADO_PATH`` environment variable pointing to the Vivado installation directory (e.g. the directory where settings64.sh is located)
-* *(optional)* A PYNQ board with a network connection
-   * the ``bitstring`` package must be installed on the PYNQ: ``sudo pip3 install bitstring``
+* *(optional)* A PYNQ board with a network connection, see `PYNQ board first-time setup`_ below
 * *(optional)* An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ below)
 
 We also recommend running the FINN compiler on a system with sufficiently
@@ -139,13 +138,14 @@ As of FINN v0.4b we also have preliminary support for `Xilinx Alveo boards <http
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
-Zynq first-time setup
-**********************
+PYNQ board first-time setup
+****************************
 We use *host* to refer to the PC running the FINN Docker environment, which will build the accelerator+driver and package it up, and *target* to refer to the PYNQ board. To be able to access the target from the host, you'll need to set up SSH public key authentication:
 
 Start on the target side:
 
 1. Note down the IP address of your PYNQ board. This IP address must be accessible from the host.
+2. Ensure the ``bitstring`` package is installed: ``sudo pip3 install bitstring``
 
 Continue on the host side (replace the ``<PYNQ_IP>`` and ``<PYNQ_USERNAME>`` with the IP address and username of your board from the first step):
 
