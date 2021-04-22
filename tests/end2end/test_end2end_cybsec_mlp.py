@@ -213,22 +213,9 @@ echo %s | sudo -S python3.6 validate-unsw-nb15.py --batchsize=10 --limit_batches
         build_env["ip"],
         build_env["target_dir"],
     )
-    rsync_res = subprocess.run(
-        [
-            "sshpass",
-            "-p",
-            build_env["password"],
-            "rsync",
-            "-avz",
-            deploy_dir,
-            remote_target,
-        ]
-    )
+    rsync_res = subprocess.run(["rsync", "-avz", deploy_dir, remote_target])
     assert rsync_res.returncode == 0
     remote_verif_cmd = [
-        "sshpass",
-        "-p",
-        build_env["password"],
         "ssh",
         "%s@%s" % (build_env["username"], build_env["ip"]),
         "sh",
