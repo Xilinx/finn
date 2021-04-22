@@ -251,7 +251,7 @@ class VitisLink(Transformation):
                         mem_type = "DDR"
                         mem_idx = 1
                     node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                config.append("sp=%s.m_axi_gmem0:%s" % node_mem_port)
+                config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
             # connect streams
             if producer is not None:
                 for i in range(len(node.input)):
