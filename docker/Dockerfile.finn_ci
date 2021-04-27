@@ -27,15 +27,26 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 FROM pytorch/pytorch:1.1.0-cuda10.0-cudnn7.5-devel
-MAINTAINER Yaman Umuroglu <yamanu@xilinx.com>
+LABEL maintainer="Yaman Umuroglu <yamanu@xilinx.com>"
 
 WORKDIR /workspace
 
 RUN apt-get update
 RUN apt-get -y upgrade
-RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
-RUN apt-get install -y verilator zsh nano
-RUN apt-get install -y sshpass wget unzip
+RUN apt-get install -y build-essential
+RUN apt-get install -y libglib2.0-0
+RUN apt-get install -y libsm6
+RUN apt-get install -y libxext6
+RUN apt-get install -y libxrender-dev
+RUN apt-get install -y verilator
+RUN apt-get install -y nano
+RUN apt-get install -y zsh
+RUN apt-get install -y rsync
+RUN apt-get install -y git
+RUN apt-get install -y sshpass
+RUN apt-get install -y wget
+RUN apt-get install -y unzip
+RUN apt-get install -y zip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # XRT deps
