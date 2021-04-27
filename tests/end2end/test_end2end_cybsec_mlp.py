@@ -123,11 +123,15 @@ def test_end2end_cybsec_mlp_export():
     finn_model.set_tensor_datatype(finnonnx_in_tensor_name, DataType.BIPOLAR)
     finn_model.save(export_onnx_path)
     assert tuple(finn_model.get_tensor_shape(finnonnx_in_tensor_name)) == (1, 600)
-    assert len(finn_model.graph.node) == 30
+    # verify a few exported ops
     assert finn_model.graph.node[0].op_type == "Add"
     assert finn_model.graph.node[1].op_type == "Div"
     assert finn_model.graph.node[2].op_type == "MatMul"
     assert finn_model.graph.node[-1].op_type == "MultiThreshold"
+    # verify datatypes on some tensors
+    assert finn_model.get_tensor_datatype(finnonnx_in_tensor_name) == DataType.BIPOLAR
+    first_matmul_w_name = finn_model.graph.node[2].input[1]
+    assert finn_model.get_tensor_datatype(first_matmul_w_name) == DataType.INT2
 
 
 @pytest.mark.slow
