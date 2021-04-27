@@ -19,8 +19,9 @@ export_onnx_path = "test_brevitas_conv.onnx"
 
 
 @pytest.mark.parametrize("dw", [False, True])
+@pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("in_channels", [32])
-def test_brevitas_QConv2d(dw, in_channels):
+def test_brevitas_QConv2d(dw, bias, in_channels):
     ishape = (1, 32, 111, 111)
     if dw is True:
         groups = in_channels
@@ -45,7 +46,7 @@ def test_brevitas_QConv2d(dw, in_channels):
         kernel_size=kernel_size,
         padding=padding,
         stride=stride,
-        bias=False,
+        bias=bias,
         bias_quant_type=QuantType.FP,
         compute_output_bit_width=False,
         compute_output_scale=False,
