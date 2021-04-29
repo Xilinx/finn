@@ -76,8 +76,6 @@ def test_brevitas_QConv2d(dw, bias, in_channels):
         stride=stride,
         bias=bias,
         bias_quant_type=QuantType.FP,
-        compute_output_bit_width=False,
-        compute_output_scale=False,
         weight_bit_width=4,
         weight_quant_type=QuantType.INT,
         weight_scaling_impl_type=ScalingImplType.STATS,
