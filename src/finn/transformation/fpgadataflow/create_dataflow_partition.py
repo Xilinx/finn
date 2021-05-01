@@ -148,7 +148,7 @@ class CreateDataflowPartition(Transformation):
                     [df_out],
                     # use the model attribute to mark the df model
                     model=df_model_filename,
-                    domain="finn.custom_op.general",
+                    domain="finn.custom_op.fpgadataflow",
                     partition_id=target_partition_id,
                     slr=slr,
                     mem_port=mem_port,

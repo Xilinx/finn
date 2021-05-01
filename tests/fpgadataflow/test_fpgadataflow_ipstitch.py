@@ -52,7 +52,7 @@ from finn.util.basic import (
     alveo_part_map,
     alveo_default_platform,
 )
-from finn.util.fpgadataflow import pyverilate_stitched_ip
+from finn.util.pyverilator import pyverilate_stitched_ip
 from finn.util.test import load_test_checkpoint_or_skip
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.infer_data_layouts import InferDataLayouts
