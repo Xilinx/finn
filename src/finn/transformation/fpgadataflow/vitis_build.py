@@ -116,7 +116,7 @@ class CreateVitisXO(Transformation):
                 )
                 arg_id += 1
                 args_string.append(
-                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}" 
+                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}"
                     % (str(arg_id), axilite_intf_name)
                 )
                 arg_id += 1
@@ -340,8 +340,8 @@ class VitisBuild(Transformation):
     floorplan_file: path to a JSON containing a dictionary with SLR assignments
                     for each node in the ONNX graph. Must be parse-able by
                     the ApplyConfig transform.
-    enable_link: enable linking .xo files
-
+    enable_link: enable linking kernels (.xo files), otherwise just synthesize
+                    them independently.
     """
 
     def __init__(
@@ -368,10 +368,7 @@ class VitisBuild(Transformation):
         # first infer layouts
         model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels
-        prep_transforms = [
-            InsertIODMA(512),
-            InsertDWC(),
-        ]
+        prep_transforms = [InsertIODMA(512), InsertDWC()]
         for trn in prep_transforms:
             model = model.transform(trn)
             model = model.transform(GiveUniqueNodeNames())
@@ -420,6 +417,6 @@ class VitisBuild(Transformation):
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "alveo")
 
-        #create driver
+        # create driver
         model = model.transform(MakePYNQDriver(platform="alveo"))
         return (model, False)
