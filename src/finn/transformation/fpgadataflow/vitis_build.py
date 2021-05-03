@@ -116,7 +116,7 @@ class CreateVitisXO(Transformation):
                 )
                 arg_id += 1
                 args_string.append(
-                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}" 
+                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}"
                     % (str(arg_id), axilite_intf_name)
                 )
                 arg_id += 1
@@ -340,7 +340,8 @@ class VitisBuild(Transformation):
     floorplan_file: path to a JSON containing a dictionary with SLR assignments
                     for each node in the ONNX graph. Must be parse-able by
                     the ApplyConfig transform.
-
+    enable_link: enable linking kernels (.xo files), otherwise just synthesize
+                    them independently.
     """
 
     def __init__(
@@ -351,6 +352,7 @@ class VitisBuild(Transformation):
         strategy=VitisOptStrategy.PERFORMANCE,
         enable_debug=False,
         floorplan_file=None,
+        enable_link=True,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -359,16 +361,14 @@ class VitisBuild(Transformation):
         self.strategy = strategy
         self.enable_debug = enable_debug
         self.floorplan_file = floorplan_file
+        self.enable_link = enable_link
 
     def apply(self, model):
         _check_vitis_envvars()
         # first infer layouts
         model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels
-        prep_transforms = [
-            InsertIODMA(512),
-            InsertDWC(),
-        ]
+        prep_transforms = [InsertIODMA(512), InsertDWC()]
         for trn in prep_transforms:
             model = model.transform(trn)
             model = model.transform(GiveUniqueNodeNames())
@@ -405,17 +405,18 @@ class VitisBuild(Transformation):
             kernel_model.set_metadata_prop("platform", "alveo")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from kernels
-        model = model.transform(
-            VitisLink(
-                self.platform,
-                round(1000 / self.period_ns),
-                strategy=self.strategy,
-                enable_debug=self.enable_debug,
+        if self.enable_link:
+            model = model.transform(
+                VitisLink(
+                    self.platform,
+                    round(1000 / self.period_ns),
+                    strategy=self.strategy,
+                    enable_debug=self.enable_debug,
+                )
             )
-        )
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "alveo")
 
-        #create driver
+        # create driver
         model = model.transform(MakePYNQDriver(platform="alveo"))
         return (model, False)
