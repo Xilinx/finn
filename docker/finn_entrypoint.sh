@@ -13,6 +13,7 @@ gecho () {
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
 FINN_BASE_COMMIT=8908c6a3f6674c4fa790954bd41c23ee5bf053df
+FINN_EXP_COMMIT=e9f97dcdb4db2f889b0f36af079a6a1792b7d4de
 BREVITAS_COMMIT=aff49758ec445d77c75721c7de3091a2a1797ca8
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=2e49322d1bbc4969ca293843bda1f3f9c05456fc
@@ -25,6 +26,11 @@ gecho "finn-base @ $FINN_BASE_COMMIT"
 git -C /workspace/finn-base pull --quiet
 git -C /workspace/finn-base checkout $FINN_BASE_COMMIT --quiet
 pip install --user -e /workspace/finn-base
+# finn-experimental
+gecho "finn-experimental @ $FINN_EXP_COMMIT"
+git -C /workspace/finn-experimental pull --quiet
+git -C /workspace/finn-experimental checkout $FINN_EXP_COMMIT --quiet
+pip install --user -e /workspace/finn-experimental
 # Brevitas
 gecho "brevitas @ $BREVITAS_COMMIT"
 git -C /workspace/brevitas pull --quiet
