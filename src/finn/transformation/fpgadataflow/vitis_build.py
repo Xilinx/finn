@@ -207,8 +207,6 @@ class VitisLink(Transformation):
             # has axis, aximm and axilite
             # everything else is axis-only
             # assume only one connection from each ip to the next
-            # all aximm allocated to DDR[0]
-            # all kernels allocated to SLR0
             producer = model.find_producer(node.input[0])
             consumer = model.find_consumers(node.output[0])
             # define kernel instances
@@ -225,13 +223,35 @@ class VitisLink(Transformation):
             else:
                 instance_names[node.name] = node.name
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
-            # assign SLRs
-            config.append("slr=%s:SLR0" % instance_names[node.name])
+            # explicitly assign SLRs if the slr attribute is not -1
+            node_slr = sdp_node.get_nodeattr("slr")
+            if node_slr != -1:
+                config.append("slr=%s:SLR%d" % (instance_names[node.name], node_slr))
             # assign memory banks
             if producer is None or consumer is None:
-                config.append(
-                    "sp=%s.m_axi_gmem0:DDR[%d]" % (instance_names[node.name], 0)
-                )
+                node_mem_port = sdp_node.get_nodeattr("mem_port")
+                if node_mem_port == "":
+                    #configure good defaults based on board
+                    if "u50" in self.platform or "u280" in self.platform:
+                        # Use HBM where available (also U50 does not have DDR)
+                        mem_type = "HBM"
+                        mem_idx = 0
+                    elif "u200" in self.platform:
+                        # Use DDR controller in static region of U200
+                        mem_type = "DDR"
+                        mem_idx = 1
+                    elif "u250" in self.platform:
+                        # Use DDR controller on the node's SLR if set, otherwise 0
+                        mem_type = "DDR"
+                        if node_slr == -1:
+                            mem_idx = 0
+                        else:
+                            mem_idx = node_slr
+                    else:
+                        mem_type = "DDR"
+                        mem_idx = 1
+                    node_mem_port = "%s[%d]" % (mem_type, mem_idx)
+                config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
             # connect streams
             if producer is not None:
                 for i in range(len(node.input)):
