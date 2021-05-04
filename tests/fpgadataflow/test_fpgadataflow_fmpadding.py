@@ -54,15 +54,20 @@ target_clk_ns = 10
 
 
 def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt, pad_style):
+    pad_h = padding[0] + padding[2]
+    pad_w = padding[1] + padding[3]
+    idim_h, idim_w = idim
+
     assert pad_style == 2, "only pad_style == 2 supported in hlslib"
-    assert padding > 0, "Output dim should be greater than input dim"
-    odim = idim + padding
+    assert pad_h > 0 or pad_w > 0, "Output dim should be greater than input dim"
+    odim_h = idim_h + pad_h
+    odim_w = idim_w + pad_w
 
     inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, idim, idim, num_ch]
+        "inp", TensorProto.FLOAT, [1, idim_h, idim_w, num_ch]
     )
     outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, odim, odim, num_ch]
+        "outp", TensorProto.FLOAT, [1, odim_h, odim_w, num_ch]
     )
 
     FMPadding = helper.make_node(
@@ -94,9 +99,9 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt, pad_sty
 
 
 # input image dimension
-@pytest.mark.parametrize("idim", [8])
+@pytest.mark.parametrize("idim", [[8, 8], [10, 8]])
 # number of rows and number of cols to add
-@pytest.mark.parametrize("pad", [2, 3])
+@pytest.mark.parametrize("pad", [[1, 1, 1, 1], [1, 1, 2, 2], [1, 3, 2, 3]])
 # number of channels
 @pytest.mark.parametrize("num_ch", [2, 4])
 # Input parallelism
@@ -112,10 +117,22 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt, pad_sty
 def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, pad_style, idt, mode):
     if num_ch % simd != 0:
         pytest.skip(" num_ch % simd != 0, skipping")
+
+    idim_h, idim_w = idim
+    pad_h = pad[0] + pad[2]
+    pad_w = pad[1] + pad[3]
+
+    if idim_h == idim_w and pad_h != pad_w:
+        pytest.skip(
+            """Only equal padding along the dimensions for square images
+            is supported, skipping"""
+        )
+
     # generate input data
-    x = gen_finn_dt_tensor(idt, [1, idim, idim, num_ch])
+    x = gen_finn_dt_tensor(idt, [1, idim_h, idim_w, num_ch])
     input_dict = {"inp": x}
-    odim = idim + pad
+    odim_h = idim_h + pad_h
+    odim_w = idim_w + pad_w
 
     model = make_single_fmpadding_modelwrapper(idim, pad, num_ch, simd, idt, pad_style)
     model = model.transform(InferShapes())
@@ -129,24 +146,26 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, pad_style, idt, mode):
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
-    expected_oshape = (1, odim, odim, num_ch)
+    expected_oshape = (1, odim_h, odim_w, num_ch)
     assert y_produced.shape == expected_oshape
 
     # calculate reference
     # calculate correct pad according to parameters
     if pad_style == 2:
-        if pad % 2 == 0:
-            pad_up = pad // 2
-            pad_left = pad // 2
+        if pad_h % 2 == 0:
+            pad_up = pad_h // 2
         else:
-            pad_up = pad // 2 + 1
-            pad_left = pad // 2 + 1
+            pad_up = pad_h // 2 + 1
+        if pad_w % 2 == 0:
+            pad_left = pad_w // 2
+        else:
+            pad_left = pad_w // 2 + 1
     else:
-        pad_up = pad // 2
-        pad_left = pad // 2
+        pad_up = pad_h // 2
+        pad_left = pad_w // 2
 
-    pad_down = pad - pad_up
-    pad_right = pad - pad_left
+    pad_down = pad_h - pad_up
+    pad_right = pad_w - pad_left
 
     y_expected = np.pad(
         x, ((0, 0), (pad_up, pad_down), (pad_left, pad_right), (0, 0)), "constant"

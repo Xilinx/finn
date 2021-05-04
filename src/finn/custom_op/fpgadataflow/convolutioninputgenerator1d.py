@@ -37,23 +37,27 @@ from finn.custom_op.general.im2col import compute_conv_output_dim
 from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
-# ONNX i/o tensor shape assumptions for ConvolutionInputGenerator:
-# input 0 is the input tensor, shape NHWC = (1, IFMDim, IFMDim, IFMChannels)
+# This operation should only be used for 1D convolutions. Either the
+# IFMDim_H or IFMDim_W should be '1', which represents the so-called
+# dummy-dimension
+
+# ONNX i/o tensor shape assumptions for ConvolutionInputGenerator1D:
+# input 0 is the input tensor, shape NHWC = (1, IFMDim_H, IFMDim_W, IFMChannels)
 # output 0 is the output tensor, shape NHWC:
-#     = (1, OFMDim, OFMDim, (ConvKernelDim^2)*IFMChannels)
+#     = (1, OFMDim_H, OFMDim_W, (ConvKernelDim_H*ConvKernelDim_W)*IFMChannels)
 
 # note: the actual data layout produced by the hlslib kernels is different
 # for depthwise and non-depthwise ops.
-# * non-depthwise SWG: (1, OFMDim, OFMDim, K, K, IFMChannels/SIMD, SIMD)
-# * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/SIMD, K, K, SIMD)
+# * non-depthwise SWG: (1, OFMDim_H, OFMDim_W, K_H, K_W, IFMChannels/SIMD, SIMD)
+# * depthwise SWG: (1, OFMDim_H, OFMDim_W, IFMChannels/SIMD, K_H, K_W, SIMD)
 # see test_fpgadataflow_slidingwindow.py for an example of how to transform
 # between the two layouts
 
 
-class ConvolutionInputGenerator(HLSCustomOp):
-    """Class that corresponds to one of the finn-hlslib ConvolutionInputGenerator
+class ConvolutionInputGenerator1D(HLSCustomOp):
+    """Class that corresponds to one of the 1D finn-hlslib ConvolutionInputGenerator
     (sliding window) function variants. Depending on the combination of
-    attributes (e.g. depthwise or not, whether k % stride is 0) a different
+    attributes (e.g. depthwise or not, whether dilation is 0) a different
     variant will be picked for the actual HLS implementation."""
 
     def __init__(self, onnx_node):
@@ -66,8 +70,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
             "IFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "OFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "SIMD": ("i", True, 0),
-            "Stride": ("ints", True, [1, 1]),  # [H, W] = [Y, X]
-            "Dilation": ("ints", True, [1, 1]),  # [H, W] = [Y, X]
+            "Stride": ("ints", True, []),  # [H, W] = [Y, X]
+            "Dilation": ("ints", True, []),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
@@ -189,11 +193,25 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def get_exp_cycles(self):
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
-        k_h, k_w = self.get_nodeattr("ConvKernelDim")
-        ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
-        ofm_dim_h, ofm_dim_w = self.get_nodeattr("OFMDim")
-        stride_h, stride_w = self.get_nodeattr("Stride")
-        dilation_h, dilation_w = self.get_nodeattr("Dilation")
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        ofm_dim = self.get_nodeattr("OFMDim")
+        stride = self.get_nodeattr("Stride")
+        dilation = self.get_nodeattr("Dilation")
+
+        # see defines() for an explanation
+        if ifm_dim[1] == 1:
+            ifm_dim = ifm_dim[::-1]
+            ofm_dim = ofm_dim[::-1]
+            k = k[::-1]
+            stride = stride[::-1]
+            dilation = dilation[::-1]
+
+        ifm_dim_h, ifm_dim_w = ifm_dim
+        ofm_dim_h, ofm_dim_w = ofm_dim
+        k_h, k_w = k
+        stride_h, stride_w = stride
+        dilation_h, dilation_w = dilation
 
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
@@ -208,12 +226,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
         return int(exp_cycles)
 
     def bram_estimation(self):
-        # NOTE: only tested with a square convolution
+        # NOTE: not tested for correctness
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
-        ifm_dim = self.get_nodeattr("IFMDim")[0]
-        k = self.get_nodeattr("ConvKernelDim")[0]
-        stride = self.get_nodeattr("Stride")[0]
+        ifm_dim = np.prod(self.get_nodeattr("IFMDim"))
+        k = np.prod(self.get_nodeattr("ConvKernelDim"))
+        stride = np.prod(self.get_nodeattr("Stride"))
         ram_style = self.get_nodeattr("ram_style")
         if ram_style == "block" or ram_style == "auto":
             ram_depth = ifm_dim * ifm_ch / simd
@@ -240,12 +258,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
             return 0
 
     def lut_estimation(self):
-        # NOTE: only tested with a square convolution
+        # NOTE: not tested for correctness
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
-        ifm_dim = self.get_nodeattr("IFMDim")[0]
-        k = self.get_nodeattr("ConvKernelDim")[0]
-        stride = self.get_nodeattr("Stride")[0]
+        ifm_dim = np.prod(self.get_nodeattr("IFMDim"))
+        k = np.prod(self.get_nodeattr("ConvKernelDim"))
+        stride = np.prod(self.get_nodeattr("Stride"))
         ram_style = self.get_nodeattr("ram_style")
         if ram_style == "distributed":
             ram_luts = int(
@@ -261,12 +279,12 @@ class ConvolutionInputGenerator(HLSCustomOp):
         return 300 + ram_luts
 
     def uram_estimation(self):
-        # NOTE: only tested with a square convolution
+        # NOTE: not tested for correctness
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
-        ifm_dim = self.get_nodeattr("IFMDim")[0]
-        k = self.get_nodeattr("ConvKernelDim")[0]
-        stride = self.get_nodeattr("Stride")[0]
+        ifm_dim = np.prod(self.get_nodeattr("IFMDim"))
+        k = np.prod(self.get_nodeattr("ConvKernelDim"))
+        stride = np.prod(self.get_nodeattr("Stride"))
         ram_style = self.get_nodeattr("ram_style")
         if ram_style == "ultra":
             return int(
@@ -305,7 +323,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         assert (
             inp.shape == exp_ishape
         ), """Input shape doesn't
-        match expected shape (1, ifm_dim_h, ifm_dim_w, ifm_ch)."""
+        match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
         if self.get_input_datatype() == DataType.BIPOLAR:
             # store bipolar activations as binary
             inp = (inp + 1) / 2
@@ -371,29 +389,110 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
     def defines(self, var):
         numReps = 1
-        ifm_dim = self.get_nodeattr("IFMDim")[0]
+        ifm_dim = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
-        ofm_dim = self.get_nodeattr("OFMDim")[0]
-        k = self.get_nodeattr("ConvKernelDim")[0]
-        stride = self.get_nodeattr("Stride")[0]
+        ofm_dim = self.get_nodeattr("OFMDim")
+        k = self.get_nodeattr("ConvKernelDim")
+        stride = self.get_nodeattr("Stride")
+        dilation = self.get_nodeattr("Dilation")
         simd = self.get_nodeattr("SIMD")
         ifm_precision = self.get_input_datatype().bitwidth()
 
-        self.code_gen_dict["$DEFINES$"] = [
-            """#define ConvKernelDim1 {}\n #define IFMChannels1 {}\n
-            #define Input_precision1 {}\n #define IFMDim1 {}\n
-            #define OFMDim1 {}\n #define SIMD1 {}\n
-            #define Stride1 {}\n #define numReps {}""".format(
-                k,
-                ifm_ch,
-                ifm_precision,
-                ifm_dim,
-                ofm_dim,
-                simd,
-                stride,
-                numReps,
-            )
-        ]
+        # For the kernel, presenting the input data of size D as
+        # [H, W] = [Y, X] = [1, D] or [D, 1]
+        # effectively gives the same result. Because the
+        # ConvolutionInputGenerator_NonSquare_Dilated(_dws) kernel currently only
+        # supports dilation>1 along the X-axis and the
+        # ConvolutionInputGenerator_NonSquare only works for stride>1 along the
+        # X-axis, we are working with the following assumption:
+        # the dummy ('1') dimension is the Y-dimension, i.e.
+        # images and kernels (and their attributes) of dimension
+        # [H, W] = [Y, X] = [D, 1] or [1, D] are always mapped to [1, D]
+        if ifm_dim[1] == 1:
+            ifm_dim = ifm_dim[::-1]
+            ofm_dim = ofm_dim[::-1]
+            k = k[::-1]
+            stride = stride[::-1]
+            dilation = dilation[::-1]
+
+        ifm_dim_y, ifm_dim_x = ifm_dim
+        ofm_dim_y, ofm_dim_x = ofm_dim
+        k_y, k_x = k
+        dilation_y, dilation_x = dilation
+        # For a 1d convolution with stride=[S,1] or [1,S], the finn-hlslib function
+        # of ConvInpGen must be created with [stride_y, stride_x] = [S, S].
+        # TODO: changes in finn-hlslib (slidingwindow.h)
+        stride_y = np.prod(stride)
+        stride_x = np.prod(stride)
+
+        if dilation_x > 1:
+            assert (
+                dilation_y == 1
+            ), "Dilation value greater than 1 along y-axis is not yet supported"
+            self.code_gen_dict["$DEFINES$"] = [
+                """
+            #define ConvKernelDim1_x {}\n
+            #define ConvKernelDim1_y {}\n
+            #define IFMChannels1 {}\n
+            #define Input_precision1 {}\n
+            #define IFMDim1_x {}\n
+            #define IFMDim1_y {}\n
+            #define OFMDim1_x {}\n
+            #define OFMDim1_y {}\n
+            #define SIMD1 {}\n
+            #define Stride1_x {}\n
+            #define Stride1_y {}\n
+            #define Dilation1_x {}\n
+            #define Dilation1_y {}\n
+            #define numReps {}
+            """.format(
+                    k_x,
+                    k_y,
+                    ifm_ch,
+                    ifm_precision,
+                    ifm_dim_x,
+                    ifm_dim_y,
+                    ofm_dim_x,
+                    ofm_dim_y,
+                    simd,
+                    stride_x,
+                    stride_y,
+                    dilation_x,
+                    dilation_y,
+                    numReps,
+                )
+            ]
+        else:
+            ofm_dim = self.get_nodeattr("OFMDim")
+            self.code_gen_dict["$DEFINES$"] = [
+                """
+            #define ConvKernelDim1_x {}\n
+            #define ConvKernelDim1_y {}\n
+            #define IFMChannels1 {}\n
+            #define Input_precision1 {}\n
+            #define IFMDim1_x {}\n
+            #define IFMDim1_y {}\n
+            #define OFMDim1_x {}\n
+            #define OFMDim1_y {}\n
+            #define SIMD1 {}\n
+            #define Stride1_x {}\n
+            #define Stride1_y {}\n
+            #define numReps {}
+            """.format(
+                    k_x,
+                    k_y,
+                    ifm_ch,
+                    ifm_precision,
+                    ifm_dim_x,
+                    ifm_dim_y,
+                    ofm_dim_x,
+                    ofm_dim_y,
+                    simd,
+                    stride_x,
+                    stride_y,
+                    numReps,
+                )
+            ]
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -423,7 +522,6 @@ class ConvolutionInputGenerator(HLSCustomOp):
         )
 
     def docompute(self):
-        node = self.onnx_node
         ram_style = self.get_nodeattr("ram_style")
         map_to_hls_ram_style = {
             "auto": "ap_resource_dflt()",
@@ -432,26 +530,36 @@ class ConvolutionInputGenerator(HLSCustomOp):
             "ultra": "ap_resource_uram()",
         }
         hls_ram_style = map_to_hls_ram_style[ram_style]
-        hls_call = node.op_type
-
+        hls_call = "ConvolutionInputGenerator"
         # check which ConvolutionInputGenerator is needed
-        k = self.get_nodeattr("ConvKernelDim")[0]
-        stride = self.get_nodeattr("Stride")[0]
+        dilation_h, dilation_w = self.get_nodeattr("Dilation")
 
-        if k % stride != 0:
-            hls_call += "_kernel_stride"
-
-        if self.get_nodeattr("depthwise") == 1:
+        hls_call += "_NonSquare"
+        if dilation_h > 1 or dilation_w > 1:
+            hls_call += "_Dilated"
+            if self.get_nodeattr("depthwise") == 1:
+                hls_call += "_dws"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}_dws<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
-                    OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
+                """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1, Input_precision1,
+                IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y, SIMD1, Stride1_x, Stride1_y,
+                Dilation1_x, Dilation1_y> (in0, out, numReps, {});""".format(
+                    hls_call, hls_ram_style
+                )
+            ]
+        elif self.get_nodeattr("depthwise") == 1:
+            hls_call += "_dws"
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1, Input_precision1,
+                IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y, SIMD1, Stride1_x, Stride1_y>
+                (in0, out, numReps, {});""".format(
                     hls_call, hls_ram_style
                 )
             ]
         else:
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
-                    OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
+                """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1, Input_precision1,
+                IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y, SIMD1, Stride1_x, Stride1_y>
+                (in0, out, numReps, {});""".format(
                     hls_call, hls_ram_style
                 )
             ]

@@ -98,7 +98,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         inputs=["inp"],
         outputs=["im2col_out"],
         kernel_size=[k, k],
-        stride=stride,
+        stride=[stride, stride],
         pad_amount=[padding, padding, padding, padding],
         input_shape="(1, {}, {}, {})".format(ifm_dim, ifm_dim, ifm_ch),
         depthwise=1,
@@ -142,7 +142,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
     W_matrix = W_matrix.reshape(ofm_ch, ifm_ch * k * k)
 
     model.set_initializer("W_sparse", W_matrix.T)
-    sparsity = {"dw": {"kernel_shape": k}}
+    sparsity = {"dw": {"kernel_shape": [k, k]}}
     model.set_tensor_sparsity("W_sparse", sparsity)
 
     if act is not None:
