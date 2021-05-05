@@ -29,11 +29,15 @@ def _suitable_node(node):
 
 
 def _suitable_folded_shapes(ishape, oshape):
-    i_dummy = np.random.rand(*ishape)
-    o_dummy = np.random.rand(*oshape)
-    ishape_canonical = np.squeeze(i_dummy).shape
-    oshape_canonical = np.squeeze(o_dummy).shape
-    return ishape_canonical == oshape_canonical
+    matching_stream_width = ishape[-1] == oshape[-1]
+    matching_size = np.prod(ishape) == np.prod(oshape)
+    return matching_stream_width and matching_size
+
+    # i_dummy = np.random.rand(*ishape)
+    # o_dummy = np.random.rand(*oshape)
+    # ishape_canonical = np.squeeze(i_dummy).shape
+    # oshape_canonical = np.squeeze(o_dummy).shape
+    # return ishape_canonical == oshape_canonical
 
 
 class InsertFIFO(Transformation):
