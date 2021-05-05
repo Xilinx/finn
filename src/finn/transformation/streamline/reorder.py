@@ -1114,3 +1114,53 @@ class MoveIdenticalOpPastJoinOp(Transformation):
 class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
     def __init__(self):
         super().__init__(["Transpose"], ["Add"])
+
+
+class MoveIdenticalOpBeforeFork(Transformation):
+    """Move identical operations on different branches in front of the fork.
+    This transformation assumes that the identical operations only change
+    the data layout. Specifically, this transformation matches and transforms
+    the following patterns:
+    a -> b, c -> f(b), f(c)
+    a -> f(a) -> f(b), f(c)
+    where f(.) is currently only supporting 'Transpose',
+    and (a -> b, c) indicates the 'fork'
+    """
+
+    def __init__(self, identical_op_list):
+        super().__init__()
+        self.ops_to_move = identical_op_list
+
+    def move_node(self, model, n, cons0, cons1):
+        # Found! move one of the transpose nodes, remove the other one
+        transpose0_out = cons0.output[0]
+        transpose1_out = cons1.output[0]
+
+        # Find the consumer of one of the identical nodes
+        cons_transpose1 = model.find_consumer(transpose1_out)
+
+        # Connect the input of that consumer to the other identical node
+        cons_transpose1.input[0] = transpose0_out
+
+        model.graph.node.remove(cons1)
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for n in graph.node:
+            if model.is_fork_node(n):
+                consumers = model.find_consumers(n.output[0])
+                cons0 = consumers[0]
+                cons1 = consumers[1]
+
+                identical_op = cons0.op_type == cons1.op_type
+
+                if identical_op and cons0.op_type in self.ops_to_move:
+                    self.move_node(model, n, cons0, cons1)
+
+        return (model, graph_modified)
+
+
+class MoveTransposeBeforeFork(MoveIdenticalOpBeforeFork):
+    def __init__(self):
+        super().__init__(["Transpose"])
