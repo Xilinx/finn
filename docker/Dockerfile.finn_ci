@@ -58,6 +58,8 @@ RUN rm xrtdeps.sh
 # cloning dependency repos
 # finn-base
 RUN git clone https://github.com/Xilinx/finn-base.git /workspace/finn-base
+# finn-experimental
+RUN git clone https://github.com/Xilinx/finn-experimental.git /workspace/finn-experimental
 # Brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
 # CNPY
