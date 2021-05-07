@@ -338,7 +338,7 @@ class InferPool_Batch(Transformation):
                     [im2col_in],
                     [im2col_out],
                     domain="finn.custom_op.general",
-                    stride=stride,
+                    stride=[stride, stride],
                     kernel_size=[k, k],
                     pad_amount=[pad, pad, pad, pad],
                     pad_value=pad_value,
