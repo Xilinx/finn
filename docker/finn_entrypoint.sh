@@ -12,7 +12,7 @@ gecho () {
 
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-FINN_BASE_COMMIT=94beb27de0decb58d31555823860a24da5f09c5a
+FINN_BASE_COMMIT=2c08044c5e9011c19911e731a18ac20d775bbf46
 BREVITAS_COMMIT=aff49758ec445d77c75721c7de3091a2a1797ca8
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=5c45a41a755bca534ba737e1b54ec9bbddf42a41
