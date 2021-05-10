@@ -11,7 +11,7 @@ from finn.transformation.streamline.remove import RemoveIdentityOps
 from finn.util.basic import gen_finn_dt_tensor
 
 
-def insert_identity_op(model, op):
+def insert_identity_op(model, op, as_first_node):
     if op in ["Add", "Sub"]:
         val = np.asarray([0.0], dtype=np.float32)
     elif op in ["Mul", "Div"]:
@@ -19,10 +19,15 @@ def insert_identity_op(model, op):
     else:
         return
 
-    identity_node = helper.make_node(op, ["div_out", "value"], ["ident_out"])
     graph = model.graph
-    graph.node.insert(3, identity_node)
-    graph.node[-1].input[0] = "ident_out"
+    if as_first_node:
+        identity_node = helper.make_node(op, ["inp", "value"], ["ident_out"])
+        graph.node.insert(0, identity_node)
+        graph.node[1].input[0] = "ident_out"
+    else:
+        identity_node = helper.make_node(op, ["div_out", "value"], ["ident_out"])
+        graph.node.insert(3, identity_node)
+        graph.node[-1].input[0] = "ident_out"
     model.set_initializer("value", val)
 
     return model
@@ -30,7 +35,8 @@ def insert_identity_op(model, op):
 
 # identity operations to be inserted
 @pytest.mark.parametrize("op", ["Add", "Sub", "Mul", "Div"])
-def test_remove_identity_ops(op):
+@pytest.mark.parametrize("as_first_node", [False, True])
+def test_remove_identity_ops(op, as_first_node):
 
     # set up onnx model
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, 4, 1, 1])
@@ -64,7 +70,7 @@ def test_remove_identity_ops(op):
     model.set_initializer("shape", shape_values)
     model.set_initializer("div", div_values)
     model.set_initializer("matmul", matmul_values)
-    insert_identity_op(model, op)
+    insert_identity_op(model, op, as_first_node)
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
     idict = {"inp": inp_values}

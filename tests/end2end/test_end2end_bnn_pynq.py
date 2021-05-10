@@ -129,12 +129,7 @@ def update_dashboard_data(topology, wbits, abits, key, val):
 def fold_tfc(model):
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     # (PE, SIMD, ramstyle) for each layer
-    config = [
-        (16, 49, "block"),
-        (8, 8, "auto"),
-        (8, 8, "auto"),
-        (10, 8, "distributed"),
-    ]
+    config = [(16, 49, "block"), (8, 8, "auto"), (8, 8, "auto"), (10, 8, "distributed")]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
         fcl_inst = getCustomOp(fcl)
         fcl_inst.set_nodeattr("PE", pe)
@@ -372,6 +367,7 @@ class TestEnd2End:
     def test_streamline(self, topology, wbits, abits):
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "pre_post")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
         # move past any reshapes to be able to streamline input scaling
         model = model.transform(MoveScalarLinearPastInvariants())
         model = model.transform(Streamline())

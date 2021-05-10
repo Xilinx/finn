@@ -32,6 +32,23 @@ from finn.transformation.infer_shapes import InferShapes
 import numpy as np
 
 
+def _remove_node_and_rewire(model, node):
+    producer = model.find_producer(node.input[0])
+    if producer is not None:
+        # wire output tensor to
+        # output of producer node
+        producer.output[0] = node.output[0]
+    else:
+        # node is first in graph
+        consumer = model.find_consumer(node.output[0])
+        assert consumer is not None, "Whole graph is identity"
+        assert consumer.input[0] == node.output[0]
+        # rewire consumer's input directly to graph input
+        consumer.input[0] = node.input[0]
+    # remove node
+    model.graph.node.remove(node)
+
+
 class RemoveIdentityOps(Transformation):
     """Remove identity ops like Add/Sub with zero or Mul/Div with one"""
 
@@ -48,11 +65,7 @@ class RemoveIdentityOps(Transformation):
             ):
                 A = model.get_initializer(n.input[1])
                 if A is not None and (A == np.zeros_like(A)).all():
-                    producer = model.find_producer(n.input[0])
-                    # remove node and wire output tensor to
-                    # output of producer node
-                    producer.output[0] = n.output[0]
-                    graph.node.remove(n)
+                    _remove_node_and_rewire(model, n)
 
             elif (
                 n.op_type in ["Mul", "Div"]
@@ -61,10 +74,6 @@ class RemoveIdentityOps(Transformation):
             ):
                 A = model.get_initializer(n.input[1])
                 if A is not None and (A == np.ones_like(A)).all():
-                    producer = model.find_producer(n.input[0])
-                    # remove node and wire output tensor to
-                    # output of producer node
-                    producer.output[0] = n.output[0]
-                    graph.node.remove(n)
+                    _remove_node_and_rewire(model, n)
         model = model.transform(InferShapes())
         return (model, graph_modified)
