@@ -116,7 +116,7 @@ def test_end2end_cybsec_mlp_export():
     model_for_export = CybSecMLPForExport(model)
     export_onnx_path = get_checkpoint_name("export")
     input_shape = (1, 600)
-
+    # create a QuantTensor instance to mark the input as bipolar during export
     input_a = np.random.randint(0, 1, size=input_shape).astype(np.float32)
     input_a = 2 * input_a - 1
     scale = 1.0
