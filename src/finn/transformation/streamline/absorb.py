@@ -367,7 +367,6 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                                 )
                                 graph.node.insert(node_ind + 1, new_transpose)
                                 final_t_cand.input[0] = transpose_output
-
                                 graph_modified = True
         if graph_modified:
             model = model.transform(InferDataTypes())

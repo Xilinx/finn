@@ -1,6 +1,7 @@
 from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name, is_finn_op
 from finn.custom_op.registry import getCustomOp
+import warnings
 
 
 def _is_fpgadataflow_node(node):
@@ -19,8 +20,9 @@ def _is_fpgadataflow_node(node):
 
 
 class RemoveCNVtoFCFlatten(Transformation):
-    """Removes a node that implements a (1, -1) reshape if it is
-    between two fpgadataflow nodes"""
+    """Removes a flatten node if it is between two fpgadataflow nodes.
+    For an NHWC-Conv to FC transition, the preceding transpose is absorbed.
+    The flatten operation can also be implemented by a reshape node."""
 
     def apply(self, model):
         graph = model.graph
@@ -61,16 +63,10 @@ class RemoveCNVtoFCFlatten(Transformation):
                                     assert (
                                         W is not None
                                     ), "Initializer for matmul weights is not set."
-                                    # print("fc weights before")
-                                    # print(W.shape)
-                                    # print(W)
                                     W_new = W.reshape(c, h, w, mh)
                                     W_new = W_new.transpose((1, 2, 0, 3))
                                     W_new = W_new.reshape(mw, mh)
                                     model.set_initializer(consumer.input[1], W_new)
-                                    # print("fc weights after")
-                                    # print(W_new.shape)
-                                    # print(W_new)
                                     # remove transpose & flatten nodes
                                     consumer.input[0] = transp_node.input[0]
                                     graph.node.remove(n)
@@ -78,7 +74,8 @@ class RemoveCNVtoFCFlatten(Transformation):
                                     graph_modified = True
                                 else:
                                     warnings.warn(
-                                        "Could not absorb transpose->flatten into subsequent node"
+                                        "Could not absorb transpose->flatten \
+                                        into subsequent node"
                                     )
                         else:
                             warnings.warn(

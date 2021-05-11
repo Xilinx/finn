@@ -36,9 +36,6 @@ from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.util.basic import gen_finn_dt_tensor
@@ -48,24 +45,13 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.custom_op.general.im2col import compute_conv_output_dim
-from finn.custom_op.registry import getCustomOp
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 import finn.transformation.streamline.absorb as absorb
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import (
-    ApplyConfig,
-    GiveReadableTensorNames,
-    RemoveUnusedTensors,
-    RemoveStaticGraphInputs,
-)
+from finn.transformation.general import RemoveUnusedTensors
 from finn.transformation.streamline import Streamline
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
-from finn.transformation.streamline.reorder import (
-    MakeMaxPoolNHWC,
-    MoveScalarLinearPastInvariants,
-)
+from finn.transformation.streamline.reorder import MoveScalarLinearPastInvariants
 
 import finn.core.data_layout as DataLayout
 
@@ -73,7 +59,7 @@ import finn.core.data_layout as DataLayout
 def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
     if seed is not None:
         np.random.seed(seed)
-    steps = np.random.rand(channels, 1) * 20
+    steps = np.random.rand(channels, 1) * 30
     bias = np.random.rand(channels, 1) * -10
     thres = [np.arange(num_of_thres) for chn in range(channels)]
     thres = ((thres + bias) * steps).astype(np.float32)
@@ -86,21 +72,19 @@ def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
     "conv_config",
     [
         ((6, 6), (3, 3), (1, 1), (1, 1)),
-        ((12, 1), (3, 1), (1, 1), (1, 0)),
-        ((1, 15), (1, 5), (1, 1), (0, 2)),
+        # TODO: enable 1d conv test cases
+        # ((12, 1), (3, 1), (1, 1), (1, 0)),
+        # ((1, 15), (1, 5), (1, 1), (0, 2)),
     ],
 )
 @pytest.mark.parametrize("depthwise", [False, True])
 @pytest.mark.parametrize("use_reshape", [False, True])
-@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_convert_to_hls_conv_fc_transition(
-    conv_config, depthwise, use_reshape, exec_mode
-):
+def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
     np.random.seed(0)
     idt = DataType.UINT4
     odt = DataType.UINT4
+    conv_weight_dt = DataType.INT4
+    fc_weight_dt = DataType.INT4
 
     input_shape, kernel_shape, stride, pad = conv_config
     kernel_size_h, kernel_size_w = kernel_shape
@@ -127,13 +111,8 @@ def test_convert_to_hls_conv_fc_transition(
     )
 
     input_shape = [1, in_chn, input_size_h, input_size_w]
-    conv_output_shape = [1, out_chn, output_size_h, output_size_w]
-    output_shape = [1, fc_filters]
-
     fc_param_shape = [out_chn * output_size_h * output_size_w, fc_filters]
-
-    conv_weight_dt = DataType.INT4
-    fc_weight_dt = DataType.INT4
+    output_shape = [1, fc_filters]
 
     conv_config = {}
     conv_config["dilations"] = [1, 1]
@@ -230,19 +209,14 @@ def test_convert_to_hls_conv_fc_transition(
     model = model.transform(InferDataTypes())
     model = model.transform(InferDataLayouts())
 
-    model.save("testmodel_in.onnx")
-
     # streamlining
     new_model = model.transform(MoveScalarLinearPastInvariants())
     new_model = new_model.transform(Streamline())
     new_model = new_model.transform(LowerConvsToMatMul())
     new_model = new_model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     new_model = new_model.transform(Streamline())
-
     new_model = new_model.transform(InferDataLayouts())
     new_model = new_model.transform(RemoveUnusedTensors())
-
-    new_model.save("testmodel_streamlined.onnx")
 
     # convert_to_hls
     if depthwise is True:
@@ -253,24 +227,13 @@ def test_convert_to_hls_conv_fc_transition(
     new_model = new_model.transform(to_hls.InferStreamingMaxPool())
     new_model = new_model.transform(RemoveCNVtoFCFlatten())
     new_model = new_model.transform(absorb.AbsorbConsecutiveTransposes())
-
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(InferDataLayouts())
 
-    if exec_mode == "cppsim":
-        new_model = new_model.transform(PrepareCppSim())
-        new_model = new_model.transform(CompileCppSim())
-        new_model = new_model.transform(SetExecMode("cppsim"))
-    elif exec_mode == "rtlsim":
-        new_model = new_model.transform(SetExecMode("rtlsim"))
-        new_model = new_model.transform(GiveUniqueNodeNames())
-        new_model = new_model.transform(PrepareIP("xc7z020clg400-1", 5))
-        new_model = new_model.transform(HLSSynthIP())
-        new_model = new_model.transform(PrepareRTLSim())
-    else:
-        raise Exception("Unknown exec_mode")
-
-    new_model.save("testmodel_hls.onnx")
+    # prepare cppsim
+    new_model = new_model.transform(PrepareCppSim())
+    new_model = new_model.transform(CompileCppSim())
+    new_model = new_model.transform(SetExecMode("cppsim"))
 
     # check for correct execution
     x = gen_finn_dt_tensor(idt, input_shape)
