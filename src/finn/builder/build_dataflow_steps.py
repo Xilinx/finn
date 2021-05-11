@@ -158,6 +158,7 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     topologies.
     """
 
+    model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
     model = model.transform(MoveScalarLinearPastInvariants())
     model = model.transform(Streamline())
     need_lowering = len(model.get_nodes_by_op_type("Conv")) > 0
