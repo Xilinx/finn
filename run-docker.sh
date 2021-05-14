@@ -74,7 +74,13 @@ DOCKER_PASSWD="finn"
 # generate a random number per-run to allow multiple
 # containers from the same user
 DOCKER_RND=$(shuf -i0-32768 -n1)
-DOCKER_TAG="finn_dev_${DOCKER_UNAME}"
+# create a separate tag when Vitis enabled, since Docker image needs
+# additional dependencies installed
+if [ ! -z "$VITIS_PATH" ];then
+  DOCKER_TAG="finn_dev_vitis_${DOCKER_UNAME}"
+else
+  DOCKER_TAG="finn_dev_${DOCKER_UNAME}"
+fi
 # uncomment to run multiple instances with different names
 # DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
 DOCKER_INST_NAME="finn_dev_${DOCKER_UNAME}"

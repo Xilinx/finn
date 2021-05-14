@@ -80,7 +80,7 @@ if [ ! -d "/workspace/finn/board_files" ]; then
     rm pynq-z2.zip
     cd $OLD_PWD
 fi
-if [ ! -d "/workspace/finn/board_files/ultra96v1" ]; then
+if [ ! -d "/workspace/finn/board_files/ultra96v2" ]; then
     gecho "Downloading Avnet BDF files into board_files"
     OLD_PWD=$(pwd)
     cd /workspace/finn
