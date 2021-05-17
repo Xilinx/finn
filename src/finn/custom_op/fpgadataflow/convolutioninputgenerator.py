@@ -67,7 +67,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
             "OFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "SIMD": ("i", True, 0),
             "Stride": ("ints", True, [1, 1]),  # [H, W] = [Y, X]
-            "Dilation": ("ints", True, [1, 1]),  # [H, W] = [Y, X]
+            # note: only dilation=1 supported for now
+            "Dilation": ("ints", True, [1, 1], {[1, 1]}),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
@@ -86,6 +87,17 @@ class ConvolutionInputGenerator(HLSCustomOp):
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
+
+    def get_nodeattr(self, name):
+        # overriding get_nodeattr to check for square kernel/img.. requirement
+        # since this can't be done with the attribute restriction in nodeattr_types
+        # TODO non-square can be enabled in theory but needs testing
+        ret = super().get_nodeattr(name)
+        props_to_check = ["ConvKernelDim", "IFMDim", "OFMDim", "Stride", "Dilation"]
+        if name in props_to_check:
+            is_square = ret[0] == ret[1]
+            assert is_square, "Only square %s supported" % name
+        return ret
 
     def get_normal_input_shape(self):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
@@ -384,14 +396,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
             #define Input_precision1 {}\n #define IFMDim1 {}\n
             #define OFMDim1 {}\n #define SIMD1 {}\n
             #define Stride1 {}\n #define numReps {}""".format(
-                k,
-                ifm_ch,
-                ifm_precision,
-                ifm_dim,
-                ofm_dim,
-                simd,
-                stride,
-                numReps,
+                k, ifm_ch, ifm_precision, ifm_dim, ofm_dim, simd, stride, numReps
             )
         ]
 
