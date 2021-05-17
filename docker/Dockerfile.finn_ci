@@ -55,10 +55,9 @@ RUN apt-get install -y zip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # XRT deps
-RUN wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh
-RUN apt-get update
-RUN bash xrtdeps.sh -docker
-RUN rm xrtdeps.sh
+ARG XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"
+RUN wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb
+RUN apt install -y /tmp/$XRT_DEB_VERSION.deb
 
 # cloning dependency repos
 # finn-base
