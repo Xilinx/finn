@@ -68,7 +68,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
             "SIMD": ("i", True, 0),
             "Stride": ("ints", True, [1, 1]),  # [H, W] = [Y, X]
             # note: only dilation=1 supported for now
-            "Dilation": ("ints", True, [1, 1], {[1, 1]}),  # [H, W] = [Y, X]
+            "Dilation": ("ints", True, [1, 1]),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
@@ -97,6 +97,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
         if name in props_to_check:
             is_square = ret[0] == ret[1]
             assert is_square, "Only square %s supported" % name
+        if name == "Dilation":
+            assert ret[0] == ret[1] == 1, "Only dilation=1 supported"
         return ret
 
     def get_normal_input_shape(self):
