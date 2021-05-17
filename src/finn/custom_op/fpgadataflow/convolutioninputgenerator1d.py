@@ -190,8 +190,18 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         num_output_elems = np.prod(folded_oshape[:-1])
         return num_output_elems
 
-    def get_exp_cycles(self):
-        simd = self.get_nodeattr("SIMD")
+    def get_1d_conv_attrs_normalized(self):
+        # support both (1, D) and (D, 1) cases transparently:
+        # For the kernel, presenting the input data of size D as
+        # [H, W] = [Y, X] = [1, D] or [D, 1]
+        # effectively gives the same result. Because the
+        # ConvolutionInputGenerator_NonSquare_Dilated(_dws) kernel currently only
+        # supports dilation>1 along the X-axis and the
+        # ConvolutionInputGenerator_NonSquare only works for stride>1 along the
+        # X-axis, we are working with the following assumption:
+        # the dummy ('1') dimension is the Y-dimension, i.e.
+        # images and kernels (and their attributes) of dimension
+        # [H, W] = [Y, X] = [D, 1] or [1, D] are always mapped to [1, D]
         ifm_ch = self.get_nodeattr("IFMChannels")
         k = self.get_nodeattr("ConvKernelDim")
         ifm_dim = self.get_nodeattr("IFMDim")
@@ -207,6 +217,18 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             stride = stride[::-1]
             dilation = dilation[::-1]
 
+        return (ifm_ch, ifm_dim, ofm_dim, k, stride, dilation)
+
+    def get_exp_cycles(self):
+        simd = self.get_nodeattr("SIMD")
+        (
+            ifm_ch,
+            ifm_dim,
+            ofm_dim,
+            k,
+            stride,
+            dilation,
+        ) = self.get_1d_conv_attrs_normalized()
         ifm_dim_h, ifm_dim_w = ifm_dim
         ofm_dim_h, ofm_dim_w = ofm_dim
         k_h, k_w = k
@@ -389,32 +411,16 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
 
     def defines(self, var):
         numReps = 1
-        ifm_dim = self.get_nodeattr("IFMDim")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ofm_dim = self.get_nodeattr("OFMDim")
-        k = self.get_nodeattr("ConvKernelDim")
-        stride = self.get_nodeattr("Stride")
-        dilation = self.get_nodeattr("Dilation")
+        (
+            ifm_ch,
+            ifm_dim,
+            ofm_dim,
+            k,
+            stride,
+            dilation,
+        ) = self.get_1d_conv_attrs_normalized()
         simd = self.get_nodeattr("SIMD")
         ifm_precision = self.get_input_datatype().bitwidth()
-
-        # For the kernel, presenting the input data of size D as
-        # [H, W] = [Y, X] = [1, D] or [D, 1]
-        # effectively gives the same result. Because the
-        # ConvolutionInputGenerator_NonSquare_Dilated(_dws) kernel currently only
-        # supports dilation>1 along the X-axis and the
-        # ConvolutionInputGenerator_NonSquare only works for stride>1 along the
-        # X-axis, we are working with the following assumption:
-        # the dummy ('1') dimension is the Y-dimension, i.e.
-        # images and kernels (and their attributes) of dimension
-        # [H, W] = [Y, X] = [D, 1] or [1, D] are always mapped to [1, D]
-        if ifm_dim[1] == 1:
-            ifm_dim = ifm_dim[::-1]
-            ofm_dim = ofm_dim[::-1]
-            k = k[::-1]
-            stride = stride[::-1]
-            dilation = dilation[::-1]
-
         ifm_dim_y, ifm_dim_x = ifm_dim
         ofm_dim_y, ofm_dim_x = ofm_dim
         k_y, k_x = k
