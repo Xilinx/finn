@@ -307,8 +307,8 @@ class TestEnd2End:
     def test_export(self, topology, wbits, abits):
         if wbits > abits:
             pytest.skip("No wbits > abits end2end network configs for now")
-        if topology == "lfc" and wbits > 1:
-            pytest.skip("Skipping non-existing lfc configs")
+        if topology == "lfc" and not (wbits == 1 and abits == 1):
+            pytest.skip("Skipping certain lfc configs")
         (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
         chkpt_name = get_checkpoint_name(topology, wbits, abits, "export")
         bo.export_finn_onnx(model, ishape, chkpt_name)
