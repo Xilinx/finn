@@ -235,40 +235,23 @@ class InferStreamingMaxPool(Transformation):
                 # mp_out_shape = model.get_tensor_shape(mp_output)
                 dt = model.get_tensor_datatype(mp_input)
                 mp_inst = getCustomOp(n)
-                # stride = mp_inst.get_nodeattr("strides")[0]
                 k_h, k_w = mp_inst.get_nodeattr("kernel_shape")
-                # pad = mp_inst.get_nodeattr("pads")[0]
                 ifm_ch = mp_in_shape[-1]
                 ifm_dim_h = mp_in_shape[1]
                 ifm_dim_w = mp_in_shape[2]
-                # ofm_dim = mp_out_shape[1]
                 if ifm_dim_h % k_h == 0 and ifm_dim_w % k_w == 0:
                     # create equivalent StreamingMaxPool_Batch node
-                    # TODO support non-k strides
-                    if k_h == k_w:  # todo: better condition or none at all
-                        new_node = helper.make_node(
-                            "StreamingMaxPool_Batch",
-                            [mp_input],
-                            [mp_output],
-                            domain="finn.custom_op.fpgadataflow",
-                            backend="fpgadataflow",
-                            PoolDim=k_h,
-                            NumChannels=ifm_ch,
-                            ImgDim=ifm_dim_h,
-                            dataType=dt.name,
-                        )
-                    else:
-                        new_node = helper.make_node(
-                            "StreamingMaxPool_Batch",
-                            [mp_input],
-                            [mp_output],
-                            domain="finn.custom_op.fpgadataflow",
-                            backend="fpgadataflow",
-                            PoolDim=(k_h, k_w),
-                            NumChannels=ifm_ch,
-                            ImgDim=(ifm_dim_h, ifm_dim_w),
-                            dataType=dt.name,
-                        )
+                    new_node = helper.make_node(
+                        "StreamingMaxPool_Batch",
+                        [mp_input],
+                        [mp_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        PoolDim=(k_h, k_w),
+                        NumChannels=ifm_ch,
+                        ImgDim=(ifm_dim_h, ifm_dim_w),
+                        dataType=dt.name,
+                    )
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
                     graph.node.remove(n)

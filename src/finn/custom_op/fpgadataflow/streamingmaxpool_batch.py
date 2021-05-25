@@ -58,6 +58,23 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("dataType")]
 
+    def get_1d_attrs_normalized(self):
+        # support both (1, D) and (D, 1) cases transparently:
+        # assume the dummy ('1') dimension is the Y-dimension, i.e.
+        # images and kernels (and their attributes) of dimension
+        # [H, W] = [Y, X] = [D, 1] or [1, D] are always mapped to [1, D]
+        ifm_dim = self.get_nodeattr("ImgDim")
+        k = self.get_nodeattr("PoolDim")
+        ifm_ch = self.get_nodeattr("NumChannels")
+        if ifm_dim[1] == 1:
+            ifm_dim = ifm_dim[::-1]
+            k = k[::-1]
+        return (ifm_dim, k, ifm_ch)
+
+    def is_1d(self):
+        ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
+        return (ifm_dim[0] == 1) and (k[0] == 1)
+
     def get_normal_input_shape(self):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
         ifm_ch = self.get_nodeattr("NumChannels")
@@ -73,8 +90,8 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         return tuple(ret)
 
     def get_normal_output_shape(self):
-        k_h, k_w = self.get_nodeattr("PoolDim")
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
+        k_h, k_w = tuple(self.get_nodeattr("PoolDim"))
         ifm_ch = self.get_nodeattr("NumChannels")
         stride_h = k_h
         stride_w = k_w
@@ -100,13 +117,12 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def get_exp_cycles(self):
         # derived from StreamingMaxPool_Batch loop nest
-        k_h, k_w = self.get_nodeattr("PoolDim")
-        ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
-        # TODO: correct formula
-        if k_h == k_w:  # todo: better condition
-            return int(ifm_dim_h * (ifm_dim_h + (ifm_dim_h / k_h)))
+        ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
+        if self.is_1d():
+            return int(ifm_dim[1] + k[1])
         else:
-            return int((ifm_dim_h / k_h) * (k_h + 1))
+            # TODO: adjust inaccurate formula
+            return int(ifm_dim[1] * (ifm_dim[1] + (ifm_dim[1] / k[1])))
 
     def get_instream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()
@@ -173,51 +189,17 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def defines(self, var):
         numReps = 2
-        k = self.get_nodeattr("PoolDim")
-        ifm_dim = self.get_nodeattr("ImgDim")
+        ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
 
-        if k[0] == k[1]:  # todo: better condition
-            self.code_gen_dict["$DEFINES$"] = [
-                """#define ImgDim {}\n #define PoolDim {}\n
-                #define NumChannels {}\n #define numReps {}""".format(
-                    ifm_dim[0],
-                    k[0],
-                    self.get_nodeattr("NumChannels"),
-                    numReps,
-                )
-            ]
-        else:
-            # TODO: use the same convention als convinpgen?:
-
-            # For the kernel, presenting the input data of size D as
-            # [H, W] = [Y, X] = [1, D] or [D, 1]
-            # effectively gives the same result. Because the
-            # ConvolutionInputGenerator_NonSquare_Dilated(_dws) kernel currently only
-            # supports dilation>1 along the X-axis and the
-            # ConvolutionInputGenerator_NonSquare only works for stride>1 along the
-            # X-axis, we are working with the following assumption:
-            # the dummy ('1') dimension is the Y-dimension, i.e.
-            # images and kernels (and their attributes) of dimension
-            # [H, W] = [Y, X] = [D, 1] or [1, D] are always mapped to [1, D]
-            if ifm_dim[1] == 1:
-                ifm_dim = ifm_dim[::-1]
-                k = k[::-1]
-
-            ifm_dim_y, ifm_dim_x = ifm_dim
-            k_y, k_x = k
-
-            self.code_gen_dict["$DEFINES$"] = [
-                """#define ImgDim_x {}\n #define ImgDim_y {}\n
-                #define PoolDim_x {}\n #define PoolDim_y {}\n
-                #define NumChannels {}\n #define numReps {}""".format(
-                    ifm_dim_x,
-                    ifm_dim_y,
-                    k_x,
-                    k_y,
-                    self.get_nodeattr("NumChannels"),
-                    numReps,
-                )
-            ]
+        self.code_gen_dict["$DEFINES$"] = [
+            """#define ImgDim {}\n #define PoolDim {}\n
+            #define NumChannels {}\n #define numReps {}""".format(
+                ifm_dim[1],
+                k[1],
+                self.get_nodeattr("NumChannels"),
+                numReps,
+            )
+        ]
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -248,33 +230,24 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def docompute(self):
         dtype = self.get_input_datatype()
-
-        k = self.get_nodeattr("PoolDim")
-        # ifm_dim = self.get_nodeattr("ImgDim")
-        if k[0] == k[1]:  # todo: better condition
-            if dtype.bitwidth() == 1:
+        if dtype.bitwidth() == 1:
+            if self.is_1d():
+                raise Exception("Binary 1d MaxPool not implemented on HLS backend")
+            else:
                 op = "StreamingMaxPool_Batch"
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "%s<ImgDim, PoolDim, NumChannels>(in0, out, numReps);" % (op)
-                ]
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                "%s<ImgDim, PoolDim, NumChannels>(in0, out, numReps);" % (op)
+            ]
+        else:
+            if self.is_1d():
+                op = "StreamingMaxPool_Precision_Batch_1d"
             else:
                 op = "StreamingMaxPool_Precision_Batch"
-                dtype = self.get_input_datatype()
-                dtype_hls = dtype.get_hls_datatype_str()
-                minval_str = str(int(dtype.min()))
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out, numReps);"
-                    % (op, dtype_hls, minval_str)
-                ]
-        else:
-            # todo: add binary op
-            op = "StreamingMaxPool_Precision_Batch_NonSquare"
             dtype = self.get_input_datatype()
             dtype_hls = dtype.get_hls_datatype_str()
             minval_str = str(int(dtype.min()))
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """%s<ImgDim_x, ImgDim_y, PoolDim_x, PoolDim_y,
-                NumChannels, %s, %s>(in0, out, numReps);"""
+                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out, numReps);"
                 % (op, dtype_hls, minval_str)
             ]
 

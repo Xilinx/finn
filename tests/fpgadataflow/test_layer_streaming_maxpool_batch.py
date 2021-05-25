@@ -43,6 +43,7 @@ from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.custom_op.registry import getCustomOp
+import numpy as np
 
 
 def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt):
@@ -120,37 +121,38 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-# @pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT2])
-@pytest.mark.parametrize("idt", [DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT4])
+# 1d maxpool
+@pytest.mark.parametrize("dim_1d", [False, True])
 # kernel size
-@pytest.mark.parametrize(
-    "k",
-    [
-        (2, 1),
-    ],
-)  # (4,4)])
+@pytest.mark.parametrize("k", [2, 4])
 # input dimension
-@pytest.mark.parametrize(
-    "ifm_dim",
-    [
-        (1024, 1),
-    ],
-)  # (6,6), (8,8)])
+@pytest.mark.parametrize("ifm_dim", [4, 8])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [1, 3])
+@pytest.mark.parametrize("ifm_ch", [1, 3])  # 1,3
 # execution mode
-# @pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
-@pytest.mark.parametrize("exec_mode", ["rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
-    k_h, k_w = k
-    ifm_dim_h, ifm_dim_w = ifm_dim
+def test_fpgadataflow_streamingmaxpool(idt, dim_1d, k, ifm_dim, ifm_ch, exec_mode):
+    ifm_dim_h = ifm_dim
+    k_h = k
+    if dim_1d:
+        ifm_dim_w = 1
+        k_w = 1
+    else:
+        ifm_dim_w = ifm_dim_h
+        k_w = k_h
+    ifm_dim = (ifm_dim_h, ifm_dim_w)
+    k = (k_h, k_w)
+
     stride_h = k_h
     stride_w = k_w
     ofm_dim_h = int(((ifm_dim_h - k_h) / stride_h) + 1)
     ofm_dim_w = int(((ifm_dim_w - k_w) / stride_w) + 1)
     ofm_dim = (ofm_dim_h, ofm_dim_w)
+    if idt == DataType.BIPOLAR and dim_1d:
+        pytest.skip("Skipping binary StreamingMaxPool_1d (not implemented)")
     if ifm_dim_h % k_h != 0 or ifm_dim_w % k_w != 0:
         pytest.skip("Skipping StreamingMaxPool test w/ ImgDim % PoolDim != 0")
 
@@ -186,9 +188,5 @@ def test_fpgadataflow_streamingmaxpool(idt, k, ifm_dim, ifm_ch, exec_mode):
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
-        # DEBUG:
-        print("expected vs rtlsim cycles")
-        print(exp_cycles)
-        print(cycles_rtlsim)
-        # assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
-        # assert exp_cycles != 0
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
+        assert exp_cycles != 0
