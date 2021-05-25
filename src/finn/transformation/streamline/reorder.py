@@ -645,8 +645,7 @@ class MoveScalarLinearPastInvariants(Transformation):
 
 
 class MakeMaxPoolNHWC(Transformation):
-    """Convert (MaxPool, NHWCTranspose) into (NHWCTranspose, MaxPoolNHWC)
-    and (NCHWTranspose, MaxPool) into (MaxPoolNHWC, NCHWTranspose)."""
+    """Convert (MaxPool, NHWCTranpose) into (MaxPoolNHWC)."""
 
     def apply(self, model):
         graph = model.graph
@@ -656,7 +655,6 @@ class MakeMaxPoolNHWC(Transformation):
             node_ind += 1
             if n.op_type == "MaxPool":
                 consumer = model.find_consumer(n.output[0])
-                producer = model.find_producer(n.input[0])
                 if consumer is not None and consumer.op_type == "Transpose":
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
@@ -675,25 +673,6 @@ class MakeMaxPoolNHWC(Transformation):
                         model.set_tensor_shape(end_name, (b, ho, wo, c))
                         graph.node.remove(consumer)
                         graph.node.insert(node_ind - 1, consumer)
-                        graph_modified = True
-                elif producer is not None and producer.op_type == "Transpose":
-                    perms = list(get_by_name(producer.attribute, "perm").ints)
-                    if perms == [0, 3, 1, 2]:
-                        n.op_type = "MaxPoolNHWC"
-                        n.domain = "finn.custom_op.general"
-                        start_name = producer.input[0]
-                        mid_name = n.input[0]
-                        end_name = n.output[0]
-                        (b, hi, wi, c) = model.get_tensor_shape(start_name)
-                        (b, c, ho, wo) = model.get_tensor_shape(end_name)
-                        producer.input[0] = mid_name
-                        producer.output[0] = end_name
-                        n.input[0] = start_name
-                        n.output[0] = mid_name
-                        model.set_tensor_shape(mid_name, (b, ho, wo, c))
-                        model.set_tensor_shape(end_name, (b, c, ho, wo))
-                        graph.node.remove(producer)
-                        graph.node.insert(node_ind, producer)
                         graph_modified = True
         return (model, graph_modified)
 
