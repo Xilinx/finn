@@ -347,6 +347,8 @@ class TestEnd2End:
         assert os.path.isfile(chkpt_preproc_name)
         # join preprocessing and core model
         pre_model = ModelWrapper(chkpt_preproc_name)
+        pre_model = pre_model.transform(InferShapes())
+        pre_model = pre_model.transform(FoldConstants())
         model = model.transform(MergeONNXModels(pre_model))
         # add input quantization annotation: UINT8 for all BNN-PYNQ models
         global_inp_name = model.graph.input[0].name

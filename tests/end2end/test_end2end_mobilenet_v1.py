@@ -101,6 +101,7 @@ def test_end2end_mobilenet_export():
     # set input finn datatype to UINT8
     preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType.UINT8)
     preproc_model = preproc_model.transform(InferShapes())
+    preproc_model = preproc_model.transform(FoldConstants())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
     preproc_model = preproc_model.transform(GiveUniqueParameterTensors())
     preproc_model = preproc_model.transform(GiveReadableTensorNames())
