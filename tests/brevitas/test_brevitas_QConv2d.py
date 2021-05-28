@@ -50,8 +50,6 @@ export_onnx_path = "test_brevitas_conv.onnx"
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("in_channels", [32])
 def test_brevitas_QConv2d(dw, bias, in_channels):
-    if bias:
-        pytest.xfail("bias export bug")
     ishape = (1, 32, 111, 111)
     if dw is True:
         groups = in_channels
