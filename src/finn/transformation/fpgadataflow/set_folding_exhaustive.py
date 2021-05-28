@@ -63,7 +63,7 @@ class SetFoldingExhaustive(Transformation):
 
     def get_attrs(self, model):
         """
-        Performs an exhaustive search over the possible SIMD / PE / (SIMD, PE) 
+        Performs an exhaustive search over the possible SIMD / PE / (SIMD, PE)
         configurations for each node
         """
 
@@ -177,7 +177,7 @@ class SetFoldingExhaustive(Transformation):
     def inst_model(self, model):
         """
         If from_scratch = True, sets node attributes to 1. Logs LUTs and expected cycles of each node.
-        Instantiates the among_slowest dict with the slowest node, which is used to update slow nodes 
+        Instantiates the among_slowest dict with the slowest node, which is used to update slow nodes
         per iteration.
         """
         new_model = deepcopy(model)
@@ -220,8 +220,8 @@ class SetFoldingExhaustive(Transformation):
 
     def get_next_val(self, node, current_attrs, total_luts):
         """
-        Try to fetch next folding config for a given node. Next folding config 
-        is chosen s.t. the incremental change in cycle count is the smallest 
+        Try to fetch next folding config for a given node. Next folding config
+        is chosen s.t. the incremental change in cycle count is the smallest
         s.t. we can obtain a finer granularity in optimization.
         """
         node_inst = getCustomOp(node)
@@ -273,7 +273,7 @@ class SetFoldingExhaustive(Transformation):
                         done = True
                         return sorted_attrs[idx][0], current_attrs, done
 
-                    # Multiple folding configurations have same cycle count, 
+                    # Multiple folding configurations have same cycle count,
                     # but some of them may not be viable.
                     # Iterative over them until we find a viable configuration
                     while sorted_attrs[next_opt][1].get("cycles") == sorted_attrs[
@@ -488,7 +488,7 @@ class SetFoldingExhaustive(Transformation):
 
         new_among_slowest = dict()
 
-        # Skip updating nodes if they still have lower cycle count than slowest node(s) updated 
+        # Skip updating nodes if they still have lower cycle count than slowest node(s) updated
         # in previous iteration
         for node, values in among_slowest.items():
             if values.get("cycles") < prev_slowest_cycles:
