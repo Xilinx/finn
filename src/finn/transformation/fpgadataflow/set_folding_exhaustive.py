@@ -178,7 +178,7 @@ class SetFoldingExhaustive(Transformation):
         """
         If from_scratch = True, sets node attributes to 1. Logs LUTs and expected cycles of each node.
         Instantiates the among_slowest dict with the slowest node, which is used to update slow nodes 
-        per iteration. Returns a model with folding attributes set to 1 if from_scratch = True
+        per iteration.
         """
         new_model = deepcopy(model)
         graph = new_model.graph
@@ -515,7 +515,6 @@ class SetFoldingExhaustive(Transformation):
             model_luts = get_luts(model)
             if not added:
 
-                # Update folding of slowest layers by factor of 2
                 model, attrs, among_slowest, done = self.incr_folding(
                     model, among_slowest, attrs
                 )
