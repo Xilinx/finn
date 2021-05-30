@@ -6,7 +6,7 @@ future==0.18.2
 gspread==3.6.0
 numpy==1.18.0
 onnx==1.7.0
-onnxoptimizer==0.2.6
+onnxoptimizer
 onnxruntime==1.4.0
 pre-commit==2.6.0
 scipy==1.5.2
