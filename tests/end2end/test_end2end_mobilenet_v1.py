@@ -188,6 +188,10 @@ def test_end2end_mobilenet_streamline():
         model = model.transform(GiveReadableTensorNames())
         model = model.transform(InferDataTypes())
     model.save(build_dir + "/end2end_mobilenet_streamlined.onnx")
+    assert (
+        len(model.get_nodes_by_op_type("Add")) == 1
+    )  # only final quantized bias Add op remains
+    assert len(model.get_nodes_by_op_type("Mul")) == 0  # no Mul ops remain
 
 
 def test_end2end_mobilenet_lowering():
