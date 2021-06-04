@@ -2,7 +2,7 @@
 Contributors
 ============
 
-* Yaman Umuroglu (@maltanar)
+* Yaman Umuroglu (@maltanar) (maintainer)
 * Jakoba Petri-Koenig (@auphelia)
 * Andrea Rigoni (@AndreaRigoni)
 * Hendrik Borras (@HenniOVP)
