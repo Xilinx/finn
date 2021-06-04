@@ -74,18 +74,8 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
-from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
-from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.core.onnx_exec import execute_onnx
 from finn.util.basic import alveo_part_map, alveo_default_platform
-from finn.util.config import extract_model_config_to_json
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 
@@ -111,6 +101,7 @@ def test_end2end_mobilenet_export():
     # set input finn datatype to UINT8
     preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType.UINT8)
     preproc_model = preproc_model.transform(InferShapes())
+    preproc_model = preproc_model.transform(FoldConstants())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
     preproc_model = preproc_model.transform(GiveUniqueParameterTensors())
     preproc_model = preproc_model.transform(GiveReadableTensorNames())
@@ -197,6 +188,10 @@ def test_end2end_mobilenet_streamline():
         model = model.transform(GiveReadableTensorNames())
         model = model.transform(InferDataTypes())
     model.save(build_dir + "/end2end_mobilenet_streamlined.onnx")
+    assert (
+        len(model.get_nodes_by_op_type("Add")) == 1
+    )  # only final quantized bias Add op remains
+    assert len(model.get_nodes_by_op_type("Mul")) == 0  # no Mul ops remain
 
 
 def test_end2end_mobilenet_lowering():
@@ -334,101 +329,3 @@ def test_end2end_mobilenet_cppsim():
 
     assert (golden == res_cppsim).all()
     assert np.isclose(golden_prob, res_cppsim_prob).all()
-
-
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_end2end_mobilenet_gen_hls_ip():
-    model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_mobilenet_dataflow_model.onnx"
-    )
-    start = time.time()
-    model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
-    end = time.time()
-    elapsed_time = end - start
-    f = open(build_dir + "/end2end_mobilenet_ipgen_time.txt", "w+")
-    f.write("Execution time in seconds: " + str(elapsed_time))
-    f.close()
-
-    model = model.transform(AnnotateResources("hls"))
-    model.save(build_dir + "/end2end_mobilenet_ipgen.onnx")
-
-
-@pytest.mark.slow
-@pytest.mark.vivado
-@pytest.mark.xfail
-def test_end2end_mobilenet_rtlsim():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_ipgen.onnx")
-    x = np.load(build_dir + "/end2end_mobilenet_input.npy")
-    inp_name = model.graph.input[0].name
-    out_name = model.graph.output[0].name
-    inp_dict = {inp_name: x}
-    # node-by-node rtlsim
-    model = model.transform(SetExecMode("rtlsim"))
-    model = model.transform(PrepareRTLSim())
-    model.save(build_dir + "/end2end_mobilenet_ipgen_nodebynode_rtlsim.onnx")
-    ret_rtlsim_nodebynode = execute_onnx(model, inp_dict, True)
-    res_rtlsim_nodebynode = ret_rtlsim_nodebynode[out_name]
-    np.save(
-        build_dir + "/end2end_mobilenet_result_rtlsim_nodebynode.npy",
-        res_rtlsim_nodebynode,
-    )
-    a0 = np.load(build_dir + "/end2end_mobilenet_topk_scale.npy")
-    res_rtlsim_nodebynode_prob = (
-        ret_rtlsim_nodebynode[model.graph.node[-2].output[0]] * a0
-    )
-    np.save(
-        build_dir + "/end2end_mobilenet_result_rtlsim_nodebynode_prob.npy",
-        res_rtlsim_nodebynode_prob,
-    )
-
-    # check result with golden values
-    golden = np.load(build_dir + "/end2end_mobilenet_golden_top5.npy")
-    golden_prob = np.load(build_dir + "/end2end_mobilenet_golden_top5_prob.npy")
-
-    assert (golden == res_rtlsim_nodebynode).all()
-    assert np.isclose(golden_prob, res_rtlsim_nodebynode_prob).all()
-
-
-@pytest.mark.slow
-@pytest.mark.vivado
-def test_end2end_mobilenet_set_fifo_depths():
-    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_ipgen.onnx")
-    start = time.time()
-    model = model.transform(
-        InsertAndSetFIFODepths(
-            test_fpga_part, target_clk_ns, vivado_ram_style=large_fifo_ram_style
-        )
-    )
-    end = time.time()
-    elapsed_time = end - start
-    f = open(build_dir + "/end2end_mobilenet_fifoset_time.txt", "w+")
-    f.write("Execution time in seconds: " + str(elapsed_time))
-    f.close()
-    extract_model_config_to_json(
-        model,
-        build_dir + "/end2end_mobilenet_folded_and_fifo_config.json",
-        ["PE", "SIMD", "impl_style", "ram_style", "depth"],
-    )
-    model.save(build_dir + "/end2end_mobilenet_fifodepth.onnx")
-
-
-@pytest.mark.slow
-@pytest.mark.vitis
-def test_end2end_mobilenet_build():
-    model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_mobilenet_fifodepth.onnx"
-    )
-    model = model.transform(
-        VitisBuild(
-            test_fpga_part,
-            target_clk_ns,
-            test_platform,
-            strategy=VitisOptStrategy.PERFORMANCE_BEST,
-        )
-    )
-    model.save(build_dir + "/end2end_mobilenet_build.onnx")
-    model = model.transform(AnnotateResources("synth"))
-    model.save(build_dir + "/end2end_mobilenet_final.onnx")
