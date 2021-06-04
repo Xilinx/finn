@@ -19,6 +19,7 @@ CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=4d74baefa79df48b5a0348d63f39a26df075de51
 PYVERILATOR_COMMIT=e2ff74030de3992dcac54bf1b6aad2915946e8cb
 OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
+AVNET_BDF_COMMIT=2d49cfc25766f07792c0b314489f21fe916b639b
 
 gecho "Setting up known-good commit versions for FINN dependencies"
 # finn-base
@@ -81,10 +82,11 @@ if [ ! -d "/workspace/finn/board_files" ]; then
     cd $OLD_PWD
 fi
 if [ ! -d "/workspace/finn/board_files/ultra96v2" ]; then
-    gecho "Downloading Avnet BDF files into board_files"
+    gecho "Downloading Avnet BDF files from known-good commit into board_files"
     OLD_PWD=$(pwd)
     cd /workspace/finn
     git clone https://github.com/Avnet/bdf.git
+    git -C /workspace/finn/bdf checkout $AVNET_BDF_COMMIT --quiet
     mv /workspace/finn/bdf/* /workspace/finn/board_files/
     rm -rf /workspace/finn/bdf
     cd $OLD_PWD
