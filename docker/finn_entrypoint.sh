@@ -86,7 +86,7 @@ if [ ! -d "/workspace/finn/board_files/ultra96v2" ]; then
     OLD_PWD=$(pwd)
     cd /workspace/finn
     git clone https://github.com/Avnet/bdf.git
-    git -C /workspace/finn/bdf checkout AVNET_BDF_COMMIT --quiet
+    git -C /workspace/finn/bdf checkout $AVNET_BDF_COMMIT --quiet
     mv /workspace/finn/bdf/* /workspace/finn/board_files/
     rm -rf /workspace/finn/bdf
     cd $OLD_PWD
