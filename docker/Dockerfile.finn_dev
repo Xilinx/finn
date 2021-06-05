@@ -122,12 +122,11 @@ RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
 # install vitis deps if required
 ARG INSTALL_XRT_DEPS
+ARG XRT_DEB_VERSION
 RUN if [ "$INSTALL_XRT_DEPS" = "1" ] ; then \
-    echo "Installing XRT dependencies"; \
-    wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh; \
-    apt-get update; \
-    bash xrtdeps.sh -docker; \
-    rm xrtdeps.sh; \
+    echo "Installing XRT: $XRT_DEB_VERSION"; \
+    wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb; \
+    apt install -y /tmp/$XRT_DEB_VERSION.deb; \
   else \
     echo "Skipping installation of XRT dependencies"; \
   fi

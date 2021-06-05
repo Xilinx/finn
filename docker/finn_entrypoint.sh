@@ -4,10 +4,15 @@ export SHELL=/bin/bash
 export FINN_ROOT=/workspace/finn
 
 GREEN='\033[0;32m'
+RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 gecho () {
   echo -e "${GREEN}$1${NC}"
+}
+
+recho () {
+  echo -e "${RED}ERROR: $1${NC}"
 }
 
 # checkout the correct dependency repo commits
@@ -94,10 +99,13 @@ fi
 if [ ! -z "$VITIS_PATH" ];then
   # source Vitis env.vars
   export XILINX_VITIS=$VITIS_PATH
+  export XILINX_XRT=/opt/xilinx/xrt
   source $VITIS_PATH/settings64.sh
   if [ ! -z "$XILINX_XRT" ];then
     # source XRT
     source $XILINX_XRT/setup.sh
+  else
+    recho "XRT not found on $XILINX_XRT, did the installation fail?"
   fi
 fi
 exec "$@"
