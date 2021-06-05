@@ -55,9 +55,16 @@ RUN apt-get install -y zip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # XRT deps
+# install vitis deps if required
+ARG INSTALL_XRT_DEPS="0"
 ARG XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"
-RUN wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb
-RUN apt install -y /tmp/$XRT_DEB_VERSION.deb
+RUN if [ "$INSTALL_XRT_DEPS" = "1" ] ; then \
+    echo "Installing XRT: $XRT_DEB_VERSION"; \
+    wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb; \
+    apt install -y /tmp/$XRT_DEB_VERSION.deb; \
+  else \
+    echo "Skipping installation of XRT dependencies"; \
+  fi
 
 # cloning dependency repos
 # finn-base
