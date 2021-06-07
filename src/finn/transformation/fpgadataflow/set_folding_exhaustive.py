@@ -10,15 +10,18 @@ boards = {
 }
 
 
-def get_sorted_attrs(attrs, op_type):
+def get_sorted_attrs(attrs, op_type, reverse=True):
     if op_type == "StreamingFCLayer_Batch":
-        return sorted(
-            attrs.items(),
-            key=lambda k_v: (k_v[1].get("cycles"), k_v[0][0]),
-            reverse=True,
+        key = (
+            (lambda k_v: (k_v[1].get("cycles"), k_v[0][0]))
+            if reverse
+            else (lambda k_v: (k_v[1].get("cycles"), -k_v[0][0]))
         )
+        return sorted(attrs.items(), key=key, reverse=reverse)
     else:
-        return sorted(attrs.items(), key=lambda k_v: k_v[1].get("cycles"), reverse=True)
+        return sorted(
+            attrs.items(), key=lambda k_v: k_v[1].get("cycles"), reverse=reverse
+        )
 
 
 def get_luts(model):
@@ -27,6 +30,16 @@ def get_luts(model):
         node_inst = getCustomOp(node)
         luts += node_inst.lut_estimation()
     return luts
+
+
+def get_cycles(model):
+    highest = 0
+    for node in model.graph.node:
+        node_inst = getCustomOp(node)
+        cyc = node_inst.get_exp_cycles()
+        if cyc > highest:
+            highest = cyc
+    return highest
 
 
 class SetFoldingExhaustive(Transformation):
@@ -269,7 +282,7 @@ class SetFoldingExhaustive(Transformation):
                 if not sorted_attrs[next_opt][1].get("viability"):
 
                     # Return if we are at end of possible configs
-                    if next_opt > len(sorted_attrs):
+                    if len(sorted_attrs[next_opt:]) == 1:
                         done = True
                         return sorted_attrs[idx][0], current_attrs, done
 
@@ -296,21 +309,22 @@ class SetFoldingExhaustive(Transformation):
                             if sorted_attrs[next_opt][1].get("outWidth") > v.get(
                                 "inWidth"
                             ):
-                                if not sorted_attrs[next_opt][1].get(
-                                    "outWidth"
-                                ) % v.get("inWidth"):
-                                    v["viability"] = True
-                                else:
-                                    v["viability"] = False
+                                v["viability"] = (
+                                    True
+                                    if not sorted_attrs[next_opt][1].get("outWidth")
+                                    % v.get("inWidth")
+                                    else False
+                                )
+
                             elif sorted_attrs[next_opt][1].get("outWidth") <= v.get(
                                 "inWidth"
                             ):
-                                if not v.get("inWidth") % sorted_attrs[idx + 1][1].get(
-                                    "outWidth"
-                                ):
-                                    v["viability"] = True
-                                else:
-                                    v["viability"] = False
+                                v["viability"] = (
+                                    True
+                                    if not v.get("inWidth")
+                                    % sorted_attrs[idx + 1][1].get("outWidth")
+                                    else False
+                                )
 
                     return sorted_attrs[next_opt][0], current_attrs, done
                 else:
@@ -331,19 +345,19 @@ class SetFoldingExhaustive(Transformation):
                                     "possible_attrs"
                                 ).items():
                                     if attr[1].get("outWidth") > v.get("inWidth"):
-                                        if not attr[1].get("outWidth") % v.get(
-                                            "inWidth"
-                                        ):
-                                            v["viability"] = True
-                                        else:
-                                            v["viability"] = False
+                                        v["viability"] = (
+                                            True
+                                            if not attr[1].get("outWidth")
+                                            % v.get("inWidth")
+                                            else False
+                                        )
                                     else:
-                                        if not v.get("inWidth") % attr[1].get(
-                                            "outWidth"
-                                        ):
-                                            v["viability"] = True
-                                        else:
-                                            v["viability"] = False
+                                        v["viability"] = (
+                                            True
+                                            if not v.get("inWidth")
+                                            % attr[1].get("outWidth")
+                                            else False
+                                        )
 
                             return attr[0], current_attrs, done
                         elif (attr_luts - node_luts + total_luts) > self.max_luts:
@@ -442,7 +456,7 @@ class SetFoldingExhaustive(Transformation):
                             node, attrs, total_luts, among_slowest, "SIMD"
                         )
 
-                elif op_type in self.depthwise_op_exceptions:
+                elif op_type in [*self.pe_ops, *self.depthwise_op_exceptions]:
                     total_luts, among_slowest, done = _incr_node_attr(
                         node, attrs, total_luts, among_slowest, "PE"
                     )
@@ -450,11 +464,6 @@ class SetFoldingExhaustive(Transformation):
                 elif op_type in self.simd_ops:
                     total_luts, among_slowest, done = _incr_node_attr(
                         node, attrs, total_luts, among_slowest, "SIMD"
-                    )
-
-                elif op_type in self.pe_ops:
-                    total_luts, among_slowest, done = _incr_node_attr(
-                        node, attrs, total_luts, among_slowest, "PE"
                     )
 
         return new_model, attrs, among_slowest, done
@@ -488,8 +497,8 @@ class SetFoldingExhaustive(Transformation):
 
         new_among_slowest = dict()
 
-        # Skip updating nodes if they still have lower cycle count than slowest node(s) updated
-        # in previous iteration
+        # Skip updating nodes if they still have lower cycle count
+        # than slowest node(s) updated in previous iteration
         for node, values in among_slowest.items():
             if values.get("cycles") < prev_slowest_cycles:
                 values["skip"] = True
@@ -511,14 +520,13 @@ class SetFoldingExhaustive(Transformation):
         added = False
         done = False
         model_luts = 0
+
         while model_luts < self.max_luts and not done:
             model_luts = get_luts(model)
             if not added:
-
                 model, attrs, among_slowest, done = self.incr_folding(
                     model, among_slowest, attrs
                 )
-
                 sorted_among_slowest = sorted(
                     among_slowest.items(),
                     key=lambda item: item[1].get("cycles"),
@@ -545,6 +553,44 @@ class SetFoldingExhaustive(Transformation):
 
         return model, among_slowest, attrs
 
+    def reclaim_resources(self, model, all_attrs):
+        '''
+        During optimization, a range of nodes may be at the same expected cycle count.
+        If only some of them are sped up during optimization, due to reaching resource
+        limit or no viable folding settings, then the optimizations for the nodes with
+        same exp cycle count are pointless and can be reverted to free up resources
+        '''
+        reclaimed_model = deepcopy(model)
+        graph = reclaimed_model.graph
+        max_cycles = get_cycles(model)
+
+        for node in graph.node:
+            node_inst = getCustomOp(node)
+            node_cycles = node_inst.get_exp_cycles()
+            node_attrs = get_sorted_attrs(
+                all_attrs[node.name].get("possible_attrs"), node.op_type, reverse=False
+            )
+
+            for attr, attr_specs in node_attrs:
+                if (max_cycles >= attr_specs["cycles"] > node_cycles) and attr_specs[
+                    "viability"
+                ]:
+                    # condition matched, can reclaim some resources
+                    if node.op_type == "StreamingFCLayer_Batch":
+                        node_inst.set_nodeattr("SIMD", attr[0])
+                        node_inst.set_nodeattr("PE", attr[1])
+                    if node.op_type in self.depthwise_op_exceptions:
+                        swu_node = model.find_producer(node.input[0])
+                        if not swu_node.op_type == "ConvolutionInputGenerator":
+                            node_inst.set_nodeattr("PE", attr)
+                    if node.op_type in self.pe_ops:
+                        node_inst.set_nodeattr("PE", attr)
+                    if node.op_type in self.simd_ops:
+                        node_inst.set_nodeattr("SIMD", attr)
+                    break
+
+        return reclaimed_model
+
     def apply(self, model):
         model, model_values, among_slowest = self.inst_model(model)
 
@@ -554,4 +600,6 @@ class SetFoldingExhaustive(Transformation):
             model, among_slowest, all_attrs
         )
 
-        return (new_model, False)
+        reclaimed_model = self.reclaim_resources(new_model, attrs)
+
+        return (reclaimed_model, False)
