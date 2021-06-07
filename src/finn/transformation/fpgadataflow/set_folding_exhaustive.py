@@ -554,12 +554,12 @@ class SetFoldingExhaustive(Transformation):
         return model, among_slowest, attrs
 
     def reclaim_resources(self, model, all_attrs):
-        '''
+        """
         During optimization, a range of nodes may be at the same expected cycle count.
         If only some of them are sped up during optimization, due to reaching resource
         limit or no viable folding settings, then the optimizations for the nodes with
         same exp cycle count are pointless and can be reverted to free up resources
-        '''
+        """
         reclaimed_model = deepcopy(model)
         graph = reclaimed_model.graph
         max_cycles = get_cycles(model)
