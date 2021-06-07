@@ -308,10 +308,9 @@ class Absorb1BitMulIntoConv(Transformation):
 
 
 class AbsorbTransposeIntoMultiThreshold(Transformation):
-    """Change (NHWCTranpose -> MultiThreshold -> NCHWTranspose) to (MultiThreshold)
-    with NHWC mode. For (NHWCTranpose -> MultiThreshold -> Flatten), move Transpose
-    past MultiThreshold to prepare for the RemoveCNVtoFCFlatten() transformation."""
-
+    """Change (NCHWTranspose -> MultiThreshold -> NHWCTranspose) to (MultiThreshold)
+    with NHWC mode. For (NCHWTranspose -> MultiThreshold) move Transpose past MT."""
+    
     def apply(self, model):
         graph = model.graph
         node_ind = 0
