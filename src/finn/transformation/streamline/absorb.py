@@ -310,7 +310,7 @@ class Absorb1BitMulIntoConv(Transformation):
 class AbsorbTransposeIntoMultiThreshold(Transformation):
     """Change (NCHWTranspose -> MultiThreshold -> NHWCTranspose) to (MultiThreshold)
     with NHWC mode. For (NCHWTranspose -> MultiThreshold) move Transpose past MT."""
-    
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -338,35 +338,26 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                                 graph.node.remove(n)
                                 graph.node.remove(final_t_cand)
                                 graph_modified = True
-                        # also support implicit flatten via reshape, e.g. reshape(1,-1)
-                        elif (
-                            final_t_cand.op_type == "Flatten"
-                            or final_t_cand.op_type == "Reshape"
-                        ):
-                            ishape = model.get_tensor_shape(final_t_cand.input[0])
-                            oshape = model.get_tensor_shape(final_t_cand.output[0])
-                            if len(oshape) == 2 and ishape[0] == oshape[0]:
-                                # transition to FC part, can still use NHWC
-                                mt = getCustomOp(mt_cand)
-                                mt.set_nodeattr("data_layout", "NHWC")
-                                # get rid of first tranpose node
-                                mt_cand.input[0] = n.input[0]
-                                graph.node.remove(n)
-                                # fix output shape for MultiThreshold
-                                mt_ishape = model.get_tensor_shape(mt_cand.input[0])
-                                (b, h, w, c) = mt_ishape
-                                model.set_tensor_shape(mt_cand.output[0], mt_ishape)
-                                # re-insert Transpose behind MultiThreshold
-                                transpose_output = model.make_new_valueinfo_name()
-                                new_transpose = oh.make_node(
-                                    "Transpose",
-                                    [mt_cand.output[0]],
-                                    [transpose_output],
-                                    perm=[0, 3, 1, 2],
-                                )
-                                graph.node.insert(node_ind + 1, new_transpose)
-                                final_t_cand.input[0] = transpose_output
-                                graph_modified = True
+                        else:
+                            mt = getCustomOp(mt_cand)
+                            mt.set_nodeattr("data_layout", "NHWC")
+                            # get rid of first tranpose node
+                            mt_cand.input[0] = n.input[0]
+                            graph.node.remove(n)
+                            # fix output shape for MultiThreshold
+                            mt_ishape = model.get_tensor_shape(mt_cand.input[0])
+                            model.set_tensor_shape(mt_cand.output[0], mt_ishape)
+                            # re-insert Transpose behind MultiThreshold
+                            transpose_output = model.make_new_valueinfo_name()
+                            new_transpose = oh.make_node(
+                                "Transpose",
+                                [mt_cand.output[0]],
+                                [transpose_output],
+                                perm=[0, 3, 1, 2],
+                            )
+                            graph.node.insert(node_ind + 1, new_transpose)
+                            final_t_cand.input[0] = transpose_output
+                            graph_modified = True
         if graph_modified:
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
