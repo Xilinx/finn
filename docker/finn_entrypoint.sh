@@ -4,21 +4,27 @@ export SHELL=/bin/bash
 export FINN_ROOT=/workspace/finn
 
 GREEN='\033[0;32m'
+RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 gecho () {
   echo -e "${GREEN}$1${NC}"
 }
 
+recho () {
+  echo -e "${RED}ERROR: $1${NC}"
+}
+
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
-FINN_BASE_COMMIT=8908c6a3f6674c4fa790954bd41c23ee5bf053df
+FINN_BASE_COMMIT=ac0b86a63eb937b869bfa453a996a8a8b8506546
 FINN_EXP_COMMIT=f82c0d9868bb88ea045dfadb28508d327d287221
-BREVITAS_COMMIT=aff49758ec445d77c75721c7de3091a2a1797ca8
+BREVITAS_COMMIT=d7ded80fa9557da2998ea310669edee7fb2d9526
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
-HLSLIB_COMMIT=2e49322d1bbc4969ca293843bda1f3f9c05456fc
+HLSLIB_COMMIT=4d74baefa79df48b5a0348d63f39a26df075de51
 PYVERILATOR_COMMIT=e2ff74030de3992dcac54bf1b6aad2915946e8cb
 OMX_COMMIT=1bae737669901e762f581af73348332b5c4b2ada
+AVNET_BDF_COMMIT=2d49cfc25766f07792c0b314489f21fe916b639b
 
 gecho "Setting up known-good commit versions for FINN dependencies"
 # finn-base
@@ -80,11 +86,12 @@ if [ ! -d "/workspace/finn/board_files" ]; then
     rm pynq-z2.zip
     cd $OLD_PWD
 fi
-if [ ! -d "/workspace/finn/board_files/ultra96v1" ]; then
-    gecho "Downloading Avnet BDF files into board_files"
+if [ ! -d "/workspace/finn/board_files/ultra96v2" ]; then
+    gecho "Downloading Avnet BDF files from known-good commit into board_files"
     OLD_PWD=$(pwd)
     cd /workspace/finn
     git clone https://github.com/Avnet/bdf.git
+    git -C /workspace/finn/bdf checkout $AVNET_BDF_COMMIT --quiet
     mv /workspace/finn/bdf/* /workspace/finn/board_files/
     rm -rf /workspace/finn/bdf
     cd $OLD_PWD
@@ -92,10 +99,13 @@ fi
 if [ ! -z "$VITIS_PATH" ];then
   # source Vitis env.vars
   export XILINX_VITIS=$VITIS_PATH
+  export XILINX_XRT=/opt/xilinx/xrt
   source $VITIS_PATH/settings64.sh
   if [ ! -z "$XILINX_XRT" ];then
     # source XRT
     source $XILINX_XRT/setup.sh
+  else
+    recho "XRT not found on $XILINX_XRT, did the installation fail?"
   fi
 fi
 exec "$@"

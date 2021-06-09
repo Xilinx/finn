@@ -64,30 +64,28 @@ class InferConvInpGen(Transformation):
                     warnings.warn("Input is not int. Can't infer ConvInpGen")
                     continue
                 i2c_inst = getCustomOp(n)
-                stride = i2c_inst.get_nodeattr("stride")
-                k_attr = i2c_inst.get_nodeattr("kernel_size")
-                k_h = k_attr[0]
-                k_w = k_attr[1]
+                stride_h, stride_w = i2c_inst.get_nodeattr("stride")
+                k_h, k_w = i2c_inst.get_nodeattr("kernel_size")
                 pad_attr = i2c_inst.get_nodeattr("pad_amount")
                 pad_h = pad_attr[0] + pad_attr[2]
                 pad_w = pad_attr[1] + pad_attr[3]
+                dilation_h, dilation_w = i2c_inst.get_nodeattr("dilations")
                 # temporary checks until non-square conv support is finalized
-                assert pad_h == pad_w, "Non-square images not yet supported."
-                assert k_h == k_w, "Non-square kernels not yet supported."
-                k = k_h
-                pad = pad_attr[0]
                 pad_val = i2c_inst.get_nodeattr("pad_value")
                 depthwise = i2c_inst.get_nodeattr("depthwise")
                 ifm_ch = i2c_in_shape[-1]
-                ifm_dim = i2c_in_shape[1]
-                ofm_dim = i2c_out_shape[1]
+                ifm_dim_h = i2c_in_shape[1]
+                ifm_dim_w = i2c_in_shape[2]
+                ofm_dim_h = i2c_out_shape[1]
+                ofm_dim_w = i2c_out_shape[2]
 
                 # default params for ConvolutionInputGenerator
                 ConvInpGen_node_idx = node_ind
                 ConvInpGen_input = i2c_input
-                ConvInpGen_idim = ifm_dim
+                ConvInpGen_idim_h = ifm_dim_h
+                ConvInpGen_idim_w = ifm_dim_w
 
-                if pad > 0:
+                if pad_h > 0 or pad_w > 0:
                     # if padding enabled, ensure pad_val supported by DataType
                     # assert dt.allowed(pad_val),"""FMPadding_Batch DataType
                     # must support pad_val"""
@@ -95,12 +93,13 @@ class InferConvInpGen(Transformation):
                         pad_val == 0
                     ), "FMPadding_Batch doesn't currently support pad_val!= 0"
 
-                    odim_padding = ifm_dim + 2 * pad
+                    odim_padding_h = ifm_dim_h + pad_h
+                    odim_padding_w = ifm_dim_w + pad_w
 
                     padding_out = helper.make_tensor_value_info(
                         model.make_new_valueinfo_name(),
                         TensorProto.FLOAT,
-                        (1, odim_padding, odim_padding, ifm_ch),
+                        (1, odim_padding_h, odim_padding_w, ifm_ch),
                     )
                     graph.value_info.append(padding_out)
                     padding_out = padding_out.name
@@ -108,7 +107,8 @@ class InferConvInpGen(Transformation):
 
                     ConvInpGen_node_idx += 1
                     ConvInpGen_input = padding_out
-                    ConvInpGen_idim = odim_padding
+                    ConvInpGen_idim_h = odim_padding_h
+                    ConvInpGen_idim_w = odim_padding_w
 
                     padding_node = helper.make_node(
                         "FMPadding_Batch",
@@ -116,15 +116,31 @@ class InferConvInpGen(Transformation):
                         [padding_out],
                         domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
-                        ImgDim=ifm_dim,
-                        Padding=2 * pad,
+                        ImgDim=[ifm_dim_h, ifm_dim_w],
+                        Padding=pad_attr,
                         NumChannels=ifm_ch,
                         inputDataType=dt.name,
                         SIMD=ifm_ch,
                     )
                     graph.node.insert(node_ind, padding_node)
 
-                if stride > 1 and k == 1:
+                # Ensure that only supported HLS nodes are inserted
+                is_square_image = ConvInpGen_idim_h == ConvInpGen_idim_w
+                is_square_kernel = k_h == k_w
+                is_kernel_pointwise = k_h == 1 and k_w == 1
+                is_equal_stride = stride_h == stride_w
+                is_1d_convolution = (k_h == 1 and k_w > 1 and ifm_dim_h == 1) or (
+                    k_h > 1 and k_w == 1 and ifm_dim_w == 1
+                )
+
+                if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
+                    assert (
+                        is_square_image
+                    ), "DownSampler currently only supports square input images."
+                    assert is_equal_stride, """DownSampler currently only supports equal stride value
+                        along different axes."""
+                    ConvInpGen_idim = ConvInpGen_idim_h
+                    stride = stride_h
                     # create DownSampler node
                     ConvInpGen_node = helper.make_node(
                         "DownSampler",
@@ -141,22 +157,58 @@ class InferConvInpGen(Transformation):
                     graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 else:
                     # create equivalent ConvolutionInputGenerator node
-                    ConvInpGen_node = helper.make_node(
-                        "ConvolutionInputGenerator",
-                        [ConvInpGen_input],
-                        [i2c_output],
-                        domain="finn.custom_op.fpgadataflow",
-                        backend="fpgadataflow",
-                        ConvKernelDim=k,
-                        IFMChannels=ifm_ch,
-                        IFMDim=ConvInpGen_idim,
-                        OFMDim=ofm_dim,
-                        SIMD=ifm_ch,
-                        Stride=stride,
-                        inputDataType=dt.name,
-                        outputDataType=dt.name,
-                        depthwise=depthwise,
-                    )
+                    if (
+                        is_square_image and is_square_kernel
+                    ):  # square images and square kernels
+                        assert is_equal_stride, """Non-equal strides along different axes is not supported
+                            for (non-)square convolutions"""
+                        assert (
+                            dilation_h == 1 and dilation_w == 1
+                        ), """Dilation value != 1 is not supported
+                            for square convolutions"""
+                        ConvInpGen_node = helper.make_node(
+                            "ConvolutionInputGenerator",
+                            [ConvInpGen_input],
+                            [i2c_output],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            ConvKernelDim=[k_h, k_w],
+                            IFMChannels=ifm_ch,
+                            IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                            OFMDim=[ofm_dim_h, ofm_dim_w],
+                            SIMD=ifm_ch,
+                            Stride=[stride_h, stride_w],
+                            Dilation=[dilation_h, dilation_w],
+                            inputDataType=dt.name,
+                            outputDataType=dt.name,
+                            depthwise=depthwise,
+                        )
+                    else:  # non-square images and/or kernels
+                        assert (
+                            is_1d_convolution
+                        ), "ConvultionInputGenerator1D works only for 1D convolutions"
+                        if dilation_h > 1 or dilation_w > 1:
+                            assert (
+                                stride_h == 1 and stride_w == 1
+                            ), """Stride value of greater than 1 is not supported for convolutions
+                                with dilation value greater than 1"""
+                        ConvInpGen_node = helper.make_node(
+                            "ConvolutionInputGenerator1D",
+                            [ConvInpGen_input],
+                            [i2c_output],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            ConvKernelDim=[k_h, k_w],
+                            IFMChannels=ifm_ch,
+                            IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                            OFMDim=[ofm_dim_h, ofm_dim_w],
+                            SIMD=ifm_ch,
+                            Stride=[stride_h, stride_w],
+                            Dilation=[dilation_h, dilation_w],
+                            inputDataType=dt.name,
+                            outputDataType=dt.name,
+                            depthwise=depthwise,
+                        )
                     graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
                 graph.node.remove(n)
@@ -338,7 +390,7 @@ class InferPool_Batch(Transformation):
                     [im2col_in],
                     [im2col_out],
                     domain="finn.custom_op.general",
-                    stride=stride,
+                    stride=[stride, stride],
                     kernel_size=[k, k],
                     pad_amount=[pad, pad, pad, pad],
                     pad_value=pad_value,
@@ -684,7 +736,7 @@ class InferVVAU(Transformation):
             ):
                 sparsity = model.get_tensor_sparsity(n.input[1])
                 try:
-                    k = sparsity["dw"]["kernel_shape"]
+                    k_h, k_w = sparsity["dw"]["kernel_shape"]
                 except KeyError:
                     raise Exception(
                         """Sparsity doesn't indicate that MatMul
@@ -702,25 +754,25 @@ class InferVVAU(Transformation):
                     mm_output = n.output[0]
                     W = model.get_initializer(mm_weight)
                     # infer dense weight tensor from sparse weight matrix
-                    # kernel size k which was extracted above and the value of
+                    # kernel size (k_h, k_w) which was extracted above and the value of
                     # the channels is used.
-                    # the weight matrix has a shape of (k * k * Channels, Channels)
+                    # the weight matrix has a shape of (k_h * k_w * Channels, Channels)
                     # we need to reverse the creation of the sparse weight matrix
-                    # to achieve a weight tensor of shape (Channels, 1, k, k)
+                    # to achieve a weight tensor of shape (Channels, 1, k_h, k_w)
                     channels = int(W.shape[1])
-                    # transpose to achieve a shape of (k * k * Channels, Channels)
+                    # transpose to achieve a shape of (k_h * k_w * Channels, Channels)
                     W = W.T
-                    # reshape to (Channels, k, k, Channels) to transpose afterwards
-                    # to (Channels, Channels, k, k)
-                    W = W.reshape(channels, k, k, channels)
+                    # reshape to (Channels, k_h, k_w, Channels) to transpose afterwards
+                    # to (Channels, Channels, k_h, k_w)
+                    W = W.reshape(channels, k_h, k_w, channels)
                     W = W.transpose(0, 3, 1, 2)
                     # now we can extract the values using a for loop over the channels
                     # and fill a zero numpy array in the correct shape
-                    w_tensor = np.zeros((channels, 1, k, k))
+                    w_tensor = np.zeros((channels, 1, k_h, k_w))
                     for ch in range(channels):
                         w_tensor[ch][0] = W[ch][ch]
                     model.set_initializer(mm_weight, w_tensor)
-                    model.set_tensor_shape(mm_weight, (channels, 1, k, k))
+                    model.set_tensor_shape(mm_weight, (channels, 1, k_h, k_w))
                     # create node with pe=channels as default
                     pe = channels
                     assert (
@@ -762,9 +814,9 @@ class InferVVAU(Transformation):
                             backend="fpgadataflow",
                             resType="lut",
                             PE=pe,
-                            Dim=mm_in_shape[1],
+                            Dim=[mm_in_shape[1], mm_in_shape[2]],
                             Channels=channels,
-                            Kernel=k,
+                            Kernel=[k_h, k_w],
                             inputDataType=idt.name,
                             weightDataType=wdt.name,
                             outputDataType=odt.name,
@@ -790,9 +842,9 @@ class InferVVAU(Transformation):
                             backend="fpgadataflow",
                             resType="lut",
                             PE=pe,
-                            Dim=mm_in_shape[1],
+                            Dim=[mm_in_shape[1], mm_in_shape[2]],
                             Channels=channels,
-                            Kernel=k,
+                            Kernel=[k_h, k_w],
                             inputDataType=idt.name,
                             weightDataType=wdt.name,
                             outputDataType=odt.name,
@@ -1345,7 +1397,11 @@ class InferGlobalAccPoolLayer(Transformation):
                 )
                 model.graph.value_info.append(mul_value)
                 model.set_initializer(mul_value.name, np.array(1 / (vecs[1] * vecs[2])))
-                new_mul = helper.make_node("Mul", [pool_out, mul_value.name], [result],)
+                new_mul = helper.make_node(
+                    "Mul",
+                    [pool_out, mul_value.name],
+                    [result],
+                )
                 graph.node.insert(insert_point, new_pool)
                 graph.node.insert(insert_point + 1, new_mul)
                 node_ind += 1

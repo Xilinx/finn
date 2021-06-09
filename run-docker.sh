@@ -59,11 +59,6 @@ else
     recho "This is required to be able to use Vitis."
     exit -1
   fi
-  if [ -z "$XILINX_XRT" ];then
-    recho "Please set XILINX_XRT pointing to your XRT installation."
-    recho "This is required to be able to use Vitis."
-    exit -1
-  fi
 fi
 
 DOCKER_GID=$(id -g)
@@ -74,7 +69,13 @@ DOCKER_PASSWD="finn"
 # generate a random number per-run to allow multiple
 # containers from the same user
 DOCKER_RND=$(shuf -i0-32768 -n1)
-DOCKER_TAG="finn_dev_${DOCKER_UNAME}"
+# create a separate tag when Vitis enabled, since Docker image needs
+# additional dependencies installed
+if [ ! -z "$VITIS_PATH" ];then
+  DOCKER_TAG="finn_dev_vitis_${DOCKER_UNAME}"
+else
+  DOCKER_TAG="finn_dev_${DOCKER_UNAME}"
+fi
 # uncomment to run multiple instances with different names
 # DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
 DOCKER_INST_NAME="finn_dev_${DOCKER_UNAME}"
@@ -102,8 +103,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${ALVEO_PASSWORD=""}
 : ${ALVEO_BOARD="U250"}
 : ${ALVEO_TARGET_DIR="/tmp"}
-: ${XILINX_XRT="/opt/xilinx/xrt"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
+: ${XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 
 DOCKER_INTERACTIVE=""
@@ -178,6 +179,7 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg UID=$DOCKER_UID \
              --build-arg PASSWD=$DOCKER_PASSWD \
              --build-arg INSTALL_XRT_DEPS=$INSTALL_XRT_DEPS \
+             --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION \
              .
 cd $OLD_PWD
 # Launch container with current directory mounted
@@ -213,16 +215,10 @@ if [ ! -z "$VITIS_PATH" ];then
     recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
     exit -1
   fi
-  if [ -z "$XILINX_XRT" ];then
-    recho "XILINX_XRT must be set for Vitis/Alveo flows"
-    exit -1
-  fi
   DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
   DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
-  DOCKER_EXEC+="-v $XILINX_XRT:$XILINX_XRT "
   DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
   DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
-  DOCKER_EXEC+="-e XILINX_XRT=$XILINX_XRT "
   DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
   DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
   DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "

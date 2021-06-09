@@ -29,6 +29,9 @@
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
 )
+from finn.custom_op.fpgadataflow.convolutioninputgenerator1d import (
+    ConvolutionInputGenerator1D,
+)
 from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.streamingfclayer_batch import StreamingFCLayer_Batch
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
@@ -49,6 +52,9 @@ from finn.custom_op.fpgadataflow.vector_vector_activate_batch import (
 )
 from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
 from finn.custom_op.fpgadataflow.iodma import IODMA
+from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
+    StreamingDataflowPartition,
+)
 
 custom_op = dict()
 
@@ -58,6 +64,7 @@ custom_op["DownSampler"] = DownSampler
 custom_op["StreamingMaxPool_Batch"] = StreamingMaxPool_Batch
 custom_op["StreamingFCLayer_Batch"] = StreamingFCLayer_Batch
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
+custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
 custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
 custom_op["StreamingFIFO"] = StreamingFIFO
@@ -71,3 +78,4 @@ custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
 custom_op["Vector_Vector_Activate_Batch"] = Vector_Vector_Activate_Batch
 custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
 custom_op["IODMA"] = IODMA
+custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition

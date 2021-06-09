@@ -118,7 +118,8 @@ Prior to running the `run-docker.sh` script, there are several environment varia
 These are summarized below:
 
 * ``VIVADO_PATH`` points to your Vivado installation on the host
-* (optional, for Vitis & Alveo only) ``VITIS_PATH``, ``PLATFORM_REPO_PATHS`` and ``XILINX_XRT`` respectively point to your Vitis installation, the Vitis platform files, and Xilinx XRT
+* (optional, for Vitis & Alveo only) ``VITIS_PATH``, and ``PLATFORM_REPO_PATHS`` respectively point to your Vitis installation, and the Vitis platform files.
+* (optional, for Vitis & Alveo only) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
 * (optional) ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
 * (optional) ``JUPYTER_PASSWD_HASH`` (default "") Set the Jupyter notebook password hash. If set to empty string, token authentication will be used (token printed in terminal on launch).
 * (optional) ``LOCALHOST_URL`` (default localhost) sets the base URL for accessing e.g. Netron from inside the container. Useful when running FINN remotely.
@@ -162,7 +163,7 @@ We use *host* to refer to the PC running the FINN Docker environment, which will
 
 On the target side:
 
-1. Install Xilinx XRT and set up the ``XILINX_XRT`` environment variable to point to your installation, for instance ``/opt/xilinx/xrt``.
+1. Install Xilinx XRT.
 2. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation, for instance ``/opt/xilinx/platforms``.
 3. Create a conda environment named *finn-pynq-alveo* by following this guide `to set up PYNQ for Alveo <https://pynq.readthedocs.io/en/latest/getting_started/alveo_getting_started.html>`_. It's best to follow the recommended environment.yml (set of package versions) in this guide.
 4. Activate the environment with `conda activate finn-pynq-alveo` and install the bitstring package with ``pip install bitstring``.
@@ -173,7 +174,7 @@ On the target side:
 On the host side:
 
 1. Install Vitis 2020.1 and set up the ``VITIS_PATH`` environment variable to point to your installation.
-2. Install Xilinx XRT and set up the ``XILINX_XRT`` environment variable to point to your installation. *This must be the same path as the target's XRT (target step 1)*
+2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. Set up the ``ALVEO_*`` environment variables accordingly for your target, see description of environment variables above.
 5. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.

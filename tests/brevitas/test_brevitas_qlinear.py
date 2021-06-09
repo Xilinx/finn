@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2021, Xilinx
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,57 +26,53 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
 import os
-import onnx  # noqa
 import numpy as np
 import torch
 import brevitas.onnx as bo
-from brevitas.nn import QuantHardTanh
-from brevitas.core.restrict_val import RestrictValueType
-from brevitas.core.scaling import ScalingImplType
-import pytest
+from brevitas.nn import QuantLinear
+from brevitas.core.quant import QuantType
 from finn.core.modelwrapper import ModelWrapper
+from finn.core.datatype import DataType
 import finn.core.onnx_exec as oxe
 from finn.transformation.infer_shapes import InferShapes
-from brevitas.core.quant import QuantType
+from finn.util.basic import gen_finn_dt_tensor
 
-export_onnx_path = "test_brevitas_non_scaled_QuantHardTanh_export.onnx"
+export_onnx_path = "test_brevitas_qlinear.onnx"
 
 
-@pytest.mark.parametrize("abits", [1, 2, 4, 8])
-@pytest.mark.parametrize("narrow_range", [False, True])
-@pytest.mark.parametrize("max_val", [1.0, 1 - 2 ** (-7)])
-def test_brevitas_act_export_qhardtanh_nonscaled(abits, narrow_range, max_val):
-    def get_quant_type(bit_width):
-        if bit_width is None:
-            return QuantType.FP
-        elif bit_width == 1:
-            return QuantType.BINARY
-        else:
-            return QuantType.INT
-
-    act_quant_type = get_quant_type(abits)
-    min_val = -1.0
-    ishape = (1, 10)
-    b_act = QuantHardTanh(
-        bit_width=abits,
-        quant_type=act_quant_type,
-        max_val=max_val,
-        min_val=min_val,
-        restrict_scaling_type=RestrictValueType.LOG_FP,
-        scaling_impl_type=ScalingImplType.CONST,
-        narrow_range=narrow_range,
+@pytest.mark.parametrize("bias", [False, True])
+@pytest.mark.parametrize("out_features", [4])
+@pytest.mark.parametrize("in_features", [3])
+@pytest.mark.parametrize("w_bits", [4])
+@pytest.mark.parametrize("i_dtype", [DataType.UINT4])
+def test_brevitas_qlinear(bias, out_features, in_features, w_bits, i_dtype):
+    i_shape = (1, in_features)
+    w_shape = (out_features, in_features)
+    b_linear = QuantLinear(
+        out_features=out_features,
+        in_features=in_features,
+        bias=bias,
+        bias_quant_type=QuantType.FP,
+        weight_bit_width=w_bits,
+        weight_quant_type=QuantType.INT,
+        weight_scaling_per_output_channel=True,
     )
-    bo.export_finn_onnx(b_act, ishape, export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
-    model = model.transform(InferShapes())
-    inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(
+    weight_tensor_fp = np.random.uniform(low=-1.0, high=1.0, size=w_shape).astype(
         np.float32
     )
+    b_linear.weight.data = torch.from_numpy(weight_tensor_fp)
+    b_linear.eval()
+    bo.export_finn_onnx(b_linear, i_shape, export_onnx_path)
+    model = ModelWrapper(export_onnx_path)
+    model = model.transform(InferShapes())
+    inp_tensor = gen_finn_dt_tensor(i_dtype, i_shape)
     idict = {model.graph.input[0].name: inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]
     inp_tensor = torch.from_numpy(inp_tensor).float()
-    expected = b_act.forward(inp_tensor).detach().numpy()
+    expected = b_linear.forward(inp_tensor).detach().numpy()
+
     assert np.isclose(produced, expected, atol=1e-3).all()
     os.remove(export_onnx_path)
