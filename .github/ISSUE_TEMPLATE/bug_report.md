@@ -19,7 +19,7 @@ These issue templates took inspiration from:
 ## Prerequisites
 Please make sure to check off these prerequisites before submitting a bug report.
 - [ ] Test that the bug appears on a recent version of the dev-branch.
-- [ ] Check that the issue hasn't already been reported, by checking the currently open issues. 
+- [ ] Check that the issue hasn't already been reported, by checking the currently open issues.
 - [ ] If there are steps to reproduce the problem, make sure to write them down below.
 
 ## Quick summary
