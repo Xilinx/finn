@@ -120,13 +120,13 @@ class CreateStitchedIP(Transformation):
                 "make_bd_pins_external [get_bd_pins %s/%s]"
                 % (inst_name, clock_intf_name)
             )
-            self.connect_cmds.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
+            self.connect_cmds.append("set_property name ap_clk [get_bd_ports %s_0]" % (clock_intf_name))
             self.connect_cmds.append(
                 "make_bd_pins_external [get_bd_pins %s/%s]"
                 % (inst_name, reset_intf_name)
             )
             self.connect_cmds.append(
-                "set_property name ap_rst_n [get_bd_ports ap_rst_n_0]"
+                "set_property name ap_rst_n [get_bd_ports %s_0]" % (reset_intf_name)
             )
             self.clock_reset_are_external = True
             self.intf_names["clk"] = ["ap_clk"]
