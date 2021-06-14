@@ -18,7 +18,7 @@ recho () {
 # checkout the correct dependency repo commits
 # the repos themselves are cloned in the Dockerfile
 FINN_BASE_COMMIT=ac0b86a63eb937b869bfa453a996a8a8b8506546
-FINN_EXP_COMMIT=e9f97dcdb4db2f889b0f36af079a6a1792b7d4de
+FINN_EXP_COMMIT=f82c0d9868bb88ea045dfadb28508d327d287221
 BREVITAS_COMMIT=d7ded80fa9557da2998ea310669edee7fb2d9526
 CNPY_COMMIT=4e8810b1a8637695171ed346ce68f6984e585ef4
 HLSLIB_COMMIT=4d74baefa79df48b5a0348d63f39a26df075de51

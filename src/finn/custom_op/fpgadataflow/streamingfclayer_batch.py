@@ -239,7 +239,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
         if (mmode == "decoupled" and mstyle != "ultra") or (
-            mmode == "const" and self.calc_wmem() <= 128
+            mmode == "const" and self.calc_wmem() <= 128) or (
+            mmode == "external"
         ):
             return 0
         width_multiplier = math.ceil(mem_width / 72)
@@ -266,7 +267,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
         if (mmode == "decoupled" and mstyle in ["distributed", "ultra"]) or (
-            mmode == "const" and self.calc_wmem() <= 128
+            mmode == "const" and self.calc_wmem() <= 128) or (
+            mmode == "external"
         ):
             return 0
         # assuming SDP mode RAMB18s (see UG573 Table 1-10)
