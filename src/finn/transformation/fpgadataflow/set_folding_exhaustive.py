@@ -4,11 +4,6 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 from copy import deepcopy
 
-boards = {
-    "Pynq-Z1": {"LUT": 53200, "BRAM_18K": 280, "URAM": 0, "DSP": 220},
-    "ZCU104": {"LUT": 230000, "BRAM_18K": 610, "URAM": 92, "DSP": 1728},
-}
-
 
 def get_sorted_attrs(attrs, op_type, reverse=True):
     if op_type == "StreamingFCLayer_Batch":
@@ -45,25 +40,22 @@ def get_cycles(model):
 class SetFoldingExhaustive(Transformation):
     def __init__(
         self,
-        target_cycles_per_frame,
-        clk_ns,
+        target_cycles_per_frame=None,
+        max_luts=None,
         board=None,
         mvau_wwidth_max=36,
-        scale_ratio=0.85,
+        scale_ratio=0.7,
         from_scratch=True,
     ):
         super().__init__()
-        self.target_cycles_per_frame = target_cycles_per_frame
-        self.clk_ns = clk_ns
+        self.target_cycles_per_frame = (
+            target_cycles_per_frame if target_cycles_per_frame is not None else None
+        )
         self.board = board if board is not None else None
         self.mvau_wwidth_max = mvau_wwidth_max
         self.from_scratch = from_scratch
-        self.max_luts = (
-            scale_ratio * boards[board]["LUT"] if board is not None else float("inf")
-        )
-        # self.max_bram = scale_ratio * boards[board]["BRAM_18K"]
-        # self.max_uram = scale_ratio * boards[board]["URAM"]
-        # self.max_dsp = scale_ratio * boards[board]["DSP"]
+        self.max_luts = scale_ratio * max_luts if max_luts is not None else float("inf")
+        
         self.pe_ops = [
             "AddStreams_Batch",
             "ChannelwiseOp_Batch",
