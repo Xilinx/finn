@@ -46,10 +46,8 @@ from finn.transformation.streamline import Streamline
 from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from finn.transformation.streamline.reorder import (
-    MakeMaxPoolNHWC,
-    MoveScalarLinearPastInvariants,
-)
+from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+
 from shutil import copy, copytree
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -158,13 +156,14 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     topologies.
     """
 
-    model = model.transform(MoveScalarLinearPastInvariants())
+    model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
     model = model.transform(Streamline())
     need_lowering = len(model.get_nodes_by_op_type("Conv")) > 0
     if need_lowering:
         model = model.transform(LowerConvsToMatMul())
         model = model.transform(MakeMaxPoolNHWC())
         model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+        model = model.transform(MakeMaxPoolNHWC())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
     # absorb final add-mul nodes into TopK
@@ -181,7 +180,7 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Convert eligible nodes to `HLSCustomOp` subclasses that represent HLS
     layers. Which nodes and particular configurations can be converted to HLS
-    is limited, see the source code of the `convert_to_hls` module for more. """
+    is limited, see the source code of the `convert_to_hls` module for more."""
 
     mem_mode = cfg.default_mem_mode.value
     if cfg.standalone_thresholds:
@@ -292,12 +291,19 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
-def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
-    "Run Vivado HLS synthesis on any HLSCustomOp nodes to generate IP blocks."
+def step_hls_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
+    "Generate Vivado HLS code to prepare HLSCustomOp nodes for IP generation."
 
     model = model.transform(
         PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
     )
+    return model
+
+
+def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Run Vivado HLS synthesis on generated code for HLSCustomOp nodes,
+    in order to generate IP blocks."""
+
     model = model.transform(HLSSynthIP())
     model = model.transform(ReplaceVerilogRelPaths())
     report_dir = cfg.output_dir + "/report"
@@ -543,6 +549,7 @@ build_dataflow_step_lookup = {
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
     "step_generate_estimate_reports": step_generate_estimate_reports,
+    "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,

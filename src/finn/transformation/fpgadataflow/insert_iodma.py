@@ -33,7 +33,6 @@ from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.transformation.general import SortGraph
-import finn.core.data_layout as DataLayout
 import math
 import numpy as np
 
@@ -48,6 +47,45 @@ class InsertIODMA(Transformation):
         ), "max_intfwidth must be a power of 2"
         self.max_intfwidth = max_intfwidth
 
+    def get_mem_init(self, weights, pe, simd):
+        """
+        Returns matrix ready for pack_innermost_dim_as_hex_string with
+        reverse=False (finn.util.data_packing) to return the memory init file
+        little endian packed.
+        That is, get_mem_init returns:
+        elem(pe,simd)
+        addr = 0: [(pe-1,simd-1),(pe-1,simd-2),...(0,1),(0,0)]
+        addr = 1: [(pe-1,simd*2-1),.......(0,simd+1),(0,simd)]
+        .
+        """
+
+        # TODO: refactor this into streamingfclayer_batch.py, could go into
+        # make_weight_file except it doesn't write a file but returns a npy
+        # array instead
+        w_shape = weights.shape
+        assert len(w_shape) == 2, "weights withincorrect number of dims"
+        inp_w, out_w = w_shape
+
+        assert out_w % pe == 0, "Malformed weight matrix"
+        assert inp_w % simd == 0, "Malformed weight matrix"
+        reshaped_w = np.zeros(inp_w * out_w).reshape(-1, pe * simd)
+
+        addr = 0
+        for fr in range(out_w // pe):
+            for fc in range(inp_w // simd):
+                w0_lower = fc * simd
+                w0_upper = (fc + 1) * simd
+                w1_lower = fr * pe
+                w1_upper = (fr + 1) * pe
+                tile = weights[w0_lower:w0_upper, w1_lower:w1_upper]
+                for p in range(pe):
+                    rw0_lower = p * simd
+                    rw0_upper = (p + 1) * simd
+                    reshaped_w[addr, rw0_lower:rw0_upper] = tile[:, p].transpose()
+                addr += 1
+        reshaped_w = np.flip(reshaped_w, axis=-1)
+        return reshaped_w
+
     def apply(self, model):
         # only makes sense for a pure fpgadataflow graph -- so we check!
         all_nodes = list(model.graph.node)
@@ -59,8 +97,7 @@ class InsertIODMA(Transformation):
         fc_extw_nodes = list(
             filter(
                 lambda x: x.op_type == "StreamingFCLayer_Batch"
-                and get_by_name(x.attribute, "mem_mode") is not None
-                and get_by_name(x.attribute, "mem_mode").s.decode("UTF-8") == "external"
+                and getCustomOp(x).get_nodeattr("mem_mode") == "external"
                 and model.find_producer(x.input[1]) is None,
                 all_nodes,
             )
@@ -78,11 +115,6 @@ class InsertIODMA(Transformation):
             return (model, False)
         else:
             if final_node.op_type != "IODMA":
-                # check if tensor is NHWC
-                assert (
-                    model.get_tensor_layout(graph_out_name) == DataLayout.NHWC
-                    or model.get_tensor_layout(graph_out_name) == DataLayout.NC
-                ), "Data layout of output tensor must be NHWC or NC"
                 out_shape = model.get_tensor_shape(graph_out_name)
                 out_dtype = model.get_tensor_datatype(graph_out_name)
                 final_node_inst = getCustomOp(final_node)
@@ -123,11 +155,6 @@ class InsertIODMA(Transformation):
                 )
                 model.graph.node.append(dma_node)
             if first_node.op_type != "IODMA":
-                # check if tensor is NHWC
-                assert (
-                    model.get_tensor_layout(graph_in_name) == DataLayout.NHWC
-                    or model.get_tensor_layout(graph_in_name) == DataLayout.NC
-                ), "Data layout of input tensor must be NHWC or NC"
                 in_shape = model.get_tensor_shape(graph_in_name)
                 in_dtype = model.get_tensor_datatype(graph_in_name)
                 first_node_inst = getCustomOp(first_node)
@@ -138,7 +165,7 @@ class InsertIODMA(Transformation):
                 padded_instream_width = first_node_inst.get_instream_width_padded()
                 padded_instream_bytes = padded_instream_width // 8
                 # determine the feasible interface width
-                transfer_bits = padded_instream_width * np.prod(out_folded_shape[:-1])
+                transfer_bits = padded_instream_width * np.prod(in_folded_shape[:-1])
                 intfwidth = math.gcd(transfer_bits, self.max_intfwidth)
                 assert (
                     intfwidth % 8 == 0
@@ -168,11 +195,7 @@ class InsertIODMA(Transformation):
                 )
                 model.graph.node.insert(0, dma_node)
             for fc_node in fc_extw_nodes:
-                # check if tensor is NHWC
-                assert (
-                    model.get_tensor_layout(fc_node.input[1]) == DataLayout.NHWC
-                    or model.get_tensor_layout(graph_in_name) == DataLayout.NC
-                ), "Data layout of tensors must be NHWC or NC"
+                fc_inst = getCustomOp(fc_node)
                 fc_w_name = fc_node.input[1]
                 w_shape = model.get_tensor_shape(fc_w_name)
                 w_dtype = model.get_tensor_datatype(fc_w_name)
@@ -185,21 +208,24 @@ class InsertIODMA(Transformation):
                 # calculate width of stream output from DMA
                 pe = get_by_name(fc_node.attribute, "PE").i
                 simd = get_by_name(fc_node.attribute, "SIMD").i
-                assert pe * simd == w_shape[0], "Malformed weight matrix"
-                streamWidth = simd * pe * w_dtype.bitwidth()
+                streamWidth = fc_inst.get_weightstream_width_padded()
                 # make new buffer
+                W = model.get_initializer(fc_w_name)
+                iodma_mem = self.get_mem_init(W, pe, simd)
+                model.set_initializer(fc_w_name, iodma_mem)
+
                 fc_node_in = oh.make_tensor_value_info(
-                    model.make_new_valueinfo_name(), TensorProto.FLOAT, w_shape
+                    model.make_new_valueinfo_name(), TensorProto.FLOAT, iodma_mem.shape
                 )
                 model.graph.value_info.append(fc_node_in)
                 model.set_tensor_datatype(fc_node_in.name, w_dtype)
-                model.set_initializer(fc_node_in.name, model.get_initializer(fc_w_name))
+                model.set_initializer(fc_node_in.name, W)
                 dma_node = oh.make_node(
                     "IODMA",
                     [fc_w_name],
                     [fc_node_in.name],
-                    numInputVectors=[w_shape[1]],
-                    NumChannels=w_shape[0],
+                    numInputVectors=[iodma_mem.shape[0]],
+                    NumChannels=pe * simd,
                     dataType=str(w_dtype.name),
                     intfWidth=intfwidth,
                     streamWidth=streamWidth,

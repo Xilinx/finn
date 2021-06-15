@@ -40,6 +40,7 @@ from finn.core.datatype import DataType
 from finn.core.onnx_exec import execute_node
 from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
+from finn.transformation.general import SortGraph
 
 
 class MoveAddPastMul(Transformation):
@@ -425,12 +426,86 @@ class MoveMulPastDWConv(Transformation):
         return (model, graph_modified)
 
 
+class MoveMulPastMaxPool(Transformation):
+    """Move non-negative scalar or channelwise mul operations past max pool operations.
+    We want to have muls next to each other such that they can be collapsed into a
+    single mul."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if (
+                n.op_type == "Mul"
+                and not model.is_fork_node(n)
+                and not model.is_join_node(n)
+            ):
+                consumer = model.find_consumer(n.output[0])
+                if (
+                    consumer is not None
+                    and consumer.op_type == "MaxPool"
+                    and not model.is_join_node(consumer)
+                ):
+                    mul_weight_name = n.input[1]
+                    A = model.get_initializer(mul_weight_name)
+                    if A is None:
+                        warnings.warn(
+                            """Mul weight tensor is not set. If it is a constant,
+                                please use set_initializer to set the tensor."""
+                        )
+                        continue
+                    maxpool_node = consumer
+                    mul_node = n
+                    start_name = mul_node.input[0]
+                    maxpool_in_name = maxpool_node.input[0]
+                    maxpool_in_shape = model.get_tensor_shape(maxpool_in_name)
+                    ifm_ch = maxpool_in_shape[1]
+                    maxpool_out_name = maxpool_node.output[0]
+                    maxpool_out_shape = model.get_tensor_shape(maxpool_out_name)
+
+                    # do not support non-2D MaxPool
+                    kernel_shape = list(
+                        get_by_name(maxpool_node.attribute, "kernel_shape").ints
+                    )
+                    if len(kernel_shape) != 2:
+                        continue
+
+                    # do not move negative multiplication factor(s)
+                    if (A < 0).any():
+                        continue
+
+                    if all(x == 1 for x in A.shape) or A.shape == (1, ifm_ch, 1, 1):
+                        # if the mul is scalar or channelwise,
+                        # we can simply swap the order of ops
+                        # rewire mul input to be maxpool input
+                        maxpool_node.input[0] = start_name
+                        model.set_tensor_shape(start_name, maxpool_in_shape)
+                        model.set_tensor_datatype(start_name, DataType.FLOAT32)
+                        # use old maxpool input tensor as maxpool output
+                        maxpool_node.output[0] = maxpool_in_name
+                        model.set_tensor_shape(maxpool_in_name, maxpool_out_shape)
+                        model.set_tensor_datatype(maxpool_in_name, DataType.FLOAT32)
+                        # use new maxpool output as new mul node input
+                        mul_node.input[0] = maxpool_in_name
+                        # use old maxpool output as new mul node output
+                        mul_node.output[0] = maxpool_out_name
+                        model.set_tensor_datatype(maxpool_out_name, DataType.FLOAT32)
+                        # move mul node past maxpool node
+                        graph.node.remove(mul_node)
+                        graph.node.insert(node_ind, mul_node)
+                        graph_modified = True
+        model = model.transform(InferShapes())
+        return (model, graph_modified)
+
+
 class MoveLinearPastEltwiseAdd(Transformation):
     """Move linear operations (mul, add) past elementwise add operations where possible.
-       Specifically,matches and transforms the following patterns:
-       (x*C) + (y*C) -> (x + y) * C
-       (x+A) + (y+B) -> (x + y) + (A + B)
-       where x and y are dynamic inputs, A, B, C are constant tensors (in general).
+    Specifically,matches and transforms the following patterns:
+    (x*C) + (y*C) -> (x + y) * C
+    (x+A) + (y+B) -> (x + y) + (A + B)
+    where x and y are dynamic inputs, A, B, C are constant tensors (in general).
     """
 
     def move_node(self, graph, n, prod0, prod1, node_ind):
@@ -504,12 +579,12 @@ class MoveLinearPastEltwiseAdd(Transformation):
 
 class MoveScalarLinearPastInvariants(Transformation):
     """Move scalar linear operations (mul, add) past functions which are invariant
-       to them. Specifically, matches and transforms the following patterns:
-       f(x*C) -> f(x) * C
-       f(x+C) -> f(x) + C
-       where x is a dynamic input, C is a constant tensor.
-       Known f which obey this property are: Reshape, Flatten, Transpose,
-       GlobalAveragePool
+    to them. Specifically, matches and transforms the following patterns:
+    f(x*C) -> f(x) * C
+    f(x+C) -> f(x) + C
+    where x is a dynamic input, C is a constant tensor.
+    Known f which obey this property are: Reshape, Flatten, Transpose,
+    GlobalAveragePool
     """
 
     def apply(self, model):
@@ -570,7 +645,8 @@ class MoveScalarLinearPastInvariants(Transformation):
 
 
 class MakeMaxPoolNHWC(Transformation):
-    """Convert (MaxPool, NHWCTranpose) into (MaxPoolNHWC)."""
+    """Convert (MaxPool, NHWCTranspose) into (NHWCTranspose, MaxPoolNHWC)
+    and (NCHWTranspose, MaxPool) into (MaxPoolNHWC, NCHWTranspose)."""
 
     def apply(self, model):
         graph = model.graph
@@ -580,6 +656,7 @@ class MakeMaxPoolNHWC(Transformation):
             node_ind += 1
             if n.op_type == "MaxPool":
                 consumer = model.find_consumer(n.output[0])
+                producer = model.find_producer(n.input[0])
                 if consumer is not None and consumer.op_type == "Transpose":
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
@@ -599,12 +676,31 @@ class MakeMaxPoolNHWC(Transformation):
                         graph.node.remove(consumer)
                         graph.node.insert(node_ind - 1, consumer)
                         graph_modified = True
+                elif producer is not None and producer.op_type == "Transpose":
+                    perms = list(get_by_name(producer.attribute, "perm").ints)
+                    if perms == [0, 3, 1, 2]:
+                        n.op_type = "MaxPoolNHWC"
+                        n.domain = "finn.custom_op.general"
+                        start_name = producer.input[0]
+                        mid_name = n.input[0]
+                        end_name = n.output[0]
+                        (b, hi, wi, c) = model.get_tensor_shape(start_name)
+                        (b, c, ho, wo) = model.get_tensor_shape(end_name)
+                        producer.input[0] = mid_name
+                        producer.output[0] = end_name
+                        n.input[0] = start_name
+                        n.output[0] = mid_name
+                        model.set_tensor_shape(mid_name, (b, ho, wo, c))
+                        model.set_tensor_shape(end_name, (b, c, ho, wo))
+                        graph.node.remove(producer)
+                        graph.node.insert(node_ind, producer)
+                        graph_modified = True
         return (model, graph_modified)
 
 
 class MoveOpPastFork(Transformation):
     """Move node operations past graph forks. Used when a node before a fork
-     can be merged with nodes in the branches
+    can be merged with nodes in the branches
     """
 
     def __init__(self, op_name_list):
@@ -965,3 +1061,77 @@ class MoveTransposePastScalarMul(Transformation):
             model = model.transform(InferDataLayouts())
             model = model.transform(InferShapes())
         return (model, graph_modified)
+
+
+class MoveIdenticalOpPastJoinOp(Transformation):
+    """
+    Move identical operations on different branches past the common join node.
+    This transformation assumes that the identical operations only change the
+    data layout. For linear operations, see the transformation MoveLinearPastEltwiseAdd.
+    Specifically, this transformation matches and transforms the following patterns:
+    f(x) + f(y) -> f(x + y)
+    where f(.) is currently only supporting 'Transpose', and an 'Add' node is
+    the join node.
+    """
+
+    def __init__(self, identical_op_list, join_node_list):
+        super().__init__()
+        self.ops_to_move = identical_op_list
+        self.join_node_op = join_node_list
+
+    def move_node(self, model, n, prod0, prod1):
+        # Found! move one of the identical_ops to output, remove the other one
+        identical_op0_in0 = prod0.input[0]
+        identical_op1_in0 = prod1.input[0]
+        add_in0 = n.input[0]
+        add_out = n.output[0]
+
+        # Rewire
+        n.input[0] = identical_op0_in0
+        n.input[1] = identical_op1_in0
+
+        # Output tensor of the join node must have the same shape as
+        # its input tensor (original shape is preserved)
+        new_shape = model.get_tensor_shape(identical_op0_in0)
+
+        # Set new tensor shape
+        model.set_tensor_shape(tensor_name=add_in0, tensor_shape=new_shape)
+
+        n.output[0] = add_in0
+        prod0.input[0] = add_in0
+        prod0.output[0] = add_out
+
+        model.graph.node.remove(prod1)
+
+    def apply(self, model):
+        graph = model.graph
+        graph_modified = False
+        for n in graph.node:
+            if n.op_type in self.join_node_op and model.is_join_node(n):
+                in0 = n.input[0]
+                in1 = n.input[1]
+                if in0 is None or in1 is None:
+                    continue
+
+                prod0 = model.find_producer(in0)
+                prod1 = model.find_producer(in1)
+                # Checks if the join node is preceded by
+                # two different, but identical operations
+                if prod0 == prod1:
+                    continue
+
+                identical_op = prod0.op_type == prod1.op_type
+
+                if identical_op and prod0.op_type in self.ops_to_move:
+                    self.move_node(model, n, prod0, prod1)
+                    graph_modified = True
+
+        if graph_modified:
+            model = model.transform(SortGraph(), make_deepcopy=False, cleanup=False)
+
+        return (model, graph_modified)
+
+
+class MoveTransposePastJoinAdd(MoveIdenticalOpPastJoinOp):
+    def __init__(self):
+        super().__init__(["Transpose"], ["Add"])

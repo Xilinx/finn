@@ -42,6 +42,7 @@ __pycache__/*
 *.ipynb_checkpoints*
 
 # Project files
+.vscode
 .ropeproject
 .project
 .pydevproject

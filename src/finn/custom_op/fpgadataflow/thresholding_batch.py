@@ -334,6 +334,13 @@ class Thresholding_Batch(HLSCustomOp):
             np.mod(orig_thres_matrix, 1), 0
         ).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
+        # workaround for vivado_hls threshold bug
+        if ret[0][0] == 0:
+            ret = np.copy(ret)
+            ret[0][0] = 1
+            warnings.warn(
+                "Setting 0-valued first threshold to 1 to avoid vivado_hls bug"
+            )
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))
@@ -394,7 +401,7 @@ class Thresholding_Batch(HLSCustomOp):
                     tdt_hls,
                     odt_hls,
                     self.get_nodeattr("ActVal"),
-                    "std::less_equal<%s>" % tdt_hls,
+                    "comp::less_equal<%s>" % tdt_hls,
                 )
             )
             f_thresh.write(thresholds_hls_code)
@@ -818,8 +825,8 @@ class Thresholding_Batch(HLSCustomOp):
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
-            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0]
-            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0]
+            dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0][0]
+            din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
             cmd.append("create_bd_cell -type hier %s" % node_name)
             cmd.append("create_bd_pin -dir I -type clk /%s/%s" % (node_name, clk_name))
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))

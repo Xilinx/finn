@@ -26,9 +26,9 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
             "PE": ("i", True, 0),
-            "Dim": ("i", True, 0),
+            "Dim": ("ints", True, []),  # [H, W]
             "Channels": ("i", True, 0),
-            "Kernel": ("i", True, 0),
+            "Kernel": ("ints", True, []),  # [H, W]
             "resType": ("s", False, "auto", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
@@ -45,10 +45,10 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
 
     def minimize_accumulator_width(self, model):
         weights = model.get_initializer(self.onnx_node.input[1])
-        k = self.get_nodeattr("Kernel")
+        k_h, k_w = self.get_nodeattr("Kernel")
         fm = self.get_nodeattr("Channels")
         # put weights into the shape expected by calculate_matvec_accumulator_range
-        weights = weights.reshape(fm, k * k).transpose()
+        weights = weights.reshape(fm, k_h * k_w).transpose()
         if len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
         else:
@@ -85,9 +85,11 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                     tdt = DataType.get_smallest_possible(0 - tdt_max)
             else:
                 tdt = DataType.get_smallest_possible(tdt_max)
-            assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
-                "Thresholds in %s can't be expressed with type %s"
-                % (self.onnx_node.name, str(tdt))
+            assert np.vectorize(tdt.allowed)(
+                threshold_tensor
+            ).all(), "Thresholds in %s can't be expressed with type %s" % (
+                self.onnx_node.name,
+                str(tdt),
             )
             self.set_nodeattr("accDataType", tdt.name)
         else:
@@ -110,9 +112,9 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
     def calc_wmem(self):
         """Calculates and returns WMEM."""
         ch = self.get_nodeattr("Channels")
-        k = self.get_nodeattr("Kernel")
+        k_h, k_w = self.get_nodeattr("Kernel")
         pe = self.get_nodeattr("PE")
-        wmem = k * k * ch // pe
+        wmem = k_h * k_w * ch // pe
         return wmem
 
     def calc_tmem(self):
@@ -181,34 +183,34 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         return out_width
 
     def get_folded_input_shape(self):
-        k = self.get_nodeattr("Kernel")
-        sf = k * k
-        dim = self.get_nodeattr("Dim")
+        k_h, k_w = self.get_nodeattr("Kernel")
+        sf = k_h * k_w
+        dim_h, dim_w = self.get_nodeattr("Dim")
         ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
         nf = ch // pe
-        folded_input_shape = tuple([1, dim, dim, sf * nf, pe])
+        folded_input_shape = tuple([1, dim_h, dim_w, sf * nf, pe])
         return folded_input_shape
 
     def get_folded_output_shape(self):
         ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
         nf = ch // pe
-        dim = self.get_nodeattr("Dim")
-        folded_output_shape = tuple([1, dim, dim, nf, pe])
+        dim_h, dim_w = self.get_nodeattr("Dim")
+        folded_output_shape = tuple([1, dim_h, dim_w, nf, pe])
         return folded_output_shape
 
     def get_normal_input_shape(self):
-        dim = self.get_nodeattr("Dim")
+        dim_h, dim_w = self.get_nodeattr("Dim")
         ch = self.get_nodeattr("Channels")
-        k = self.get_nodeattr("Kernel")
-        normal_input_shape = tuple([1, dim, dim, k * k * ch])
+        k_h, k_w = self.get_nodeattr("Kernel")
+        normal_input_shape = tuple([1, dim_h, dim_w, k_h * k_w * ch])
         return normal_input_shape
 
     def get_normal_output_shape(self):
         ch = self.get_nodeattr("Channels")
-        dim = self.get_nodeattr("Dim")
-        normal_output_shape = tuple([1, dim, dim, ch])
+        dim_h, dim_w = self.get_nodeattr("Dim")
+        normal_output_shape = tuple([1, dim_h, dim_w, ch])
         return normal_output_shape
 
     def get_number_output_values(self):
@@ -218,13 +220,13 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
         ch = self.get_nodeattr("Channels")
-        dim = self.get_nodeattr("Dim")
-        k = self.get_nodeattr("Kernel")
+        dim_h, dim_w = self.get_nodeattr("Dim")
+        k_h, k_w = self.get_nodeattr("Kernel")
         # currently FINN supports for vvau a batch size of 1
         batch_size = 1
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
-        exp_cycles = ((ch * k * k) / pe) * batch_size * (dim * dim) / mmv
+        exp_cycles = ((ch * k_h * k_w) / pe) * batch_size * (dim_h * dim_w) / mmv
         return int(exp_cycles)
 
     def get_template_param_values(self):
@@ -251,17 +253,17 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
     def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
         pe = self.get_nodeattr("PE")
         ch = self.get_nodeattr("Channels")
-        k = self.get_nodeattr("Kernel")
+        k_h, k_w = self.get_nodeattr("Kernel")
         wmem = self.calc_wmem()
         assert orig_weight_matrix.shape == (
             ch,
             1,
-            k,
-            k,
+            k_h,
+            k_w,
         ), """Weights matrix doesn't
         have expected shape (channels, 1, kernel_size, kernel_size)"""
         ret = orig_weight_matrix
-        ret = ret.reshape(ch, k * k)
+        ret = ret.reshape(ch, k_h * k_w)
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         ret = ret.reshape(1, pe, wmem, 1)
@@ -278,6 +280,13 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
         ret = orig_thres_matrix
+        # workaround for vivado_hls threshold bug
+        if ret[0][0] == 0:
+            ret = np.copy(ret)
+            ret[0][0] = 1
+            warnings.warn(
+                "Setting 0-valued first threshold to 1 to avoid vivado_hls bug"
+            )
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         assert (
@@ -331,9 +340,11 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
                 # get computed threshold datatype from attribute
                 tdt = DataType[self.get_nodeattr("accDataType")]
-                assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
-                    "Thresholds in %s can't be expressed with type %s"
-                    % (self.onnx_node.name, str(tdt))
+                assert np.vectorize(tdt.allowed)(
+                    threshold_tensor
+                ).all(), "Thresholds in %s can't be expressed with type %s" % (
+                    self.onnx_node.name,
+                    str(tdt),
                 )
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True
@@ -352,7 +363,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                         tdt_hls,
                         odt_hls,
                         self.get_nodeattr("ActVal"),
-                        "std::less_equal<%s>" % tdt_hls,
+                        "comp::less_equal<%s>" % tdt_hls,
                     )
                 )
                 f_thresh.write(thresholds_hls_code)
@@ -448,13 +459,15 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     def defines(self, var):
-        dim = self.get_nodeattr("Dim")
-        numReps = 1 * dim * dim
+        dim_h, dim_w = self.get_nodeattr("Dim")
+        numReps = 1 * dim_h * dim_w
+        k_h, k_w = self.get_nodeattr("Kernel")
+        innerProdDim = k_h * k_w
         self.code_gen_dict["$DEFINES$"] = [
-            """#define Channels1 {}\n #define Kernel1 {}\n
+            """#define Channels1 {}\n #define InnerProdDim {}\n
             #define SIMD1 1\n #define PE1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("Channels"),
-                self.get_nodeattr("Kernel"),
+                innerProdDim,
                 self.get_nodeattr("PE"),
                 numReps,
             )
@@ -499,7 +512,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             threshs = "threshs"
         node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<Channels1, Kernel1, SIMD1, PE1, 1, {}, {}, {}>
+            """{}<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}>
             (in0, out, weights, {}, numReps, {});""".format(
                 node.op_type,
                 tmpl_args["TSrcI"],
@@ -655,8 +668,8 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         else:
             mult_luts = (2 * math.ceil((W + A) / 6) - 1) * (W + A)
         # accumulator
-        k = self.get_nodeattr("Kernel")
-        acc_bits = W + A + math.ceil(math.log(k * k, 2))
+        k_h, k_w = self.get_nodeattr("Kernel")
+        acc_bits = W + A + math.ceil(math.log(k_h * k_w, 2))
         acc_luts = acc_bits
         # thresholds and threshold comparators
         thr_luts = 0
@@ -685,20 +698,20 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         return int(mult_dsp)
 
     def get_op_and_param_counts(self):
-        k = self.get_nodeattr("Kernel")
+        k_h, k_w = self.get_nodeattr("Kernel")
         fm = self.get_nodeattr("Channels")
-        dim = self.get_nodeattr("Dim")
+        dim_h, dim_w = self.get_nodeattr("Dim")
         weight_bits = self.get_weight_datatype().bitwidth()
         inp_bits = self.get_input_datatype().bitwidth()
-        num_repetitions = int(dim * dim)
-        mac_count = k * k * fm * num_repetitions
+        num_repetitions = int(dim_h * dim_w)
+        mac_count = k_h * k_w * fm * num_repetitions
         # cannonicalize op type: highest bitwidth operand first s.t.
         # e.g. mac_8bx4b and mac_4bx8b don't appear as two different op types
         bw1 = min(inp_bits, weight_bits)
         bw2 = max(inp_bits, weight_bits)
         mac_op_type = "op_mac_%dbx%db" % (bw1, bw2)
         weight_param_type = "param_weight_%db" % (weight_bits)
-        weight_count = k * k * fm
+        weight_count = k_h * k_w * fm
         ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
         if self.get_nodeattr("noActivation") == 0:
             tdt = DataType[self.get_nodeattr("accDataType")]

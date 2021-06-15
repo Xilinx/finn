@@ -27,26 +27,50 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 FROM pytorch/pytorch:1.1.0-cuda10.0-cudnn7.5-devel
-MAINTAINER Yaman Umuroglu <yamanu@xilinx.com>
+LABEL maintainer="Yaman Umuroglu <yamanu@xilinx.com>"
 
 WORKDIR /workspace
 
+# some Vitis deps require a timezone to be specified, which hangs in Docker
+# use workaround from https://grigorkh.medium.com/fix-tzdata-hangs-docker-image-build-cdb52cc3360d
+ENV TZ="Europe/Dublin"
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
 RUN apt-get update
 RUN apt-get -y upgrade
-RUN apt-get install -y build-essential libglib2.0-0 libsm6 libxext6 libxrender-dev
-RUN apt-get install -y verilator zsh nano
-RUN apt-get install -y sshpass wget unzip
+RUN apt-get install -y build-essential
+RUN apt-get install -y libglib2.0-0
+RUN apt-get install -y libsm6
+RUN apt-get install -y libxext6
+RUN apt-get install -y libxrender-dev
+RUN apt-get install -y verilator
+RUN apt-get install -y nano
+RUN apt-get install -y zsh
+RUN apt-get install -y rsync
+RUN apt-get install -y git
+RUN apt-get install -y sshpass
+RUN apt-get install -y wget
+RUN apt-get install -y unzip
+RUN apt-get install -y zip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
 # XRT deps
-RUN wget https://raw.githubusercontent.com/Xilinx/XRT/master/src/runtime_src/tools/scripts/xrtdeps.sh
-RUN apt-get update
-RUN bash xrtdeps.sh -docker
-RUN rm xrtdeps.sh
+# install vitis deps if required
+ARG INSTALL_XRT_DEPS="0"
+ARG XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"
+RUN if [ "$INSTALL_XRT_DEPS" = "1" ] ; then \
+    echo "Installing XRT: $XRT_DEB_VERSION"; \
+    wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb; \
+    apt install -y /tmp/$XRT_DEB_VERSION.deb; \
+  else \
+    echo "Skipping installation of XRT dependencies"; \
+  fi
 
 # cloning dependency repos
 # finn-base
 RUN git clone https://github.com/Xilinx/finn-base.git /workspace/finn-base
+# finn-experimental
+RUN git clone https://github.com/Xilinx/finn-experimental.git /workspace/finn-experimental
 # Brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
 # CNPY

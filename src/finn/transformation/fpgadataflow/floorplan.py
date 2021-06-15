@@ -58,15 +58,20 @@ class Floorplan(Transformation):
 
         # read in a user-specified floorplan or generate a default one
         if self.user_floorplan is None:
-            floorplan = model.analysis(floorplan_params)
+            self.user_floorplan = model.analysis(floorplan_params)
             json_dir = make_build_dir(prefix="vitis_floorplan_")
             json_file = json_dir + "/floorplan.json"
             model.set_metadata_prop("floorplan_json", json_file)
             with open(json_file, "w") as f:
-                json.dump(floorplan, f, indent=4)
+                json.dump(self.user_floorplan, f, indent=4)
         else:
             model.set_metadata_prop("floorplan_json", self.user_floorplan)
             model = model.transform(ApplyConfig(self.user_floorplan))
+
+        try:
+            default_slr = self.user_floorplan["Defaults"]["slr"][0]
+        except:
+            default_slr = -1
 
         # perform DWC and FIFO specific adjustments
         unassigned_nodes = 0
@@ -75,6 +80,7 @@ class Floorplan(Transformation):
             node_slr = node_inst.get_nodeattr("slr")
             if node_slr == -1:
                 unassigned_nodes += 1
+                node_inst.set_nodeattr("slr", default_slr)
             if node.op_type == "StreamingDataWidthConverter_Batch":
                 # if we have SLR assignment already. use that
                 if node_slr != -1:
@@ -87,7 +93,6 @@ class Floorplan(Transformation):
                     narrow_neighbour = model.find_consumer(node.output[0])
                 else:
                     narrow_neighbour = model.find_producer(node.input[0])
-
                 node_slr = getCustomOp(narrow_neighbour).get_nodeattr("slr")
                 node_inst.set_nodeattr("slr", node_slr)
             if node.op_type == "StreamingFIFO":
@@ -101,8 +106,8 @@ class Floorplan(Transformation):
         if unassigned_nodes > 0:
             warnings.warn(
                 str(unassigned_nodes)
-                + " nodes have no entry in the provided floorplan "
-                + "and no default value was set"
+                + " nodes have no entry in the provided floorplan,"
+                + " SLR was set to " + str(default_slr)
             )
 
         # partition id generation

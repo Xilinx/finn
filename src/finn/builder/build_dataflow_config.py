@@ -109,13 +109,14 @@ default_build_dataflow_steps = [
     "step_target_fps_parallelization",
     "step_apply_folding_config",
     "step_generate_estimate_reports",
+    "step_hls_codegen",
     "step_hls_ipgen",
     "step_set_fifo_depths",
     "step_create_stitched_ip",
     "step_measure_rtlsim_performance",
-    "step_make_pynq_driver",
     "step_out_of_context_synthesis",
     "step_synthesize_bitfile",
+    "step_make_pynq_driver",
     "step_deployment_package",
 ]
 
@@ -129,6 +130,10 @@ estimate_only_dataflow_steps = [
     "step_apply_folding_config",
     "step_generate_estimate_reports",
 ]
+
+#: List of steps to run for a dataflow build including HLS code generation, but
+#: without any synthesis.
+hls_codegen_dataflow_steps = estimate_only_dataflow_steps + ["step_hls_codegen"]
 
 
 @dataclass_json

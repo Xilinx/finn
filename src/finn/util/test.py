@@ -159,6 +159,7 @@ def get_trained_network_and_ishape(topology, wbits, abits):
 
     topology_to_ishape = {
         "tfc": (1, 1, 28, 28),
+        "lfc": (1, 1, 28, 28),
         "cnv": (1, 3, 32, 32),
     }
     ishape = topology_to_ishape[topology]

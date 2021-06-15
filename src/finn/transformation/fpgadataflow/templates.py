@@ -111,8 +111,11 @@ set_param board.repoPaths $paths_param
 if {$BOARD == "ZCU104"} {
     set_property board_part xilinx.com:zcu104:part0:1.1 [current_project]
     set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "ZCU102"} {
+    set_property board_part xilinx.com:zcu102:part0:3.3 [current_project]
+    set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Ultra96"} {
-    set_property board_part em.avnet.com:ultra96v1:part0:1.2 [current_project]
+    set_property board_part avnet.com:ultra96v1:part0:1.2 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Pynq-Z2"} {
     set ZYNQ_TYPE "zynq_7000"
@@ -150,6 +153,7 @@ set_property -dict [list CONFIG.NUM_MI $NUM_AXILITE] [get_bd_cells axi_interconn
 
 #create reset controller and connect interconnects to PS
 if {$ZYNQ_TYPE == "zynq_us+"} {
+    set axi_peripheral_base 0xA0000000
     connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP0_FPD]
     connect_bd_intf_net [get_bd_intf_pins zynq_ps/M_AXI_HPM0_FPD] -boundary_type upper [get_bd_intf_pins axi_interconnect_0/S00_AXI]
     #connect interconnect clocks and resets
@@ -157,6 +161,7 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/S00_ACLK]
     apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/pl_clk0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins zynq_ps/saxihp0_fpd_aclk]
 } elseif {$ZYNQ_TYPE == "zynq_7000"} {
+    set axi_peripheral_base 0x40000000
     connect_bd_intf_net -boundary_type upper [get_bd_intf_pins zynq_ps/M_AXI_GP0] [get_bd_intf_pins axi_interconnect_0/S00_AXI]
     connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M00_AXI] [get_bd_intf_pins zynq_ps/S_AXI_HP0]
     apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins axi_interconnect_0/ACLK]
@@ -164,6 +169,21 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     apply_bd_automation -rule xilinx.com:bd_rule:clkrst -config { Clk {/zynq_ps/FCLK_CLK0} Freq {} Ref_Clk0 {} Ref_Clk1 {} Ref_Clk2 {}}  [get_bd_pins zynq_ps/S_AXI_HP0_ACLK]
 }
 connect_bd_net [get_bd_pins axi_interconnect_0/ARESETN] [get_bd_pins smartconnect_0/aresetn]
+
+#procedure used by below IP instantiations to map BD address segments based on the axi interface aperture
+proc assign_axi_addr_proc {axi_intf_path} {
+    #global variable holds current base address
+    global axi_peripheral_base
+    #infer range
+    set range [expr 2**[get_property CONFIG.ADDR_WIDTH [get_bd_intf_pins $axi_intf_path]]]
+    set range [expr $range < 4096 ? 4096 : $range]
+    #align base address to range
+    set offset [expr ($axi_peripheral_base + ($range-1)) & ~($range-1)]
+    #perform assignment
+    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg] -offset $offset -range $range
+    #advance base address
+    set axi_peripheral_base [expr $offset + $range]
+}
 
 #custom IP instantiations/connections start here
 %s

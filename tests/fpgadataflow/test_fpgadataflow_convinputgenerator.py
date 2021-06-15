@@ -47,7 +47,9 @@ from finn.custom_op.registry import getCustomOp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
-def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt):
+def make_single_im2col_modelwrapper(
+    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt
+):
     odt = idt
     inp = helper.make_tensor_value_info(
         "inp", TensorProto.FLOAT, [1, ifm_dim, ifm_dim, ifm_ch]
@@ -61,12 +63,12 @@ def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, simd, stride, i
         ["inp"],
         ["outp"],
         domain="finn.custom_op.general",
-        backend="fpgadataflow",
-        stride=stride,
-        kernel_size=k,
+        stride=[stride, stride],
+        kernel_size=[k, k],
         input_shape=str((1, ifm_dim, ifm_dim, ifm_ch)),
-        pad_amount=0,
+        pad_amount=[0, 0, 0, 0],
         pad_value=0,
+        dilations=[dilation, dilation],
     )
     graph = helper.make_graph(
         nodes=[im2col_node], name="im2col_graph", inputs=[inp], outputs=[outp]
@@ -82,7 +84,7 @@ def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, simd, stride, i
 
 
 def make_single_slidingwindow_modelwrapper(
-    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt, dw=0
+    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt, dw=0
 ):
     odt = idt
     inp = helper.make_tensor_value_info(
@@ -98,12 +100,13 @@ def make_single_slidingwindow_modelwrapper(
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        ConvKernelDim=k,
+        ConvKernelDim=[k, k],
         IFMChannels=ifm_ch,
-        IFMDim=ifm_dim,
-        OFMDim=ofm_dim,
+        IFMDim=[ifm_dim, ifm_dim],
+        OFMDim=[ofm_dim, ofm_dim],
         SIMD=simd,
-        Stride=stride,
+        Stride=[stride, stride],
+        Dilation=[dilation, dilation],
         inputDataType=idt.name,
         outputDataType=odt.name,
         depthwise=dw,
@@ -138,6 +141,9 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("ifm_ch", [2, 4])
 # Stride
 @pytest.mark.parametrize("stride", [1, 2])
+# Dilation
+# Currently only dilation value of 1 is supported
+@pytest.mark.parametrize("dilation", [1])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # input channel parallelism ("SIMD")
@@ -147,13 +153,13 @@ def prepare_inputs(input_tensor):
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_slidingwindow(
-    idt, k, ifm_dim, ifm_ch, stride, exec_mode, simd, dw
+    idt, k, ifm_dim, ifm_ch, stride, dilation, exec_mode, simd, dw
 ):
     ofm_dim = int(((ifm_dim - k) / stride) + 1)
 
     x = gen_finn_dt_tensor(idt, (1, ifm_dim, ifm_dim, ifm_ch))
     model = make_single_slidingwindow_modelwrapper(
-        k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt, dw
+        k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt, dw
     )
 
     if exec_mode == "cppsim":
@@ -174,9 +180,10 @@ def test_fpgadataflow_slidingwindow(
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     golden = make_single_im2col_modelwrapper(
-        k, ifm_ch, ifm_dim, ofm_dim, simd, stride, idt
+        k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt
     )
     y_expected = oxe.execute_onnx(golden, input_dict)["outp"]
+
     if dw == 0:
         assert (y_produced == y_expected).all()
     else:

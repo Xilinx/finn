@@ -38,11 +38,11 @@ from finn.util.basic import (
     roundup_to_integer_multiple,
     get_rtlsim_trace_depth,
 )
-from finn.util.fpgadataflow import (
-    IPGenBuilder,
+from finn.util.pyverilator import (
     pyverilate_get_liveness_threshold_cycles,
     rtlsim_multi_io,
 )
+from finn.util.hls import CallHLS
 from . import templates
 
 try:
@@ -123,15 +123,16 @@ class HLSCustomOp(CustomOp):
         """Return a dict of names of input and output interfaces.
         The keys reflect the protocols each interface implements:
         'clk', 'rst', 'm_axis', 's_axis', 'aximm', 'axilite'.
-        Values are lists of names:
-        's_axis' names correspond to the list of node inputs in order,
-        'm_axis' names correspond to the list of node outputs in order'
+        Values are lists of tuples (axis, aximm) or names (axilite):
+        'axis' tuples correspond to the list of node inputs in order,
+        each tuple is (interface_name, interface_width_bits).
+        axilite always assumed to be 32 bits and is not tuple (name only).
         Each block must have at most one aximm and one axilite."""
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
-        intf_names["s_axis"] = ["in0_V_V"]
-        intf_names["m_axis"] = ["out_V_V"]
+        intf_names["s_axis"] = [("in0_V_V", self.get_instream_width_padded())]
+        intf_names["m_axis"] = [("out_V_V", self.get_outstream_width_padded())]
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         return intf_names
@@ -309,11 +310,11 @@ class HLSCustomOp(CustomOp):
         return []
 
     def ipgen_singlenode_code(self):
-        """Builds the bash script for ip generation using the IPGenBuilder from
-        finn.util.fpgadataflow."""
+        """Builds the bash script for ip generation using the CallHLS from
+        finn.util.hls."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        builder = IPGenBuilder()
+        builder = CallHLS()
         builder.append_tcl(code_gen_dir + "/hls_syn_{}.tcl".format(node.name))
         builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
         builder.build(code_gen_dir)

@@ -47,5 +47,7 @@ More FINN Resources
    command_line
    example_networks
    internals
+   developers
+   faq
    source_code/finn
    genindex

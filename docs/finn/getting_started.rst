@@ -41,8 +41,7 @@ System Requirements
 * Docker `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
 * A working Vivado 2019.1 or 2020.1 installation
 * A ``VIVADO_PATH`` environment variable pointing to the Vivado installation directory (e.g. the directory where settings64.sh is located)
-* *(optional)* A PYNQ board with a network connection
-   * the ``bitstring`` package must be installed on the PYNQ: ``sudo pip3 install bitstring``
+* *(optional)* A PYNQ board with a network connection, see `PYNQ board first-time setup`_ below
 * *(optional)* An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ below)
 
 We also recommend running the FINN compiler on a system with sufficiently
@@ -111,43 +110,6 @@ http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc
 
 The ``run-docker.sh`` script forwards ports 8888 for Jupyter and 8081 for Netron, and launches the notebook server with appropriate arguments.
 
-Running the test suite directly
-*******************************
-FINN comes with a set of tests to check for regressions. The full test suite
-(which will take several hours to run and require a PYNQ board) can be executed
-by:
-
-::
-
-  bash ./run-docker.sh test
-
-There is a quicker variant of the test suite that skips the tests marked as
-requiring Vivado or as slow-running tests:
-
-::
-
-  bash ./run-docker.sh quicktest
-
-If you want to run individual tests, you can do this *inside the Docker container
-from the FINN root directory* as follows:
-
-::
-
-  python setup.py test --addopts "-k test_brevitas_debug"
-
-If you want to run tests in parallel (e.g. to take advantage of a multi-core CPU)
-you can use:
-
-* pytest-parallel for any rtlsim tests, e.g. `python setup.py test --addopts "-k rtlsim --workers auto"`
-* pytest-xdist for anything else, make sure to add `--dist=loadfile` if you have tests in the same file that have dependencies on each other e.g. `python setup.py test --addopts "-k mytest -n auto --dist=loadfile"`
-
-Please see the pytest documentation for more about picking tests by marks or by name.
-
-Finally, the full test suite with appropriate parallelization can be run inside the container by:
-
-::
-
-  quicktest.sh full
 
 Environment variables
 **********************
@@ -156,23 +118,44 @@ Prior to running the `run-docker.sh` script, there are several environment varia
 These are summarized below:
 
 * ``VIVADO_PATH`` points to your Vivado installation on the host
-* (optional, for Vitis & Alveo only) ``VITIS_PATH``, ``PLATFORM_REPO_PATHS`` and ``XILINX_XRT`` respectively point to your Vitis installation, the Vitis platform files, and Xilinx XRT
-* ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
-* ``NETRON_PORT`` (default 8081) changes the port for Netron inside Docker
-* ``NUM_DEFAULT_WORKERS`` (default 1) specifies the degree of parallelization for the transformations that can be run in parallel
-* ``PYNQ_BOARD`` or ``ALVEO_BOARD`` specifies the type of PYNQ/Alveo board used (see "supported hardware" below) for the test suite
-* ``PYNQ_IP`` and ``PYNQ_PORT`` (or ``ALVEO_IP`` and ``ALVEO_PORT``) specify ip address and port number to access the PYNQ board / Alveo target
-* ``PYNQ_USERNAME`` and ``PYNQ_PASSWORD`` (or ``ALVEO_USERNAME`` and ``ALVEO_PASSWORD``) specify the PYNQ board / Alveo host access credentials for the test suite. For PYNQ, password is always needed to run as sudo. For Alveo, you can leave the password empty and place your ssh private key in the ``finn/ssh_keys`` folder to use keypair authentication.
-* ``PYNQ_TARGET_DIR`` (or ``ALVEO_TARGET_DIR``) specifies the target dir on the PYNQ board / Alveo host for the test suite
+* (optional, for Vitis & Alveo only) ``VITIS_PATH``, and ``PLATFORM_REPO_PATHS`` respectively point to your Vitis installation, and the Vitis platform files.
+* (optional, for Vitis & Alveo only) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
+* (optional) ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
+* (optional) ``JUPYTER_PASSWD_HASH`` (default "") Set the Jupyter notebook password hash. If set to empty string, token authentication will be used (token printed in terminal on launch).
+* (optional) ``LOCALHOST_URL`` (default localhost) sets the base URL for accessing e.g. Netron from inside the container. Useful when running FINN remotely.
+* (optional) ``NETRON_PORT`` (default 8081) changes the port for Netron inside Docker
+* (optional) ``NUM_DEFAULT_WORKERS`` (default 1) specifies the degree of parallelization for the transformations that can be run in parallel
+* (optional) ``PYNQ_BOARD`` or ``ALVEO_BOARD`` specifies the type of PYNQ/Alveo board used (see "supported hardware" below) for the test suite
+* (optional) ``PYNQ_IP`` and ``PYNQ_PORT`` (or ``ALVEO_IP`` and ``ALVEO_PORT``) specify ip address and port number to access the PYNQ board / Alveo target
+* (optional) ``PYNQ_USERNAME`` and ``PYNQ_PASSWORD`` (or ``ALVEO_USERNAME`` and ``ALVEO_PASSWORD``) specify the PYNQ board / Alveo host access credentials for the test suite. For PYNQ, password is always needed to run as sudo. For Alveo, you can leave the password empty and place your ssh private key in the ``finn/ssh_keys`` folder to use keypair authentication.
+* (optional) ``PYNQ_TARGET_DIR`` (or ``ALVEO_TARGET_DIR``) specifies the target dir on the PYNQ board / Alveo host for the test suite
 * (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
 * (optional) ``IMAGENET_VAL_PATH`` specifies the path to the ImageNet validation directory for tests.
 
 Supported Hardware
 ===================
-**End-to-end support including driver:** For quick deployment, FINN targets boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
 As of FINN v0.4b we also have preliminary support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis, see instructions below for Alveo setup.
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
+
+PYNQ board first-time setup
+****************************
+We use *host* to refer to the PC running the FINN Docker environment, which will build the accelerator+driver and package it up, and *target* to refer to the PYNQ board. To be able to access the target from the host, you'll need to set up SSH public key authentication:
+
+Start on the target side:
+
+1. Note down the IP address of your PYNQ board. This IP address must be accessible from the host.
+2. Ensure the ``bitstring`` package is installed: ``sudo pip3 install bitstring``
+
+Continue on the host side (replace the ``<PYNQ_IP>`` and ``<PYNQ_USERNAME>`` with the IP address and username of your board from the first step):
+
+1. Launch the Docker container from where you cloned finn with ``./run-docker.sh``
+2. Go into the `ssh_keys` directory  (e.g. ``cd /workspace/finn/ssh_keys``)
+3. Run ``ssh-keygen`` to create a key pair e.g. ``id_rsa`` private and ``id_rsa.pub`` public key
+4. Run ``ssh-copy-id -i id_rsa.pub <PYNQ_USERNAME>@<PYNQ_IP>`` to install the keys on the remote system
+5. Test that you can ``ssh <PYNQ_USERNAME>@<PYNQ_IP>`` without having to enter the password. Pass the ``-v`` flag to the ssh command if it doesn't work to help you debug.
+
 
 Alveo first-time setup
 **********************
@@ -180,18 +163,19 @@ We use *host* to refer to the PC running the FINN Docker environment, which will
 
 On the target side:
 
-1. Install Xilinx XRT and set up the ``XILINX_XRT`` environment variable to point to your installation, for instance ``/opt/xilinx/xrt``.
+1. Install Xilinx XRT.
 2. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation, for instance ``/opt/xilinx/platforms``.
 3. Create a conda environment named *finn-pynq-alveo* by following this guide `to set up PYNQ for Alveo <https://pynq.readthedocs.io/en/latest/getting_started/alveo_getting_started.html>`_. It's best to follow the recommended environment.yml (set of package versions) in this guide.
 4. Activate the environment with `conda activate finn-pynq-alveo` and install the bitstring package with ``pip install bitstring``.
 5. Done! You should now be able to e.g. ``import pynq`` in Python scripts.
-6. (optional) If you don't want to specify the ``ALVEO_PASSWORD`` environment variable, you can `set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
+
 
 
 On the host side:
 
 1. Install Vitis 2020.1 and set up the ``VITIS_PATH`` environment variable to point to your installation.
-2. Install Xilinx XRT and set up the ``XILINX_XRT`` environment variable to point to your installation. *This must be the same path as the target's XRT (target step 1)*
+2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. Set up the ``ALVEO_*`` environment variables accordingly for your target, see description of environment variables above.
+5. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
 5. Done! You can try the ``test_end2end_vitis`` tests in the FINN Docker to verify your setup, although this will take some time.

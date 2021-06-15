@@ -59,11 +59,6 @@ else
     recho "This is required to be able to use Vitis."
     exit -1
   fi
-  if [ -z "$XILINX_XRT" ];then
-    recho "Please set XILINX_XRT pointing to your XRT installation."
-    recho "This is required to be able to use Vitis."
-    exit -1
-  fi
 fi
 
 DOCKER_GID=$(id -g)
@@ -74,7 +69,13 @@ DOCKER_PASSWD="finn"
 # generate a random number per-run to allow multiple
 # containers from the same user
 DOCKER_RND=$(shuf -i0-32768 -n1)
-DOCKER_TAG="finn_dev_${DOCKER_UNAME}"
+# create a separate tag when Vitis enabled, since Docker image needs
+# additional dependencies installed
+if [ ! -z "$VITIS_PATH" ];then
+  DOCKER_TAG="finn_dev_vitis_${DOCKER_UNAME}"
+else
+  DOCKER_TAG="finn_dev_${DOCKER_UNAME}"
+fi
 # uncomment to run multiple instances with different names
 # DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
 DOCKER_INST_NAME="finn_dev_${DOCKER_UNAME}"
@@ -89,7 +90,9 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 # the settings below will be taken from environment variables if available,
 # otherwise the defaults below will be used
 : ${JUPYTER_PORT=8888}
+: ${JUPYTER_PASSWD_HASH=""}
 : ${NETRON_PORT=8081}
+: ${LOCALHOST_URL="localhost"}
 : ${PYNQ_USERNAME="xilinx"}
 : ${PYNQ_PASSWORD="xilinx"}
 : ${PYNQ_BOARD="Pynq-Z1"}
@@ -100,8 +103,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${ALVEO_PASSWORD=""}
 : ${ALVEO_BOARD="U250"}
 : ${ALVEO_TARGET_DIR="/tmp"}
-: ${XILINX_XRT="/opt/xilinx/xrt"}
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
+: ${XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
 
 DOCKER_INTERACTIVE=""
@@ -115,7 +118,12 @@ elif [ "$1" = "quicktest" ]; then
   DOCKER_CMD="quicktest.sh"
 elif [ "$1" = "notebook" ]; then
   gecho "Running Jupyter notebook server"
-  DOCKER_CMD="jupyter notebook --ip=0.0.0.0 --port $JUPYTER_PORT notebooks"
+  if [ -z "$JUPYTER_PASSWD_HASH" ]; then
+    JUPYTER_PASSWD_ARG=""
+  else
+    JUPYTER_PASSWD_ARG="--NotebookApp.password='$JUPYTER_PASSWD_HASH'"
+  fi
+  DOCKER_CMD="jupyter notebook --no-browser --ip=0.0.0.0 --port $JUPYTER_PORT $JUPYTER_PASSWD_ARG notebooks"
   DOCKER_EXTRA+="-e JUPYTER_PORT=$JUPYTER_PORT "
   DOCKER_EXTRA+="-e NETRON_PORT=$NETRON_PORT "
   DOCKER_EXTRA+="-p $JUPYTER_PORT:$JUPYTER_PORT "
@@ -171,6 +179,7 @@ docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
              --build-arg UID=$DOCKER_UID \
              --build-arg PASSWD=$DOCKER_PASSWD \
              --build-arg INSTALL_XRT_DEPS=$INSTALL_XRT_DEPS \
+             --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION \
              .
 cd $OLD_PWD
 # Launch container with current directory mounted
@@ -184,6 +193,7 @@ DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/home/$DOCKER_UNAME/.ssh "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
+DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
 DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
 DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "
 DOCKER_EXEC+="-e PYNQ_IP=$PYNQ_IP "
@@ -205,16 +215,10 @@ if [ ! -z "$VITIS_PATH" ];then
     recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
     exit -1
   fi
-  if [ -z "$XILINX_XRT" ];then
-    recho "XILINX_XRT must be set for Vitis/Alveo flows"
-    exit -1
-  fi
   DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
   DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
-  DOCKER_EXEC+="-v $XILINX_XRT:$XILINX_XRT "
   DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
   DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
-  DOCKER_EXEC+="-e XILINX_XRT=$XILINX_XRT "
   DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
   DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
   DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
