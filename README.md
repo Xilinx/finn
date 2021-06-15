@@ -24,11 +24,9 @@ Please see the [Getting Started](https://finn.readthedocs.io/en/latest/getting_s
 
 ## What's New in FINN?
 
+* **2021-06-15:** v0.6 is released, with ResNet-50 on U250 and ZCU104 MobileNet-v1 in finn-examples showcasing new features plus a lot more. Read more on the [v0.6 release blog post](https://xilinx.github.io/finn//2021/06/15/finn-v06-is-released.html).
 * **2020-12-17:** v0.5b (beta) is released, with a new [examples repo](https://github.com/Xilinx/finn-examples) including MobileNet-v1. Read more on the <a href="https://xilinx.github.io/finn/2020/12/17/finn-v05b-beta-is-released.html">release blog post</a>.
 * **2020-09-21:** v0.4b (beta) is released. Read more on the <a href="https://xilinx.github.io/finn/2020/09/21/finn-v04b-beta-is-released.html">release blog post</a>.
-* **2020-05-08:** v0.3b (beta) is released, with initial support for convolutions, parallel transformations, more flexible memory allocation for MVAUs, throughput testing and many other smaller improvements and bugfixes. Read more on the <a href="https://xilinx.github.io/finn/2020/05/08/finn-v03b-beta-is-released.html">release blog post</a>.
-* **2020-04-15:** FINN v0.2.1b (beta): use fixed commit versions for dependency repos, otherwise identical to 0.2b
-* **2020-02-28:** FINN v0.2b (beta) is released, which is a clean-slate reimplementation of the framework. Currently only fully-connected networks are supported for the end-to-end flow. Please see the release blog post for a summary of the key features.
 
 ## Documentation
 
