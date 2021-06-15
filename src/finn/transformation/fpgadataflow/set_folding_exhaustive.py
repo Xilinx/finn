@@ -1,6 +1,8 @@
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.transformation.general import GiveUniqueNodeNames
+from math import floor
 
 from copy import deepcopy
 
@@ -55,7 +57,7 @@ class SetFoldingExhaustive(Transformation):
         self.mvau_wwidth_max = mvau_wwidth_max
         self.from_scratch = from_scratch
         self.max_luts = scale_ratio * max_luts if max_luts is not None else float("inf")
-        
+
         self.pe_ops = [
             "AddStreams_Batch",
             "ChannelwiseOp_Batch",
@@ -194,7 +196,10 @@ class SetFoldingExhaustive(Transformation):
 
             if self.from_scratch:
                 if node.op_type == "StreamingFCLayer_Batch":
-                    node_inst.set_nodeattr("SIMD", 1)
+                    # SIMD > MW / 1024 due to finn-hls constraint
+                    min_simd = max(1, floor(node_inst.get_nodeattr("MW") / 1024))
+                    node_inst.set_nodeattr("SIMD", min_simd)
+
                     node_inst.set_nodeattr("PE", 1)
 
                 elif node.op_type in [*self.pe_ops, *self.depthwise_op_exceptions]:
@@ -584,6 +589,7 @@ class SetFoldingExhaustive(Transformation):
         return reclaimed_model
 
     def apply(self, model):
+        model = model.transform(GiveUniqueNodeNames())
         model, model_values, among_slowest = self.inst_model(model)
 
         all_attrs = self.get_attrs(model)
