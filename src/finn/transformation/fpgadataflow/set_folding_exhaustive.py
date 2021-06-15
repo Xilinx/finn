@@ -264,7 +264,7 @@ class SetFoldingExhaustive(Transformation):
             if v[0] == node_key:
                 next_opt = idx + 1
                 # If the current setting for the node is the highest setting, we're done optimizing
-                if next_opt > len(sorted_attrs):
+                if next_opt >= len(sorted_attrs):
                     done = True
                     return sorted_attrs[idx][0], current_attrs, done
 
