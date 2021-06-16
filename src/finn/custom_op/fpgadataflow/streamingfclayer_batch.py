@@ -1406,3 +1406,27 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             thres_count = out_features
             ret_dict[thres_param_type] = thres_count
         return ret_dict
+
+    def get_structural_parameters(self):
+        # if we have internal parameters, node is not cache-able
+        internal_weights = self.get_nodeattr("mem_mode") == "const"
+        internal_thresholds = self.get_nodeattr("noActivation") == 0
+        if internal_weights or internal_thresholds:
+            return None
+        # node is cache-able, collect parameters influencing HLS
+        # any array of ints must be converted to tuple so the dict is hashable
+        ret = dict()
+        ret["SIMD"] = self.get_nodeattr("SIMD")
+        ret["PE"] = self.get_nodeattr("PE")
+        ret["MW"] = self.get_nodeattr("MW")
+        ret["MH"] = self.get_nodeattr("MH")
+        ret["resType"] = self.get_nodeattr("resType")
+        ret["ActVal"] = self.get_nodeattr("ActVal")
+        ret["inputDataType"] = self.get_nodeattr("inputDataType")
+        ret["weightDataType"] = self.get_nodeattr("weightDataType")
+        ret["outputDataType"] = self.get_nodeattr("outputDataType")
+        ret["numInputVectors"] = tuple(self.get_nodeattr("numInputVectors"))
+        ret["binaryXnorMode"] = self.get_nodeattr("binaryXnorMode")
+        return ret
+
+

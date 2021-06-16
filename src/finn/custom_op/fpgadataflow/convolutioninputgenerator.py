@@ -88,6 +88,23 @@ class ConvolutionInputGenerator(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def get_structural_parameters(self):
+        # node is cache-able, collect parameters influencing HLS
+        # any array of ints must be converted to tuple so the dict is hashable
+        ret = dict()
+        ret["ConvKernelDim"] = tuple(self.get_nodeattr("ConvKernelDim"))
+        ret["IFMChannels"] = self.get_nodeattr("IFMChannels")
+        ret["IFMDim"] = tuple(self.get_nodeattr("IFMDim"))
+        ret["OFMDim"] = tuple(self.get_nodeattr("OFMDim"))
+        ret["SIMD"] = self.get_nodeattr("SIMD")
+        ret["Stride"] = tuple(self.get_nodeattr("Stride"))
+        ret["Dilation"] = tuple(self.get_nodeattr("Dilation"))
+        ret["inputDataType"] = self.get_nodeattr("inputDataType")
+        ret["outputDataType"] = self.get_nodeattr("outputDataType")
+        ret["depthwise"] = self.get_nodeattr("depthwise")
+        ret["ram_style"] = self.get_nodeattr("ram_style")
+        return ret
+
     def get_nodeattr(self, name):
         # overriding get_nodeattr to check for square kernel/img.. requirement
         # since this can't be done with the attribute restriction in nodeattr_types

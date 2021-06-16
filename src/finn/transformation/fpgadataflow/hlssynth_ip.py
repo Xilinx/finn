@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import json
 import finn.custom_op.registry as registry
 from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation.base import NodeLocalTransformation
@@ -46,17 +47,24 @@ class HLSSynthIP(NodeLocalTransformation):
 
     * num_workers (int or None) number of parallel workers, see documentation in
       NodeLocalTransformation for more details.
+
+    * ip_cache_file (string or None) JSON file with caching information.
     """
 
-    def __init__(self, num_workers=None):
+    def __init__(self, num_workers=None, ip_cache_file=None):
+        self.ip_cache = {}
+        if ip_cache_file is not None:
+            with open(ip_cache_file, 'r') as f:
+                self.ip_cache = json.load(f)
         super().__init__(num_workers=num_workers)
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
-        if is_fpgadataflow_node(node) is True:
+        # lookup op_type in registry of CustomOps
+        inst = registry.getCustomOp(node)
+        do_synth = (inst.get_nodeattr("disable_ip_synth") == 0)
+        if is_fpgadataflow_node(node) is True and do_synth:
             try:
-                # lookup op_type in registry of CustomOps
-                inst = registry.getCustomOp(node)
                 # ensure that code is generated
                 assert (
                     inst.get_nodeattr("code_gen_dir_ipgen") != ""
@@ -64,8 +72,20 @@ class HLSSynthIP(NodeLocalTransformation):
                 attribute "code_gen_dir_ipgen" is empty. Please run
                 transformation PrepareIP first."""
                 if not os.path.isdir(inst.get_nodeattr("ipgen_path")):
-                    # call the compilation function for this node
-                    inst.ipgen_singlenode_code()
+                    # get cache key if it exists
+                    if inst.get_nodeattr("ip_cache_key") != "":
+                        key = inst.get_nodeattr("ip_cache_key")
+                    else:
+                        key = None
+                    # do cache look-up and set ipgen_path / ip_path / vlnv from cache
+                    if key is not None and key in self.ip_cache.keys():
+                        ip_path, ipgen_path, vlnv = self.ip_cache[key]
+                        inst.set_nodeattr("ip_path", ip_path)
+                        inst.set_nodeattr("ipgen_path", ipgen_path)
+                        inst.set_nodeattr("ip_vlnv", vlnv)
+                    else:
+                        # on cache miss, call the compilation function for this node
+                        inst.ipgen_singlenode_code()
                 else:
                     warnings.warn("Using pre-existing IP for %s" % node.name)
                 # ensure that executable path is now set

@@ -31,6 +31,18 @@ class DownSampler(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def get_structural_parameters(self):
+        # node is cache-able, collect parameters influencing HLS
+        # any array of ints must be converted to tuple so the dict is hashable
+        ret = dict()
+        ret["NumChannels"] = self.get_nodeattr("NumChannels")
+        ret["ImgDim"] = self.get_nodeattr("ImgDim")
+        ret["SIMD"] = self.get_nodeattr("SIMD")
+        ret["Stride"] = self.get_nodeattr("Stride")
+        ret["inputDataType"] = self.get_nodeattr("inputDataType")
+        ret["numInputVectors"] = tuple(self.get_nodeattr("numInputVectors"))
+        return ret
+
     def get_downsampled_odim(self):
         "Return the down sampled spatial size of the output."
         idim = self.get_nodeattr("ImgDim")

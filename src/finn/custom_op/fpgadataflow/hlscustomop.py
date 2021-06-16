@@ -107,6 +107,16 @@ class HLSCustomOp(CustomOp):
             # ID of FPGA device to which this Op is allocated, in
             # a multi-FPGA setting
             "device_id": ("i", False, 0),
+            # IP building/caching parameters
+            # force disable IP synthesis, e.g. if this is a 
+            # node that has both HLS and RTL/Vivado implementations
+            # but the RTL/Vivado is currently active  
+            "disable_ip_synth": ("i", False, 0),
+            # we can use the key to search the IP cache for existing
+            # synthesis results either from a previous run of this node or
+            # from a run of an identical node somewhere else on the graph
+            # in case of cache miss, this node will run synth
+            "ip_cache_key": ("s", False, ""),
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
@@ -171,6 +181,14 @@ class HLSCustomOp(CustomOp):
                 if f.endswith(".v"):
                     verilog_files += [f]
         return verilog_files
+
+    def get_structural_parameters(self):
+        "Return dict of HLS-relevant parameters and their values"
+        return None
+
+    def set_synth_enablement(self):
+        "Set the disable_ip_synth attribute"
+        self.set_nodeattr("disable_ip_synth", 0)
 
     def prepare_rtlsim(self):
         """Creates a Verilator emulation library for the RTL code generated

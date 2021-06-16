@@ -947,3 +947,22 @@ class Thresholding_Batch(HLSCustomOp):
         thres_count = out_features * num_steps
         ret_dict[thres_param_type] = thres_count
         return ret_dict
+
+    def get_structural_parameters(self):
+        # if we have internal parameters, node is not cache-able
+        internal_thresholds = self.get_nodeattr("mem_mode") == "const"
+        if internal_thresholds:
+            return None
+        # node is cache-able, collect parameters influencing HLS
+        # any array of ints must be converted to tuple so the dict is hashable
+        ret = dict()
+        ret["PE"] = self.get_nodeattr("PE")
+        ret["NumChannels"] = self.get_nodeattr("NumChannels")
+        ret["ActVal"] = self.get_nodeattr("ActVal")
+        ret["NumSteps"] = self.get_nodeattr("NumSteps")
+        ret["inputDataType"] = self.get_nodeattr("inputDataType")
+        ret["weightDataType"] = self.get_nodeattr("weightDataType")
+        ret["outputDataType"] = self.get_nodeattr("outputDataType")
+        ret["numInputVectors"] = tuple(self.get_nodeattr("numInputVectors"))
+        return ret
+
