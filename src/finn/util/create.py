@@ -103,6 +103,10 @@ def hls_mlp_maker(layer_spec):
         idt = lyr["idt"]
         tdt = lyr["tdt"]
         odt = lyr["odt"]
+        if "mem_mode" in lyr.keys():
+            mmode = lyr["mem_mode"]
+        else:
+            mmode = "const"
 
         if i == 0:
             global_in = helper.make_tensor_value_info(
@@ -159,6 +163,7 @@ def hls_mlp_maker(layer_spec):
             ActVal=actval,
             binaryXnorMode=binary_xnor_mode,
             noActivation=no_act,
+            mem_mode=mmode,
         )
 
         model.graph.node.append(FCLayer_node)
