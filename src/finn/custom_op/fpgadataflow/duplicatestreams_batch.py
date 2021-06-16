@@ -57,6 +57,16 @@ class DuplicateStreams_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def get_structural_parameters(self):
+        # node is cache-able, collect parameters influencing HLS
+        # any array of ints must be converted to tuple so the dict is hashable
+        ret = dict()
+        ret["NumChannels"] = self.get_nodeattr("NumChannels")
+        ret["PE"] = self.get_nodeattr("PE")
+        ret["inputDataType"] = self.get_nodeattr("inputDataType")
+        ret["numInputVectors"] = tuple(self.get_nodeattr("numInputVectors"))
+        return ret
+
     def get_normal_input_shape(self):
         ch = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
