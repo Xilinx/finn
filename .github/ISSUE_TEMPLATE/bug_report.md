@@ -7,20 +7,13 @@ assignees: ''
 
 ---
 
-<!---
-These issue templates took inspiration from:
-* The RPCS3 repository: https://github.com/RPCS3/rpcs3/tree/2f44523e6d5a674dc1fd12e248e93d4e66fd830c/.github/ISSUE_TEMPLATE
-* stevemao's issue templates repository: https://github.com/stevemao/github-issue-templates/tree/ef1cc891865bab16cfe6e795b178caa422224344/
-* auremoser's issue template gist: https://gist.github.com/auremoser/72803ba969d0e61ff070
-* The default issue template automatically created by github, when opening the issue template editor.
--->
-
 
 ## Prerequisites
 Please make sure to check off these prerequisites before submitting a bug report.
-- [ ] Test that the bug appears on a recent version of the dev-branch.
+- [ ] Test that the bug appears on the current version of the dev-branch. Make sure to include the commit hash of the commit you checked out.
 - [ ] Check that the issue hasn't already been reported, by checking the currently open issues.
 - [ ] If there are steps to reproduce the problem, make sure to write them down below.
+- [ ] Please include the ONNX files, which were created directly before or after the bug appeared.
 
 ## Quick summary
 Please give a brief and concise description of the bug.
@@ -29,12 +22,14 @@ Please give a brief and concise description of the bug.
 Please add to the following sections to describe the bug as accurately as possible.
 
 ### Steps to Reproduce
-Add what needs to be done to reproduce the bug. Add code examples where useful and make sure that the issue appears on the dev-branch.
+Add what needs to be done to reproduce the bug. Add code examples where useful
+and make sure to include the resulting ONNX files, and the commit hash you are working on.
 
 1. Clone the FINN repository
-2. Checkout the dev branch
-3. Start the docker container with the command [...]
-4. [Further steps ...]
+2. Checkout the dev branch, with commit hash: [...]
+3. Start the docker container with the command: [...]
+4. Run transformation [...] on ONNX file [...] or run the dataflow builder with the following settings: [...]
+5. [Further steps ...]
 
 ### Expected behavior
 Please add a brief description of what you expected to happen.
