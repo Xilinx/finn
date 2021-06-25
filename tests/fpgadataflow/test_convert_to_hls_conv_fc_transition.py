@@ -26,34 +26,30 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from onnx import TensorProto, helper
-import numpy as np
 import pytest
 
-from finn.core.datatype import DataType
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-
-import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.util.basic import gen_finn_dt_tensor
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.custom_op.general.im2col import compute_conv_output_dim
-
-import finn.transformation.streamline.absorb as absorb
-from finn.transformation.general import RemoveUnusedTensors
-from finn.transformation.streamline import Streamline
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
-from finn.transformation.streamline.reorder import MoveScalarLinearPastInvariants
+import numpy as np
+from onnx import TensorProto, helper
 
 import finn.core.data_layout as DataLayout
+import finn.core.onnx_exec as oxe
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.streamline.absorb as absorb
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.general.im2col import compute_conv_output_dim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames, RemoveUnusedTensors
+from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
+from finn.transformation.streamline import Streamline
+from finn.transformation.streamline.reorder import MoveScalarLinearPastInvariants
+from finn.util.basic import gen_finn_dt_tensor
 
 
 def get_multithreshold_rand_params(channels, num_of_thres, seed=None):

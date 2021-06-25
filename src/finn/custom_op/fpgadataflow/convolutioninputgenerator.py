@@ -26,15 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-
 import math
 import numpy as np
+import os
+from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.custom_op.general.im2col import compute_conv_output_dim
-from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ONNX i/o tensor shape assumptions for ConvolutionInputGenerator:

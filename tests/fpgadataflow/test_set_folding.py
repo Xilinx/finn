@@ -27,18 +27,19 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+
 import numpy as np
 from onnx import TensorProto, helper
 
-from finn.custom_op.registry import getCustomOp
-from finn.core.datatype import DataType
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.set_folding import SetFolding
-from finn.transformation.general import GiveUniqueNodeNames
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
+from finn.transformation.fpgadataflow.set_folding import SetFolding
+from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.test import load_test_checkpoint_or_skip
 
 

@@ -26,16 +26,19 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
+import pkg_resources as pk
+
+import pytest
+
 import os
 import shutil
-from finn.util.test import get_build_env, load_test_checkpoint_or_skip
-import pytest
-from finn.util.basic import make_build_dir
-import pkg_resources as pk
-import wget
 import subprocess
+import wget
+
+import finn.builder.build_dataflow as build
+import finn.builder.build_dataflow_config as build_cfg
+from finn.util.basic import make_build_dir
+from finn.util.test import get_build_env, load_test_checkpoint_or_skip
 
 target_clk_ns = 10
 build_kind = "zynq"

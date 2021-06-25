@@ -27,18 +27,17 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import time
 import os
+import time
 from pynq import Overlay, allocate
 from pynq.ps import Clocks
 
+from finn.core.datatype import DataType
+from finn.util.basic import gen_finn_dt_tensor
 from finn.util.data_packing import (
     finnpy_to_packed_bytearray,
     packed_bytearray_to_finnpy,
 )
-
-from finn.util.basic import gen_finn_dt_tensor
-from finn.core.datatype import DataType
 
 # Driver base class for FINN-generated dataflow accelerators.
 # The particulars of the generated accelerator are specified via the

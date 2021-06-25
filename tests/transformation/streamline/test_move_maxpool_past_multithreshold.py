@@ -1,11 +1,11 @@
-from onnx import TensorProto, helper
 import numpy as np
+from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.streamline.reorder import MoveMaxPoolPastMultiThreshold
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.streamline.reorder import MoveMaxPoolPastMultiThreshold
 
 
 def get_multithreshold_rand_params(channels, num_of_thres, seed=None):

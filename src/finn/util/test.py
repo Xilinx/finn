@@ -26,22 +26,25 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pkg_resources as pk
+
+import pytest
+
+import numpy as np
 import onnx
 import onnx.numpy_helper as nph
-import pkg_resources as pk
-from pkgutil import get_data
-from brevitas_examples import bnn_pynq, imagenet_classification
-import numpy as np
-import pytest
-import warnings
-from finn.core.modelwrapper import ModelWrapper
 import os
-from finn.util.basic import pynq_part_map, alveo_part_map, alveo_default_platform
+import torchvision.transforms.functional as torchvision_util
+import warnings
+from brevitas_examples import bnn_pynq, imagenet_classification
+from pkgutil import get_data
+
+from finn.core.modelwrapper import ModelWrapper
+from finn.core.onnx_exec import execute_onnx
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
-from finn.custom_op.registry import getCustomOp
-from finn.core.onnx_exec import execute_onnx
-import torchvision.transforms.functional as torchvision_util
+from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 
 # map of (wbits,abits) -> model
 example_map = {

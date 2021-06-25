@@ -1,10 +1,11 @@
-import os
 import numpy as np
+import os
+import warnings
 from onnx import TensorProto, helper
+
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-import warnings
 
 
 class FMPadding_Batch(HLSCustomOp):

@@ -26,27 +26,28 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import warnings
 import math
-import os
 import numpy as np
-
+import os
+import textwrap
+import warnings
 from onnx import TensorProto, helper
+
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import (
+    calculate_matvec_accumulator_range,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
-    calculate_matvec_accumulator_range,
 )
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
-    rtlsim_output_to_npy,
     pack_innermost_dim_as_hex_string,
+    rtlsim_output_to_npy,
 )
+
 from . import templates
-import textwrap
 
 # ONNX i/o tensor shape assumptions for StreamingFCLayer:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -238,9 +239,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mem_width = Q * W * P
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
-        if (mmode == "decoupled" and mstyle != "ultra") or (
-            mmode == "const" and self.calc_wmem() <= 128) or (
-            mmode == "external"
+        if (
+            (mmode == "decoupled" and mstyle != "ultra")
+            or (mmode == "const" and self.calc_wmem() <= 128)
+            or (mmode == "external")
         ):
             return 0
         width_multiplier = math.ceil(mem_width / 72)
@@ -266,9 +268,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         mem_width = Q * W * P
         mmode = self.get_nodeattr("mem_mode")
         mstyle = self.get_nodeattr("ram_style")
-        if (mmode == "decoupled" and mstyle in ["distributed", "ultra"]) or (
-            mmode == "const" and self.calc_wmem() <= 128) or (
-            mmode == "external"
+        if (
+            (mmode == "decoupled" and mstyle in ["distributed", "ultra"])
+            or (mmode == "const" and self.calc_wmem() <= 128)
+            or (mmode == "external")
         ):
             return 0
         # assuming SDP mode RAMB18s (see UG573 Table 1-10)
@@ -604,9 +607,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     tdt = DataType.get_smallest_possible(0 - tdt_max)
             else:
                 tdt = DataType.get_smallest_possible(tdt_max)
-            assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
-                "Thresholds in %s can't be expressed with type %s"
-                % (self.onnx_node.name, str(tdt))
+            assert np.vectorize(tdt.allowed)(
+                threshold_tensor
+            ).all(), "Thresholds in %s can't be expressed with type %s" % (
+                self.onnx_node.name,
+                str(tdt),
             )
             self.set_nodeattr("accDataType", tdt.name)
         else:
@@ -843,9 +848,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 # get computed threshold datatype from attribute
                 tdt = DataType[self.get_nodeattr("accDataType")]
 
-                assert np.vectorize(tdt.allowed)(threshold_tensor).all(), (
-                    "Thresholds in %s can't be expressed with type %s"
-                    % (self.onnx_node.name, str(tdt))
+                assert np.vectorize(tdt.allowed)(
+                    threshold_tensor
+                ).all(), "Thresholds in %s can't be expressed with type %s" % (
+                    self.onnx_node.name,
+                    str(tdt),
                 )
                 thresholds_hls_code = numpy_to_hls_code(
                     threshold_tensor, tdt, "thresholds", False, True

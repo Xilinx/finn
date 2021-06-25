@@ -29,17 +29,18 @@ import pytest
 
 from onnx import TensorProto, helper
 
-from finn.core.modelwrapper import ModelWrapper
-from finn.core.datatype import DataType
 import finn.core.data_layout as DataLayout
-from finn.util.basic import gen_finn_dt_tensor
-from finn.transformation.insert_topk import InsertTopK
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.general import GiveUniqueNodeNames, GiveReadableTensorNames
-from finn.transformation.streamline.reorder import MoveFlattenPastTopK
 import finn.core.onnx_exec as oxe
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.insert_topk import InsertTopK
+from finn.transformation.streamline.reorder import MoveFlattenPastTopK
+from finn.util.basic import gen_finn_dt_tensor
+
 
 # data layout
 @pytest.mark.parametrize("data_layout", [DataLayout.NHWC, DataLayout.NCHW])
@@ -59,7 +60,10 @@ def test_move_flatten_past_affine(data_layout, batch_size):
     flatten_node = helper.make_node("Flatten", ["inp"], ["outp"])
 
     graph = helper.make_graph(
-        nodes=[flatten_node], name="move-flatten-graph", inputs=[inp], outputs=[outp],
+        nodes=[flatten_node],
+        name="move-flatten-graph",
+        inputs=[inp],
+        outputs=[outp],
     )
 
     model = helper.make_model(graph, producer_name="move_flatten_model")

@@ -26,29 +26,31 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from PIL import Image
-import numpy as np
-import brevitas.onnx as bo
 import pytest
+
+import brevitas.onnx as bo
+import numpy as np
 import torch
-from finn.util.basic import make_build_dir
-from finn.util.pytorch import NormalizePreProc
-from finn.util.test import get_test_model_trained, resize_smaller_side, crop_center
-from finn.core.modelwrapper import ModelWrapper
+from PIL import Image
+
+import finn.core.onnx_exec as oxe
+import finn.transformation.streamline.absorb as absorb
 from finn.core.datatype import DataType
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     GiveUniqueParameterTensors,
 )
-from finn.transformation.merge_onnx_models import MergeONNXModels
-import finn.transformation.streamline.absorb as absorb
+from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.insert_topk import InsertTopK
-import finn.core.onnx_exec as oxe
+from finn.transformation.merge_onnx_models import MergeONNXModels
+from finn.util.basic import make_build_dir
+from finn.util.pytorch import NormalizePreProc
+from finn.util.test import crop_center, get_test_model_trained, resize_smaller_side
 
 
 @pytest.mark.xfail

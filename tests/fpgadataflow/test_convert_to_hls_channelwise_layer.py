@@ -28,24 +28,23 @@
 
 import pytest
 
+import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import gen_finn_dt_tensor
+from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.infer_shapes import InferShapes
-import numpy as np
+from finn.util.basic import gen_finn_dt_tensor
 
 
 def prepare_inputs(input_tensor):

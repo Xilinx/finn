@@ -26,12 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from math import ceil
-import os
-
 import numpy as np
-
+import os
+import warnings
+from math import ceil
 from onnx import TensorProto, helper
+
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
@@ -39,9 +39,8 @@ from finn.util.data_packing import (
     numpy_to_hls_code,
     rtlsim_output_to_npy,
 )
-from . import templates
 
-import warnings
+from . import templates
 
 # ONNX i/o tensor shape assumptions for channelwise ops:
 # input 0 is the input tensor, shape (..., NumChannels)
@@ -217,7 +216,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             return 0
 
     def lut_estimation(self):
-        """Calculates LUT cost, taking memory resource type into account """
+        """Calculates LUT cost, taking memory resource type into account"""
         # TODO add in/out FIFO contributions
         style = self.get_nodeattr("ram_style")
         P = self.get_nodeattr("PE")
@@ -490,7 +489,9 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         numReps = numInputVectors[0]
         self.code_gen_dict["$DEFINES$"] = [
             """#define NumChannels1 {}\n#define PE1 {}\n#define numReps {}""".format(
-                self.get_nodeattr("NumChannels"), self.get_nodeattr("PE"), numReps,
+                self.get_nodeattr("NumChannels"),
+                self.get_nodeattr("PE"),
+                numReps,
             )
         ]
 
@@ -533,7 +534,9 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """Thresholding_Batch<{}, NumChannels1, PE1, {}, {}>
             (in0, out, threshs, numReps);""".format(
-                imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"],
+                imgdim,
+                tmpl_args["TSrcI"],
+                tmpl_args["TDstI"],
             )
         ]
 

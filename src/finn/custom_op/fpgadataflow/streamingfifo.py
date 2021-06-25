@@ -25,16 +25,16 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import os
-import numpy as np
-from shutil import copy
-import subprocess
 import math
+import numpy as np
+import os
+import subprocess
 import warnings
-
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.core.datatype import DataType
 from onnx import TensorProto, helper
+from shutil import copy
+
+from finn.core.datatype import DataType
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 from . import templates

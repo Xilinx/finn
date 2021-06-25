@@ -30,8 +30,8 @@ import os
 from shutil import copy2
 
 from finn.transformation.base import Transformation
-from finn.util.vivado import out_of_context_synth
 from finn.util.basic import make_build_dir
+from finn.util.vivado import out_of_context_synth
 
 
 class SynthOutOfContext(Transformation):

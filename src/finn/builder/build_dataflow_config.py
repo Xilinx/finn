@@ -26,14 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from typing import List, Optional, Any
-from finn.util.basic import pynq_part_map, alveo_part_map
-from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from enum import Enum
+import numpy as np
+import os
 from dataclasses import dataclass
 from dataclasses_json import dataclass_json
-import os
-import numpy as np
+from enum import Enum
+from typing import Any, List, Optional
+
+from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
+from finn.util.basic import alveo_part_map, pynq_part_map
 
 
 class ShellFlowType(str, Enum):

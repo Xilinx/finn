@@ -26,13 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import shutil
-import subprocess
-
 import pytest
 
 import numpy as np
+import os
+import shutil
+import subprocess
 
 import finn.util.basic as cutil
 from finn.core.datatype import DataType

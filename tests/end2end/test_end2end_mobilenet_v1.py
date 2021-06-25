@@ -25,57 +25,55 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-import time
 import pytest
 
-from PIL import Image
-import os
-import numpy as np
 import brevitas.onnx as bo
+import numpy as np
+import os
+import time
 import torch
+from PIL import Image
 
-from finn.custom_op.registry import getCustomOp
-from finn.util.pytorch import NormalizePreProc
-from finn.util.test import (
-    get_test_model_trained,
-    load_test_checkpoint_or_skip,
-    resize_smaller_side,
-    crop_center,
-)
-
-from finn.core.modelwrapper import ModelWrapper
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+import finn.transformation.streamline.absorb as absorb
+import finn.transformation.streamline.reorder as reorder
 from finn.core.datatype import DataType
-
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.core.modelwrapper import ModelWrapper
+from finn.core.onnx_exec import execute_onnx
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.change_datalayout import ChangeDataLayoutQuantAvgPool2d
+from finn.transformation.double_to_single_float import DoubleToSingleFloat
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
+)
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     GiveUniqueParameterTensors,
     RemoveUnusedTensors,
 )
-from finn.transformation.merge_onnx_models import MergeONNXModels
+from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.insert_topk import InsertTopK
-import finn.transformation.streamline.absorb as absorb
-import finn.transformation.streamline.reorder as reorder
-from finn.transformation.streamline import Streamline
-from finn.transformation.double_to_single_float import DoubleToSingleFloat
-from finn.transformation.streamline.remove import RemoveIdentityOps
-from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
-from finn.transformation.change_datalayout import ChangeDataLayoutQuantAvgPool2d
-from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.transformation.fpgadataflow.create_dataflow_partition import (
-    CreateDataflowPartition,
+from finn.transformation.merge_onnx_models import MergeONNXModels
+from finn.transformation.streamline import Streamline
+from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
+from finn.transformation.streamline.remove import RemoveIdentityOps
+from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
+from finn.util.basic import alveo_default_platform, alveo_part_map
+from finn.util.pytorch import NormalizePreProc
+from finn.util.test import (
+    crop_center,
+    get_test_model_trained,
+    load_test_checkpoint_or_skip,
+    resize_smaller_side,
 )
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.core.onnx_exec import execute_onnx
-from finn.util.basic import alveo_part_map, alveo_default_platform
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 
