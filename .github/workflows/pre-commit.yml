@@ -1,0 +1,22 @@
+name: Pre-commit
+
+on:
+  pull_request:
+    branches: [ main, dev ]
+  push:
+    branches: [ main, dev ]
+
+jobs:
+  lint:
+    name: Lint PR or Push to DEV
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Setup Python
+        uses: actions/setup-python@v2
+
+      - name: Run Lint
+        uses: pre-commit/action@v2.0.0
