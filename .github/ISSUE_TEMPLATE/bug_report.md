@@ -13,7 +13,7 @@ Please make sure to check off these prerequisites before submitting a bug report
 - [ ] Test that the bug appears on the current version of the dev-branch. Make sure to include the commit hash of the commit you checked out.
 - [ ] Check that the issue hasn't already been reported, by checking the currently open issues.
 - [ ] If there are steps to reproduce the problem, make sure to write them down below.
-- [ ] Please include the ONNX files, which were created directly before or after the bug appeared.
+- [ ] If relevant, please include the ONNX files, which were created directly before and/or after the bug.
 
 ## Quick summary
 Please give a brief and concise description of the bug.
