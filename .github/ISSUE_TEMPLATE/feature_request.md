@@ -21,7 +21,7 @@ Please add to the following sections to describe the feature as accurately as po
 Please add a brief and concise description of what you would like to happen in FINN in the future.
 
 ### Motivation
-Please tell us why this feature is important to FINN.
+Please tell us why this feature is important to the FINN community.
 
 ### Parts of FINN affected
 Please describe which parts of FINN would be affected by this feature.
