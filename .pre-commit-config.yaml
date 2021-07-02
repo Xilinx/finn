@@ -36,6 +36,7 @@ repos:
   rev: v3.2.0
   hooks:
   - id: trailing-whitespace
+    exclude: '\.dat$'
   - id: check-added-large-files
   - id: check-ast
   - id: check-json
