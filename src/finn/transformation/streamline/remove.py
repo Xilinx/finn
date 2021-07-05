@@ -27,9 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+import numpy as np
+
 from finn.transformation.base import Transformation
 from finn.transformation.infer_shapes import InferShapes
-import numpy as np
 
 
 def _remove_node_and_rewire(model, node):

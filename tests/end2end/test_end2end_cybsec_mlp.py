@@ -26,27 +26,29 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import torch
-from brevitas.nn import QuantLinear, QuantReLU
-from brevitas.quant_tensor import QuantTensor
-import torch.nn as nn
-import numpy as np
-from brevitas.core.quant import QuantType
-from brevitas.nn import QuantIdentity
+import pkg_resources as pk
+
+import pytest
+
 import brevitas.onnx as bo
-from finn.core.modelwrapper import ModelWrapper
-from finn.core.datatype import DataType
-import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
+import json
+import numpy as np
 import os
 import shutil
-from finn.util.test import get_build_env, load_test_checkpoint_or_skip
-import pytest
-from finn.util.basic import make_build_dir
-import pkg_resources as pk
-import json
-import wget
 import subprocess
+import torch
+import torch.nn as nn
+import wget
+from brevitas.core.quant import QuantType
+from brevitas.nn import QuantIdentity, QuantLinear, QuantReLU
+from brevitas.quant_tensor import QuantTensor
+
+import finn.builder.build_dataflow as build
+import finn.builder.build_dataflow_config as build_cfg
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
+from finn.util.basic import make_build_dir
+from finn.util.test import get_build_env, load_test_checkpoint_or_skip
 
 target_clk_ns = 10
 build_kind = "zynq"

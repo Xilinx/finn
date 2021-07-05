@@ -26,19 +26,21 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import onnx  # noqa
-import numpy as np
-import torch
+import pytest
+
 import brevitas.onnx as bo
-from brevitas.nn import QuantHardTanh
+import numpy as np
+import onnx  # noqa
+import os
+import torch
+from brevitas.core.quant import QuantType
 from brevitas.core.restrict_val import RestrictValueType
 from brevitas.core.scaling import ScalingImplType
-import pytest
-from finn.core.modelwrapper import ModelWrapper
+from brevitas.nn import QuantHardTanh
+
 import finn.core.onnx_exec as oxe
+from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
-from brevitas.core.quant import QuantType
 
 export_onnx_path = "test_brevitas_non_scaled_QuantHardTanh_export.onnx"
 

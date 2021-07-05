@@ -27,30 +27,29 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+
+import numpy as np
 import onnx.helper as oh
 from onnx import TensorProto
-import numpy as np
 
-from finn.core.modelwrapper import ModelWrapper
+import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
-from finn.transformation.infer_shapes import InferShapes
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.general.im2col import compute_conv_output_dim
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hls_layers import (
     InferConvInpGen,
     InferVVAU,
 )
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-
-import finn.core.onnx_exec as oxe
-from finn.custom_op.general.im2col import compute_conv_output_dim
-from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
-from finn.custom_op.registry import getCustomOp
-
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.infer_shapes import InferShapes
+from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 
 def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):

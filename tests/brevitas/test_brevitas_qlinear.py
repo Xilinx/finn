@@ -27,15 +27,17 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import os
-import numpy as np
-import torch
+
 import brevitas.onnx as bo
-from brevitas.nn import QuantLinear
+import numpy as np
+import os
+import torch
 from brevitas.core.quant import QuantType
-from finn.core.modelwrapper import ModelWrapper
-from finn.core.datatype import DataType
+from brevitas.nn import QuantLinear
+
 import finn.core.onnx_exec as oxe
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.basic import gen_finn_dt_tensor
 

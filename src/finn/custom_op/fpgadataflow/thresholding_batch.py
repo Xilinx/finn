@@ -26,13 +26,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from math import ceil, log2
-import textwrap
-import os
-import warnings
 import numpy as np
-
+import os
+import textwrap
+import warnings
+from math import ceil, log2
 from onnx import TensorProto, helper
+
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import (
@@ -42,9 +42,10 @@ from finn.util.basic import (
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
-    rtlsim_output_to_npy,
     pack_innermost_dim_as_hex_string,
+    rtlsim_output_to_npy,
 )
+
 from . import templates
 
 # ONNX i/o tensor shape assumptions for Thresholding:
@@ -180,7 +181,7 @@ class Thresholding_Batch(HLSCustomOp):
             return 0
 
     def lut_estimation(self):
-        """Calculates LUT cost, taking memory resource type into account """
+        """Calculates LUT cost, taking memory resource type into account"""
         # TODO add in/out FIFO contributions
         style = self.get_nodeattr("ram_style")
         P = self.get_nodeattr("PE")
@@ -604,7 +605,9 @@ class Thresholding_Batch(HLSCustomOp):
         numReps = numInputVectors[0]
         self.code_gen_dict["$DEFINES$"] = [
             """#define NumChannels1 {}\n #define PE1 {}\n #define numReps {}""".format(
-                self.get_nodeattr("NumChannels"), self.get_nodeattr("PE"), numReps,
+                self.get_nodeattr("NumChannels"),
+                self.get_nodeattr("PE"),
+                numReps,
             )
         ]
         if self.get_nodeattr("mem_mode") == "decoupled":
@@ -686,7 +689,10 @@ class Thresholding_Batch(HLSCustomOp):
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<{}, NumChannels1, PE1, {}, {}>
                 (in0, out, threshs, numReps);""".format(
-                    node.op_type, imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"],
+                    node.op_type,
+                    imgdim,
+                    tmpl_args["TSrcI"],
+                    tmpl_args["TDstI"],
                 )
             ]
         elif mem_mode == "decoupled":

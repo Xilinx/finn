@@ -30,13 +30,14 @@ import pytest
 import numpy as np
 from onnx import TensorProto, helper
 
+import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.general import GiveUniqueNodeNames, GiveReadableTensorNames
+from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.insert_topk import InsertTopK
 from finn.transformation.streamline.absorb import AbsorbScalarMulAddIntoTopK
-import finn.core.onnx_exec as oxe
+
 
 # parameter to indicate if mul parameter is negative or positive
 @pytest.mark.parametrize("mul_positive", [True, False])

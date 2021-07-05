@@ -27,8 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import copy
-
 from onnx import helper
+
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name, make_build_dir

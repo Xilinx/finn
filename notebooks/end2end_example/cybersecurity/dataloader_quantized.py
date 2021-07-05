@@ -26,12 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import torch
-import pandas as pd
+import math
 import numpy as np
+import pandas as pd
+import torch
 from sklearn import preprocessing
 from sklearn.preprocessing import OneHotEncoder
-import math
 
 # quantize the UNSW_NB15 dataset and convert it to binary vectors
 # reimplementation
@@ -112,7 +112,7 @@ class UNSW_NB15_quantized(torch.utils.data.Dataset):
 
     def round_like_matlab_number(self, n: np.float64) -> int:
         """Round the input "n" like matlab uint32(n) cast (which also rounds) e.g.
-        0.5->1;  1.5->2; 2.3->2;   2.45->2 """
+        0.5->1;  1.5->2; 2.3->2;   2.45->2"""
         if n - math.floor(n) < 0.5:
             return math.floor(n)
         return math.ceil(n)

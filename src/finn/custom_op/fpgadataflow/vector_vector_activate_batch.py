@@ -1,20 +1,21 @@
-import os
-import numpy as np
 import math
+import numpy as np
+import os
+import warnings
 from onnx import TensorProto, helper
+
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import (
+    calculate_matvec_accumulator_range,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
-    calculate_matvec_accumulator_range,
 )
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
     rtlsim_output_to_npy,
 )
-import warnings
 
 
 class Vector_Vector_Activate_Batch(HLSCustomOp):

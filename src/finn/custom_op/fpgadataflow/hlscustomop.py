@@ -27,22 +27,24 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # namespace package, extend path
 
-from abc import abstractmethod
 import numpy as np
 import os
 import subprocess
+from abc import abstractmethod
+
 from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
+    get_rtlsim_trace_depth,
     make_build_dir,
     roundup_to_integer_multiple,
-    get_rtlsim_trace_depth,
 )
+from finn.util.hls import CallHLS
 from finn.util.pyverilator import (
     pyverilate_get_liveness_threshold_cycles,
     rtlsim_multi_io,
 )
-from finn.util.hls import CallHLS
+
 from . import templates
 
 try:

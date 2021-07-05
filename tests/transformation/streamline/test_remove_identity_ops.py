@@ -1,7 +1,8 @@
 import pytest
 
 import numpy as np
-from onnx import helper, TensorProto
+from onnx import TensorProto, helper
+
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper

@@ -35,9 +35,10 @@
     PyScaffold helps you to put up the scaffold of your new Python project.
     Learn more under: https://pyscaffold.org/
 """
-import sys
 from pkg_resources import VersionConflict, require
 from setuptools import setup
+
+import sys
 
 try:
     require("setuptools>=38.3")

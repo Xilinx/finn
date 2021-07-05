@@ -27,9 +27,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import argparse
+import numpy as np
 from driver import io_shape_dict
 from driver_base import FINNExampleOverlay
-import numpy as np
 
 
 def make_unsw_nb15_test_batches(bsize, dataset_root):

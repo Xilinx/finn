@@ -26,77 +26,76 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 import pytest
 
+import brevitas.onnx as bo
 import numpy as np
 
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
+import os
+import subprocess
 import torch
-import brevitas.onnx as bo
+import warnings
+from collections import OrderedDict
+from dataset_loading import cifar, mnist
+from datetime import datetime
+from scipy.stats import linregress
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
+from finn.core.throughput_test import throughput_test_remote, throughput_test_rtlsim
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
-
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.general import (
-    RemoveUnusedTensors,
-    RemoveStaticGraphInputs,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
+    RemoveStaticGraphInputs,
+    RemoveUnusedTensors,
 )
+from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.streamline import Streamline
-from finn.util.test import (
-    get_build_env,
-    load_test_checkpoint_or_skip,
-    get_example_input,
-    get_trained_network_and_ishape,
-    execute_parent,
-    get_topk,
-)
-from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
+from finn.transformation.insert_topk import InsertTopK
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from finn.transformation.merge_onnx_models import MergeONNXModels
+from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
+from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
-import warnings
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.core.modelwrapper import ModelWrapper
-from scipy.stats import linregress
-from finn.core.throughput_test import throughput_test_remote, throughput_test_rtlsim
-from finn.util.pytorch import ToTensor
-from finn.transformation.merge_onnx_models import MergeONNXModels
-from finn.transformation.insert_topk import InsertTopK
-from finn.core.datatype import DataType
-from dataset_loading import mnist, cifar
-from datetime import datetime
-import subprocess
 from finn.util.gdrive import upload_to_end2end_dashboard
-from collections import OrderedDict
+from finn.util.pytorch import ToTensor
+from finn.util.test import (
+    execute_parent,
+    get_build_env,
+    get_example_input,
+    get_topk,
+    get_trained_network_and_ishape,
+    load_test_checkpoint_or_skip,
+)
 
 build_dir = os.environ["FINN_BUILD_DIR"]
 target_clk_ns = 10

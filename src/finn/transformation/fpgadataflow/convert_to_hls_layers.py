@@ -27,22 +27,22 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from onnx import helper, TensorProto
 import numpy as np
 import warnings
+from onnx import TensorProto, helper
 
-from finn.core.datatype import DataType
-from finn.transformation.base import Transformation
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.general import SortGraph
 import finn.core.data_layout as DataLayout
-from finn.util.onnx import nchw_to_nhwc
-from finn.util.basic import get_by_name
+from finn.core.datatype import DataType
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
+from finn.transformation.general import SortGraph
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
+from finn.util.basic import get_by_name
+from finn.util.onnx import nchw_to_nhwc
 
 
 class InferConvInpGen(Transformation):
@@ -1039,7 +1039,7 @@ class InferAddStreamsLayer(Transformation):
 
 
 class InferDuplicateStreamsLayer(Transformation):
-    """Insert a DuplicateStreams HLS layer for any tensor with fanout == 2 """
+    """Insert a DuplicateStreams HLS layer for any tensor with fanout == 2"""
 
     def apply(self, model):
         graph = model.graph
