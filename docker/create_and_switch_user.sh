@@ -50,44 +50,18 @@ recho () {
   echo -e "${RED}ERROR: $1${NC}"
 }
 
-if [ -f "$FINN_ROOT/setup.py" ];then
-  # run pip install for finn
-  pip install --user -e $FINN_ROOT
+if [ "$FINN_SWITCH_USER" = "1" ] ; then
+  gecho "FINN Docker container will run as $FINN_USER"
+  # create specified user inside container
+  groupadd -g $FINN_GID $FINN_GNAME
+  useradd -M -u $FINN_UID $FINN_USER -g $FINN_GNAME
+  usermod -aG sudo -d /workspace $FINN_USER
+  chown $FINN_USER:$FINN_GNAME /workspace
+  echo "$FINN_USER:$FINN_PASSWD" | chpasswd
+  echo "root:$FINN_PASSWD" | chpasswd
+  runuser -u $FINN_USER -- finn_entrypoint.sh $@
 else
-  recho "Unable to find FINN source code in /workspace/finn"
-  recho "Ensure you have passed -v <path-to-finn-repo>:/workspace/finn to the docker run command"
-  exit -1
+  gecho "FINN Docker container will run as root"
+  # execute the provided command(s) as root
+  bash finn_entrypoint.sh "$@"
 fi
-
-if [ -f "$VITIS_PATH/settings64.sh" ];then
-  # source Vitis env.vars
-  export XILINX_VITIS=$VITIS_PATH
-  export XILINX_XRT=/opt/xilinx/xrt
-  source $VITIS_PATH/settings64.sh
-  gecho "Found Vitis at $VITIS_PATH"
-  if [ -f "$XILINX_XRT/setup.sh" ];then
-    # source XRT
-    source $XILINX_XRT/setup.sh
-    gecho "Found XRT at $XILINX_XRT"
-  else
-    recho "XRT not found on $XILINX_XRT, did the installation fail?"
-    exit -1
-  fi
-else
-  yecho "Unable to find $VITIS_PATH/settings64.sh"
-  yecho "Functionality dependent on Vitis will not be available."
-  yecho "If you need Vitis, ensure VITIS_PATH is set correctly and mounted into the Docker container."
-  if [ -f "$VIVADO_PATH/settings64.sh" ];then
-    # source Vivado env.vars
-    export XILINX_VIVADO=$VIVADO_PATH
-    source $VIVADO_PATH/settings64.sh
-    gecho "Found Vivado at $VIVADO_PATH"
-  else
-    yecho "Unable to find $VIVADO_PATH/settings64.sh"
-    yecho "Functionality dependent on Vivado will not be available."
-    yecho "If you need Vivado, ensure VIVADO_PATH is set correctly and mounted into the Docker container."
-  fi
-fi
-
-# execute the provided command(s) as root
-exec "$@"

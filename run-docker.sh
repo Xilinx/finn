@@ -66,21 +66,8 @@ DOCKER_GNAME=$(id -gn)
 DOCKER_UNAME=$(id -un)
 DOCKER_UID=$(id -u)
 DOCKER_PASSWD="finn"
-# generate a random number per-run to allow multiple
-# containers from the same user
-DOCKER_RND=$(shuf -i0-32768 -n1)
-# create a separate tag when Vitis enabled, since Docker image needs
-# additional dependencies installed
-if [ ! -z "$VITIS_PATH" ];then
-  DOCKER_TAG="finn_dev_vitis_${DOCKER_UNAME}"
-else
-  DOCKER_TAG="finn_dev_${DOCKER_UNAME}"
-fi
-# uncomment to run multiple instances with different names
-# DOCKER_INST_NAME="finn_${DOCKER_UNAME}_${DOCKER_RND}"
 DOCKER_INST_NAME="finn_dev_${DOCKER_UNAME}"
-# ensure Docker tag and inst. name are all lowercase
-DOCKER_TAG=$(echo "$DOCKER_TAG" | tr '[:upper:]' '[:lower:]')
+# ensure Docker inst. name is all lowercase
 DOCKER_INST_NAME=$(echo "$DOCKER_INST_NAME" | tr '[:upper:]' '[:lower:]')
 # Absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -106,6 +93,9 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
+: ${FINN_DOCKER_TAG="xilinx/finn:0.6.1.$XRT_DEB_VERSION"}
+: ${FINN_DOCKER_PREBUILT="0"}
+: ${FINN_DOCKER_RUN_AS_ROOT="0"}
 
 DOCKER_INTERACTIVE=""
 DOCKER_EXTRA=""
@@ -123,7 +113,7 @@ elif [ "$1" = "notebook" ]; then
   else
     JUPYTER_PASSWD_ARG="--NotebookApp.password='$JUPYTER_PASSWD_HASH'"
   fi
-  DOCKER_CMD="jupyter notebook --no-browser --ip=0.0.0.0 --port $JUPYTER_PORT $JUPYTER_PASSWD_ARG notebooks"
+  DOCKER_CMD="jupyter notebook --allow-root --no-browser --ip=0.0.0.0 --port $JUPYTER_PORT $JUPYTER_PASSWD_ARG notebooks"
   DOCKER_EXTRA+="-e JUPYTER_PORT=$JUPYTER_PORT "
   DOCKER_EXTRA+="-e NETRON_PORT=$NETRON_PORT "
   DOCKER_EXTRA+="-p $JUPYTER_PORT:$JUPYTER_PORT "
@@ -150,7 +140,6 @@ fi
 
 VIVADO_HLS_LOCAL=$VIVADO_PATH
 VIVADO_IP_CACHE=$FINN_HOST_BUILD_DIR/vivado_ip_cache
-INSTALL_XRT_DEPS=0
 
 # ensure build dir exists locally
 mkdir -p $FINN_HOST_BUILD_DIR
@@ -161,7 +150,6 @@ gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
 gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
 if [ ! -z "$VITIS_PATH" ];then
   gecho "Mounting $VITIS_PATH into $VITIS_PATH"
-  INSTALL_XRT_DEPS=1
 fi
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
@@ -169,19 +157,13 @@ gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
 
 # Build the FINN Docker image
-# Need to ensure this is done within the finn/ root folder:
-OLD_PWD=$(pwd)
-cd $SCRIPTPATH
-docker build -f docker/Dockerfile.finn_dev --tag=$DOCKER_TAG \
-             --build-arg GID=$DOCKER_GID \
-             --build-arg GNAME=$DOCKER_GNAME \
-             --build-arg UNAME=$DOCKER_UNAME \
-             --build-arg UID=$DOCKER_UID \
-             --build-arg PASSWD=$DOCKER_PASSWD \
-             --build-arg INSTALL_XRT_DEPS=$INSTALL_XRT_DEPS \
-             --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION \
-             .
-cd $OLD_PWD
+if [ "$FINN_DOCKER_PREBUILT" = "0" ]; then
+  # Need to ensure this is done within the finn/ root folder:
+  OLD_PWD=$(pwd)
+  cd $SCRIPTPATH
+  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --tag=$FINN_DOCKER_TAG .
+  cd $OLD_PWD
+fi
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
@@ -190,7 +172,7 @@ DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
-DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/home/$DOCKER_UNAME/.ssh "
+DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/workspace/.ssh "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
@@ -201,6 +183,16 @@ DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
 DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
 DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
+if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ];then
+  DOCKER_EXEC+="-e FINN_SWITCH_USER=1 "
+  DOCKER_EXEC+="-e FINN_USER=$DOCKER_UNAME "
+  DOCKER_EXEC+="-e FINN_GNAME=$DOCKER_GNAME "
+  DOCKER_EXEC+="-e FINN_UID=$DOCKER_UID "
+  DOCKER_EXEC+="-e FINN_GID=$DOCKER_GID "
+  DOCKER_EXEC+="-e FINN_PASSWD=$DOCKER_PASSWD "
+else
+  DOCKER_EXEC+="-e FINN_SWITCH_USER=0 "
+fi
 if [ ! -z "$IMAGENET_VAL_PATH" ];then
   DOCKER_EXEC+="-v $IMAGENET_VAL_PATH:$IMAGENET_VAL_PATH "
   DOCKER_EXEC+="-e IMAGENET_VAL_PATH=$IMAGENET_VAL_PATH "
@@ -226,6 +218,6 @@ if [ ! -z "$VITIS_PATH" ];then
   DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
 fi
 DOCKER_EXEC+="$DOCKER_EXTRA "
-DOCKER_EXEC+="$DOCKER_TAG $DOCKER_CMD"
+DOCKER_EXEC+="$FINN_DOCKER_TAG $DOCKER_CMD"
 
 $DOCKER_EXEC

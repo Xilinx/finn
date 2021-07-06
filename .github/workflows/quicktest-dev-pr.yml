@@ -19,5 +19,5 @@ jobs:
 
       - name: DockerRunQuicktest
         run: |
-          docker build -t finn_gha -f docker/Dockerfile.finn_ci --build-arg BUILD_PATH=/tmp/finn_gha .
+          docker build -t finn_gha -f docker/Dockerfile.finn .
           docker run --init --hostname finn_gha -v $(pwd):/workspace/finn -e FINN_BUILD_DIR=/tmp/finn_gha -e FINN_INST_NAME=finn_gha finn_gha quicktest.sh
