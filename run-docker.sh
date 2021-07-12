@@ -167,7 +167,7 @@ fi
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-DOCKER_EXEC="docker run -t --rm $DOCKER_INTERACTIVE --init "
+DOCKER_EXEC="docker run -t --rm $DOCKER_INTERACTIVE --tty --init "
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
@@ -184,14 +184,11 @@ DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
 DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ];then
-  DOCKER_EXEC+="-e FINN_SWITCH_USER=1 "
-  DOCKER_EXEC+="-e FINN_USER=$DOCKER_UNAME "
-  DOCKER_EXEC+="-e FINN_GNAME=$DOCKER_GNAME "
-  DOCKER_EXEC+="-e FINN_UID=$DOCKER_UID "
-  DOCKER_EXEC+="-e FINN_GID=$DOCKER_GID "
-  DOCKER_EXEC+="-e FINN_PASSWD=$DOCKER_PASSWD "
-else
-  DOCKER_EXEC+="-e FINN_SWITCH_USER=0 "
+  DOCKER_EXEC+="-v /etc/group:/etc/group:ro "
+  DOCKER_EXEC+="-v /etc/passwd:/etc/passwd:ro "
+  DOCKER_EXEC+="-v /etc/shadow:/etc/shadow:ro "
+  DOCKER_EXEC+="-v /etc/sudoers.d:/etc/sudoers.d:ro "
+  DOCKER_EXEC+="--user $DOCKER_UID:$DOCKER_GID "
 fi
 if [ ! -z "$IMAGENET_VAL_PATH" ];then
   DOCKER_EXEC+="-v $IMAGENET_VAL_PATH:$IMAGENET_VAL_PATH "
