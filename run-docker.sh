@@ -93,7 +93,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${PLATFORM_REPO_PATHS="/opt/xilinx/platforms"}
 : ${XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"}
 : ${FINN_HOST_BUILD_DIR="/tmp/$DOCKER_INST_NAME"}
-: ${FINN_DOCKER_TAG="xilinx/finn:0.6.1.$XRT_DEB_VERSION"}
+: ${FINN_DOCKER_TAG="xilinx/finn:$(git describe --tags --dirty).$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
 : ${FINN_DOCKER_GPU="docker info | grep nvidia | wc -m"}
@@ -152,6 +152,7 @@ mkdir -p $FINN_HOST_BUILD_DIR
 mkdir -p $FINN_SSH_KEY_DIR
 
 gecho "Docker container is named $DOCKER_INST_NAME"
+gecho "Docker tag is named $FINN_DOCKER_TAG"
 gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
 gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
 if [ ! -z "$VITIS_PATH" ];then
