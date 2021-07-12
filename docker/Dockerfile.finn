@@ -137,8 +137,7 @@ WORKDIR /workspace/finn
 COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/create_and_switch_user.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
-RUN chmod 755 /usr/local/bin/create_and_switch_user.sh
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
-ENTRYPOINT ["create_and_switch_user.sh"]
+ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]
