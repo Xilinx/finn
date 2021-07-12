@@ -96,6 +96,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_TAG="xilinx/finn:0.6.1.$XRT_DEB_VERSION"}
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
+: ${FINN_DOCKER_GPU="docker info | grep nvidia | wc -m"}
 
 DOCKER_INTERACTIVE=""
 DOCKER_EXTRA=""
@@ -136,6 +137,11 @@ else
   gecho "Running container only"
   DOCKER_CMD="bash"
   DOCKER_INTERACTIVE="-it"
+fi
+
+if [ "$FINN_DOCKER_GPU" != 0 ];then
+  gecho "nvidia-docker detected, enabling GPUs"
+  DOCKER_EXTRA+="--gpus all"
 fi
 
 VIVADO_HLS_LOCAL=$VIVADO_PATH
