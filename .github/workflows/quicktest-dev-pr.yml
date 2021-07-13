@@ -34,6 +34,7 @@ jobs:
           file: docker/Dockerfile.finn
           context: .
           push: false
+          load: true
           tags: finn_gha
           cache-from: type=local,src=/tmp/.buildx-cache
           cache-to: type=local,dest=/tmp/.buildx-cache-new
