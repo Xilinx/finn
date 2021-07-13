@@ -57,6 +57,8 @@ class SynthOutOfContext(Transformation):
         for file in all_verilog_srcs:
             if file.endswith(".v"):
                 copy2(file, build_dir)
+            if file.endswith(".vh"):
+                copy2(file, build_dir)
         ret = out_of_context_synth(
             build_dir, top_module_name, self.part, self.clk_name, self.clk_period_ns
         )
