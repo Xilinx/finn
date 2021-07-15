@@ -63,50 +63,6 @@ RUN wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSIO
 RUN apt install -y /tmp/$XRT_DEB_VERSION.deb
 RUN rm /tmp/$XRT_DEB_VERSION.deb
 
-# git-based dependencies for Python
-# these are installed in editable mode for easier co-development
-# finn-base
-RUN git clone https://github.com/Xilinx/finn-base.git /workspace/finn-base
-RUN git -C /workspace/finn-base checkout ac0b86a63eb937b869bfa453a996a8a8b8506546
-RUN pip install -e /workspace/finn-base
-# finn-experimental
-RUN git clone https://github.com/Xilinx/finn-experimental.git /workspace/finn-experimental
-RUN git -C /workspace/finn-experimental checkout f82c0d9868bb88ea045dfadb28508d327d287221
-RUN pip install -e /workspace/finn-experimental
-# brevitas
-RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
-RUN git -C /workspace/brevitas checkout 462f86cdc60f9915baf13afd1676fb21da44c2ee
-RUN pip install -e /workspace/brevitas
-# pyverilator
-RUN git clone https://github.com/maltanar/pyverilator.git /workspace/pyverilator
-RUN git -C /workspace/pyverilator checkout e2ff74030de3992dcac54bf1b6aad2915946e8cb
-RUN pip install -e /workspace/pyverilator
-# other git-based dependencies (non-Python)
-# cnpy
-RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
-RUN git -C /workspace/cnpy checkout 4e8810b1a8637695171ed346ce68f6984e585ef4
-# finn-hlslib
-RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
-RUN git -C /workspace/finn-hlslib checkout 4d74baefa79df48b5a0348d63f39a26df075de51
-# oh-my-xilinx
-RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
-RUN git -C /workspace/oh-my-xilinx checkout 1bae737669901e762f581af73348332b5c4b2ada
-# board files
-RUN cd /tmp; \
-    wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip; \
-    wget -q https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip; \
-    unzip -q pynq-z1.zip; \
-    unzip -q pynq-z2.zip; \
-    mkdir /workspace/board_files; \
-    mv pynq-z1/ /workspace/board_files/; \
-    mv pynq-z2/ /workspace/board_files/; \
-    rm pynq-z1.zip; \
-    rm pynq-z2.zip; \
-    git clone https://github.com/Avnet/bdf.git /workspace/avnet-bdf; \
-    git -C /workspace/avnet-bdf checkout 2d49cfc25766f07792c0b314489f21fe916b639b; \
-    mv /workspace/avnet-bdf/* /workspace/board_files/;
-
-
 # versioned Python package requirements for FINN compiler
 # these are given in requirements.txt
 COPY requirements.txt .
@@ -114,6 +70,7 @@ RUN pip install -r requirements.txt
 RUN rm requirements.txt
 # extra Python package dependencies (for testing and interaction)
 RUN pip install pygments==2.4.1
+RUN pip install ipykernel==5.5.5
 RUN pip install jupyter==1.0.0
 RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1
@@ -126,6 +83,58 @@ RUN pip install pandas==1.1.5
 RUN pip install scikit-learn==0.24.1
 RUN pip install tqdm==4.31.1
 RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
+
+# git-based Python repo dependencies
+# these are installed in editable mode for easier co-development
+ARG FINN_BASE_COMMIT="ac0b86a63eb937b869bfa453a996a8a8b8506546"
+ARG FINN_EXP_COMMIT="f82c0d9868bb88ea045dfadb28508d327d287221"
+ARG BREVITAS_COMMIT="462f86cdc60f9915baf13afd1676fb21da44c2ee"
+ARG PYVERILATOR_COMMIT="e2ff74030de3992dcac54bf1b6aad2915946e8cb"
+ARG CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
+ARG HLSLIB_COMMIT="4d74baefa79df48b5a0348d63f39a26df075de51"
+ARG OMX_COMMIT="1dfc4aa2f2895632742cd5751520c6b472feb74e"
+ARG AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
+# finn-base
+RUN git clone https://github.com/Xilinx/finn-base.git /workspace/finn-base
+RUN git -C /workspace/finn-base checkout $FINN_BASE_COMMIT
+RUN pip install -e /workspace/finn-base
+# finn-experimental
+RUN git clone https://github.com/Xilinx/finn-experimental.git /workspace/finn-experimental
+RUN git -C /workspace/finn-experimental checkout $FINN_EXP_COMMIT
+RUN pip install -e /workspace/finn-experimental
+# brevitas
+RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
+RUN git -C /workspace/brevitas checkout $BREVITAS_COMMIT
+RUN pip install -e /workspace/brevitas
+# pyverilator
+RUN git clone https://github.com/maltanar/pyverilator.git /workspace/pyverilator
+RUN git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT
+RUN pip install -e /workspace/pyverilator
+# other git-based dependencies (non-Python)
+# cnpy
+RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
+RUN git -C /workspace/cnpy checkout $CNPY_COMMIT
+# finn-hlslib
+RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
+RUN git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT
+# oh-my-xilinx
+RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
+RUN git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT
+# board files
+RUN cd /tmp; \
+    wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip; \
+    wget -q https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip; \
+    unzip -q pynq-z1.zip; \
+    unzip -q pynq-z2.zip; \
+    mkdir /workspace/board_files; \
+    mv pynq-z1/ /workspace/board_files/; \
+    mv pynq-z2/ /workspace/board_files/; \
+    rm pynq-z1.zip; \
+    rm pynq-z2.zip; \
+    git clone https://github.com/Avnet/bdf.git /workspace/avnet-bdf; \
+    git -C /workspace/avnet-bdf checkout  $AVNET_BDF_COMMIT; \
+    mv /workspace/avnet-bdf/* /workspace/board_files/;
+
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
