@@ -52,12 +52,11 @@ class SynthOutOfContext(Transformation):
         top_module_name = model.get_metadata_prop("wrapper_filename")
         top_module_name = file_to_basename(top_module_name).strip(".v")
         build_dir = make_build_dir("synth_out_of_context_")
+        verilog_extensions = [".v", ".vh"]
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
         for file in all_verilog_srcs:
-            if file.endswith(".v"):
-                copy2(file, build_dir)
-            if file.endswith(".vh"):
+            if any([file.endswith(x) for x in verilog_extensions]):
                 copy2(file, build_dir)
         ret = out_of_context_synth(
             build_dir, top_module_name, self.part, self.clk_name, self.clk_period_ns
