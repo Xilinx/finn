@@ -621,10 +621,6 @@ class Thresholding_Batch(HLSCustomOp):
             self.code_gen_dict["$DEFINES$"].append(
                 "#define NumSteps1 %d" % self.get_nodeattr("numSteps")
             )
-            # TODO remove once Thresholding_Stream_Batch is in hlslib:
-            self.code_gen_dict["$DEFINES$"].append(
-                templates.decoupled_thresholding_template
-            )
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -679,28 +675,32 @@ class Thresholding_Batch(HLSCustomOp):
         node = self.onnx_node
         ishape = self.get_folded_input_shape()
         if len(ishape) == 3:
-            imgdim = 1
+            imgdimh = 1
+            imgdimw = 1
         elif len(ishape) == 5:
-            imgdim = ishape[1]
+            imgdimh = ishape[1]
+            imgdimw = ishape[2]
         else:
-            raise Exception("""Unexpeted input shape""")
+            raise Exception("""Unexpected input shape""")
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<{}, NumChannels1, PE1, {}, {}>
+                """{}<{}, {}, NumChannels1, PE1, {}, {}>
                 (in0, out, threshs, numReps);""".format(
                     node.op_type,
-                    imgdim,
+                    imgdimh,
+                    imgdimw,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                 )
             ]
         elif mem_mode == "decoupled":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<{}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
+                """{}<{}, {}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
                 (in0, out, weights, numReps);""".format(
                     "Thresholding_Stream_Batch",
-                    imgdim,
+                    imgdimh,
+                    imgdimw,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                 )
