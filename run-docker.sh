@@ -184,7 +184,6 @@ DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
-DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/workspace/.ssh "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
@@ -200,7 +199,10 @@ if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ];then
   DOCKER_EXEC+="-v /etc/passwd:/etc/passwd:ro "
   DOCKER_EXEC+="-v /etc/shadow:/etc/shadow:ro "
   DOCKER_EXEC+="-v /etc/sudoers.d:/etc/sudoers.d:ro "
+  DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:$HOME/.ssh "
   DOCKER_EXEC+="--user $DOCKER_UID:$DOCKER_GID "
+else
+  DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/root/.ssh "
 fi
 if [ ! -z "$IMAGENET_VAL_PATH" ];then
   DOCKER_EXEC+="-v $IMAGENET_VAL_PATH:$IMAGENET_VAL_PATH "
