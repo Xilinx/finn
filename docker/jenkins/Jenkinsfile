@@ -2,7 +2,8 @@ pipeline {
     agent any
     parameters {
         string(name: 'FINN_CI_BRANCH', defaultValue: '', description: 'FINN branch to build')
-        string(name: 'VIVADO_PATH', defaultValue: '', description: 'Path to Vivado installation')
+        string(name: 'FINN_XILINX_PATH', defaultValue: '', description: 'Path to Xilinx tool installation')
+        string(name: 'FINN_XILINX_VERSION', defaultValue: '2020.1', description: 'Xilinx tool version')
         string(name: 'PYNQ_BOARD', defaultValue: 'Pynq-Z1', description: 'PYNQ board type')
         string(name: 'PYNQ_IP', defaultValue: '', description: 'PYNQ board IP address')
         string(name: 'PYNQ_USERNAME', defaultValue: 'xilinx', description: 'PYNQ board username')
@@ -22,6 +23,8 @@ pipeline {
         DOCKER_TAG='finn_ci:$BUILD_ID'
         DOCKER_INST_NAME='finn_ci'
         BUILD_PATH='/tmp/finn_ci'
+        VIVADO_PATH=${params.FINN_XILINX_PATH}/Vivado/${params.FINN_XILINX_VERSION}
+        VITIS_PATH=${params.FINN_XILINX_PATH}/Vitis/${params.FINN_XILINX_VERSION}
     }
     stages {
         stage("Clone") {
@@ -45,10 +48,11 @@ pipeline {
                 docker run --init \
                 --hostname $DOCKER_INST_NAME \
                 -v ${params.WORKSPACE_MOUNT}:/workspace/finn \
-                -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
+                -v ${params.FINN_XILINX_PATH}:${params.FINN_XILINX_PATH}:ro \
                 -e NUM_DEFAULT_WORKERS=1 \
                 -e FINN_INST_NAME=$DOCKER_INST_NAME \
-                -e VIVADO_PATH=${params.VIVADO_PATH} \
+                -e VIVADO_PATH=$VIVADO_PATH \
+                -e VITIS_PATH=$VITIS_PATH \
                 -e PYNQ_BOARD=${params.PYNQ_BOARD} \
                 -e PYNQ_IP=${params.PYNQ_IP} \
                 -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
@@ -65,10 +69,11 @@ pipeline {
                 docker run --init \
                 --hostname $DOCKER_INST_NAME \
                 -v ${params.WORKSPACE_MOUNT}:/workspace/finn \
-                -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
+                -v $VIVADO_PATH:$VIVADO_PATH:ro \
                 -e NUM_DEFAULT_WORKERS=1 \
                 -e FINN_INST_NAME=$DOCKER_INST_NAME \
-                -e VIVADO_PATH=${params.VIVADO_PATH} \
+                -e VIVADO_PATH=$VIVADO_PATH \
+                -e VITIS_PATH=$VITIS_PATH \
                 -e PYNQ_BOARD=${params.PYNQ_BOARD} \
                 -e PYNQ_IP=${params.PYNQ_IP} \
                 -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
@@ -85,10 +90,11 @@ pipeline {
                 docker run --init \
                 --hostname $DOCKER_INST_NAME \
                 -v ${params.WORKSPACE_MOUNT}:/workspace/finn \
-                -v ${params.VIVADO_PATH}:${params.VIVADO_PATH}:ro \
+                -v $VIVADO_PATH:$VIVADO_PATH:ro \
                 -e NUM_DEFAULT_WORKERS=${params.NUM_DEFAULT_WORKERS} \
                 -e FINN_INST_NAME=$DOCKER_INST_NAME \
-                -e VIVADO_PATH=${params.VIVADO_PATH} \
+                -e VIVADO_PATH=$VIVADO_PATH \
+                -e VITIS_PATH=$VITIS_PATH \
                 -e PYNQ_BOARD=${params.PYNQ_BOARD} \
                 -e PYNQ_IP=${params.PYNQ_IP} \
                 -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \

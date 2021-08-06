@@ -41,24 +41,19 @@ recho () {
   echo -e "${RED}$1${NC}"
 }
 
-if [ -z "$VIVADO_PATH" ];then
-  recho "Please set the VIVADO_PATH that contains the path to your Vivado installation directory."
-  recho "FINN functionality depending on Vivado or Vivado HLS will not be available."
+if [ -z "$FINN_XILINX_PATH" ];then
+  recho "Please set the FINN_XILINX_PATH environment variable to the path to your Xilinx tools installation directory (e.g. /opt/Xilinx)."
+  recho "FINN functionality depending on Vivado, Vitis or HLS will not be available."
 fi
 
-if [ -z "$PYNQ_IP" ];then
-  recho "Please set the PYNQ_IP env.var. to enable PYNQ deployment tests."
+if [ -z "$FINN_XILINX_VERSION" ];then
+  recho "Please set the FINN_XILINX_VERSION to the version of the Xilinx tools to use (e.g. 2020.1)"
+  recho "FINN functionality depending on Vivado, Vitis or HLS will not be available."
 fi
 
-if [ -z "$VITIS_PATH" ];then
-  recho "Please set the VITIS_PATH that contains the path to your Vitis installation directory."
-  recho "FINN functionality depending on Vitis will not be available."
-else
-  if [ -z "$PLATFORM_REPO_PATHS" ];then
-    recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
-    recho "This is required to be able to use Vitis."
-    exit -1
-  fi
+if [ -z "$PLATFORM_REPO_PATHS" ];then
+  recho "Please set PLATFORM_REPO_PATHS pointing to Vitis platform files (DSAs)."
+  recho "This is required to be able to use Alveo PCIe cards."
 fi
 
 DOCKER_GID=$(id -g)
@@ -84,7 +79,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${PYNQ_PASSWORD="xilinx"}
 : ${PYNQ_BOARD="Pynq-Z1"}
 : ${PYNQ_TARGET_DIR="/home/xilinx/$DOCKER_INST_NAME"}
-: ${NUM_DEFAULT_WORKERS=1}
+: ${NUM_DEFAULT_WORKERS=4}
 : ${FINN_SSH_KEY_DIR="$SCRIPTPATH/ssh_keys"}
 : ${ALVEO_USERNAME="alveo_user"}
 : ${ALVEO_PASSWORD=""}
@@ -98,6 +93,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
 : ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
 : ${NVIDIA_VISIBLE_DEVICES=""}
+: ${DOCKER_BUILDKIT="1"}
 
 DOCKER_INTERACTIVE=""
 DOCKER_EXTRA=""
@@ -159,10 +155,7 @@ mkdir -p $FINN_SSH_KEY_DIR
 gecho "Docker container is named $DOCKER_INST_NAME"
 gecho "Docker tag is named $FINN_DOCKER_TAG"
 gecho "Mounting $FINN_HOST_BUILD_DIR into $FINN_HOST_BUILD_DIR"
-gecho "Mounting $VIVADO_PATH into $VIVADO_PATH"
-if [ ! -z "$VITIS_PATH" ];then
-  gecho "Mounting $VITIS_PATH into $VITIS_PATH"
-fi
+gecho "Mounting $FINN_XILINX_PATH into $FINN_XILINX_PATH"
 gecho "Port-forwarding for Jupyter $JUPYTER_PORT:$JUPYTER_PORT"
 gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
@@ -184,7 +177,6 @@ DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
-DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/workspace/.ssh "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
@@ -200,31 +192,35 @@ if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ];then
   DOCKER_EXEC+="-v /etc/passwd:/etc/passwd:ro "
   DOCKER_EXEC+="-v /etc/shadow:/etc/shadow:ro "
   DOCKER_EXEC+="-v /etc/sudoers.d:/etc/sudoers.d:ro "
+  DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:$HOME/.ssh "
   DOCKER_EXEC+="--user $DOCKER_UID:$DOCKER_GID "
+else
+  DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/root/.ssh "
 fi
 if [ ! -z "$IMAGENET_VAL_PATH" ];then
   DOCKER_EXEC+="-v $IMAGENET_VAL_PATH:$IMAGENET_VAL_PATH "
   DOCKER_EXEC+="-e IMAGENET_VAL_PATH=$IMAGENET_VAL_PATH "
 fi
-if [ ! -z "$VIVADO_PATH" ];then
-  DOCKER_EXEC+="-e "XILINX_VIVADO=$VIVADO_PATH" "
-  DOCKER_EXEC+="-v $VIVADO_PATH:$VIVADO_PATH "
-  DOCKER_EXEC+="-e VIVADO_PATH=$VIVADO_PATH "
-fi
-if [ ! -z "$VITIS_PATH" ];then
-  if [ -z "$PLATFORM_REPO_PATHS" ];then
-    recho "PLATFORM_REPO_PATHS must be set for Vitis/Alveo flows"
-    exit -1
+if [ ! -z "$FINN_XILINX_PATH" ];then
+  VIVADO_PATH="$FINN_XILINX_PATH/Vivado/$FINN_XILINX_VERSION"
+  VITIS_PATH="$FINN_XILINX_PATH/Vitis/$FINN_XILINX_VERSION"
+  DOCKER_EXEC+="-v $FINN_XILINX_PATH:$FINN_XILINX_PATH "
+  if [ -d "$VIVADO_PATH" ];then
+    DOCKER_EXEC+="-e "XILINX_VIVADO=$VIVADO_PATH" "
+    DOCKER_EXEC+="-e VIVADO_PATH=$VIVADO_PATH "
   fi
-  DOCKER_EXEC+="-v $VITIS_PATH:$VITIS_PATH "
-  DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
-  DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
-  DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
-  DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
-  DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
-  DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
-  DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
-  DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
+  if [ -d "$VITIS_PATH" ];then
+    DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
+  fi
+  if [ -d "$PLATFORM_REPO_PATHS" ];then
+    DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
+    DOCKER_EXEC+="-e PLATFORM_REPO_PATHS=$PLATFORM_REPO_PATHS "
+    DOCKER_EXEC+="-e ALVEO_IP=$ALVEO_IP "
+    DOCKER_EXEC+="-e ALVEO_USERNAME=$ALVEO_USERNAME "
+    DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
+    DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
+    DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
+  fi
 fi
 DOCKER_EXEC+="$DOCKER_EXTRA "
 DOCKER_EXEC+="$FINN_DOCKER_TAG $DOCKER_CMD"
