@@ -53,12 +53,10 @@ def showInNetron(model_filename: str, localhost_url: str = None, port: int = Non
     :return: The IFrame displaying the ONNX model.
     :rtype: IPython.lib.display.IFrame
     """
-    if port is None:
-        try:
-            port = int(os.environ["NETRON_PORT"])
-        except KeyError:
-            port = 8081
-    if localhost_url is None:
-        localhost_url = os.getenv("LOCALHOST_URL", default="localhost")
+    try:
+        port = port or int(os.getenv("NETRON_PORT", default="8081"))
+    except ValueError:
+        port = 8081
+    localhost_url = localhost_url or os.getenv("LOCALHOST_URL", default="localhost")
     netron.start(model_filename, address=("0.0.0.0", port), browse=False)
     return IFrame(src=f"http://{localhost_url}:{port}/", width="100%", height=400)
