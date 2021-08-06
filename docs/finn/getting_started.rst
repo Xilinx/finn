@@ -46,25 +46,22 @@ by using the "advanced mode" described in the :ref:`command_line` section.
 
 Running FINN in Docker
 ======================
-We use Docker extensively for developing and deploying FINN. If you are not familiar with Docker, there are many excellent `online resources <https://docker-curriculum.com/>`_ to get started. There is a Dockerfile in the root of the repository, as well as a `run-docker.sh` script that can be launched in the following modes:
+FINN only running inside a Docker container, and comes with a script to easily build and launch the container. If you are not familiar with Docker, there are many excellent `online resources <https://docker-curriculum.com/>`_ to get started.
+You may want to review the :ref:`General FINN Docker tips` and :ref:`Environment variables` as well.
+If you want to use prebuilt images, read :ref:`Using a prebuilt image`.
+The ``run-docker.sh`` script that can be launched in the following modes:
 
-Getting an interactive shell for development or experimentation
-***************************************************************
-.. warning:: Do not use ``sudo`` to launch the FINN Docker. Instead, setup Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
+Launch interactive shell
+************************
+Simply running sh run-docker.sh without any additional arguments will create a Docker container with all dependencies and give you a terminal with you can use for development for experimentation:
 
 ::
 
   bash ./run_docker.sh
 
-Simply running sh run-docker.sh without any additional arguments will clone the dependency repos, create a Docker container and give you a terminal with you can use for development for experimentation.
-If you want a new terminal on an already-running container, you can do this with `docker exec -it finn_dev_<username> bash`.
 
-.. warning:: The Docker container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the /workspace/finn folder (which is mounted from the host computer) or otherwise backed up.
-
-.. note:: **Develop from host, run inside container:** The FINN repository directory will be mounted from the host, so that you can use a text editor on your host computer to develop and the changes will be reflected directly inside the container.
-
-Command Line Entry
-*******************
+Launch a Build with ``build_dataflow``
+**************************************
 FINN is currently more compiler infrastructure than compiler, but we do offer
 a :ref:`command_line` entry for certain use-cases. These run a predefined flow
 or a user-defined flow from the command line as follows:
@@ -75,16 +72,17 @@ or a user-defined flow from the command line as follows:
   bash ./run_docker.sh build_custom <path/to/custom_build_dir/>
 
 
-Running the Jupyter notebooks
-*****************************
+Launch Jupyter notebooks
+************************
+FINN comes with numerous Jupyter notebook tutorials, which you can launch with:
+
 ::
 
   bash ./run-docker.sh notebook
 
 This will launch the `Jupyter notebook <https://jupyter.org/>`_ server inside a Docker container, and print a link on the terminal that you can open in your browser to run the FINN notebooks or create new ones.
 .. note:: The link will look something like this (the token you get will be different):
-http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc
-
+http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc.
 The ``run-docker.sh`` script forwards ports 8888 for Jupyter and 8081 for Netron, and launches the notebook server with appropriate arguments.
 
 
@@ -94,26 +92,46 @@ Environment variables
 Prior to running the `run-docker.sh` script, there are several environment variables you can set to configure certain aspects of FINN.
 These are summarized below:
 
-* ``FINN_XILINX_PATH`` points to your Xilinx tools installation on the host (e.g. ``/opt/Xilinx``)
-* ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2020.1``)
-* (optional, for Vitis & Alveo only) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
-* (optional, for Vitis & Alveo only) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
+* (required) ``FINN_XILINX_PATH`` points to your Xilinx tools installation on the host (e.g. ``/opt/Xilinx``)
+* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2020.1``)
+* (required for Alveo) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
+* (required for Alveo) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
+* (optional) ``NUM_DEFAULT_WORKERS`` (default 4) specifies the degree of parallelization for the transformations that can be run in parallel, potentially reducing build time
+* (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
 * (optional) ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
 * (optional) ``JUPYTER_PASSWD_HASH`` (default "") Set the Jupyter notebook password hash. If set to empty string, token authentication will be used (token printed in terminal on launch).
 * (optional) ``LOCALHOST_URL`` (default localhost) sets the base URL for accessing e.g. Netron from inside the container. Useful when running FINN remotely.
 * (optional) ``NETRON_PORT`` (default 8081) changes the port for Netron inside Docker
-* (optional) ``NUM_DEFAULT_WORKERS`` (default 1) specifies the degree of parallelization for the transformations that can be run in parallel
 * (optional) ``PYNQ_BOARD`` or ``ALVEO_BOARD`` specifies the type of PYNQ/Alveo board used (see "supported hardware" below) for the test suite
 * (optional) ``PYNQ_IP`` and ``PYNQ_PORT`` (or ``ALVEO_IP`` and ``ALVEO_PORT``) specify ip address and port number to access the PYNQ board / Alveo target
 * (optional) ``PYNQ_USERNAME`` and ``PYNQ_PASSWORD`` (or ``ALVEO_USERNAME`` and ``ALVEO_PASSWORD``) specify the PYNQ board / Alveo host access credentials for the test suite. For PYNQ, password is always needed to run as sudo. For Alveo, you can leave the password empty and place your ssh private key in the ``finn/ssh_keys`` folder to use keypair authentication.
 * (optional) ``PYNQ_TARGET_DIR`` (or ``ALVEO_TARGET_DIR``) specifies the target dir on the PYNQ board / Alveo host for the test suite
-* (optional) ``FINN_HOST_BUILD_DIR`` specifies which directory on the host will be used as the build directory. Defaults to ``/tmp/finn_dev_<username>``
 * (optional) ``IMAGENET_VAL_PATH`` specifies the path to the ImageNet validation directory for tests.
 * (optional) ``FINN_DOCKER_PREBUILT`` (default 0) if set to 1 then skip Docker image building and use the image tagged with ``FINN_DOCKER_TAG``.
+* (optional) ``FINN_DOCKER_TAG`` (autogenerated) specifies the Docker image tag to use.
 * (optional) ``FINN_DOCKER_RUN_AS_ROOT`` (default 0) if set to 1 then run Docker container as root, default is the current user.
 * (optional) ``FINN_DOCKER_GPU`` (autodetected) if not 0 then expose all Nvidia GPUs or those selected by ``NVIDIA_VISIBLE_DEVICES`` to Docker container for accelerated DNN training. Requires `Nvidia Container Toolkit <https://github.com/NVIDIA/nvidia-docker>`_
 * (optional) ``NVIDIA_VISIBLE_DEVICES`` (default "") specifies specific Nvidia GPUs to use in Docker container. Possible values are a comma-separated list of GPU UUID(s) or index(es) e.g. ``0,1,2``, ``all``, ``none``, or void/empty/unset.
 * (optional) ``DOCKER_BUILDKIT`` (default "1") enables `Docker BuildKit <https://docs.docker.com/develop/develop-images/build_enhancements/>`_ for faster Docker image rebuilding (recommended).
+
+General FINN Docker tips
+************************
+* Several folders including the root directory of the FINN compiler and the ``FINN_HOST_BUILD_DIR`` will be mounted into the Docker container and can be used to exchange files.
+* Do not use ``sudo`` to launch the FINN Docker. Instead, setup Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_.
+* If you want a new terminal on an already-running container, you can do this with `docker exec -it <name_of_container> bash`.
+* The container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the /workspace/finn folder (which is mounted from the host computer) or otherwise backed up.
+
+Using a prebuilt image
+**********************
+
+By default the ``run-docker.sh`` script tries to re-build the Docker image with each run. After the first run this should go quite fast thanks to Docker caching.
+If you are having trouble building the Docker image or need offline access, you can use prebuilt images by following these steps:
+
+1. Pull a prebuilt Docker image with ``docker pull maltanar/finn:<tag>`` where ``<tag>`` can be ``dev_latest`` or ``main_latest``
+2. Set the ``FINN_DOCKER_TAG`` to the name of the image you just pulled e.g. ``FINN_DOCKER_TAG=maltanar/finn:dev_latest``
+3. Set ``FINN_DOCKER_PREBUILT=1``
+4. You can now launch the Docker image in all modes without re-building or any internet access.
+
 
 Supported FPGA Hardware
 =======================
