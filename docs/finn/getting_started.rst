@@ -8,7 +8,7 @@ Quickstart
 ==========
 
 1. Install Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-2. Set up a ``VIVADO_PATH`` environment variable pointing to the Vivado installation directory (e.g. the directory where ``settings64.sh`` is located)
+2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2020.1``)
 3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
 4. Execute ``./run-docker.sh quicktest`` to verify your installation.
 5. Optionally, follow the instructions on :ref:`PYNQ board first-time setup` or :ref:`Alveo first-time setup` for board setup.
@@ -94,8 +94,9 @@ Environment variables
 Prior to running the `run-docker.sh` script, there are several environment variables you can set to configure certain aspects of FINN.
 These are summarized below:
 
-* ``VIVADO_PATH`` points to your Vivado installation on the host
-* (optional, for Vitis & Alveo only) ``VITIS_PATH``, and ``PLATFORM_REPO_PATHS`` respectively point to your Vitis installation, and the Vitis platform files.
+* ``FINN_XILINX_PATH`` points to your Xilinx tools installation on the host (e.g. ``/opt/Xilinx``)
+* ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2020.1``)
+* (optional, for Vitis & Alveo only) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
 * (optional, for Vitis & Alveo only) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
 * (optional) ``JUPYTER_PORT`` (default 8888) changes the port for Jupyter inside Docker
 * (optional) ``JUPYTER_PASSWD_HASH`` (default "") Set the Jupyter notebook password hash. If set to empty string, token authentication will be used (token printed in terminal on launch).
@@ -112,6 +113,7 @@ These are summarized below:
 * (optional) ``FINN_DOCKER_RUN_AS_ROOT`` (default 0) if set to 1 then run Docker container as root, default is the current user.
 * (optional) ``FINN_DOCKER_GPU`` (autodetected) if not 0 then expose all Nvidia GPUs or those selected by ``NVIDIA_VISIBLE_DEVICES`` to Docker container for accelerated DNN training. Requires `Nvidia Container Toolkit <https://github.com/NVIDIA/nvidia-docker>`_
 * (optional) ``NVIDIA_VISIBLE_DEVICES`` (default "") specifies specific Nvidia GPUs to use in Docker container. Possible values are a comma-separated list of GPU UUID(s) or index(es) e.g. ``0,1,2``, ``all``, ``none``, or void/empty/unset.
+* (optional) ``DOCKER_BUILDKIT`` (default "1") enables `Docker BuildKit <https://docs.docker.com/develop/develop-images/build_enhancements/>`_ for faster Docker image rebuilding (recommended).
 
 Supported FPGA Hardware
 =======================

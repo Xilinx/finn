@@ -93,6 +93,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
 : ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
 : ${NVIDIA_VISIBLE_DEVICES=""}
+: ${DOCKER_BUILDKIT="1"}
 
 DOCKER_INTERACTIVE=""
 DOCKER_EXTRA=""
