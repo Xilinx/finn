@@ -4,68 +4,45 @@
 Getting Started
 ***************
 
-How to use the FINN compiler
-============================
-Currently, it's best to think of the FINN compiler as *compiler infrastructure*
-instead of a full *compiler* like `gcc` (although the aim is to get there).
-Although we provide a :ref:`command_line` entry for building dataflow
-accelerators, this only exposes a basic flow that works for simpler networks.
-A better way of looking at the FINN compiler is as a collection of scripts/tools that will help
-you convert a QNN into a custom FPGA accelerator that performs high-performance inference.
+Quickstart
+==========
 
-**So where do I get started?** The best way of getting started with the FINN
-compiler is to follow the existing
-`Jupyter notebooks <tutorials>`_ and check out the prebuilt
-`examples <https://github.com/Xilinx/finn-examples>`_.
+1. Install Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
+2. Set up a ``VIVADO_PATH`` environment variable pointing to the Vivado installation directory (e.g. the directory where ``settings64.sh`` is located)
+3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
+4. Execute ``./run-docker.sh quicktest`` to verify your installation.
+5. Optionally, follow the instructions on :ref:`PYNQ board first-time setup` or :ref:`Alveo first-time setup` for board setup.
+6. All done! See :ref:`Running FINN in Docker` for the various options on how to run the FINN compiler.
 
-**How do I compile my custom network?**
-This depends on how similar your custom network is to the examples we provide.
+
+How do I use FINN?
+==================
+
+We strongly recommend that you first watch one of the pre-recorded `FINN tutorial <https://www.youtube.com/watch?v=zw2aG4PhzmA&amp%3Bindex=2>`_
+videos, then follow the Jupyter notebook tutorials for `training and deploying an MLP for network intrusion detection <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/cybersecurity>`_ .
+You may also want to check out the other :ref:`tutorials`, and the `FINN examples repository <https://github.com/Xilinx/finn-examples>`_ .
+
+Our aim in FINN is *not* to accelerate common off-the-shelf neural networks, but instead provide you with a set of tools
+to train *customized* networks and create highly-efficient FPGA implementations from them.
+In general, the approach for using the FINN framework is as follows:
+
+1. Train your own quantized neural network (QNN) in `Brevitas <https://github.com/Xilinx/brevitas>`_. We have some `guidelines <https://bit.ly/finn-hls4ml-qat-guidelines>`_ on quantization-aware training (QAT).
+2. Export to FINN-ONNX by following `this tutorial <https://github.com/Xilinx/finn/blob/master/notebooks/basics/1_brevitas_network_import.ipynb>`_ .
+3. Use FINN's ``build_dataflow`` system on the exported model by following `this tutorial <https://github.com/Xilinx/finn/blob/master/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_
+4. Adjust your QNN topology, quantization settings and ``build_dataflow`` configuration to get the desired results.
+
+Please note that the framework is still under development, and how well this works will depend on how similar your custom network is to the examples we provide.
 If there are substantial differences, you will most likely have to write your own
 Python scripts that call the appropriate FINN compiler
 functions that process your design correctly, or adding new functions (including
 Vivado HLS layers)
 as required.
-For custom networks, we recommend making a copy of the end-to-end
-Jupyter notebook as a starting point, visualizing the model at intermediate
+The `advanced FINN tutorials <https://github.com/Xilinx/finn/tree/master/notebooks/advanced>`_ can be useful here.
+For custom networks, we recommend making a copy of the `BNN-PYNQ end-to-end
+Jupyter notebook tutorials <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/bnn-pynq>`_ as a starting point, visualizing the model at intermediate
 steps and adding calls to new transformations as needed.
 Once you have a working flow, you can implement a command line entry for this
 by using the "advanced mode" described in the :ref:`command_line` section.
-
-
-
-
-System Requirements
-====================
-
-* Ubuntu 18.04 with ``bash`` installed
-* Docker `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-* A working Vivado 2019.1 or 2020.1 installation
-* A ``VIVADO_PATH`` environment variable pointing to the Vivado installation directory (e.g. the directory where settings64.sh is located)
-* *(optional)* A PYNQ board with a network connection, see `PYNQ board first-time setup`_ below
-* *(optional)* An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ below)
-
-We also recommend running the FINN compiler on a system with sufficiently
-strong hardware:
-
-* **RAM.** Depending on your target FPGA platform, your system must have sufficient RAM to be
-  able to run Vivado/Vitis synthesis for that part. See `this page <https://www.xilinx.com/products/design-tools/vivado/memory.html>`_
-  for more information. For targeting Zynq and Zynq UltraScale+ parts, at least 8 GB is recommended. Larger parts may require up to 16 GB.
-  For targeting Alveo parts with Vitis, at least 64 GB RAM is recommended.
-
-* **CPU.** FINN can parallelize HLS synthesis and several other operations for different
-  layers, so using a multi-core CPU is recommended. However, this should be balanced
-  against the memory usage as a high degree of parallelization will require more
-  memory. See the ``NUM_DEFAULT_WORKERS`` environment variable below for more on
-  how to control the degree of parallelization.
-
-* **Storage.** While going through the build steps, FINN will generate many files as part of
-  the process. For larger networks, you may need 10s of GB of space for the temporary
-  files generated during the build.
-  By default, these generated files will be placed under ``/tmp/finn_dev_<username>``.
-  You can override this location by using the ``FINN_HOST_BUILD_DIR`` environment
-  variable.
-  Mapping the generated file dir to a fast SSD will result in quicker builds.
-
 
 Running FINN in Docker
 ======================
@@ -136,8 +113,8 @@ These are summarized below:
 * (optional) ``FINN_DOCKER_GPU`` (autodetected) if not 0 then expose all Nvidia GPUs or those selected by ``NVIDIA_VISIBLE_DEVICES`` to Docker container for accelerated DNN training. Requires `Nvidia Container Toolkit <https://github.com/NVIDIA/nvidia-docker>`_
 * (optional) ``NVIDIA_VISIBLE_DEVICES`` (default "") specifies specific Nvidia GPUs to use in Docker container. Possible values are a comma-separated list of GPU UUID(s) or index(es) e.g. ``0,1,2``, ``all``, ``none``, or void/empty/unset.
 
-Supported Hardware
-===================
+Supported FPGA Hardware
+=======================
 **Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
 As of FINN v0.4b we also have preliminary support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis, see instructions below for Alveo setup.
 
@@ -182,4 +159,38 @@ On the host side:
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. Set up the ``ALVEO_*`` environment variables accordingly for your target, see description of environment variables above.
 5. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
-5. Done! You can try the ``test_end2end_vitis`` tests in the FINN Docker to verify your setup, although this will take some time.
+6. Done! You can try the ``test_end2end_vitis`` tests in the FINN Docker to verify your setup, although this will take some time.
+
+
+
+System Requirements
+====================
+
+* Ubuntu 18.04 with ``bash`` installed
+* Docker `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
+* A working Vivado 2019.1 or 2020.1 installation
+* A ``VIVADO_PATH`` environment variable pointing to the Vivado installation directory (e.g. the directory where settings64.sh is located)
+* *(optional)* A PYNQ board with a network connection, see `PYNQ board first-time setup`_
+* *(optional)* An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ )
+
+We also recommend running the FINN compiler on a system with sufficiently
+strong hardware:
+
+* **RAM.** Depending on your target FPGA platform, your system must have sufficient RAM to be
+  able to run Vivado/Vitis synthesis for that part. See `this page <https://www.xilinx.com/products/design-tools/vivado/memory.html>`_
+  for more information. For targeting Zynq and Zynq UltraScale+ parts, at least 8 GB is recommended. Larger parts may require up to 16 GB.
+  For targeting Alveo parts with Vitis, at least 64 GB RAM is recommended.
+
+* **CPU.** FINN can parallelize HLS synthesis and several other operations for different
+  layers, so using a multi-core CPU is recommended. However, this should be balanced
+  against the memory usage as a high degree of parallelization will require more
+  memory. See the ``NUM_DEFAULT_WORKERS`` environment variable below for more on
+  how to control the degree of parallelization.
+
+* **Storage.** While going through the build steps, FINN will generate many files as part of
+  the process. For larger networks, you may need 10s of GB of space for the temporary
+  files generated during the build.
+  By default, these generated files will be placed under ``/tmp/finn_dev_<username>``.
+  You can override this location by using the ``FINN_HOST_BUILD_DIR`` environment
+  variable.
+  Mapping the generated file dir to a fast SSD will result in quicker builds.
