@@ -1012,6 +1012,17 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
 
     def defines(self, var):
+        # Only ipgen mode: Make sure that SIMD parameter satisfies minimum requirements.
+        if var == "ipgen":
+            SIMD = self.get_nodeattr("SIMD")
+            MW = self.get_nodeattr("MW")
+            condition = SIMD > (MW / 1024)
+            msg = (
+                f"HLS synthesis of StreamingFCLayer_Batch requires: "
+                f"SIMD > MW / 1024. This is not fulfilled with: SIMD={SIMD} "
+                f"and MW={MW} for node: {self.onnx_node.name}."
+            )
+            assert condition, msg
         mem_mode = self.get_nodeattr("mem_mode")
         numInputVectors = list(self.get_nodeattr("numInputVectors"))
         numReps = np.prod(numInputVectors)
