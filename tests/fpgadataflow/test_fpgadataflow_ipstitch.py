@@ -26,41 +26,39 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-
 import pytest
 
 import numpy as np
+import os
 from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.custom_op.registry import getCustomOp
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
+from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.util.basic import (
+    alveo_default_platform,
+    alveo_part_map,
     gen_finn_dt_tensor,
     pynq_part_map,
-    alveo_part_map,
-    alveo_default_platform,
 )
 from finn.util.pyverilator import pyverilate_stitched_ip
 from finn.util.test import load_test_checkpoint_or_skip
-from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
-from finn.transformation.fpgadataflow.floorplan import Floorplan
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
 test_fpga_part = pynq_part_map[test_pynq_board]

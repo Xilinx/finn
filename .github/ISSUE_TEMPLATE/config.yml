@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Getting started with FINN
+    url: https://finn.readthedocs.io/en/latest/getting_started.html
+    about: Documentation about how to get up and running with FINN.
+  - name: Ask for help and get in touch with the community
+    url: https://gitter.im/xilinx-finn/community
+    about: Check out our gitter channel, if you have a question about FINN or a general problem that is likely not a bug.

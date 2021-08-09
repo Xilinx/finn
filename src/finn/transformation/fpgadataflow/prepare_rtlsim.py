@@ -27,11 +27,11 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import finn.custom_op.registry as registry
-from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.transformation.base import NodeLocalTransformation
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.transformation.base import NodeLocalTransformation
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 try:
     from pyverilator import PyVerilator

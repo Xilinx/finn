@@ -26,15 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
+import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
 
-from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.transformation.general import SortGraph
-import math
-import numpy as np
+from finn.util.basic import get_by_name
 
 
 class InsertIODMA(Transformation):

@@ -26,26 +26,29 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import torch
-from brevitas.nn import QuantLinear, QuantReLU
-import torch.nn as nn
-import numpy as np
-from brevitas.core.quant import QuantType
-from brevitas.nn import QuantIdentity
+import pkg_resources as pk
+
+import pytest
+
 import brevitas.onnx as bo
-from finn.core.modelwrapper import ModelWrapper
-from finn.core.datatype import DataType
-import finn.builder.build_dataflow as build
-import finn.builder.build_dataflow_config as build_cfg
+import json
+import numpy as np
 import os
 import shutil
-from finn.util.test import get_build_env, load_test_checkpoint_or_skip
-import pytest
-from finn.util.basic import make_build_dir
-import pkg_resources as pk
-import json
-import wget
 import subprocess
+import torch
+import torch.nn as nn
+import wget
+from brevitas.core.quant import QuantType
+from brevitas.nn import QuantIdentity, QuantLinear, QuantReLU
+from brevitas.quant_tensor import QuantTensor
+
+import finn.builder.build_dataflow as build
+import finn.builder.build_dataflow_config as build_cfg
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
+from finn.util.basic import make_build_dir
+from finn.util.test import get_build_env, load_test_checkpoint_or_skip
 
 target_clk_ns = 10
 build_kind = "zynq"
@@ -115,19 +118,32 @@ def test_end2end_cybsec_mlp_export():
     model_for_export = CybSecMLPForExport(model)
     export_onnx_path = get_checkpoint_name("export")
     input_shape = (1, 600)
-    bo.export_finn_onnx(model_for_export, input_shape, export_onnx_path)
+    # create a QuantTensor instance to mark the input as bipolar during export
+    input_a = np.random.randint(0, 1, size=input_shape).astype(np.float32)
+    input_a = 2 * input_a - 1
+    scale = 1.0
+    input_t = torch.from_numpy(input_a * scale)
+    input_qt = QuantTensor(
+        input_t, scale=torch.tensor(scale), bit_width=torch.tensor(1.0), signed=True
+    )
+
+    bo.export_finn_onnx(
+        model_for_export, export_path=export_onnx_path, input_t=input_qt
+    )
     assert os.path.isfile(export_onnx_path)
     # fix input datatype
     finn_model = ModelWrapper(export_onnx_path)
     finnonnx_in_tensor_name = finn_model.graph.input[0].name
-    finn_model.set_tensor_datatype(finnonnx_in_tensor_name, DataType.BIPOLAR)
-    finn_model.save(export_onnx_path)
     assert tuple(finn_model.get_tensor_shape(finnonnx_in_tensor_name)) == (1, 600)
-    assert len(finn_model.graph.node) == 30
-    assert finn_model.graph.node[0].op_type == "Add"
-    assert finn_model.graph.node[1].op_type == "Div"
-    assert finn_model.graph.node[2].op_type == "MatMul"
+    # verify a few exported ops
+    assert finn_model.graph.node[1].op_type == "Add"
+    assert finn_model.graph.node[2].op_type == "Div"
+    assert finn_model.graph.node[3].op_type == "MatMul"
     assert finn_model.graph.node[-1].op_type == "MultiThreshold"
+    # verify datatypes on some tensors
+    assert finn_model.get_tensor_datatype(finnonnx_in_tensor_name) == DataType.BIPOLAR
+    first_matmul_w_name = finn_model.graph.node[3].input[1]
+    assert finn_model.get_tensor_datatype(first_matmul_w_name) == DataType.INT2
 
 
 @pytest.mark.slow
@@ -213,22 +229,9 @@ echo %s | sudo -S python3.6 validate-unsw-nb15.py --batchsize=10 --limit_batches
         build_env["ip"],
         build_env["target_dir"],
     )
-    rsync_res = subprocess.run(
-        [
-            "sshpass",
-            "-p",
-            build_env["password"],
-            "rsync",
-            "-avz",
-            deploy_dir,
-            remote_target,
-        ]
-    )
+    rsync_res = subprocess.run(["rsync", "-avz", deploy_dir, remote_target])
     assert rsync_res.returncode == 0
     remote_verif_cmd = [
-        "sshpass",
-        "-p",
-        build_env["password"],
         "ssh",
         "%s@%s" % (build_env["username"], build_env["ip"]),
         "sh",

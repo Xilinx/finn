@@ -26,11 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 import numpy as np
+import os
 from PIL import Image
+
 from finn.core.data_layout import NCHW, NHWC
-from finn.util.test import resize_smaller_side, crop_center
+from finn.util.test import crop_center, resize_smaller_side
 
 
 def get_val_images(n_images=100, interleave_classes=False):

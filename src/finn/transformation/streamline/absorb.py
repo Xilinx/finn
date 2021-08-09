@@ -27,16 +27,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-from onnx import helper as oh
 import warnings
+from onnx import helper as oh
 
-from finn.core.datatype import DataType
 import finn.core.data_layout as DataLayout
-from finn.transformation.base import Transformation
-from finn.util.basic import get_by_name
+from finn.core.datatype import DataType
 from finn.custom_op.registry import getCustomOp
-from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.base import Transformation
 from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
+from finn.util.basic import get_by_name
 
 
 class AbsorbSignBiasIntoMultiThreshold(Transformation):
@@ -308,8 +308,8 @@ class Absorb1BitMulIntoConv(Transformation):
 
 
 class AbsorbTransposeIntoMultiThreshold(Transformation):
-    """Change (NHWCTranpose -> MultiThreshold -> NCHWTranspose) to (MultiThreshold)
-    with NHWC mode."""
+    """Change (NCHWTranspose -> MultiThreshold -> NHWCTranspose) to (MultiThreshold)
+    with NHWC mode. For (NCHWTranspose -> MultiThreshold) move Transpose past MT."""
 
     def apply(self, model):
         graph = model.graph
@@ -338,24 +338,26 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                                 graph.node.remove(n)
                                 graph.node.remove(final_t_cand)
                                 graph_modified = True
-                        elif final_t_cand.op_type == "Reshape":
-                            oshape = model.get_tensor_shape(final_t_cand.output[0])
-                            if len(oshape) == 2:
-                                # transition to FC part, can still use NHWC
-                                mt = getCustomOp(mt_cand)
-                                mt.set_nodeattr("data_layout", "NHWC")
-                                # get rid of first tranpose node
-                                mt_cand.input[0] = n.input[0]
-                                # fix output shape for MultiThreshold
-                                mt_ishape = model.get_tensor_shape(mt_cand.input[0])
-                                (b, h, w, c) = mt_ishape
-                                assert (
-                                    h == 1 and w == 1
-                                ), """Untested spatial dim
-                                in conv->fc transition, proceed with caution!"""
-                                model.set_tensor_shape(mt_cand.output[0], mt_ishape)
-                                graph.node.remove(n)
-                                graph_modified = True
+                        else:
+                            mt = getCustomOp(mt_cand)
+                            mt.set_nodeattr("data_layout", "NHWC")
+                            # get rid of first tranpose node
+                            mt_cand.input[0] = n.input[0]
+                            graph.node.remove(n)
+                            # fix output shape for MultiThreshold
+                            mt_ishape = model.get_tensor_shape(mt_cand.input[0])
+                            model.set_tensor_shape(mt_cand.output[0], mt_ishape)
+                            # re-insert Transpose behind MultiThreshold
+                            transpose_output = model.make_new_valueinfo_name()
+                            new_transpose = oh.make_node(
+                                "Transpose",
+                                [mt_cand.output[0]],
+                                [transpose_output],
+                                perm=[0, 3, 1, 2],
+                            )
+                            graph.node.insert(node_ind + 1, new_transpose)
+                            final_t_cand.input[0] = transpose_output
+                            graph_modified = True
         if graph_modified:
             model = model.transform(InferDataTypes())
         return (model, graph_modified)

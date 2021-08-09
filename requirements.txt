@@ -6,8 +6,10 @@ future==0.18.2
 gspread==3.6.0
 numpy==1.18.0
 onnx==1.7.0
+onnxoptimizer
 onnxruntime==1.4.0
 pre-commit==2.6.0
+pyscaffold==3.2.1
 scipy==1.5.2
 setupext-janitor>=1.1.2
 toposort==1.5

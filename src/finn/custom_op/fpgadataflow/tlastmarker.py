@@ -243,13 +243,14 @@ class TLastMarker(HLSCustomOp):
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
+        stream_width = self.get_nodeattr("StreamWidth")
         sname = self.hls_sname()
         if self.get_nodeattr("Direction") == "in":
-            intf_names["s_axis"] = ["in0"]
-            intf_names["m_axis"] = ["out_" + sname]
+            intf_names["s_axis"] = [("in0", stream_width)]
+            intf_names["m_axis"] = [("out_" + sname, stream_width)]
         else:
-            intf_names["s_axis"] = ["in0_" + sname]
-            intf_names["m_axis"] = ["out_r"]
+            intf_names["s_axis"] = [("in0_" + sname, stream_width)]
+            intf_names["m_axis"] = [("out_r", stream_width)]
         if self.get_nodeattr("DynIters") == 1:
             intf_names["axilite"] = ["s_axi_control"]
         return intf_names

@@ -29,13 +29,13 @@
 import pytest
 
 import numpy as np
-from onnx import helper, TensorProto
+from onnx import TensorProto, helper
 
+import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.reorder import MoveAddPastConv
-from finn.custom_op.general.im2col import compute_conv_output_dim
-import finn.core.onnx_exec as oxe
 
 
 # input dimension

@@ -26,14 +26,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
 
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name
-
-import numpy as np
 
 
 class InsertTLastMarker(Transformation):

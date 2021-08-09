@@ -26,19 +26,20 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 import pkg_resources as pk
+
 import pytest
 
 import brevitas.onnx as bo
 import numpy as np
+import os
 import torch
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
+from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_brevitas_cnv.onnx"

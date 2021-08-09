@@ -26,80 +26,78 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.core.modelwrapper import ModelWrapper
-import os
 import json
+import numpy as np
+import os
+from copy import deepcopy
+from shutil import copy, copytree
+
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
-from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import (
-    ApplyConfig,
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    RemoveUnusedTensors,
-    RemoveStaticGraphInputs,
-)
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.streamline import Streamline
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from finn.transformation.streamline.reorder import (
-    MakeMaxPoolNHWC,
-    MoveScalarLinearPastInvariants,
-)
-from shutil import copy, copytree
-from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.set_fifo_depths import (
-    InsertAndSetFIFODepths,
-    RemoveShallowFIFOs,
-)
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
-from finn.transformation.fpgadataflow.set_folding import SetFolding
-from finn.transformation.fpgadataflow.create_dataflow_partition import (
-    CreateDataflowPartition,
-)
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
-from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.analysis.fpgadataflow.res_estimation import (
-    res_estimation,
-    res_estimation_complete,
-)
+from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
     op_and_param_counts,
 )
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
-from finn.util.config import extract_model_config_to_json
-from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
+from finn.analysis.fpgadataflow.res_estimation import (
+    res_estimation,
+    res_estimation_complete,
+)
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
     VerificationStepType,
 )
-from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
-import numpy as np
-from finn.util.test import execute_parent
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.core.throughput_test import throughput_test_rtlsim
-from copy import deepcopy
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
+)
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_fifo_depths import (
+    InsertAndSetFIFODepths,
+    RemoveShallowFIFOs,
+)
+from finn.transformation.fpgadataflow.set_folding import SetFolding
+from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.general import (
+    ApplyConfig,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    RemoveStaticGraphInputs,
+    RemoveUnusedTensors,
+)
+from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
+from finn.transformation.streamline import Streamline
+from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.util.config import extract_model_config_to_json
+from finn.util.test import execute_parent
 
 
 def verify_step(
@@ -158,13 +156,14 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     topologies.
     """
 
-    model = model.transform(MoveScalarLinearPastInvariants())
+    model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
     model = model.transform(Streamline())
     need_lowering = len(model.get_nodes_by_op_type("Conv")) > 0
     if need_lowering:
         model = model.transform(LowerConvsToMatMul())
         model = model.transform(MakeMaxPoolNHWC())
         model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+        model = model.transform(MakeMaxPoolNHWC())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
     # absorb final add-mul nodes into TopK
@@ -181,7 +180,7 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Convert eligible nodes to `HLSCustomOp` subclasses that represent HLS
     layers. Which nodes and particular configurations can be converted to HLS
-    is limited, see the source code of the `convert_to_hls` module for more. """
+    is limited, see the source code of the `convert_to_hls` module for more."""
 
     mem_mode = cfg.default_mem_mode.value
     if cfg.standalone_thresholds:

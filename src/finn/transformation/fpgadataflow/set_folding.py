@@ -26,13 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import warnings
+
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
-from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.general import GiveUniqueNodeNames
-import warnings
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def divisors(num):

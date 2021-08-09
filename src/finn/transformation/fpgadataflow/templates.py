@@ -103,8 +103,8 @@ create_project finn_zynq_link ./ -part $FPGA_PART
 # set board part repo paths to find PYNQ-Z1/Z2
 set paths_prop [get_property BOARD_PART_REPO_PATHS [current_project]]
 set paths_param [get_param board.repoPaths]
-lappend paths_prop /workspace/finn/board_files
-lappend paths_param /workspace/finn/board_files
+lappend paths_prop /workspace/board_files
+lappend paths_param /workspace/board_files
 set_property BOARD_PART_REPO_PATHS $paths_prop [current_project]
 set_param board.repoPaths $paths_param
 
@@ -115,7 +115,7 @@ if {$BOARD == "ZCU104"} {
     set_property board_part xilinx.com:zcu102:part0:3.3 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Ultra96"} {
-    set_property board_part em.avnet.com:ultra96v1:part0:1.2 [current_project]
+    set_property board_part avnet.com:ultra96v1:part0:1.2 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Pynq-Z2"} {
     set ZYNQ_TYPE "zynq_7000"

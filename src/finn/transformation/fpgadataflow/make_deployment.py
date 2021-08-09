@@ -26,15 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import warnings
 import os
 import subprocess
 from distutils.dir_util import copy_tree
 from shutil import copy
 
+import finn.transformation.fpgadataflow.templates as templates
 from finn.transformation.base import Transformation
 from finn.util.basic import make_build_dir
-import finn.transformation.fpgadataflow.templates as templates
 
 
 class DeployToPYNQ(Transformation):
@@ -98,22 +97,17 @@ class DeployToPYNQ(Transformation):
         copy_tree(pynq_driver_dir, deployment_dir)
         model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
         model.set_metadata_prop("exec_mode", "remote_pynq")
-        if self.password == "":
-            prefix = ""  # assume we are using an ssh key
-            warnings.warn("Empty password, make sure you've set up an ssh key")
-        else:
-            prefix = "sshpass -p %s " % self.password
 
         # create target directory on PYNQ board
-        cmd = prefix + 'ssh {}@{} -p {} "mkdir -p {}"'.format(
+        cmd = 'ssh {}@{} -p {} "mkdir -p {}"'.format(
             self.username, self.ip, self.port, self.target_dir
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
-        # copy directory to PYNQ board using scp and sshpass
-        cmd = prefix + "scp -P{} -r {} {}@{}:{}".format(
-            self.port, deployment_dir, self.username, self.ip, self.target_dir,
+        # copy directory to PYNQ board using scp
+        cmd = "scp -P{} -r {} {}@{}:{}".format(
+            self.port, deployment_dir, self.username, self.ip, self.target_dir
         )
         bash_command = ["/bin/bash", "-c", cmd]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)

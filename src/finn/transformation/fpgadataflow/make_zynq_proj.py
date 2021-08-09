@@ -28,27 +28,25 @@
 
 import os
 import subprocess
+from shutil import copy
 
+from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
-from finn.core.modelwrapper import ModelWrapper
-from finn.util.basic import get_by_name, make_build_dir
-from finn.util.basic import pynq_part_map
-
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.floorplan import Floorplan
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
+from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_data_layouts import InferDataLayouts
-from shutil import copy
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.util.basic import get_by_name, make_build_dir, pynq_part_map
 
 from . import templates
 
@@ -265,7 +263,10 @@ class MakeZYNQProject(Transformation):
             vivado_pynq_proj_dir + "/finn_zynq_link.runs/impl_1/top_wrapper.bit"
         )
         if not os.path.isfile(bitfile_name):
-            raise Exception("Synthesis failed, no bitfile found")
+            raise Exception(
+                "Synthesis failed, no bitfile found. Check logs under %s"
+                % vivado_pynq_proj_dir
+            )
         deploy_bitfile_name = vivado_pynq_proj_dir + "/resizer.bit"
         copy(bitfile_name, deploy_bitfile_name)
         # set bitfile attribute
@@ -280,8 +281,11 @@ class MakeZYNQProject(Transformation):
         for hwh_name_cand in hwh_name_alts:
             if os.path.isfile(hwh_name_cand):
                 hwh_name = hwh_name_cand
-        if hwh_name is None:
-            raise Exception("Synthesis failed, no hardware handoff file found")
+        if not os.path.isfile(hwh_name):
+            raise Exception(
+                "Synthesis failed, no bitfile found. Check logs under %s"
+                % vivado_pynq_proj_dir
+            )
         deploy_hwh_name = vivado_pynq_proj_dir + "/resizer.hwh"
         copy(hwh_name, deploy_hwh_name)
         model.set_metadata_prop("hw_handoff", deploy_hwh_name)
