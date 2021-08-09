@@ -42,6 +42,7 @@ RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 RUN apt-get update
 RUN apt-get -y upgrade
 RUN apt-get install -y build-essential
+RUN apt-get install -y libc6-dev-i386
 RUN apt-get install -y libglib2.0-0
 RUN apt-get install -y libsm6
 RUN apt-get install -y libxext6
