@@ -333,8 +333,8 @@ class CreateStitchedIP(Transformation):
         # if targeting Vitis, add some properties to the IP
         if self.vitis:
             tcl.append(
-                "ipx::remove_bus_parameter FREQ_HZ "
-                "[ipx::get_bus_interfaces CLK.AP_CLK -of_objects [ipx::current_core]]"
+                "set_property value_resolve_type user [ipx::get_bus_parameters "
+                "-of [ipx::get_bus_interfaces -of [ipx::current_core ]]]"
             )
             # replace source code with dcp
             tcl.append(
