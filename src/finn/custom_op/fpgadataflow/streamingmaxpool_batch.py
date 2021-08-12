@@ -212,12 +212,12 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 "%s<ImgDim, PoolDim, NumChannels>(in0, out, numReps);" % (op)
             ]
         else:
-            op = "StreamingMaxPool_Precision_Batch"
+            op = "StreamingMaxPool_Precision"
             dtype = self.get_input_datatype()
             dtype_hls = dtype.get_hls_datatype_str()
             minval_str = str(int(dtype.min()))
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out, numReps);"
+                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out);"
                 % (op, dtype_hls, minval_str)
             ]
 
