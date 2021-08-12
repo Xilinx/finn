@@ -334,6 +334,7 @@ class HLSCustomOp(CustomOp):
                 "config_compile -disable_unroll_code_size_check",
                 "config_interface -m_axi_addr64",
                 "config_rtl -auto_prefix",
+                "config_export -disable_deadlock_detection",
             ],
         }
         return default_directives[hls_version]
