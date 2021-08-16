@@ -219,6 +219,90 @@ class InferConvInpGen(Transformation):
         return (model, graph_modified)
 
 
+class InferUpsample(Transformation):
+    """Convert Upsample and Resize nodes to layers
+    to UpsampleNearestNeighbour_Batch nodes."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Upsample" or n.op_type == "Resize":
+                # Extract mode and scales and input shape
+                mode = get_by_name(n.attribute, "mode").s.decode("ascii")
+                if n.op_type == "Upsample":
+                    scales = model.get_initializer(n.input[1])
+                else:
+                    scales = model.get_initializer(n.input[2])
+                in_shape = model.get_tensor_shape(n.input[0])
+
+                dt = model.get_tensor_datatype(n.input[0])
+                if not dt.is_integer():
+                    warnings.warn(
+                        "Input is not int. Can't infer UpsampleNearestNeighbour_Batch."
+                    )
+                    # ToDo: Re-enable this check
+                    # continue
+
+                # Check that the parameters are okay
+                assert (
+                    mode == "nearest"
+                ), "Upsampling is only supported for the mode nearest."
+                assert len(in_shape) == 4, "Upsampling is only supported for 4D inputs."
+                assert scales.shape == (
+                    4,
+                ), "Upsampling is only supported for 4D scales."
+                assert (scales >= 1).all(), (
+                    "Upsampling is only supported for sacles "
+                    "which are larger or equal 1 in all dimensions."
+                )
+
+                # Assumes nchw layout for scales parameter
+                # ToDo: Might need a change to nhwc later on?
+                assert (
+                    scales[2] == scales[3]
+                ), "Upsampling is only supported for qadratic scales."
+                assert scales[0] == scales[1] == 1, (
+                    "Upsampling is only supported for sacles with "
+                    "the first two dimensions being 1."
+                )
+
+                # Assumes nhwc layout
+                assert (
+                    in_shape[1] == in_shape[2]
+                ), "Upsampling is only supported for qadratic input shapes."
+
+                # Extract information for HLS node
+                IFMDim = in_shape[1]
+                OFMDim = int(in_shape[1] * scales[2])
+                NumChannels = in_shape[-1]
+                numInputVectors = in_shape[0]
+                inputDataType = dt.name
+
+                # Insert the HLSCustomOp node
+                Upsample_HLS_node = helper.make_node(
+                    "UpsampleNearestNeighbour_Batch",
+                    [n.input[0]],
+                    [n.output[0]],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    OFMDim=OFMDim,
+                    IFMDim=IFMDim,
+                    NumChannels=NumChannels,
+                    inputDataType=inputDataType,
+                    numInputVectors=numInputVectors,
+                )
+
+                # Remove the old node
+                graph.node.insert(node_ind, Upsample_HLS_node)
+                # remove old nodes
+                graph.node.remove(n)
+                graph_modified = True
+        return (model, graph_modified)
+
+
 class InferStreamingMaxPool(Transformation):
     """Convert MaxPoolNHWC layers to StreamingMaxPool layers."""
 
