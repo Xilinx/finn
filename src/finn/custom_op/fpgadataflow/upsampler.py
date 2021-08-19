@@ -115,11 +115,13 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
 
     def get_instream_width(self):
         ibits = self.get_input_datatype().bitwidth()
-        return ibits
+        ifm_ch = self.get_nodeattr("NumChannels")
+        return ibits * ifm_ch
 
     def get_outstream_width(self):
         obits = self.get_output_datatype().bitwidth()
-        return obits
+        ifm_ch = self.get_nodeattr("NumChannels")
+        return obits * ifm_ch
 
     def get_number_output_values(self):
         raise NotImplementedError
