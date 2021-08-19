@@ -277,7 +277,7 @@ class InferUpsample(Transformation):
 
                 # Extract information for HLS node
                 IFMDim = in_shape[1]
-                OFMDim = int(in_shape[1] * scales[2])
+                OFMDim = int(round(in_shape[1] * scales[2]))
                 NumChannels = in_shape[-1]
                 numInputVectors = in_shape[0]
                 inputDataType = dt.name
