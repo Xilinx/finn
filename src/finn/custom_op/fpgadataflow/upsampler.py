@@ -8,7 +8,6 @@ from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-# ToDo: Fill out functions, which currently throw NotImplemented errors.
 class UpsampleNearestNeighbour_Batch(HLSCustomOp):
     """
     Corresponds to finn-hlslib UpsampleNearestNeighbour_Batch function.
@@ -36,12 +35,9 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         return my_attrs
 
     def get_exp_cycles(self):
-        raise NotImplementedError
-        idim = self.get_nodeattr("ImgDim")
-        channels = self.get_nodeattr("NumChannels")
-        simd = self.get_nodeattr("SIMD")
+        OFMDim = self.get_nodeattr("OFMDim")
         batch_size = self.get_nodeattr("numInputVectors")
-        exp_cycles = channels / simd * batch_size * idim * idim
+        exp_cycles = OFMDim * OFMDim * batch_size
         return int(exp_cycles)
 
     def get_normal_input_shape(self):
@@ -102,7 +98,6 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         model.set_tensor_datatype(node.output[0], idt)
 
     def verify_node(self):
-        raise NotImplementedError
         pass
 
     def get_input_datatype(self):
