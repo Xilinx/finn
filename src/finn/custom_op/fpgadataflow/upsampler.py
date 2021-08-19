@@ -124,7 +124,6 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         return obits * ifm_ch
 
     def get_number_output_values(self):
-        raise NotImplementedError
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
@@ -213,7 +212,6 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        raise NotImplementedError
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
@@ -229,7 +227,6 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         )
 
     def execute_node(self, context, graph):
-        raise NotImplementedError
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
