@@ -10,9 +10,10 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # ToDo: Fill out functions, which currently throw NotImplemented errors.
 class UpsampleNearestNeighbour_Batch(HLSCustomOp):
-    """Corresponds to finn-hlslib UpsampleNearestNeighbour_Batch function.
-    Upsampling with the Nearest Neighbour algorithm.
-    Expects square feature maps.
+    """
+    Corresponds to finn-hlslib UpsampleNearestNeighbour_Batch function.
+    Upsampling is done with the Nearest Neighbour algorithm.
+    The layer expects square feature maps for the in and output.
     """
 
     def __init__(self, onnx_node):
