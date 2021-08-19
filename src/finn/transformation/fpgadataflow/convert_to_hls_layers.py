@@ -220,8 +220,9 @@ class InferConvInpGen(Transformation):
 
 
 class InferUpsample(Transformation):
-    """Convert Upsample and Resize nodes to layers
-    to UpsampleNearestNeighbour_Batch nodes."""
+    """
+    Convert Upsample and Resize nodes to layers to UpsampleNearestNeighbour_Batch nodes.
+    """
 
     def apply(self, model):
         graph = model.graph

@@ -58,24 +58,12 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         return oshape
 
     def get_folded_input_shape(self):
-        raise NotImplementedError
         normal_ishape = list(self.get_normal_input_shape())
-        ifm_ch = self.get_nodeattr("NumChannels")
-        simd = self.get_nodeattr("SIMD")
-        assert ifm_ch % simd == 0, "SIMD must divide input channels"
-        fold = int(normal_ishape[-1] / simd)
-        folded_ishape = normal_ishape[:-1] + [fold, simd]
-        return tuple(folded_ishape)
+        return tuple(normal_ishape)
 
     def get_folded_output_shape(self):
-        raise NotImplementedError
         normal_oshape = list(self.get_normal_output_shape())
-        ifm_ch = self.get_nodeattr("NumChannels")
-        simd = self.get_nodeattr("SIMD")
-        assert ifm_ch % simd == 0, "SIMD must divide input channels"
-        fold = int(normal_oshape[-1] / simd)
-        folded_oshape = normal_oshape[:-1] + [fold, simd]
-        return tuple(folded_oshape)
+        return tuple(normal_oshape)
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
@@ -122,21 +110,16 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         return ret
 
     def get_output_datatype(self):
-        raise NotImplementedError
         """Returns FINN DataType of output. (Same as input datatype)"""
         return self.get_input_datatype()
 
     def get_instream_width(self):
-        raise NotImplementedError
         ibits = self.get_input_datatype().bitwidth()
-        simd = self.get_nodeattr("SIMD")
-        return ibits * simd
+        return ibits
 
     def get_outstream_width(self):
-        raise NotImplementedError
         obits = self.get_output_datatype().bitwidth()
-        simd = self.get_nodeattr("SIMD")
-        return obits * simd
+        return obits
 
     def get_number_output_values(self):
         raise NotImplementedError
@@ -144,11 +127,9 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         return np.prod(folded_oshape[:-1])
 
     def global_includes(self):
-        raise NotImplementedError
-        self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
+        self.code_gen_dict["$GLOBALS$"] = ['#include "upsample.hpp"']
 
     def defines(self, var):
-        raise NotImplementedError
         self.code_gen_dict["$DEFINES$"] = []
 
         ifm_ch = self.get_nodeattr("NumChannels")
@@ -157,20 +138,16 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         ibits = self.get_input_datatype().bitwidth()
         self.code_gen_dict["$DEFINES$"] += ["#define Input_precision {}".format(ibits)]
 
-        idim = self.get_nodeattr("ImgDim")
+        idim = self.get_nodeattr("IFMDim")
         self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(idim)]
 
-        simd = self.get_nodeattr("SIMD")
-        self.code_gen_dict["$DEFINES$"] += ["#define SIMD {}".format(simd)]
-
-        stride = self.get_nodeattr("Stride")
-        self.code_gen_dict["$DEFINES$"] += ["#define Stride {}".format(stride)]
+        odim = self.get_nodeattr("OFMDim")
+        self.code_gen_dict["$DEFINES$"] += ["#define OFMDim {}".format(odim)]
 
         batch_size = self.get_nodeattr("numInputVectors")
         self.code_gen_dict["$DEFINES$"] += ["#define numReps {}".format(batch_size)]
 
     def read_npy_data(self):
-        raise NotImplementedError
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
         if dtype == DataType.BIPOLAR:
@@ -189,7 +166,6 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         )
 
     def strm_decl(self):
-        raise NotImplementedError
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
@@ -199,14 +175,12 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         )
 
     def docompute(self):
-        raise NotImplementedError
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """ConvolutionInputGenerator_kernel1<IFMChannels, Input_precision,
-            IFMDim, SIMD,Stride> (in0, out, numReps);"""
+            """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
+            ap_uint<Input_precision> > (in0, out, numReps);"""
         ]
 
     def dataoutstrm(self):
-        raise NotImplementedError
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
         if dtype == DataType.BIPOLAR:
@@ -234,7 +208,6 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         ]
 
     def save_as_npy(self):
-        raise NotImplementedError
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
@@ -247,7 +220,6 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         ]
 
     def pragmas(self):
-        raise NotImplementedError
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
         self.code_gen_dict["$PRAGMAS$"].append(
