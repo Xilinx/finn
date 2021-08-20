@@ -1,6 +1,6 @@
 ## Publications
 
-
+* ACM TRETS: <a href="https://inaccel.com/wp-content/uploads/ACM_TRETS_DC_2020.pdf">Elastic-DF: Scaling Performance of DNN Inference in FPGA Clouds through Automatic Partitioning</a>
 * FPGA'21: <a href="https://dl.acm.org/doi/abs/10.1145/3431920.3439283" target="_blank">S2N2: A Streaming Accelerator for Streaming Spiking Neural Networks</a> and [repository on GitHub](https://github.com/arkhodamoradi/s2n2)
 * FPT'20: <a href="https://arxiv.org/pdf/2011.07317.pdf">Memory-Efficient Dataflow Inference for Deep CNNs on FPGA</a>
 * IEEE ToC: <a href="https://ieeexplore.ieee.org/abstract/document/9187576/">Evaluation of Optimized CNNs on Heterogeneous Accelerators using a Novel Benchmarking Approach</a>
@@ -28,6 +28,7 @@
 If you are using FINN in your
 work and would like to be listed here, please contact us! (yamanu@xilinx.com)
 
+* <a href="https://ieeexplore.ieee.org/document/9245522" target="_blank">Spatio-Temporal Optimization of Deep Neural Networks for Reconfigurable FPGA SoCs (Scoula Superiore Sant'Anna)</a>
 * <a href="https://coefs.uncc.edu/htabkhiv/teaching/hardware-software-co-design-real-time-ai/" target="_blank">Hardware-Software Co-Design Real-time AI (UNC Charlotte)</a>
 * <a href="https://ieeexplore.ieee.org/abstract/document/8442108" target="_blank">BinaryEye: A 20 kfps Streaming Camera System on FPGA with Real-Time On-Device Image Recognition Using Binary Neural Networks</a>
 * <a href="https://qiita.com/ykshr/items/08147098516a45203761" target="_blank">Cucumber sorting with FINN (in Japanese)</a>
