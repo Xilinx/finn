@@ -244,8 +244,7 @@ class InferUpsample(Transformation):
                     warnings.warn(
                         "Input is not int. Can't infer UpsampleNearestNeighbour_Batch."
                     )
-                    # ToDo: Re-enable this check
-                    # continue
+                    continue
 
                 # Check that the parameters are okay
                 assert (
