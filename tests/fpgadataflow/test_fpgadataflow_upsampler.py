@@ -131,6 +131,9 @@ def test_fpgadataflow_upsampler(dt, IFMDim, OFMDim, NumChannels, exec_mode):
     torch_model = PyTorchTestModel(upscale_factor=OFMDim / IFMDim)
     input_shape = (1, NumChannels, IFMDim, IFMDim)
     test_in = torch.arange(0, np.prod(np.asarray(input_shape)))
+    test_in %= dt.max() - dt.min() + 1
+    test_in += dt.min()
+    print(test_in)
     test_in = test_in.view(*input_shape).type(torch.float32)
 
     # Get golden PyTorch and ONNX inputs
@@ -140,7 +143,7 @@ def test_fpgadataflow_upsampler(dt, IFMDim, OFMDim, NumChannels, exec_mode):
         torch_model, input_shape=input_shape, export_path=export_path, opset_version=11
     )
     model = ModelWrapper(export_path)
-    input_dict = {model.graph.input[0].name: test_in.numpy().astype(np.int8)}
+    input_dict = {model.graph.input[0].name: test_in.numpy().astype(np.int)}
     input_dict = {model.graph.input[0].name: test_in.numpy()}
     golden_output_dict = oxe.execute_onnx(model, input_dict, True)
     golden_result = golden_output_dict[model.graph.output[0].name]
