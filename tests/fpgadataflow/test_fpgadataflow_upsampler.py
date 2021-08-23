@@ -133,7 +133,6 @@ def test_fpgadataflow_upsampler(dt, IFMDim, OFMDim, NumChannels, exec_mode):
     test_in = torch.arange(0, np.prod(np.asarray(input_shape)))
     test_in %= dt.max() - dt.min() + 1
     test_in += dt.min()
-    print(test_in)
     test_in = test_in.view(*input_shape).type(torch.float32)
 
     # Get golden PyTorch and ONNX inputs
