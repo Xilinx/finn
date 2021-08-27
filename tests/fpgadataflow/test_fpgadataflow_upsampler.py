@@ -49,8 +49,6 @@ from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 
-# import os
-
 
 class ForceDataTypeForTensors(Transformation):
     """
@@ -185,8 +183,6 @@ def test_fpgadataflow_upsampler(dt, IFMDim, OFMDim, NumChannels, exec_mode):
         model = model.transform(HLSSynthIP())
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(PrepareRTLSim())
-        # liveness = int(os.getenv("LIVENESS_THRESHOLD", 10000))
-        # os.environ["LIVENESS_THRESHOLD"] = str(1000000)
     else:
         raise Exception("Unknown exec_mode")
 
@@ -202,7 +198,6 @@ def test_fpgadataflow_upsampler(dt, IFMDim, OFMDim, NumChannels, exec_mode):
     if exec_mode == "cppsim":
         assert output_matches, "Cppsim output doesn't match ONNX/PyTorch."
     elif exec_mode == "rtlsim":
-        # os.environ["LIVENESS_THRESHOLD"] = str(liveness)
         assert output_matches, "Rtlsim output doesn't match ONNX/PyTorch."
 
     # ToDo: Should this be done / implemented as well?
