@@ -115,9 +115,9 @@ class PyTorchTestModel(nn.Module):
 # param datatype
 @pytest.mark.parametrize("dt", [DataType.INT8])
 # Width/height of square input feature map
-@pytest.mark.parametrize("IFMDim", [2, 3, 4])
+@pytest.mark.parametrize("IFMDim", [3, 5])
 # Width/height of square output feature map
-@pytest.mark.parametrize("OFMDim", [5, 6, 7, 14])
+@pytest.mark.parametrize("OFMDim", [6, 7, 14])
 # Number of input/output channels
 @pytest.mark.parametrize("NumChannels", [1, 4])
 # execution mode
@@ -205,7 +205,7 @@ def test_fpgadataflow_upsampler(dt, IFMDim, OFMDim, NumChannels, exec_mode):
         # os.environ["LIVENESS_THRESHOLD"] = str(liveness)
         assert output_matches, "Rtlsim output doesn't match ONNX/PyTorch."
 
-    # ToDo: Should this be done as well?
+    # ToDo: Should this be done / implemented as well?
     # if exec_mode == "rtlsim":
     #     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
     #     assert "ChannelwiseOp_Batch_0" in hls_synt_res_est
