@@ -143,7 +143,7 @@ def test_fpgadataflow_upsampler(dt, IFMDim, OFMDim, NumChannels, exec_mode):
         torch_model, input_shape=input_shape, export_path=export_path, opset_version=11
     )
     model = ModelWrapper(export_path)
-    input_dict = {model.graph.input[0].name: test_in.numpy().astype(np.int)}
+    input_dict = {model.graph.input[0].name: test_in.numpy().astype(np.int32)}
     input_dict = {model.graph.input[0].name: test_in.numpy()}
     golden_output_dict = oxe.execute_onnx(model, input_dict, True)
     golden_result = golden_output_dict[model.graph.output[0].name]
