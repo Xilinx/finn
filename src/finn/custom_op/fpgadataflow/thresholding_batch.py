@@ -329,10 +329,6 @@ class Thresholding_Batch(HLSCustomOp):
         if not self.get_input_datatype().signed():
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
-        # ensure all thresholds are integer
-        assert np.equal(
-            np.mod(orig_thres_matrix, 1), 0
-        ).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
         # workaround for vivado_hls threshold bug
         if ret[0][0] == 0:

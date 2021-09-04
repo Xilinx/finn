@@ -883,10 +883,6 @@ class InferThresholdingLayer(Transformation):
                 thl_thres_shape = model.get_tensor_shape(thl_threshold)
                 idt = model.get_tensor_datatype(thl_input)
 
-                # skip conversion for layers with float input
-                if not idt.is_integer():
-                    continue
-
                 # check layout of inputs/outputs, and convert if needed
                 # check layout and convert if necessary
                 thl_in_layout = model.get_tensor_layout(thl_input)
