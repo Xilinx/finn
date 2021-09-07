@@ -26,19 +26,19 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import warnings
-import subprocess
 import json
-
-from finn.transformation.base import Transformation
-from finn.util.basic import make_build_dir, get_num_default_workers
-from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.custom_op.registry import getCustomOp
 import multiprocessing as mp
+import os
+import subprocess
+import warnings
+
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
+from finn.util.basic import get_num_default_workers, make_build_dir
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def is_external_input(model, node, i):

@@ -27,22 +27,24 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # namespace package, extend path
 
-from abc import abstractmethod
 import numpy as np
 import os
 import subprocess
+from abc import abstractmethod
+
 from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
+    get_rtlsim_trace_depth,
     make_build_dir,
     roundup_to_integer_multiple,
-    get_rtlsim_trace_depth,
 )
-from finn.util.fpgadataflow import (
-    IPGenBuilder,
+from finn.util.hls import CallHLS
+from finn.util.pyverilator import (
     pyverilate_get_liveness_threshold_cycles,
     rtlsim_multi_io,
 )
+
 from . import templates
 
 try:
@@ -310,11 +312,11 @@ class HLSCustomOp(CustomOp):
         return []
 
     def ipgen_singlenode_code(self):
-        """Builds the bash script for ip generation using the IPGenBuilder from
-        finn.util.fpgadataflow."""
+        """Builds the bash script for ip generation using the CallHLS from
+        finn.util.hls."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        builder = IPGenBuilder()
+        builder = CallHLS()
         builder.append_tcl(code_gen_dir + "/hls_syn_{}.tcl".format(node.name))
         builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
         builder.build(code_gen_dir)

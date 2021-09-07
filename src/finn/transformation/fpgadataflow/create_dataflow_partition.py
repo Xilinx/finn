@@ -27,8 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import copy
-
 from onnx import helper
+
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.util.basic import get_by_name, make_build_dir
@@ -148,7 +148,7 @@ class CreateDataflowPartition(Transformation):
                     [df_out],
                     # use the model attribute to mark the df model
                     model=df_model_filename,
-                    domain="finn.custom_op.general",
+                    domain="finn.custom_op.fpgadataflow",
                     partition_id=target_partition_id,
                     slr=slr,
                     mem_port=mem_port,

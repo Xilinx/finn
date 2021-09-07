@@ -26,34 +26,34 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import json
 import os
 import subprocess
-import json
+from enum import Enum
 
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.base import Transformation
 from finn.custom_op.registry import getCustomOp
-
+from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.floorplan import Floorplan
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     RemoveUnusedTensors,
 )
-from finn.util.basic import make_build_dir
 from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.util.basic import make_build_dir
+
 from . import templates
-from enum import Enum
 
 
 def _check_vitis_envvars():
@@ -231,7 +231,7 @@ class VitisLink(Transformation):
             if producer is None or consumer is None:
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
-                    #configure good defaults based on board
+                    # configure good defaults based on board
                     if "u50" in self.platform or "u280" in self.platform:
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
@@ -251,7 +251,9 @@ class VitisLink(Transformation):
                         mem_type = "DDR"
                         mem_idx = 1
                     node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
+                config.append(
+                    "sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port)
+                )
             # connect streams
             if producer is not None:
                 for i in range(len(node.input)):

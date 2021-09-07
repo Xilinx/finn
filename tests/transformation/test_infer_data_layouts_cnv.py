@@ -26,22 +26,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import brevitas.onnx as bo
 import os
 
-import brevitas.onnx as bo
+import finn.core.data_layout as DataLayout
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
-from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.streamline import Streamline
-from finn.util.test import get_test_model_trained
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.transformation.infer_data_layouts import InferDataLayouts
-import finn.core.data_layout as DataLayout
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from finn.transformation.streamline import Streamline
+from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.util.test import get_test_model_trained
 
 export_onnx_path_cnv = "test_infer_data_layouts.onnx"
 

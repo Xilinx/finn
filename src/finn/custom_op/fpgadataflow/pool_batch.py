@@ -26,12 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 import numpy as np
-
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.core.datatype import DataType
+import os
 from onnx import TensorProto, helper
+
+from finn.core.datatype import DataType
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 

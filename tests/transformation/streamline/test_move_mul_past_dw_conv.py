@@ -1,14 +1,15 @@
 import pytest
 
-from onnx import helper, TensorProto
-from finn.custom_op.general.im2col import compute_conv_output_dim
+from onnx import TensorProto, helper
+
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import gen_finn_dt_tensor
 from finn.transformation.streamline.reorder import MoveMulPastDWConv
+from finn.util.basic import gen_finn_dt_tensor
 
 
 # input dimension

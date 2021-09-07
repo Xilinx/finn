@@ -26,20 +26,21 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.core.modelwrapper import ModelWrapper
-import os
-import json
-import time
 import clize
-import sys
+import json
 import logging
+import os
 import pdb  # NOQA
+import sys
+import time
 import traceback
-from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
+
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     default_build_dataflow_steps,
 )
+from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
+from finn.core.modelwrapper import ModelWrapper
 
 
 # adapted from https://stackoverflow.com/a/39215961

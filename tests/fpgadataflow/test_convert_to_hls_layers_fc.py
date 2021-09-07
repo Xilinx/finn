@@ -26,15 +26,16 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-from pkgutil import get_data
+import pytest
 
 import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
+import os
 import torch
-import pytest
+from pkgutil import get_data
+
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -42,15 +43,14 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.test import get_test_model_trained
-
 
 export_onnx_path = "test_convert_to_hls_layers_fc.onnx"
 

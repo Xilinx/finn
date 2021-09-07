@@ -1,12 +1,12 @@
-from onnx import TensorProto, helper
+import pytest
+
 import numpy as np
+from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.streamline.reorder import MoveLinearPastFork
 from finn.transformation.infer_shapes import InferShapes
-
-import pytest
+from finn.transformation.streamline.reorder import MoveLinearPastFork
 
 
 @pytest.mark.parametrize("ch", [64, 1])

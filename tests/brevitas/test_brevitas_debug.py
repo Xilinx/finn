@@ -26,14 +26,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from pkgutil import get_data
-
-import os
 import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
+import os
 import torch
+from pkgutil import get_data
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
