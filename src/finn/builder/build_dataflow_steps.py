@@ -30,7 +30,8 @@ import json
 import numpy as np
 import os
 from copy import deepcopy
-from shutil import copy, copytree
+from distutils.dir_util import copy_tree
+from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -383,7 +384,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
             CreateStitchedIP(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns)
         )
         # TODO copy all ip sources into output dir? as zip?
-        copytree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
+        copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
         print("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
@@ -446,7 +447,7 @@ def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
         driver_dir = cfg.output_dir + "/driver"
         model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
-        copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
+        copy_tree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
         print("PYNQ Python driver written into " + driver_dir)
     return model
 
@@ -535,8 +536,8 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         bitfile_dir = cfg.output_dir + "/bitfile"
         driver_dir = cfg.output_dir + "/driver"
         os.makedirs(deploy_dir, exist_ok=True)
-        copytree(bitfile_dir, deploy_dir + "/bitfile")
-        copytree(driver_dir, deploy_dir + "/driver")
+        copy_tree(bitfile_dir, deploy_dir + "/bitfile")
+        copy_tree(driver_dir, deploy_dir + "/driver")
     return model
 
 
