@@ -338,7 +338,6 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                         model.set_tensor_shape(mt_cand.output[0], mt_ishape)
                         # re-insert Transpose behind MultiThreshold
                         transpose_output = model.make_new_valueinfo_name()
-                        model.set_tensor_shape(transpose_output, mt_orig_oshape)
                         new_transpose = oh.make_node(
                             "Transpose",
                             [mt_cand.output[0]],
@@ -356,6 +355,8 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                                 model.graph.output, mt_cand.output[0]
                             ).name = transpose_output
                             model.set_tensor_shape(mt_cand.output[0], mt_ishape)
+                        # set value_info shape for transpose output
+                        model.set_tensor_shape(transpose_output, mt_orig_oshape)
                         graph_modified = True
         if graph_modified:
             model = model.transform(InferDataTypes())
@@ -530,11 +531,20 @@ class AbsorbConsecutiveTransposes(Transformation):
                             # TODO implement this to allow for forks as producers
                             consumers = model.find_direct_successors(next_node)
                             prod = model.find_producer(n.input[0])
-                            for cons in consumers:
-                                for cons_in in cons.input:
-                                    if cons_in == next_node.output[0]:
-                                        prod.output[0] = cons_in
-                                        break
+                            if prod is not None:
+                                for cons in consumers:
+                                    for cons_in in cons.input:
+                                        if cons_in == next_node.output[0]:
+                                            prod.output[0] = cons_in
+                                            break
+                            else:
+                                # n.input[0] is top-level graph input
+                                # wire consumers directly to that
+                                for cons in consumers:
+                                    for i, iname in enumerate(cons.input):
+                                        if iname == next_node.output[0]:
+                                            cons.input[i] = n.input[0]
+
                             # remove both transposes
                             graph.node.remove(n)
                             graph.node.remove(next_node)
