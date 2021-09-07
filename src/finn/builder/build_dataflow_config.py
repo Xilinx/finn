@@ -172,6 +172,13 @@ class DataflowBuildConfig:
     #: that will override the target_fps setting here.
     target_fps: Optional[int] = None
 
+    #: (Optional) Use two-pass relaxation for folding, only relevant if target_fps
+    #: is set. If enabled, parallelization will internally run a second time if the
+    #: target cycles from the first pass could not be achieved, instead using the
+    #: achievable target to obtain a balanced pipeline. If disabled, this can be
+    #: useful for decreasing the latency (even though throughput won't increase).
+    folding_two_pass_relaxation: Optional[bool] = True
+
     #: (Optional) At which steps the generated intermediate output model
     #: will be verified. See documentation of VerificationStepType for
     #: available options.

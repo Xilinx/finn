@@ -232,7 +232,11 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
     target_cycles_per_frame = cfg._resolve_cycles_per_frame()
     if target_cycles_per_frame is not None:
         model = model.transform(
-            SetFolding(target_cycles_per_frame, mvau_wwidth_max=cfg.mvau_wwidth_max)
+            SetFolding(
+                target_cycles_per_frame,
+                mvau_wwidth_max=cfg.mvau_wwidth_max,
+                two_pass_relaxation=cfg.folding_two_pass_relaxation,
+            )
         )
     return model
 
