@@ -604,7 +604,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 if abs(tdt_min) > tdt_max:
                     tdt = DataType.get_smallest_possible(tdt_min)
                 else:
-                    tdt = DataType.get_smallest_possible(0 - tdt_max)
+                    tdt = DataType.get_smallest_possible(-tdt_max - 1)
             else:
                 tdt = DataType.get_smallest_possible(tdt_max)
             assert np.vectorize(tdt.allowed)(
@@ -619,7 +619,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 if abs(acc_min) > acc_max:
                     adt = DataType.get_smallest_possible(acc_min)
                 else:
-                    adt = DataType.get_smallest_possible(0 - acc_max)
+                    adt = DataType.get_smallest_possible(-acc_max - 1)
             else:
                 adt = DataType.get_smallest_possible(acc_max)
             # ensure a datatype divisible by 8-bits in case this is the last node
