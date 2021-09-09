@@ -118,14 +118,14 @@ elif [ "$1" = "notebook" ]; then
   DOCKER_EXTRA+="-p $NETRON_PORT:$NETRON_PORT "
 elif [ "$1" = "build_dataflow" ]; then
   BUILD_DATAFLOW_DIR=$(readlink -f "$2")
-  DOCKER_EXTRA="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR"
+  DOCKER_EXTRA="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR "
   DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_dataflow for folder $BUILD_DATAFLOW_DIR"
   DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
 elif [ "$1" = "build_custom" ]; then
   BUILD_CUSTOM_DIR=$(readlink -f "$2")
-  DOCKER_EXTRA="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR"
+  DOCKER_EXTRA="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR "
   DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/build.py"
@@ -141,7 +141,7 @@ if [ "$FINN_DOCKER_GPU" != 0 ];then
   if [ ! -z "$NVIDIA_VISIBLE_DEVICES" ];then
     DOCKER_EXTRA+="--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES "
   else
-    DOCKER_EXTRA+="--gpus all"
+    DOCKER_EXTRA+="--gpus all "
   fi
 fi
 
