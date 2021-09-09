@@ -213,7 +213,12 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
     nodes, which point to a separate ONNX file. Dataflow accelerator synthesis
     can only be performed on those HLSCustomOp sub-graphs."""
 
-    parent_model = model.transform(CreateDataflowPartition())
+    parent_model = model.transform(
+        CreateDataflowPartition(
+            partition_model_dir=cfg.output_dir
+            + "/intermediate_models/dataflow_partitions"
+        )
+    )
     sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
     assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
     sdp_node = sdp_nodes[0]
