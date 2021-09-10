@@ -271,6 +271,13 @@ class DataflowBuildConfig:
     #: - functions are called with (model, DataflowBuildConfig) as args
     steps: Optional[List[Any]] = None
 
+    #: If given, start from this step, loading the intermediate model generated
+    #: from the previous step (save_intermediate_models must be enabled)
+    start_step: Optional[str] = None
+
+    #: If given, stop at this step.
+    stop_step: Optional[str] = None
+
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
             # use same clk for synth and hls if not explicitly specified
