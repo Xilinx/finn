@@ -340,4 +340,7 @@ class DataflowBuildConfig:
                 + self.verify_expected_output_npy
             )
             verify_expected_output_npy = np.load(self.verify_expected_output_npy)
-            return (verify_input_npy, verify_expected_output_npy)
+            return (
+                verify_input_npy.astype(np.float32),
+                verify_expected_output_npy.astype(np.float32),
+            )
