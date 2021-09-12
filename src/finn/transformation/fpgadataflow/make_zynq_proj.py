@@ -46,7 +46,7 @@ from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.util.basic import get_by_name, make_build_dir, pynq_part_map
+from finn.util.basic import make_build_dir, pynq_part_map
 
 from . import templates
 
@@ -54,19 +54,22 @@ from . import templates
 def collect_ip_dirs(model, ipstitch_path):
     # collect list of all IP dirs
     ip_dirs = []
+    need_memstreamer = False
     for node in model.graph.node:
-        ip_dir_attribute = get_by_name(node.attribute, "ip_path")
-        assert (
-            ip_dir_attribute is not None
-        ), """Node attribute "ip_path" is
-        empty. Please run transformation HLSSynth_ipgen first."""
-        ip_dir_value = ip_dir_attribute.s.decode("UTF-8")
+        node_inst = getCustomOp(node)
+        ip_dir_value = node_inst.get_nodeattr("ip_path")
         assert os.path.isdir(
             ip_dir_value
         ), """The directory that should
         contain the generated ip blocks doesn't exist."""
         ip_dirs += [ip_dir_value]
+        if node.op_type in ["StreamingFCLayer_Batch", "Thresholding_Batch"]:
+            if node_inst.get_nodeattr("mem_mode") == "decoupled":
+                need_memstreamer = True
     ip_dirs += [ipstitch_path + "/ip"]
+    if need_memstreamer:
+        # add RTL streamer IP
+        ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
     return ip_dirs
 
 
@@ -146,12 +149,14 @@ class MakeZYNQProject(Transformation):
             consumer = model.find_consumers(node.output[0])
             # define kernel instances
             # name kernels connected to graph inputs as idmaxx
-            # name kernels connected to graph inputs as odmaxx
+            # name kernels connected to graph outputs as odmaxx
             if producer is None or consumer is None:
                 if producer is None:
                     instance_names[node.name] = "idma" + str(idma_idx)
+                    idma_idx += 1
                 elif consumer is None:
                     instance_names[node.name] = "odma" + str(odma_idx)
+                    odma_idx += 1
                 config.append(
                     "create_bd_cell -type ip -vlnv %s %s"
                     % (vivado_stitch_vlnv, instance_names[node.name])
@@ -176,7 +181,7 @@ class MakeZYNQProject(Transformation):
                     "assign_axi_addr_proc %s/%s"
                     % (instance_names[node.name], axilite_intf_name)
                 )
-                idma_idx += 1
+
                 aximm_idx += 1
                 axilite_idx += 1
             else:
@@ -332,7 +337,7 @@ class ZynqBuild(Transformation):
             kernel_model = kernel_model.transform(HLSSynthIP())
             kernel_model = kernel_model.transform(
                 CreateStitchedIP(
-                    self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True
+                    self.fpga_part, self.period_ns, sdp_node.onnx_node.name, False
                 )
             )
             kernel_model.set_metadata_prop("platform", "zynq-iodma")
