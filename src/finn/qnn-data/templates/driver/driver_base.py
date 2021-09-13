@@ -416,9 +416,9 @@ class FINNExampleOverlay(Overlay):
         self.execute_on_buffers()
         outputs = []
         for o in range(self.num_outputs):
-            self.copy_output_data_from_device(self.obuf_packed[0], ind=i)
-            obuf_folded = self.unpack_output(self.obuf_packed, ind=i)
-            obuf_normal = self.unfold_output(obuf_folded, ind=i)
+            self.copy_output_data_from_device(self.obuf_packed[o], ind=o)
+            obuf_folded = self.unpack_output(self.obuf_packed[o], ind=o)
+            obuf_normal = self.unfold_output(obuf_folded, ind=o)
             outputs.append(obuf_normal)
         if self.num_outputs == 1:
             return outputs[0]
@@ -456,9 +456,9 @@ class FINNExampleOverlay(Overlay):
         # also benchmark driver-related overheads
         input_npy = gen_finn_dt_tensor(self.idt(), self.ishape_normal())
         # provide as int8/uint8 to support fast packing path where possible
-        if self.idt == DataType.UINT8:
+        if self.idt() == DataType.UINT8:
             input_npy = input_npy.astype(np.uint8)
-        elif self.idt == DataType.INT8:
+        elif self.idt() == DataType.INT8:
             input_npy = input_npy.astype(np.int8)
         start = time.time()
         ibuf_folded = self.fold_input(input_npy)
