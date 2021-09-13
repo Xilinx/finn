@@ -116,18 +116,32 @@ def verify_step(
         parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
         child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
         model.save(child_model_fn)
-        out_npy = execute_parent(parent_model_fn, child_model_fn, in_npy)
+        out_tensor_name = ModelWrapper(parent_model_fn).graph.output[0].name
+        out_dict = execute_parent(
+            parent_model_fn, child_model_fn, in_npy, return_full_ctx=True
+        )
+        out_npy = out_dict[out_tensor_name]
     else:
         inp_tensor_name = model.graph.input[0].name
         out_tensor_name = model.graph.output[0].name
         inp_dict = {inp_tensor_name: in_npy}
-        out_dict = execute_onnx(model, inp_dict)
+        out_dict = execute_onnx(model, inp_dict, True)
         out_npy = out_dict[out_tensor_name]
     res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
     res_to_str = {True: "SUCCESS", False: "FAIL"}
     res_str = res_to_str[res]
-    verification_output_fn = verify_out_dir + "/verify_%s_%s.npy" % (step_name, res_str)
-    np.save(verification_output_fn, out_npy)
+    if cfg.verify_save_full_context:
+        verification_output_fn = verify_out_dir + "/verify_%s_%s.npz" % (
+            step_name,
+            res_str,
+        )
+        np.savez(verification_output_fn, **out_dict)
+    else:
+        verification_output_fn = verify_out_dir + "/verify_%s_%s.npy" % (
+            step_name,
+            res_str,
+        )
+        np.save(verification_output_fn, out_npy)
     print("Verification for %s : %s" % (step_name, res_str))
 
 
@@ -390,7 +404,11 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
         stitched_ip_dir = cfg.output_dir + "/stitched_ip"
         model = model.transform(
-            CreateStitchedIP(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns)
+            CreateStitchedIP(
+                cfg._resolve_fpga_part(),
+                cfg.synth_clk_period_ns,
+                vitis=cfg.stitched_ip_gen_dcp,
+            )
         )
         # TODO copy all ip sources into output dir? as zip?
         copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)

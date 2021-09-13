@@ -192,6 +192,15 @@ class DataflowBuildConfig:
     #: verification. Only required if verify_steps is not empty.
     verify_expected_output_npy: Optional[str] = "expected_output.npy"
 
+    #: (Optional) Save full execution context for each of the verify_steps.
+    #: By default, only the top-level graph output is saved.
+    verify_save_full_context: Optional[bool] = False
+
+    #: (Optional) Run synthesis to generate a .dcp for the stitched-IP output product.
+    #: This can make it easier to treat it as a standalone artifact without requiring
+    #: the full list of layer IP build directories. By default, synthesis will not run.
+    stitched_ip_gen_dcp: Optional[bool] = False
+
     #: (Optional) Control the maximum width of the per-PE MVAU stream while
     #: exploring the parallelization attributes to reach target_fps
     #: Only relevant if target_fps is specified.
