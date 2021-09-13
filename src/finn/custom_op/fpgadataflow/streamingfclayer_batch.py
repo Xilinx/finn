@@ -663,7 +663,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
         # workaround for vivado_hls threshold bug
-        if ret[0][0] == 0:
+        if ret[0][0] == 0 and n_thres_steps == 1:
             ret = np.copy(ret)
             ret[0][0] = 1
             warnings.warn(
