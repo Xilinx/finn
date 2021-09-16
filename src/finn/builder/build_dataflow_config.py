@@ -196,6 +196,10 @@ class DataflowBuildConfig:
     #: By default, only the top-level graph output is saved.
     verify_save_full_context: Optional[bool] = False
 
+    #: (Optional) Save .vcd waveforms from rtlsim under reports.
+    #: By default, waveforms won't be saved.
+    verify_save_rtlsim_waveforms: Optional[bool] = False
+
     #: (Optional) Run synthesis to generate a .dcp for the stitched-IP output product.
     #: This can make it easier to treat it as a standalone artifact without requiring
     #: the full list of layer IP build directories. By default, synthesis will not run.

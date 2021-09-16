@@ -71,7 +71,6 @@ from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
@@ -143,6 +142,48 @@ def verify_step(
         )
         np.save(verification_output_fn, out_npy)
     print("Verification for %s : %s" % (step_name, res_str))
+
+
+def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
+    need_restitch = False
+    # rtlsim only supports certain impl_style for some nodes
+    # StreamingFIFO must have impl_style=rtl
+    for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
+        inst = getCustomOp(fifo_layer)
+        if inst.get_nodeattr("impl_style") != "rtl":
+            inst.set_nodeattr("impl_style", "rtl")
+            inst.set_nodeattr("code_gen_dir_ipgen", "")
+            inst.set_nodeattr("ipgen_path", "")
+            need_restitch = True
+    # StreamingDataWidthConverter must have impl_style=hls
+    for dwc_layer in verify_model.get_nodes_by_op_type(
+        "StreamingDataWidthConverter_Batch"
+    ):
+        inst = getCustomOp(dwc_layer)
+        if inst.get_nodeattr("impl_style") != "hls":
+            inst.set_nodeattr("impl_style", "hls")
+            inst.set_nodeattr("code_gen_dir_ipgen", "")
+            inst.set_nodeattr("ipgen_path", "")
+            need_restitch = True
+    # if we've made alterations to the model, need to do some re-prep
+    if need_restitch:
+        print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
+        verify_model = verify_model.transform(
+            PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+        )
+        verify_model = verify_model.transform(HLSSynthIP())
+        verify_model = verify_model.transform(
+            CreateStitchedIP(
+                cfg._resolve_fpga_part(),
+                cfg.synth_clk_period_ns,
+                vitis=False,
+            )
+        )
+    # set top-level prop for stitched-ip rtlsim and launch
+    verify_model.set_metadata_prop("exec_mode", "rtlsim")
+    # TODO make configurable
+    # verify_model.set_metadata_prop("rtlsim_trace", "trace.vcd")
+    return verify_model
 
 
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -416,16 +457,13 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
-        # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
-        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
-            getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
-        # similarly for StreamingDataWidthConverter with impl_style=hls
-        for dwc_layer in verify_model.get_nodes_by_op_type(
-            "StreamingDataWidthConverter_Batch"
-        ):
-            getCustomOp(dwc_layer).set_nodeattr("impl_style", "hls")
-        verify_model = verify_model.transform(PrepareRTLSim())
-        verify_model.set_metadata_prop("exec_mode", "rtlsim")
+        verify_model = prepare_for_stitched_ip_rtlsim(verify_model, cfg)
+        if cfg.verify_save_rtlsim_waveforms:
+            report_dir = cfg.output_dir + "/report"
+            os.makedirs(report_dir, exist_ok=True)
+            verify_model.set_metadata_prop(
+                "rtlsim_trace", "%s/verify_rtlsim.vcd" % (report_dir)
+            )
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
     return model
 
@@ -439,28 +477,27 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         assert (
             DataflowOutputType.STITCHED_IP in cfg.generate_outputs
         ), "rtlsim_perf needs stitched IP"
+        report_dir = cfg.output_dir + "/report"
+        os.makedirs(report_dir, exist_ok=True)
         # prepare ip-stitched rtlsim
         rtlsim_model = deepcopy(model)
-        # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
-        for fifo_layer in rtlsim_model.get_nodes_by_op_type("StreamingFIFO"):
-            getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
-        # similarly for StreamingDataWidthConverter with impl_style=hls
-        for dwc_layer in rtlsim_model.get_nodes_by_op_type(
-            "StreamingDataWidthConverter_Batch"
-        ):
-            getCustomOp(dwc_layer).set_nodeattr("impl_style", "hls")
-        rtlsim_model = rtlsim_model.transform(PrepareRTLSim())
-        rtlsim_model.set_metadata_prop("exec_mode", "rtlsim")
+        rtlsim_model = prepare_for_stitched_ip_rtlsim(rtlsim_model, cfg)
         # run with single input to get latency
+        if cfg.verify_save_rtlsim_waveforms:
+            rtlsim_model.set_metadata_prop(
+                "rtlsim_trace", "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, 1)
+            )
         rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, 1)
         rtlsim_latency = rtlsim_perf_dict["cycles"]
         # run with num inputs equal to layers to fill the whole pipeline
         # to get the steady-state throughput
         rtlsim_bs = len(rtlsim_model.graph.node)
+        if cfg.verify_save_rtlsim_waveforms:
+            rtlsim_model.set_metadata_prop(
+                "rtlsim_trace", "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs)
+            )
         rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
         rtlsim_perf_dict["latency_cycles"] = rtlsim_latency
-        report_dir = cfg.output_dir + "/report"
-        os.makedirs(report_dir, exist_ok=True)
         with open(report_dir + "/rtlsim_performance.json", "w") as f:
             json.dump(rtlsim_perf_dict, f, indent=2)
 
