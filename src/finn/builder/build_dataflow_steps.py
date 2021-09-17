@@ -97,6 +97,7 @@ from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.util.config import extract_model_config_to_json
+from finn.util.pyverilator import pyverilate_get_liveness_threshold_cycles
 from finn.util.test import execute_parent
 
 
@@ -458,6 +459,14 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
         verify_model = prepare_for_stitched_ip_rtlsim(verify_model, cfg)
+        # use critical path estimate to set rtlsim liveness threshold
+        # (very conservative)
+        verify_model = verify_model.transform(AnnotateCycles())
+        estimate_network_performance = verify_model.analysis(dataflow_performance)
+        prev_liveness = pyverilate_get_liveness_threshold_cycles()
+        os.environ["LIVENESS_THRESHOLD"] = str(
+            int(estimate_network_performance["critical_path_cycles"])
+        )
         if cfg.verify_save_rtlsim_waveforms:
             report_dir = cfg.output_dir + "/report"
             os.makedirs(report_dir, exist_ok=True)
@@ -465,6 +474,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 "rtlsim_trace", "%s/verify_rtlsim.vcd" % (report_dir)
             )
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+        os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 
 
@@ -487,17 +497,10 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
             rtlsim_model.set_metadata_prop(
                 "rtlsim_trace", "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, 1)
             )
+        rtlsim_model.set_metadata_prop("extra_verilator_args", str(["-CFLAGS", "-O3"]))
         rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, 1)
-        rtlsim_latency = rtlsim_perf_dict["cycles"]
-        # run with num inputs equal to layers to fill the whole pipeline
-        # to get the steady-state throughput
-        rtlsim_bs = len(rtlsim_model.graph.node)
-        if cfg.verify_save_rtlsim_waveforms:
-            rtlsim_model.set_metadata_prop(
-                "rtlsim_trace", "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs)
-            )
-        rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
-        rtlsim_perf_dict["latency_cycles"] = rtlsim_latency
+        rtlsim_latency_bs1 = rtlsim_perf_dict["cycles"]
+        rtlsim_perf_dict["latency_cycles"] = rtlsim_latency_bs1
         with open(report_dir + "/rtlsim_performance.json", "w") as f:
             json.dump(rtlsim_perf_dict, f, indent=2)
 
