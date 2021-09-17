@@ -84,6 +84,123 @@ In the first case, SIMD calculates the XOR of the input activation and weights, 
 
 Implementing the RTL is only part of the project. Since the key element of the work is a performance comparison between RTL and HLS, python, bash and TCL scripts were used to automate the regression test and performance analysis. The main python script, `regtest_mvau.py` for batch MVU and `regtest_mvau_stream.py` for stream MVU, defines a number of parameters for which the MVU is to be realized. Based on the given set of parameters, RTL and HLS designs are realized, simulated and synthesized. The performance numbers in terms of resource utilization (LUT, Flip-flops, BRAM, DSP), critical path delay, latency and total execution time are extracted from log files and written to an output excel file. 
 
+## FINN MVU Results
+
+Some results for the MVU batch are shown here which compares RTL and HLS runs. The various configurations for which the design was realized are shown next
+<table>
+  <tr>
+    <td rowspan="2"><b>Configuration</b></td>
+    <td colspan="2"><b>LUT</b></td>
+    <td colspan="2"><b>FF</b></td>
+    <td colspan="2"><b>BRAM</b></td>
+    <td colspan="2"><b>Delay (ns)</b></td>
+    <td colspan="2"><b>Exec. Time (sec)</b></td>
+  </tr>
+  <tr>
+    <td style="text-align:center">HLS</td><td>RTL</td>
+    <td style="text-align:center">HLS</td><td>RTL</td>
+    <td style="text-align:center">HLS</td><td>RTL</td>
+    <td style="text-align:center">HLS</td><td>RTL</td>
+    <td style="text-align:center">HLS</td><td>RTL</td>
+  </tr>
+  <tr>
+    <td><b>Config #1</b></td>
+    <td>1494</td><td>993</td>
+    <td>1702</td><td>1009</td>
+    <td>0</td><td>0</td>
+    <td>2.26</td><td>1.354</td>
+    <td>345</td><td>136</td>
+  </tr>
+  <tr>
+    <td>Config #2</td>
+    <td>11106</td><td>12963</td>
+    <td>6318</td><td>3084</td>
+    <td>0</td><td>0</td>
+    <td>4.02</td><td>2.96</td>
+    <td>1313</td><td>227</td>
+  </tr>
+  <tr>
+    <td><b>Config #3</td>
+    <td>2950</td><td>2142</td>
+    <td>2421</td><td>2018</td>
+    <td>32</td><td>16</td>
+    <td>2.84</td><td>1.91</td>
+    <td>516</td><td>178</td>
+  </tr>
+  <tr>
+    <td>Config #4</td>
+    <td>11700</td><td>13133</td>
+    <td>7462</td><td>3389</td>
+    <td>32</td><td>16</td>
+    <td>4.05</td><td>3.84</td>
+    <td>1345</td><td>249</td>
+  </tr>
+  <tr>
+    <td>Config #5</td>
+    <td>29804</td><td>28115</td>
+    <td>9661</td><td>2754</td>
+    <td>128</td><td>64</td>
+    <td>3.12</td><td>4.33</td>
+    <td>1502</td><td>322</td>
+  </tr>
+  <tr>
+    <td>Config #6</td>
+    <td>930</td><td>891</td>
+    <td>1141</td><td>855</td>
+    <td>0</td><td>0</td>
+    <td>3.87</td><td>1.74</td>
+    <td>1055</td><td>113</td>
+  </tr>
+  <tr>
+    <td>Config #7</td>
+    <td>2334</td><td>1868</td>
+    <td>1674</td><td>1500</td>
+    <td>0</td><td>0</td>
+    <td>3.87</td><td>1.74</td>
+    <td>1055</td><td>113</td>
+  </tr>
+  <tr>
+    <td>Config #8</td>
+    <td>118153</td><td>106722</td>
+    <td>23454</td><td>8638</td>
+    <td>432</td><td>256</td>
+    <td>3.52</td><td>4.35</td>
+    <td>106722</td><td>329</td>
+  </tr>  
+</table>
+
+The configurations are shown below in terms of input feature map channels (IFM Ch), input feature map dimensions (IFM Dim), output feature map channels (OFM Ch), kernel dimension (KDim), input, weight and output precision, PE and SIMD/PE
+
+<table>
+  <tr>
+    <td><b>Configs </b></td> <td><b> IFM Ch </b></td> <td><b> IFM Dim </b></td> <td><b> OFM Ch </b></td> <td><b> KDim </b></td> <td><b> Inp. prec. </b></td> <td><b> Weight prec. </b></td> <td><b> Out. prec.</b> </td> <td><b> PE </b></td> <td><b> SIMD/PE </b></td>
+  </tr>
+  <tr>
+    <td>Config #1</td>    <td>32</td>    <td>16</td>    <td>32</td>    <td>4</td>     <td>1</td>    <td>1</td>    <td>11</td>    <td>16</td>    <td>16</td>
+  </tr>  
+  <tr>
+    <td>Config #2</td>    <td>32</td>    <td>16</td>    <td>32</td>    <td>4</td>     <td>4</td>    <td>1</td>    <td>14</td>    <td>32</td>    <td>32</td>
+  </tr>
+  <tr>
+    <td>Config #3</td>    <td>64</td>    <td>16</td>    <td>64</td>    <td>4</td>     <td>1</td>    <td>1</td>    <td>12</td>    <td>32</td>    <td>32</td>
+  </tr>
+  <tr>
+    <td>Config #4</td>    <td>64</td>    <td>16</td>    <td>64</td>    <td>4</td>     <td>4</td>    <td>1</td>    <td>15</td>    <td>32</td>    <td>32</td>
+  </tr>
+  <tr>
+    <td>Config #5</td>    <td>64</td>    <td>16</td>    <td>64</td>    <td>4</td>     <td>4</td>    <td>4</td>    <td>16</td>    <td>32</td>    <td>32</td>
+  </tr>
+  <tr>
+    <td>Config #6</td>    <td>8</td>    <td>8</td>    <td>8</td>    <td>4</td>     <td>4</td>    <td>1</td>    <td>12</td>    <td>8</td>    <td>8</td>
+  </tr>
+  <tr>
+    <td>Config #7</td>    <td>8</td>    <td>8</td>    <td>8</td>    <td>4</td>     <td>4</td>    <td>4</td>    <td>15</td>    <td>8</td>    <td>8</td>
+  </tr>
+  <tr>
+    <td>Config #8</td>    <td>64</td>    <td>32</td>    <td>128</td>    <td>4</td>     <td>4</td>    <td>4</td>    <td>16</td>    <td>64</td>    <td>64</td>
+  </tr>
+    </table> 
+
 ## FINN MVU Automatic Documentation
 Automatic documentation based on Doxygen is not available for SystemVerilog. Adapting Doxygen for SystemVerilog is non-trivial. On the other hand, NaturalDocs presents a simplified way of extending it to include additional languages. The generation of documentation was automated using Travis CI and is available at `https://asadalam.github.io/FINN_MatrixVector_RTL/`. Fig. 5 shows an image of the landing page.
 
@@ -91,81 +208,5 @@ Automatic documentation based on Doxygen is not available for SystemVerilog. Ada
 | :---:|
 | *Fig. 3 Automatic documentation landing page.* |
 
-## FINN MVU RTL Repository Organization
-The repository is organized as follows:
-### Document Folder (Doc):
-  - This folder contains documentation related to the project
-  - To fetch GitHub pages which hosts the automatic documentation generated by Natural Docs, run
-  ```
-  git clone https://github.com/asadalam/Xilinx_mvau.git -b gh-pages
-  ```
-  - The web page containing documentation is available at
-  ```
-  https://asadalam.github.io/FINN_MatrixVector_RTL/
-  ```
-### Project Folder (proj):
-Project folder, contains the following sub-folders
-  - Source Folder (`src`): All source code
-  - Simulation Folder (`sim`): Files related to simulation like test benches
-  - Synthesis Folder (`syn`) - Files related to synthesis
-  - FINN HLS Library Folder (`finn-hlslib`) - Forked repository of Xilinx HLS Library added as a submodule
-  - IP Repository Folder (`ip_repo`) - Folder to keep all files related to IP
-  - Regression Test Folder (`RegressionTests`) - Files to run automated regression test including functional simulation and synthesis of RTL and HLS along with data gathering
-
-## Environmental Variables
-In order to run simulation and synthesis, set the following two environmental variables
-  - `FINN_HLS_ROOT`: `Xilinx_mvau/proj/finn-hlslib`
-  - `MVAU_RTL_ROOT`: `Xilinx_mvau`
-
-## Cloning the Repo and Adding FINN HLSLIB as Sub-Module
-To clone the repository, say:
-```
-git clone https://github.com/asadalam/Xilinx_mvau.git
-```
-
-The Xilinx FINN HLS library has been forked separately and added as a sub-module to this repository. When the repo is cloned, the FINN repository is empty. To populate it say:
-```
-git submodule update --init
-```
-to populate Xilinx_mvau/proj/finn-hlslib directory
-
-### Updating Sub-Module after edits
-If any change is made in the FINN HLS library, the changes are reflected in the main fork and the local repository but the submodule itself is not updated. To update the submodule so that changes are visible to others say (assuming one is in the FINN HLS directory):
-```
-cd ../
-git submodule update
-cd finn-hlslib
-git checkout master
-cd ../
-git commit -am 'submodule updated'
-git push
-```
-This will update the submodule and changes visible to others
-
-## Building RTL and HLS Hardware Design and Analysis
-In order to rebuild the hardware designs and compare outputs of RTL and HLS designs, the repo should be cloned to a machine with Vivado Design Suite installed (tested with 2020.1). Follow the following steps:
-1. Clone the repository: `git clone https://github.com/asadalam/Xilinx_mvau.git`
-2. Populate the FINN HLS library folder (as it is a submodule): `git submodule update --init`
-3. Set the environment variables: FINN_HLS_ROOT and MVAU_RTL_ROOT
-4. Preferably work in a virtual environment and install python dependencies by saying: `pip install -r requirements.txt` (Verified on Python 3.9.5)
-5. Move to `MVAU_RTL_ROOT/proj/RegresssionTests`
-6. For testing the MVAU batch unit, open the file `regtest_mvau.py` or for testing the MVAU Stream Unit, open the file `regtest_mvau_stream.py`
-7. Make sure that the FPGA being used are same for both RTL and HLS, for consistency purposes. For RTL, the FPGA is defined in `MVAU_RTL_ROOT/proj/syn/mvau_synth.tcl` file, where the synthesis command of `synth_design` is executed with the `-part` argument. For HLS, the FPGA is defined, depending on the type of implementation, in the following three files, where files with `std`, `binwgt` and `xnor` suffix indicates design with >1 bit, 1 bit weight and 1 bit input activation and weight resolution, respectively:
-   1. `FINN_HLS_ROOT/tb/test_mvau_std.tcl`
-   2. `FINN_HLS_ROOT/tb/test_mvau_binwgt.tcl`
-   3. `FINN_HLS_ROOT/tb/test_mvau_xnor.tcl`
-9. Define the following parameters in the python script
-   1. Kernel dimension (`kdim_arr`)
-   2. Number of input feature map channels (`ifm_ch_arr`)
-   3. Number of output feature map channels (`ofm_ch_arr`)
-   4. Input feature map dimension (`ifm_dim_arr`)
-   5. Input activation (`inp_wl_arr`) and weights precision (`wgt_wl_arr`)
-   6. Number of PEs (`pe`) and number of SIMD elements per PEs (`simd`)
- 7. All parameters are defined as arrays to test for multiple organizations
- 8. Arrays definining input feature map channels, output feature map channels and input feature dimensions should preferably have the same length
- 9. Arrays defining input and output word length should preferably have the same length
- 10. Arrays defining SIMD and PE should preferably have the same length
- 11. Run the python script as: `python regtest_mvau.py -o <result_filename>.xlsx` (The same can be done with `regtest_mvau_stream.py`
- 12. The excel spreadsheet will list down all configurations run and synthesis results for HLS and RTL for each configuration
-
-
+## FINN MVU RTL Repository
+The repository for the RTL is available [here](https://github.com/asadalam/FINN_MatrixVector_RTL). The README.md at the repository describes the organization and how the repo can be hosted.
