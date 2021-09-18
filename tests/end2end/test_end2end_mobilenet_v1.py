@@ -198,6 +198,7 @@ def test_end2end_mobilenet_lowering():
     )
     model = model.transform(LowerConvsToMatMul())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+    model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())
