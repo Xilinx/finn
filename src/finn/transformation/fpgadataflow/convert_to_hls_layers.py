@@ -293,6 +293,9 @@ class InferUpsample(Transformation):
                     "the first and last dimensions being 1."
                 )
                 spatial_scale = scales[1]
+                assert spatial_scale == int(spatial_scale), (
+                    "%s: Upsampling is only supported for integer scales." % n.name
+                )
 
                 assert in_shape[1] == in_shape[2], (
                     "%s: Upsampling is only supported for quadratic input shapes."
