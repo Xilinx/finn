@@ -216,7 +216,7 @@ class CreateStitchedIP(Transformation):
         ip_dirs = ["list"]
         # add RTL streamer IP
         ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
-        if model.graph.node.op_type not in ["StreamingFIFO", "IODMA"]:
+        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
                 You may experience incorrect stitched-IP rtlsim or hardware
