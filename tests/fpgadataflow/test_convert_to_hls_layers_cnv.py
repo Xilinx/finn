@@ -70,6 +70,7 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     model = model.transform(LowerConvsToMatMul())
     model = model.transform(MakeMaxPoolNHWC())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+    model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
     model = model.transform(InferDataLayouts())
