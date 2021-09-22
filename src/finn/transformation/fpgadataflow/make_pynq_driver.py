@@ -147,7 +147,7 @@ class MakePYNQDriver(Transformation):
             ishape_normal.append(i_tensor_shape_normal)
             ishape_folded.append(i_tensor_shape_folded)
             ishape_packed.append(i_tensor_shape_packed)
-            idma_names.append("idma%d" % idma_ind)
+            idma_names.append(getCustomOp(i_consumer).get_nodeattr("instance_name"))
 
         odt = []
         odma_names = []
@@ -194,7 +194,7 @@ class MakePYNQDriver(Transformation):
             oshape_normal.append(o_tensor_shape_normal)
             oshape_folded.append(o_tensor_shape_folded)
             oshape_packed.append(o_tensor_shape_packed)
-            odma_names.append("odma%d" % odma_ind)
+            odma_names.append(getCustomOp(o_producer).get_nodeattr("instance_name"))
 
         # generate external weights npy files
         weights_dir = pynq_driver_dir + "/runtime_weights"
@@ -208,19 +208,31 @@ class MakePYNQDriver(Transformation):
                 node.op_type == "StreamingDataflowPartition"
             ), "CreateDataflowPartition needs to be applied before driver generation"
 
-            producer = model.find_producer(node.input[0])
-            init_tensor = model.get_initializer(node.input[0])
+            if len(node.input) > 0:
+                producer = model.find_producer(node.input[0])
+                init_tensor = model.get_initializer(node.input[0])
+            else:
+                producer = None
+                init_tensor = None
 
             if producer is None:  # input dma?
-                idma_name = "idma" + str(idma_idx)
-                if init_tensor is not None:  # input weights dma?
+                sdp_inst = getCustomOp(node)
+                idma_name = sdp_inst.get_nodeattr("instance_name")
+                df_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
+                assert df_model.graph.node[0].op_type == "IODMA"
+                iodma_node = getCustomOp(df_model.graph.node[0])
+                if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
+                    init_tensor = df_model.get_initializer(
+                        iodma_node.onnx_node.input[0]
+                    )
                     ext_weight_dma_cnt += 1
-                    w_dtype = model.get_tensor_datatype(node.input[0])
+                    w_dtype = df_model.get_tensor_datatype(
+                        iodma_node.onnx_node.input[0]
+                    )
                     init_external_tensor = to_external_tensor(init_tensor, w_dtype)
                     np.save(
                         weights_dir + "/" + idma_name + ".npy", init_external_tensor
                     )
-
                 idma_idx += 1
 
         # fill in the driver template
