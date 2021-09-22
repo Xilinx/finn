@@ -273,7 +273,7 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
     parent_model = model.transform(
         CreateDataflowPartition(
             partition_model_dir=cfg.output_dir
-            + "/intermediate_models/dataflow_partitions"
+            + "/intermediate_models/supported_op_partitions"
         )
     )
     sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
@@ -556,9 +556,15 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         os.makedirs(bitfile_dir, exist_ok=True)
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
+        partition_model_dir = cfg.output_dir + "/intermediate_models/kernel_partitions"
         if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             model = model.transform(
-                ZynqBuild(cfg.board, cfg.synth_clk_period_ns, cfg.enable_hw_debug)
+                ZynqBuild(
+                    cfg.board,
+                    cfg.synth_clk_period_ns,
+                    cfg.enable_hw_debug,
+                    partition_model_dir=partition_model_dir,
+                )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.bit")
             copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
@@ -582,6 +588,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                     floorplan_file=cfg.vitis_floorplan_file,
+                    partition_model_dir=partition_model_dir,
                 )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")
