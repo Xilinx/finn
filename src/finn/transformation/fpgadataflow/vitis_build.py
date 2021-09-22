@@ -43,7 +43,6 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.general import (
     GiveReadableTensorNames,
@@ -207,7 +206,10 @@ class VitisLink(Transformation):
             # has axis, aximm and axilite
             # everything else is axis-only
             # assume only one connection from each ip to the next
-            producer = model.find_producer(node.input[0])
+            if len(node.input) == 0:
+                producer = None
+            else:
+                producer = model.find_producer(node.input[0])
             consumer = model.find_consumers(node.output[0])
             # define kernel instances
             # name kernels connected to graph inputs as idmaxx
@@ -223,6 +225,7 @@ class VitisLink(Transformation):
             else:
                 instance_names[node.name] = node.name
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
+            sdp_node.set_nodeattr("instance_name", instance_names[node.name])
             # explicitly assign SLRs if the slr attribute is not -1
             node_slr = sdp_node.get_nodeattr("slr")
             if node_slr != -1:
@@ -439,6 +442,4 @@ class VitisBuild(Transformation):
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "alveo")
 
-        # create driver
-        model = model.transform(MakePYNQDriver(platform="alveo"))
         return (model, False)

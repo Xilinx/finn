@@ -42,7 +42,6 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.transformation.infer_data_layouts import InferDataLayouts
@@ -145,7 +144,10 @@ class MakeZYNQProject(Transformation):
             # assume only one connection from each ip to the next
             # all aximm allocated to DDR[0]
             # all kernels allocated to SLR0
-            producer = model.find_producer(node.input[0])
+            if len(node.input) == 0:
+                producer = None
+            else:
+                producer = model.find_producer(node.input[0])
             consumer = model.find_consumers(node.output[0])
             # define kernel instances
             # name kernels connected to graph inputs as idmaxx
@@ -202,6 +204,7 @@ class MakeZYNQProject(Transformation):
                         % (instance_names[node.name], axilite_intf_name)
                     )
                     axilite_idx += 1
+            sdp_node.set_nodeattr("instance_name", instance_names[node.name])
 
             config.append(
                 "connect_bd_net [get_bd_pins %s/ap_clk] "
@@ -350,6 +353,4 @@ class ZynqBuild(Transformation):
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "zynq-iodma")
 
-        # create driver
-        model = model.transform(MakePYNQDriver(platform="zynq-iodma"))
         return (model, False)
