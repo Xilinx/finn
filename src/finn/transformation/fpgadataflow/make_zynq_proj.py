@@ -303,12 +303,19 @@ class ZynqBuild(Transformation):
 
     """
 
-    def __init__(self, platform, period_ns, enable_debug=False):
+    def __init__(
+        self,
+        platform,
+        period_ns,
+        enable_debug=False,
+        partition_model_dir="dataflow_partition",
+    ):
         super().__init__()
         self.fpga_part = pynq_part_map[platform]
         self.period_ns = period_ns
         self.platform = platform
         self.enable_debug = enable_debug
+        self.partition_model_dir = partition_model_dir
 
     def apply(self, model):
         # first infer layouts
@@ -318,7 +325,7 @@ class ZynqBuild(Transformation):
             InsertIODMA(64),
             InsertDWC(),
             Floorplan(),
-            CreateDataflowPartition(),
+            CreateDataflowPartition(partition_model_dir=self.partition_model_dir),
         ]
         for trn in prep_transforms:
             model = model.transform(trn)

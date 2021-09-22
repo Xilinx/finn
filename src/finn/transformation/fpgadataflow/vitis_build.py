@@ -378,6 +378,7 @@ class VitisBuild(Transformation):
         enable_debug=False,
         floorplan_file=None,
         enable_link=True,
+        partition_model_dir="dataflow_partition",
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -387,6 +388,7 @@ class VitisBuild(Transformation):
         self.enable_debug = enable_debug
         self.floorplan_file = floorplan_file
         self.enable_link = enable_link
+        self.partition_model_dir = partition_model_dir
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -401,7 +403,9 @@ class VitisBuild(Transformation):
 
         model = model.transform(Floorplan(floorplan=self.floorplan_file))
 
-        model = model.transform(CreateDataflowPartition())
+        model = model.transform(
+            CreateDataflowPartition(partition_model_dir=self.partition_model_dir)
+        )
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
 
