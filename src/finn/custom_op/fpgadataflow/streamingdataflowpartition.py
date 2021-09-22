@@ -47,6 +47,7 @@ class StreamingDataflowPartition(CustomOp):
             "partition_id": ("i", False, 0),
             "device_id": ("i", False, 0),
             "mem_port": ("s", False, ""),
+            "instance_name": ("s", False, ""),
         }
 
     def make_shape_compatible_op(self, model):
