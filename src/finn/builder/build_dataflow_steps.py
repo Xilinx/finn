@@ -221,6 +221,7 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(MakeMaxPoolNHWC())
         model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
         model = model.transform(MakeMaxPoolNHWC())
+        model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
     # absorb final add-mul nodes into TopK
