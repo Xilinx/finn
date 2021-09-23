@@ -580,7 +580,6 @@ class TestEnd2End:
         cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
         model = model.transform(AnnotateResources("synth"))
-        model = model.transform(MakePYNQDriver(cfg["platform"]))
         synth_dct = eval(model.get_metadata_prop("res_total_top_synth"))
         for (k, v) in synth_dct.items():
             update_dashboard_data(topology, wbits, abits, k, v)
