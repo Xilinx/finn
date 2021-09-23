@@ -101,7 +101,7 @@ from finn.util.test import (
 build_dir = os.environ["FINN_BUILD_DIR"]
 target_clk_ns = 10
 mem_mode = "decoupled"
-rtlsim_trace = True
+rtlsim_trace = False
 
 
 def get_checkpoint_name(topology, wbits, abits, step):
