@@ -202,11 +202,13 @@ The configurations are shown below in terms of input feature map channels (IFM C
     </table> 
 
 ## FINN MVU Automatic Documentation
-Automatic documentation based on Doxygen is not available for SystemVerilog. Adapting Doxygen for SystemVerilog is non-trivial. On the other hand, NaturalDocs presents a simplified way of extending it to include additional languages. The generation of documentation was automated using Travis CI and is available at `https://asadalam.github.io/FINN_MatrixVector_RTL/`. Fig. 5 shows an image of the landing page.
+
+Automatic documentation based on Doxygen is not available for SystemVerilog. Adapting Doxygen for SystemVerilog is non-trivial. On the other hand, NaturalDocs presents a simplified way of extending it to include additional languages. The generation of documentation was automated using Travis CI and is available at (here)[https://asadalam.github.io/FINN_MatrixVector_RTL/]. Fig. 5 shows an image of the landing page.
 
 | <img src="https://raw.githubusercontent.com/asadalam/FINN_MatrixVector_RTL/main/Doc/blog_figs/auto_doc.png" alt="Automatic documentation landing page" title="Automatic documentation landing page" width="600" height="500" align="center"/>|
-| :---:|
+| :---: |
 | *Fig. 3 Automatic documentation landing page.* |
 
 ## FINN MVU RTL Repository
+
 The repository for the RTL is available [here](https://github.com/asadalam/FINN_MatrixVector_RTL). The README.md at the repository describes the organization and how the repo can be hosted.
