@@ -30,7 +30,7 @@ Essentially, the stream MVU is a subset of batch MVU. The stream MVU consists of
 is made up of a number of SIMD units. The degree of parallelism in the MVU is determined by the number of PEs and SIMDs/PE. Consider the 4x8 weight matrix
 (MatrixH = 4, MatrixW = 8) and a 8x1 input activation shown in Fig. 1
 
-| <img src="https://github.com/asadalam/FINN_MatrixVector_RTL/blob/main/Doc/blog_figs/mvu_matrix.png" alt="Weight matrix and input activation" title="Weight matrix and input activation vector" width="450" height="500" align="center"/>|
+| <img src="https://raw.githubusercontent.com/asadalam/FINN_MatrixVector_RTL/main/Doc/blog_figs/mvu_matrix.png" alt="Weight matrix and input activation" title="Weight matrix and input activation vector" width="450" height="500" align="center"/>|
 | :---:|
 | *Fig. 1 Weight matrix and input activation vector.* |
 
@@ -43,19 +43,19 @@ In case the number of PEs < MatrixH, this results in a further folding factor, r
 ## FINN MVU Architecture
 The batch unit uses the stream unit and burned-in weights along with a simple control unit to regulate the reading of weights. The inputs of both the batch and stream MVUs are compliant to the AXI stream protocol. A block diagram of the batch unit is shown in Fig. 2.
 
-| <img src="https://github.com/asadalam/FINN_MatrixVector_RTL/blob/main/Doc/blog_figs/mvu_batch.png" alt="MVU batch unit" title="MVU batch unit" width="450" height="500" align="center"/>|
+| <img src="https://raw.githubusercontent.com/asadalam/FINN_MatrixVector_RTL/main/Doc/blog_figs/mvu_batch.png" alt="MVU batch unit" title="MVU batch unit" width="450" height="500" align="center"/>|
 | :---:|
 | *Fig. 2 MVU batch unit.* |
 
 The stream unit's block diagram is given in Fig. 3 where the input buffer is used to store the input activation in case it needs to be re-used for the case where NF>1.
 
-| <img src="https://github.com/asadalam/FINN_MatrixVector_RTL/blob/main/Doc/blog_figs/mvu_stream.png" alt="MVU stream unit" title="MVU stream unit" width="450" height="500" align="center"/>|
+| <img src="https://raw.githubusercontent.com/asadalam/FINN_MatrixVector_RTL/main/Doc/blog_figs/mvu_stream.png" alt="MVU stream unit" title="MVU stream unit" width="450" height="500" align="center"/>|
 | :---:|
 | *Fig. 3 MVU stream unit.* |
 
 Within each PE, there are a number of SIMD blocks, an adder tree and an accumulator for the case when SF>1. The arrangement is shown in Fig. 4
 
-| <img src="https://github.com/asadalam/FINN_MatrixVector_RTL/blob/main/Doc/blog_figs/mvu_pe.png" alt="MVU stream unit" title="MVU PE" width="450" height="500" align="center"/>|
+| <img src="https://raw.githubusercontent.com/asadalam/FINN_MatrixVector_RTL/main/Doc/blog_figs/mvu_pe.png" alt="MVU stream unit" title="MVU PE" width="450" height="500" align="center"/>|
 | :---:|
 | *Fig. 3 MVU PE.* |
 
@@ -65,7 +65,7 @@ upon assertion of the corresponding ready and valid signals. This necessitates t
 usage of the input buffer. The main matrix vector computation takes place during both the READ and WRITE states. The state diagram in Fig. 4 only shows 
 a simplistic view of the state machine.
 
-| <img src="https://github.com/asadalam/FINN_MatrixVector_RTL/blob/main/Doc/blog_figs/mvu_stream_cu.png" alt="MVU stream control unit" title="MVU stream control unit" width="450" height="500" align="center"/>|
+| <img src="https://raw.githubusercontent.com/asadalam/FINN_MatrixVector_RTL/main/Doc/blog_figs/mvu_stream_cu.png" alt="MVU stream control unit" title="MVU stream control unit" width="450" height="500" align="center"/>|
 | :---:|
 | *Fig. 3 MVU stream control unit.* |
 
@@ -204,7 +204,7 @@ The configurations are shown below in terms of input feature map channels (IFM C
 ## FINN MVU Automatic Documentation
 Automatic documentation based on Doxygen is not available for SystemVerilog. Adapting Doxygen for SystemVerilog is non-trivial. On the other hand, NaturalDocs presents a simplified way of extending it to include additional languages. The generation of documentation was automated using Travis CI and is available at `https://asadalam.github.io/FINN_MatrixVector_RTL/`. Fig. 5 shows an image of the landing page.
 
-| <img src="https://github.com/asadalam/FINN_MatrixVector_RTL/blob/main/Doc/blog_figs/auto_doc.png" alt="Automatic documentation landing page" title="Automatic documentation landing page" width="600" height="500" align="center"/>|
+| <img src="https://raw.githubusercontent.com/asadalam/FINN_MatrixVector_RTL/main/Doc/blog_figs/auto_doc.png" alt="Automatic documentation landing page" title="Automatic documentation landing page" width="600" height="500" align="center"/>|
 | :---:|
 | *Fig. 3 Automatic documentation landing page.* |
 
