@@ -94,11 +94,11 @@ if __name__ == "__main__":
     test_labels = test_labels.reshape(n_batches, bsize)
 
     for i in range(n_batches):
-        ibuf_normal = test_imgs[i].reshape(driver.ibuf_packed_device.shape)
+        ibuf_normal = test_imgs[i].reshape(driver.ibuf_packed_device[0].shape)
         exp = test_labels[i]
         driver.copy_input_data_to_device(ibuf_normal)
         driver.execute_on_buffers()
-        obuf_normal = np.empty_like(driver.obuf_packed_device)
+        obuf_normal = np.empty_like(driver.obuf_packed_device[0])
         driver.copy_output_data_from_device(obuf_normal)
         ret = np.bincount(obuf_normal.flatten() == exp.flatten())
         nok += ret[0]

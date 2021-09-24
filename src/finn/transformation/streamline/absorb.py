@@ -308,8 +308,8 @@ class Absorb1BitMulIntoConv(Transformation):
 
 
 class AbsorbTransposeIntoMultiThreshold(Transformation):
-    """Change (NCHWTranspose -> MultiThreshold -> NHWCTranspose) to (MultiThreshold)
-    with NHWC mode. For (NCHWTranspose -> MultiThreshold) move Transpose past MT."""
+    """For (NCHWTranspose -> MultiThreshold) move Transpose past MultiThreshold
+    and set its data_layout mode to NHWC."""
 
     def apply(self, model):
         graph = model.graph
@@ -321,43 +321,43 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                 perms = list(get_by_name(n.attribute, "perm").ints)
                 if perms == [0, 3, 1, 2]:
                     mt_cand = model.find_consumer(n.output[0])
-                    if mt_cand.op_type == "MultiThreshold" and not model.is_fork_node(
-                        mt_cand
+                    if (
+                        mt_cand is not None
+                        and mt_cand.op_type == "MultiThreshold"
+                        # and not model.is_fork_node(mt_cand)
                     ):
-                        final_t_cand = model.find_consumer(mt_cand.output[0])
-                        if final_t_cand.op_type == "Transpose":
-                            perms = list(
-                                get_by_name(final_t_cand.attribute, "perm").ints
-                            )
-                            if perms == [0, 2, 3, 1]:
-                                mt = getCustomOp(mt_cand)
-                                mt.set_nodeattr("data_layout", "NHWC")
-                                # get rid of tranpose nodes, wire MT directly
-                                mt_cand.input[0] = n.input[0]
-                                mt_cand.output[0] = final_t_cand.output[0]
-                                graph.node.remove(n)
-                                graph.node.remove(final_t_cand)
-                                graph_modified = True
+                        final_t_cands = model.find_consumers(mt_cand.output[0])
+                        mt = getCustomOp(mt_cand)
+                        mt.set_nodeattr("data_layout", "NHWC")
+                        # get rid of first tranpose node
+                        mt_cand.input[0] = n.input[0]
+                        graph.node.remove(n)
+                        # fix output shape for MultiThreshold
+                        mt_orig_oshape = model.get_tensor_shape(mt_cand.output[0])
+                        mt_ishape = model.get_tensor_shape(mt_cand.input[0])
+                        model.set_tensor_shape(mt_cand.output[0], mt_ishape)
+                        # re-insert Transpose behind MultiThreshold
+                        transpose_output = model.make_new_valueinfo_name()
+                        new_transpose = oh.make_node(
+                            "Transpose",
+                            [mt_cand.output[0]],
+                            [transpose_output],
+                            perm=[0, 3, 1, 2],
+                        )
+                        graph.node.insert(node_ind + 1, new_transpose)
+                        if final_t_cands is not None:
+                            # rewire next nodes' inputs
+                            for final_t_cand in final_t_cands:
+                                final_t_cand.input[0] = transpose_output
                         else:
-                            mt = getCustomOp(mt_cand)
-                            mt.set_nodeattr("data_layout", "NHWC")
-                            # get rid of first tranpose node
-                            mt_cand.input[0] = n.input[0]
-                            graph.node.remove(n)
-                            # fix output shape for MultiThreshold
-                            mt_ishape = model.get_tensor_shape(mt_cand.input[0])
+                            # replace graph top-level output
+                            get_by_name(
+                                model.graph.output, mt_cand.output[0]
+                            ).name = transpose_output
                             model.set_tensor_shape(mt_cand.output[0], mt_ishape)
-                            # re-insert Transpose behind MultiThreshold
-                            transpose_output = model.make_new_valueinfo_name()
-                            new_transpose = oh.make_node(
-                                "Transpose",
-                                [mt_cand.output[0]],
-                                [transpose_output],
-                                perm=[0, 3, 1, 2],
-                            )
-                            graph.node.insert(node_ind + 1, new_transpose)
-                            final_t_cand.input[0] = transpose_output
-                            graph_modified = True
+                        # set value_info shape for transpose output
+                        model.set_tensor_shape(transpose_output, mt_orig_oshape)
+                        graph_modified = True
         if graph_modified:
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -531,16 +531,103 @@ class AbsorbConsecutiveTransposes(Transformation):
                             # TODO implement this to allow for forks as producers
                             consumers = model.find_direct_successors(next_node)
                             prod = model.find_producer(n.input[0])
-                            for cons in consumers:
-                                for cons_in in cons.input:
-                                    if cons_in == next_node.output[0]:
-                                        prod.output[0] = cons_in
-                                        break
+                            if prod is not None:
+                                for cons in consumers:
+                                    for cons_in in cons.input:
+                                        if cons_in == next_node.output[0]:
+                                            prod.output[0] = cons_in
+                                            break
+                            else:
+                                # n.input[0] is top-level graph input
+                                # wire consumers directly to that
+                                for cons in consumers:
+                                    for i, iname in enumerate(cons.input):
+                                        if iname == next_node.output[0]:
+                                            cons.input[i] = n.input[0]
+
                             # remove both transposes
                             graph.node.remove(n)
                             graph.node.remove(next_node)
 
                             graph_modified = True
+        if graph_modified:
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class AbsorbTransposeIntoResize(Transformation):
+    """For (NCHWTranspose -> Resize) move Transpose past Resize and
+    change the Resize node's attributes accordingly."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Transpose" and not model.is_fork_node(node):
+                perms = list(get_by_name(node.attribute, "perm").ints)
+                if perms == [0, 3, 1, 2]:
+                    mt_cand = model.find_consumer(node.output[0])
+                    if mt_cand is not None and mt_cand.op_type == "Resize":
+                        mode = get_by_name(mt_cand.attribute, "mode").s.decode("ascii")
+                        # skip if mode is not nearest
+                        if mode != "nearest":
+                            continue
+                        # if sizes specified, turn into scales
+                        if len(mt_cand.input) > 3:
+                            sizes = model.get_initializer(mt_cand.input[3])
+                        else:
+                            sizes = None
+                        if sizes is not None:
+                            ishape = model.get_tensor_shape(mt_cand.input[0])
+                            ns, cs, hs, ws = sizes / np.asarray(ishape)
+                            model.set_initializer(
+                                mt_cand.input[2], np.asarray([ns, cs, hs, ws])
+                            )
+                            mt_cand.input.remove(mt_cand.input[3])
+                        # scales already specified, transpose indices to NHWC
+                        scales = model.get_initializer(mt_cand.input[2])
+                        assert scales is not None
+                        ns, cs, hs, ws = scales
+                        model.set_initializer(
+                            mt_cand.input[2], np.asarray([ns, hs, ws, cs])
+                        )
+                        # get rid of first tranpose node
+                        mt_cand.input[0] = node.input[0]
+                        graph.node.remove(node)
+                        is_last_node = mt_cand.output[0] in [
+                            x.name for x in model.graph.output
+                        ]
+
+                        new_tensor_name = model.make_new_valueinfo_name()
+                        if is_last_node:
+                            trans_input = new_tensor_name
+                            trans_output = mt_cand.output[0]
+                        else:
+                            trans_input = mt_cand.output[0]
+                            trans_output = new_tensor_name
+                        # fix tensor shapes for Resize and Transpose
+                        # n, c, h, w = model.get_tensor_shape(mt_cand.input[0])
+                        n, c, hx, wx = model.get_tensor_shape(mt_cand.output[0])
+                        model.set_tensor_shape(trans_input, (n, hx, wx, c))
+                        model.set_tensor_shape(trans_output, (n, c, hx, wx))
+                        # re-insert Transpose behind Resize
+                        new_transpose = oh.make_node(
+                            "Transpose",
+                            [trans_input],
+                            [trans_output],
+                            perm=[0, 3, 1, 2],
+                        )
+                        graph.node.insert(node_ind + 1, new_transpose)
+                        # rewire nodes
+                        final_t_cands = model.find_consumers(mt_cand.output[0])
+                        if final_t_cands is not None:
+                            # rewire next nodes' inputs
+                            for final_t_cand in final_t_cands:
+                                final_t_cand.input[0] = trans_output
+                        mt_cand.output[0] = trans_input
+                        graph_modified = True
         if graph_modified:
             model = model.transform(InferDataTypes())
         return (model, graph_modified)

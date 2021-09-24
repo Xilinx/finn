@@ -61,7 +61,9 @@ class InferConvInpGen(Transformation):
                 i2c_out_shape = model.get_tensor_shape(i2c_output)
                 dt = model.get_tensor_datatype(i2c_input)
                 if not dt.is_integer():
-                    warnings.warn("Input is not int. Can't infer ConvInpGen")
+                    warnings.warn(
+                        "%s : Input is not int. Can't infer ConvInpGen." % n.name
+                    )
                     continue
                 i2c_inst = getCustomOp(n)
                 stride_h, stride_w = i2c_inst.get_nodeattr("stride")
@@ -89,9 +91,10 @@ class InferConvInpGen(Transformation):
                     # if padding enabled, ensure pad_val supported by DataType
                     # assert dt.allowed(pad_val),"""FMPadding_Batch DataType
                     # must support pad_val"""
-                    assert (
-                        pad_val == 0
-                    ), "FMPadding_Batch doesn't currently support pad_val!= 0"
+                    assert pad_val == 0, (
+                        "%s : FMPadding_Batch doesn't currently support pad_val!= 0"
+                        % n.name
+                    )
 
                     odim_padding_h = ifm_dim_h + pad_h
                     odim_padding_w = ifm_dim_w + pad_w
@@ -121,6 +124,7 @@ class InferConvInpGen(Transformation):
                         NumChannels=ifm_ch,
                         inputDataType=dt.name,
                         SIMD=ifm_ch,
+                        name="FMPadding_Batch_" + n.name,
                     )
                     graph.node.insert(node_ind, padding_node)
 
@@ -134,11 +138,15 @@ class InferConvInpGen(Transformation):
                 )
 
                 if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
-                    assert (
-                        is_square_image
-                    ), "DownSampler currently only supports square input images."
-                    assert is_equal_stride, """DownSampler currently only supports equal stride value
+                    assert is_square_image, (
+                        "%s : DownSampler currently only supports square input images."
+                        % n.name
+                    )
+                    assert is_equal_stride, (
+                        """%s : DownSampler currently only supports equal stride value
                         along different axes."""
+                        % n.name
+                    )
                     ConvInpGen_idim = ConvInpGen_idim_h
                     stride = stride_h
                     # create DownSampler node
@@ -153,6 +161,7 @@ class InferConvInpGen(Transformation):
                         SIMD=ifm_ch,
                         Stride=stride,
                         inputDataType=dt.name,
+                        name="DownSampler_" + n.name,
                     )
                     graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 else:
@@ -160,12 +169,16 @@ class InferConvInpGen(Transformation):
                     if (
                         is_square_image and is_square_kernel
                     ):  # square images and square kernels
-                        assert is_equal_stride, """Non-equal strides along different axes is not supported
+                        assert is_equal_stride, (
+                            """%s: Non-equal strides along different axes is not supported
                             for (non-)square convolutions"""
-                        assert (
-                            dilation_h == 1 and dilation_w == 1
-                        ), """Dilation value != 1 is not supported
+                            % n.name
+                        )
+                        assert dilation_h == 1 and dilation_w == 1, (
+                            """%s: Dilation value != 1 is not supported
                             for square convolutions"""
+                            % n.name
+                        )
                         ConvInpGen_node = helper.make_node(
                             "ConvolutionInputGenerator",
                             [ConvInpGen_input],
@@ -182,16 +195,19 @@ class InferConvInpGen(Transformation):
                             inputDataType=dt.name,
                             outputDataType=dt.name,
                             depthwise=depthwise,
+                            name="ConvolutionInputGenerator_" + n.name,
                         )
                     else:  # non-square images and/or kernels
-                        assert (
-                            is_1d_convolution
-                        ), "ConvultionInputGenerator1D works only for 1D convolutions"
+                        assert is_1d_convolution, (
+                            "%s: ConvolutionInputGenerator1D works only for 1D convs"
+                            % n.name
+                        )
                         if dilation_h > 1 or dilation_w > 1:
-                            assert (
-                                stride_h == 1 and stride_w == 1
-                            ), """Stride value of greater than 1 is not supported for convolutions
+                            assert stride_h == 1 and stride_w == 1, (
+                                """%s: Stride value of greater than 1 is not supported for convolutions
                                 with dilation value greater than 1"""
+                                % n.name
+                            )
                         ConvInpGen_node = helper.make_node(
                             "ConvolutionInputGenerator1D",
                             [ConvInpGen_input],
@@ -208,6 +224,7 @@ class InferConvInpGen(Transformation):
                             inputDataType=dt.name,
                             outputDataType=dt.name,
                             depthwise=depthwise,
+                            name="ConvolutionInputGenerator1D_" + n.name,
                         )
                     graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
@@ -216,6 +233,102 @@ class InferConvInpGen(Transformation):
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferUpsample(Transformation):
+    """
+    Convert Upsample and Resize nodes to layers to UpsampleNearestNeighbour_Batch nodes.
+    """
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Upsample" or n.op_type == "Resize":
+                # Extract mode and scales and input shape
+                mode = get_by_name(n.attribute, "mode").s.decode("ascii")
+                if n.op_type == "Upsample":
+                    scales = model.get_initializer(n.input[1])
+                else:
+                    scales = model.get_initializer(n.input[2])
+                in_shape = model.get_tensor_shape(n.input[0])
+
+                dt = model.get_tensor_datatype(n.input[0])
+                if not dt.is_integer():
+                    warnings.warn(
+                        "%s: Input not int. Can't infer UpsampleNearestNeighbour."
+                        % n.name
+                    )
+                    continue
+
+                if model.get_tensor_layout(n.input[0]) != DataLayout.NHWC:
+                    warnings.warn(
+                        "%s: Input not NHWC. Can't infer UpsampleNearestNeighbour."
+                        % n.name
+                    )
+                    continue
+
+                # Check that the parameters are okay
+                assert mode == "nearest", (
+                    "%s: Upsampling is only supported for the mode nearest." % n.name
+                )
+                assert len(in_shape) == 4, "Upsampling is only supported for 4D inputs."
+                assert scales.shape == (4,), (
+                    "%s: Upsampling is only supported for 4D scales." % n.name
+                )
+                assert (scales >= 1).all(), (
+                    n.name + ": Upsampling is only supported for scales "
+                    "which are larger or equal 1 in all dimensions."
+                )
+
+                # Assumes nhwc layout for scales and input
+                assert scales[1] == scales[2], (
+                    "%s: Upsampling is only supported for quadratic scales." % n.name
+                )
+                assert scales[0] == scales[3] == 1, (
+                    n.name + ": Upsampling is only supported for scales with "
+                    "the first and last dimensions being 1."
+                )
+                spatial_scale = scales[1]
+                assert spatial_scale == int(spatial_scale), (
+                    "%s: Upsampling is only supported for integer scales." % n.name
+                )
+
+                assert in_shape[1] == in_shape[2], (
+                    "%s: Upsampling is only supported for quadratic input shapes."
+                    % n.name
+                )
+
+                # Extract information for HLS node
+                IFMDim = in_shape[1]
+                OFMDim = int(round(in_shape[1] * spatial_scale))
+                NumChannels = in_shape[-1]
+                numInputVectors = in_shape[0]
+                inputDataType = dt.name
+
+                # Insert the HLSCustomOp node
+                Upsample_HLS_node = helper.make_node(
+                    "UpsampleNearestNeighbour_Batch",
+                    [n.input[0]],
+                    [n.output[0]],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    OFMDim=OFMDim,
+                    IFMDim=IFMDim,
+                    NumChannels=NumChannels,
+                    inputDataType=inputDataType,
+                    numInputVectors=numInputVectors,
+                    name="UpsampleNearestNeighbour_Batch_" + n.name,
+                )
+
+                # Remove the old node
+                graph.node.insert(node_ind, Upsample_HLS_node)
+                # remove old nodes
+                graph.node.remove(n)
+                graph_modified = True
         return (model, graph_modified)
 
 
@@ -251,6 +364,7 @@ class InferStreamingMaxPool(Transformation):
                         NumChannels=ifm_ch,
                         ImgDim=(ifm_dim_h, ifm_dim_w),
                         dataType=dt.name,
+                        name="StreamingMaxPool_Batch_" + n.name,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
@@ -273,7 +387,7 @@ class InferPool_Batch(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if n.op_type in ["MaxPool", "QuantAvgPool2d"]:
+            if n.op_type in ["MaxPool", "QuantAvgPool2d", "MaxPoolNHWC"]:
                 # extract pool parameters
 
                 if n.op_type == "MaxPool":
@@ -286,6 +400,15 @@ class InferPool_Batch(Transformation):
                     k = inst.get_nodeattr("kernel")
                     stride = inst.get_nodeattr("stride")
                     dlayout = inst.get_nodeattr("data_layout")
+                elif n.op_type == "MaxPoolNHWC":
+                    inst = getCustomOp(n)
+                    k_shape = inst.get_nodeattr("kernel_shape")
+                    strides = inst.get_nodeattr("strides")
+                    assert k_shape[0] == k_shape[1]
+                    assert strides[0] == strides[1]
+                    k = k_shape[0]
+                    stride = strides[0]
+                    dlayout = "NHWC"
                 try:
                     pad = get_by_name(n.attribute, "pads").ints[-1]
                 except AttributeError:
@@ -302,7 +425,8 @@ class InferPool_Batch(Transformation):
                     continue
                 elif k == stride:
                     warnings.warn(
-                        """Inferring Pool_Batch node for k == stride.
+                        n.name
+                        + """: Inferring Pool_Batch node for k == stride.
                         This case can be optimized.
                         For example, for MaxPool run InferStreamingMaxPool before
                         InferPool_Batch """
@@ -363,7 +487,7 @@ class InferPool_Batch(Transformation):
                 accum_bits = 0
                 pool_size_param = k
                 pad_value = 0
-                if n.op_type == "MaxPool":
+                if n.op_type in ["MaxPool", "MaxPoolNHWC"]:
                     pool_fxn = "MaxPool"
                     odt = idt
                     pad_value = idt.min()
@@ -393,6 +517,7 @@ class InferPool_Batch(Transformation):
                     pad_value=pad_value,
                     depthwise=1,
                     input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
+                    name="Im2Col_" + n.name,
                 )
 
                 # Warning PE has to be equal to ifm_ch until Im2Col is replaced by
@@ -415,6 +540,7 @@ class InferPool_Batch(Transformation):
                     AccumBits=accum_bits,
                     Size=pool_size_param,
                     BatchSize=1,
+                    name="Pool_Batch_" + n.name,
                 )
 
                 if dlayout == "NCHW":
@@ -463,14 +589,16 @@ class InferBinaryStreamingFCLayer(Transformation):
                 mm_output = n.output[0]
                 mm_in_shape = model.get_tensor_shape(mm_input)
                 mm_out_shape = model.get_tensor_shape(mm_output)
-                assert (
-                    model.get_tensor_datatype(mm_input) == DataType.BINARY
-                ), """First
+                assert model.get_tensor_datatype(mm_input) == DataType.BINARY, (
+                    n.name
+                    + """: First
                 input for xnorpopcount is not set to FINN DataType BINARY."""
-                assert (
-                    model.get_tensor_datatype(mm_weight) == DataType.BINARY
-                ), """Second
+                )
+                assert model.get_tensor_datatype(mm_weight) == DataType.BINARY, (
+                    n.name
+                    + """: Second
                 input (weights) for xnorpopcount is not set to FINN DataType BINARY."""
+                )
                 idt = DataType.BINARY
                 wdt = DataType.BINARY
                 mm_output = n.output[0]
@@ -484,13 +612,12 @@ class InferBinaryStreamingFCLayer(Transformation):
                 # create node with no parallelization first
                 pe = 1
                 simd = 1
-                assert mh % pe == 0, "Requirement MH divisable by PE is violated."
-                assert mw % simd == 0, "Requirement MW divisable by SIMD is violated."
                 wmem = mw * mh // (pe * simd)
-                assert (
-                    mw * mh == wmem * pe * simd
-                ), """Requirement (MW * MH) divisiable by
+                assert mw * mh == wmem * pe * simd, (
+                    n.name
+                    + """: Requirement (MW * MH) divisiable by
                 (WMEM * PE * SIMD) is violated."""
+                )
                 # see if we have any following thresholds
                 consumer = model.find_consumer(mm_output)
                 if consumer is not None and consumer.op_type == "MultiThreshold":
@@ -500,10 +627,11 @@ class InferBinaryStreamingFCLayer(Transformation):
                     mt_out_shape = model.get_tensor_shape(mt_output)
                     mt_thres = consumer.input[1]
                     T = model.get_initializer(mt_thres)
-                    assert (
-                        T.shape[0] == 1 or T.shape[0] == mh
-                    ), """First dimension of
+                    assert T.shape[0] == 1 or T.shape[0] == mh, (
+                        consumer.name
+                        + """: First dimension of
                     thresholds neither 1 nor MH."""
+                    )
                     odt = model.get_tensor_datatype(mt_output)
                     if odt.bitwidth() == 1:
                         # covers both bipolar and binary
@@ -531,6 +659,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                         noActivation=0,
                         numInputVectors=list(mm_in_shape[:-1]),
                         mem_mode=self.mem_mode,
+                        name=n.name,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
@@ -561,6 +690,7 @@ class InferBinaryStreamingFCLayer(Transformation):
                         noActivation=1,
                         numInputVectors=list(mm_in_shape[:-1]),
                         mem_mode=self.mem_mode,
+                        name=n.name,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old node
@@ -608,15 +738,12 @@ class InferQuantizedStreamingFCLayer(Transformation):
                     # create node with no parallelization first
                     pe = 1
                     simd = 1
-                    assert mh % pe == 0, "Requirement MH divisable by PE is violated."
-                    assert (
-                        mw % simd == 0
-                    ), "Requirement MW divisable by SIMD is violated."
                     wmem = mw * mh // (pe * simd)
-                    assert (
-                        mw * mh == wmem * pe * simd
-                    ), """Requirement (MW * MH) divisible by
+                    assert mw * mh == wmem * pe * simd, (
+                        n.name
+                        + """: Requirement (MW * MH) divisible by
                     (WMEM * PE * SIMD) is violated."""
+                    )
                     # see if we have any following thresholds
                     consumer = model.find_consumer(mm_output)
                     if consumer is not None and consumer.op_type == "MultiThreshold":
@@ -626,27 +753,30 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         mt_out_shape = model.get_tensor_shape(mt_output)
                         mt_thres = consumer.input[1]
                         T = model.get_initializer(mt_thres)
-                        assert (
-                            T.shape[0] == 1 or T.shape[0] == mh
-                        ), """First dimension of
+                        assert T.shape[0] == 1 or T.shape[0] == mh, (
+                            consumer.name
+                            + """: First dimension of
                         thresholds neither 1 nor MH."""
+                        )
                         odt = model.get_tensor_datatype(mt_output)
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
-                        assert (
-                            int(actval) == actval
-                        ), "out_bias must be integer for HLS conversion."
+                        assert int(actval) == actval, (
+                            consumer.name
+                            + ": out_bias must be integer for HLS conversion."
+                        )
                         actval = int(actval)
                         odt_is_bipolar = odt == DataType.BIPOLAR
                         bipolar_ok = (
                             odt_is_bipolar and (scale == 2.0) and (actval == -1)
                         )
-                        assert (
-                            scale == 1.0 or bipolar_ok
-                        ), "out_scale = 1.0 or bipolar output needed for conversion."
-                        assert (not odt.signed()) or (
-                            actval < 0
-                        ), "Signed output requres actval < 0"
+                        assert scale == 1.0 or bipolar_ok, (
+                            consumer.name
+                            + ": out_scale=1 or bipolar output needed for conversion."
+                        )
+                        assert (not odt.signed()) or (actval < 0), (
+                            consumer.name + ": Signed output requres actval < 0"
+                        )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
                         if bipolar_ok:
@@ -672,6 +802,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             mem_mode=self.mem_mode,
+                            name="StreamingFCLayer_Batch_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -702,6 +833,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             mem_mode=self.mem_mode,
+                            name="StreamingFCLayer_Batch_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node
@@ -736,7 +868,8 @@ class InferVVAU(Transformation):
                     k_h, k_w = sparsity["dw"]["kernel_shape"]
                 except KeyError:
                     raise Exception(
-                        """Sparsity doesn't indicate that MatMul
+                        n.name
+                        + """: sparsity annotation doesn't indicate that MatMul
                         belongs to a depthwise convolution."""
                     )
 
@@ -772,9 +905,6 @@ class InferVVAU(Transformation):
                     model.set_tensor_shape(mm_weight, (channels, 1, k_h, k_w))
                     # create node with pe=channels as default
                     pe = channels
-                    assert (
-                        channels % pe == 0
-                    ), "Requirement Channels divisable by PE is violated."
                     # see if we have any following thresholds
                     consumer = model.find_consumer(mm_output)
                     if consumer is not None and consumer.op_type == "MultiThreshold":
@@ -783,23 +913,26 @@ class InferVVAU(Transformation):
                         mt_out_shape = model.get_tensor_shape(mt_output)
                         mt_thres = consumer.input[1]
                         T = model.get_initializer(mt_thres)
-                        assert (
-                            T.shape[0] == 1 or T.shape[0] == channels
-                        ), """First dimension of
+                        assert T.shape[0] == 1 or T.shape[0] == channels, (
+                            consumer.name
+                            + """: First dimension of
                         thresholds neither 1 nor Channels."""
+                        )
                         odt = model.get_tensor_datatype(mt_output)
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
-                        assert (
-                            scale == 1.0
-                        ), "out_scale must be equal to 1.0 for HLS conversion."
+                        assert scale == 1.0, (
+                            consumer.name
+                            + ": out_scale must be equal to 1.0 for HLS conversion."
+                        )
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
-                        assert (
-                            int(actval) == actval
-                        ), "out_bias must be integer for HLS conversion."
+                        assert int(actval) == actval, (
+                            consumer.name
+                            + ": out_bias must be integer for HLS conversion."
+                        )
                         actval = int(actval)
-                        assert (not odt.signed()) or (
-                            actval < 0
-                        ), "Signed output requres actval < 0"
+                        assert (not odt.signed()) or (actval < 0), (
+                            consumer.name + ": Signed output requres actval < 0"
+                        )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
                         # create and insert new Vector_Vector_Activate_Batch node
@@ -819,6 +952,7 @@ class InferVVAU(Transformation):
                             outputDataType=odt.name,
                             ActVal=actval,
                             noActivation=0,
+                            name="Vector_Vector_Activate_Batch_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -847,6 +981,7 @@ class InferVVAU(Transformation):
                             outputDataType=odt.name,
                             ActVal=0,
                             noActivation=1,
+                            name="Vector_Vector_Activate_Batch_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node
@@ -904,21 +1039,22 @@ class InferThresholdingLayer(Transformation):
                 ifc = int(thl_in_shape[-1])
                 # create node with no parallelization first
                 pe = 1
-                assert ifc % pe == 0, "Requirement IFC divisable by PE is violated."
 
                 odt = model.get_tensor_datatype(thl_output)
                 scale = getCustomOp(node).get_nodeattr("out_scale")
-                assert (
-                    scale == 1.0
-                ), "MultiThreshold out_scale must be equal to 1.0 for HLS conversion."
+                assert scale == 1.0, (
+                    node.name
+                    + ": MultiThreshold out_scale must be 1 for HLS conversion."
+                )
                 actval = getCustomOp(node).get_nodeattr("out_bias")
-                assert (
-                    int(actval) == actval
-                ), "MultiThreshold out_bias must be integer for HLS conversion."
+                assert int(actval) == actval, (
+                    node.name
+                    + ": MultiThreshold out_bias must be integer for HLS conversion."
+                )
                 actval = int(actval)
-                assert (not odt.signed()) or (
-                    actval < 0
-                ), "Signed output requres actval < 0"
+                assert (not odt.signed()) or (actval < 0), (
+                    node.name + ": Signed output requres actval < 0"
+                )
                 # create and insert new Thresholding_Batch node
                 new_node = helper.make_node(
                     "Thresholding_Batch",
@@ -935,6 +1071,7 @@ class InferThresholdingLayer(Transformation):
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,
                     mem_mode=self.mem_mode,
+                    name="Thresholding_Batch_" + node.name,
                 )
                 graph.node.insert(insert_point, new_node)
                 # remove old node
@@ -1008,9 +1145,6 @@ class InferAddStreamsLayer(Transformation):
                 num_channels = int(in0_shape[-1])
                 # create node with no parallelization first
                 pe = 1
-                assert (
-                    num_channels % pe == 0
-                ), "Requirement Channels divisable by PE is violated."
 
                 # create and insert new StreamingFCLayer node
                 new_node = helper.make_node(
@@ -1023,6 +1157,7 @@ class InferAddStreamsLayer(Transformation):
                     PE=pe,
                     inputDataType=idt.name,
                     numInputVectors=in0_shape[:-1],
+                    name="AddStreams_Batch_" + node.name,
                 )
                 graph.node.insert(insert_point, new_node)
                 # remove old node
@@ -1069,9 +1204,6 @@ class InferDuplicateStreamsLayer(Transformation):
 
                 # create node with no parallelization first
                 pe = 1
-                assert (
-                    num_ch % pe == 0
-                ), "Requirement channels divisable by PE is violated."
 
                 dup_node = helper.make_node(
                     "DuplicateStreams_Batch",
@@ -1083,6 +1215,7 @@ class InferDuplicateStreamsLayer(Transformation):
                     PE=pe,
                     inputDataType=dt.name,
                     numInputVectors=vecs,
+                    name="DuplicateStreams_Batch_" + node.name,
                 )
 
                 graph.node.insert(node_ind, dup_node)
@@ -1251,6 +1384,7 @@ class InferChannelwiseLinearLayer(Transformation):
                     paramDataType=pdt.name,
                     outputDataType=odt.name,
                     numInputVectors=list(ll_in_shape[:-1]),
+                    name="ChannelwiseOp_Batch_" + node.name,
                 )
                 graph.node.insert(insert_point, new_node)
                 # remove old node
@@ -1293,9 +1427,6 @@ class InferLabelSelectLayer(Transformation):
                 num_inp_vecs = list(fc_in_shape[:-1])
                 # create node with no parallelization first
                 pe = 1
-                assert (
-                    num_labels % pe == 0
-                ), "Requirement Labels divisable by PE is violated."
 
                 k = model.get_initializer(k_input)[0]
 
@@ -1311,6 +1442,7 @@ class InferLabelSelectLayer(Transformation):
                     K=k,
                     inputDataType=idt.name,
                     numInputVectors=num_inp_vecs,
+                    name="LabelSelect_Batch_" + node.name,
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
@@ -1364,9 +1496,6 @@ class InferGlobalAccPoolLayer(Transformation):
                 vecs = in0_shape[:-1]
                 # create node with no parallelization first
                 pe = 1
-                assert (
-                    num_ch % pe == 0
-                ), "Requirement Labels divisable by PE is violated."
 
                 # create an additional tensor of the same shape and layout as result
                 out_shape = model.get_tensor_shape(result)
@@ -1387,6 +1516,7 @@ class InferGlobalAccPoolLayer(Transformation):
                     PE=pe,
                     inputDataType=idt.name,
                     numInputVectors=vecs,
+                    name="GlobalAccPool_Batch_" + node.name,
                 )
 
                 mul_value = helper.make_tensor_value_info(

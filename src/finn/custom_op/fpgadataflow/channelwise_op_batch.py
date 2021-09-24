@@ -526,15 +526,18 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         # should ImgDim be defined or just filled in here like we do now?
         ishape = self.get_folded_input_shape()
         if len(ishape) == 3:
-            imgdim = 1
+            imgdim_h = 1
+            imgdim_w = 1
         elif len(ishape) == 5:
-            imgdim = ishape[1]
+            imgdim_h = ishape[1]
+            imgdim_w = ishape[2]
         else:
             raise Exception("""Unexpeted input shape""")
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """Thresholding_Batch<{}, NumChannels1, PE1, {}, {}>
+            """Thresholding_Batch<{}, {}, NumChannels1, PE1, {}, {}>
             (in0, out, threshs, numReps);""".format(
-                imgdim,
+                imgdim_h,
+                imgdim_w,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
             )

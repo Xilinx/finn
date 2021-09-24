@@ -63,6 +63,7 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
+from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -521,14 +522,6 @@ class TestEnd2End:
             topology, wbits, abits, return_topk=1
         )
         y = execute_parent(parent_chkpt, rtlsim_chkpt, input_tensor_npy)
-        model = ModelWrapper(rtlsim_chkpt)
-        perf["cycles_rtlsim"] = model.get_metadata_prop("cycles_rtlsim")
-        # warnings.warn("Estimated & rtlsim performance: " + str(perf))
-        # for (k, v) in perf.items():
-        #    update_dashboard_data(topology, wbits, abits, k, v)
-        update_dashboard_data(
-            topology, wbits, abits, "cycles_rtlsim", perf["cycles_rtlsim"]
-        )
         assert np.isclose(y, output_tensor_npy).all()
 
     @pytest.mark.slow
@@ -541,12 +534,17 @@ class TestEnd2End:
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         n_nodes = len(model.graph.node)
         perf_est = model.analysis(dataflow_performance)
-        latency = int(model.get_metadata_prop("cycles_rtlsim"))
+        ret_b1 = throughput_test_rtlsim(model, batchsize=1)
+        latency = int(ret_b1["cycles"])
         cycles_per_sample_est = perf_est["max_cycles"]
         batchsize = 2 * n_nodes
         ret = throughput_test_rtlsim(model, batchsize=batchsize)
         res_cycles = ret["cycles"]
         est_cycles = latency + cycles_per_sample_est * batchsize
+        # warnings.warn("Estimated & rtlsim performance: " + str(perf))
+        # for (k, v) in perf.items():
+        #    update_dashboard_data(topology, wbits, abits, k, v)
+        update_dashboard_data(topology, wbits, abits, "cycles_rtlsim", latency)
         assert (abs(res_cycles - est_cycles) / res_cycles) < 0.15
 
     @pytest.mark.slow
@@ -588,9 +586,22 @@ class TestEnd2End:
         update_dashboard_data(topology, wbits, abits, "board", cfg["board"])
         model.save(get_checkpoint_name(topology, wbits, abits, "build_" + kind))
 
+    @pytest.mark.slow
+    @pytest.mark.vivado
+    @pytest.mark.vitis
+    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
+    def test_make_pynq_driver(self, topology, wbits, abits, kind):
+        if kind == "alveo" and ("VITIS_PATH" not in os.environ):
+            pytest.skip("VITIS_PATH not set")
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "build_" + kind)
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        kind_to_driver_platform = {"zynq": "zynq-iodma", "alveo": "alveo"}
+        model = model.transform(MakePYNQDriver(kind_to_driver_platform[kind]))
+        model.save(get_checkpoint_name(topology, wbits, abits, "driver_" + kind))
+
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_deploy(self, topology, wbits, abits, kind):
-        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "build_" + kind)
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "driver_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         cfg = get_build_env(kind, target_clk_ns)
         if cfg["ip"] == "":

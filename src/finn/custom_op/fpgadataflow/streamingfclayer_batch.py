@@ -105,6 +105,16 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 "auto",
                 {"auto", "block", "distributed", "ultra"},
             ),
+            # FPGA resource type for threshold memories (if noActivation is False)
+            # auto -- let Vivado decide
+            # block -- use BRAM
+            # distributed -- use LUTRAM
+            "ram_style_thresholds": (
+                "s",
+                False,
+                "auto",
+                {"auto", "block", "distributed"},
+            ),
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -663,7 +673,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
         # workaround for vivado_hls threshold bug
-        if ret[0][0] == 0:
+        if ret[0][0] == 0 and n_thres_steps == 1:
             ret = np.copy(ret)
             ret[0][0] = 1
             warnings.warn(
@@ -1212,6 +1222,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def pragmas(self):
         mem_mode = self.get_nodeattr("mem_mode")
+        ram_style_thresholds = self.get_nodeattr("ram_style_thresholds")
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
         in_fifo_depth = self.get_nodeattr("inFIFODepth")
@@ -1270,6 +1281,28 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     "complete dim=3"
                 )
             )
+            # add resource pragma for thresholds if set
+            if ram_style_thresholds == "distributed":
+                self.code_gen_dict["$PRAGMAS$"].append(
+                    (
+                        "#pragma HLS RESOURCE variable=threshs.m_thresholds "
+                        "core=ROM_2P_LUTRAM"
+                    )
+                )
+            elif ram_style_thresholds == "block":
+                self.code_gen_dict["$PRAGMAS$"].append(
+                    (
+                        "#pragma HLS RESOURCE variable=threshs.m_thresholds "
+                        "core=ROM_2P_BRAM"
+                    )
+                )
+            elif ram_style_thresholds == "auto":
+                # no pragma needed
+                pass
+            else:
+                raise Exception(
+                    "Unrecognized ram_style_thresholds value:" + ram_style_thresholds
+                )
 
     def code_generation_ipi(self):
         cmd = []

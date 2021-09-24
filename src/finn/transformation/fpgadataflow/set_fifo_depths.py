@@ -87,9 +87,14 @@ class RemoveShallowFIFOs(Transformation):
     def apply(self, model):
         shallow_fifos = []
         for node in model.graph.node:
+            if len(node.input) > 0:
+                is_first_node = model.find_producer(node.input[0]) is None
+            else:
+                is_first_node = True
             if (
                 node.op_type == "StreamingFIFO"
                 and getCustomOp(node).get_nodeattr("depth") <= self.shallow_threshold
+                and (not is_first_node)
             ):
                 # bypass shallow fifos
                 shallow_fifos.append(node)
