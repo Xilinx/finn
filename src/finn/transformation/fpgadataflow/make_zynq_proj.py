@@ -308,7 +308,7 @@ class ZynqBuild(Transformation):
         platform,
         period_ns,
         enable_debug=False,
-        partition_model_dir="dataflow_partition",
+        partition_model_dir=None,
     ):
         super().__init__()
         self.fpga_part = pynq_part_map[platform]

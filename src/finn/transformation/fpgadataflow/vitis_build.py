@@ -378,7 +378,7 @@ class VitisBuild(Transformation):
         enable_debug=False,
         floorplan_file=None,
         enable_link=True,
-        partition_model_dir="dataflow_partition",
+        partition_model_dir=None,
     ):
         super().__init__()
         self.fpga_part = fpga_part

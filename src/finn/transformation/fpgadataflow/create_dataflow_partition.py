@@ -31,7 +31,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.transformation.create_generic_partitions import PartitionFromLambda
 from finn.transformation.fpgadataflow.externalize_params import ExternalizeParams
-from finn.util.basic import get_by_name
+from finn.util.basic import get_by_name, make_build_dir
 
 
 class CreateDataflowPartition(Transformation):
@@ -41,9 +41,12 @@ class CreateDataflowPartition(Transformation):
     that indicates the filename for the second graph that only contains
     dataflow nodes. No action is taken if there are no dataflow nodes."""
 
-    def __init__(self, partition_model_dir="dataflow_partition"):
+    def __init__(self, partition_model_dir=None):
         super().__init__()
-        self.partition_model_dir = partition_model_dir
+        if partition_model_dir is None:
+            self.partition_model_dir = make_build_dir("dataflow_partition_")
+        else:
+            self.partition_model_dir = partition_model_dir
 
     def apply(self, model):
         def filter_fc_extw(x):
