@@ -87,119 +87,128 @@ Implementing the RTL is only part of the project. Since the key element of the w
 ## FINN MVU Results
 
 Some results for the MVU batch are shown here which compares RTL and HLS runs. The various configurations for which the design was realized are shown next
+
 <table>
-  <tr>
-    <td rowspan="2"><b>Configuration</b></td>
-    <td colspan="2"><b>LUT</b></td>
-    <td colspan="2"><b>FF</b></td>
-    <td colspan="2"><b>BRAM</b></td>
-    <td colspan="2"><b>Delay (ns)</b></td>
-    <td colspan="2"><b>Exec. Time (sec)</b></td>
+  <thead>
+    <tr>
+      <th rowspan="2">Configuration</th>
+      <th colspan="2">LUT</th>
+      <th colspan="2">FF</th>
+      <th colspan="2">BRAM</th>
+      <th colspan="2">Delay (ns)</th>
+      <th colspan="2">Exec. Time (sec)</th>
   </tr>
   <tr>
-    <td style="text-align:center">HLS</td><td>RTL</td>
-    <td style="text-align:center">HLS</td><td>RTL</td>
-    <td style="text-align:center">HLS</td><td>RTL</td>
-    <td style="text-align:center">HLS</td><td>RTL</td>
-    <td style="text-align:center">HLS</td><td>RTL</td>
+    <th style="text-align:center">HLS</th><th>RTL</th>
+    <th style="text-align:center">HLS</th><th>RTL</th>
+    <th style="text-align:center">HLS</th><th>RTL</th>
+    <th style="text-align:center">HLS</th><th>RTL</th>
+    <th style="text-align:center">HLS</th><th>RTL</th>
   </tr>
-  <tr>
-    <td><b>Config #1</b></td>
-    <td>1494</td><td>993</td>
-    <td>1702</td><td>1009</td>
-    <td>0</td><td>0</td>
-    <td>2.26</td><td>1.354</td>
-    <td>345</td><td>136</td>
-  </tr>
-  <tr>
-    <td>Config #2</td>
-    <td>11106</td><td>12963</td>
-    <td>6318</td><td>3084</td>
-    <td>0</td><td>0</td>
-    <td>4.02</td><td>2.96</td>
-    <td>1313</td><td>227</td>
-  </tr>
-  <tr>
-    <td><b>Config #3</td>
-    <td>2950</td><td>2142</td>
-    <td>2421</td><td>2018</td>
-    <td>32</td><td>16</td>
-    <td>2.84</td><td>1.91</td>
-    <td>516</td><td>178</td>
-  </tr>
-  <tr>
-    <td>Config #4</td>
-    <td>11700</td><td>13133</td>
-    <td>7462</td><td>3389</td>
-    <td>32</td><td>16</td>
-    <td>4.05</td><td>3.84</td>
-    <td>1345</td><td>249</td>
-  </tr>
-  <tr>
-    <td>Config #5</td>
-    <td>29804</td><td>28115</td>
-    <td>9661</td><td>2754</td>
-    <td>128</td><td>64</td>
-    <td>3.12</td><td>4.33</td>
-    <td>1502</td><td>322</td>
-  </tr>
-  <tr>
-    <td>Config #6</td>
-    <td>930</td><td>891</td>
-    <td>1141</td><td>855</td>
-    <td>0</td><td>0</td>
-    <td>3.87</td><td>1.74</td>
-    <td>1055</td><td>113</td>
-  </tr>
-  <tr>
-    <td>Config #7</td>
-    <td>2334</td><td>1868</td>
-    <td>1674</td><td>1500</td>
-    <td>0</td><td>0</td>
-    <td>3.87</td><td>1.74</td>
-    <td>1055</td><td>113</td>
-  </tr>
-  <tr>
-    <td>Config #8</td>
-    <td>118153</td><td>106722</td>
-    <td>23454</td><td>8638</td>
-    <td>432</td><td>256</td>
-    <td>3.52</td><td>4.35</td>
-    <td>106722</td><td>329</td>
-  </tr>  
+  </thead>
+  <tbody>
+    <tr>
+      <td> Config #1 </td>
+      <td> 1494 </td><td> 993   </td>
+      <td> 1702 </td><td> 1009  </td>
+      <td>  0   </td><td>  0    </td>
+      <td> 2.26 </td><td> 1.354 </td>
+      <td>  345 </td><td>  136  </td>
+    </tr>
+    <tr>
+      <td> Config #2 </td>
+      <td> 11106 </td><td> 12963 </td>
+      <td> 6318  </td><td> 3084  </td>
+      <td>  0    </td><td>   0   </td>
+      <td> 4.02  </td><td> 2.96  </td>
+      <td>  1313 </td><td>  227  </td>
+    </tr>
+    <tr>
+      <td> Config #3 </td>
+      <td> 2950 </td><td> 2142  </td>
+      <td> 2421 </td><td> 2018  </td>
+      <td>  32  </td><td>  16   </td>
+      <td> 2.84 </td><td>  1.91 </td>
+      <td>  516 </td><td>   178 </td>
+    </tr>
+    <tr>
+      <td> Config #4 </td>
+      <td> 11700 </td><td> 13133 </td>
+      <td>  7462 </td><td> 3389  </td>
+      <td>   32  </td><td>  16   </td>
+      <td>  4.05 </td><td> 3.84  </td>
+      <td>  1345 </td><td>  249  </td>
+    </tr>
+    <tr>
+      <td> Config #5 </td>
+      <td> 29804 </td><td> 28115 </td>
+      <td>  9661 </td><td>  2754 </td>
+      <td>  128  </td><td>   64  </td>
+      <td>  3.12 </td><td>  4.33 </td>
+      <td>  1502 </td><td>   322 </td>
+    </tr>
+    <tr>
+      <td> Config #6 </td>
+      <td>  930  </td><td> 891  </td>
+      <td>  1141 </td><td> 855  </td>
+      <td>   0   </td><td>  0   </td>
+      <td>  3.87 </td><td> 1.74 </td>
+      <td>  1055 </td><td> 113  </td>
+    </tr>
+    <tr>
+      <td>Config #7</td>
+      <td>2334</td><td>1868</td>
+      <td>1674</td><td>1500</td>
+      <td>0</td><td>0</td>
+      <td>3.87</td><td>1.74</td>
+      <td>1055</td><td>113</td>
+    </tr>
+    <tr>
+      <td>Config #8</td>
+      <td>118153</td><td>106722</td>
+      <td>23454</td><td>8638</td>
+      <td>432</td><td>256</td>
+      <td>3.52</td><td>4.35</td>
+      <td>106722</td><td>329</td>
+    </tr>  
+  </tbody>
 </table>
 
 The configurations are shown below in terms of input feature map channels (IFM Ch), input feature map dimensions (IFM Dim), output feature map channels (OFM Ch), kernel dimension (KDim), input, weight and output precision, PE and SIMD/PE
 
 <table>
-  <tr>
-    <td><b>Configs </b></td> <td><b> IFM Ch </b></td> <td><b> IFM Dim </b></td> <td><b> OFM Ch </b></td> <td><b> KDim </b></td> <td><b> Inp. prec. </b></td> <td><b> Weight prec. </b></td> <td><b> Out. prec.</b> </td> <td><b> PE </b></td> <td><b> SIMD/PE </b></td>
-  </tr>
-  <tr>
-    <td>Config #1</td>    <td>32</td>    <td>16</td>    <td>32</td>    <td>4</td>     <td>1</td>    <td>1</td>    <td>11</td>    <td>16</td>    <td>16</td>
-  </tr>  
-  <tr>
-    <td>Config #2</td>    <td>32</td>    <td>16</td>    <td>32</td>    <td>4</td>     <td>4</td>    <td>1</td>    <td>14</td>    <td>32</td>    <td>32</td>
-  </tr>
-  <tr>
-    <td>Config #3</td>    <td>64</td>    <td>16</td>    <td>64</td>    <td>4</td>     <td>1</td>    <td>1</td>    <td>12</td>    <td>32</td>    <td>32</td>
-  </tr>
-  <tr>
-    <td>Config #4</td>    <td>64</td>    <td>16</td>    <td>64</td>    <td>4</td>     <td>4</td>    <td>1</td>    <td>15</td>    <td>32</td>    <td>32</td>
-  </tr>
-  <tr>
-    <td>Config #5</td>    <td>64</td>    <td>16</td>    <td>64</td>    <td>4</td>     <td>4</td>    <td>4</td>    <td>16</td>    <td>32</td>    <td>32</td>
-  </tr>
-  <tr>
-    <td>Config #6</td>    <td>8</td>    <td>8</td>    <td>8</td>    <td>4</td>     <td>4</td>    <td>1</td>    <td>12</td>    <td>8</td>    <td>8</td>
-  </tr>
-  <tr>
-    <td>Config #7</td>    <td>8</td>    <td>8</td>    <td>8</td>    <td>4</td>     <td>4</td>    <td>4</td>    <td>15</td>    <td>8</td>    <td>8</td>
-  </tr>
-  <tr>
-    <td>Config #8</td>    <td>64</td>    <td>32</td>    <td>128</td>    <td>4</td>     <td>4</td>    <td>4</td>    <td>16</td>    <td>64</td>    <td>64</td>
-  </tr>
-    </table> 
+  <thead>
+    <tr>
+      <th>Configs </th> <th> IFM Ch </th> <th> IFM Dim </th> <th> OFM Ch </th> <th> KDim </th> <th> Inp. prec. </th> <th> Weight prec. </th> <th> Out. prec. </th> <th> PE </th> <th> SIMD/PE </th>      
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Config #1</td>    <td>32</td>    <td>16</td>    <td>32</td>    <td>4</td>     <td>1</td>    <td>1</td>    <td>11</td>    <td>16</td>    <td>16</td>
+    </tr>  
+    <tr>
+      <td>Config #2</td>    <td>32</td>    <td>16</td>    <td>32</td>    <td>4</td>     <td>4</td>    <td>1</td>    <td>14</td>    <td>32</td>    <td>32</td>
+    </tr>
+    <tr>
+      <td>Config #3</td>    <td>64</td>    <td>16</td>    <td>64</td>    <td>4</td>     <td>1</td>    <td>1</td>    <td>12</td>    <td>32</td>    <td>32</td>
+    </tr>
+    <tr>
+      <td>Config #4</td>    <td>64</td>    <td>16</td>    <td>64</td>    <td>4</td>     <td>4</td>    <td>1</td>    <td>15</td>    <td>32</td>    <td>32</td>
+    </tr>
+    <tr>
+      <td>Config #5</td>    <td>64</td>    <td>16</td>    <td>64</td>    <td>4</td>     <td>4</td>    <td>4</td>    <td>16</td>    <td>32</td>    <td>32</td>
+    </tr>
+    <tr>
+      <td>Config #6</td>    <td>8</td>    <td>8</td>    <td>8</td>    <td>4</td>     <td>4</td>    <td>1</td>    <td>12</td>    <td>8</td>    <td>8</td>
+    </tr>
+    <tr>
+      <td>Config #7</td>    <td>8</td>    <td>8</td>    <td>8</td>    <td>4</td>     <td>4</td>    <td>4</td>    <td>15</td>    <td>8</td>    <td>8</td>
+    </tr>
+    <tr>
+      <td>Config #8</td>    <td>64</td>    <td>32</td>    <td>128</td>    <td>4</td>     <td>4</td>    <td>4</td>    <td>16</td>    <td>64</td>    <td>64</td>
+    </tr>
+  </tbody>
+</table> 
 
 
 ## FINN MVU Automatic Documentation
