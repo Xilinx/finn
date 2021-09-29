@@ -9,7 +9,7 @@ from finn.transformation.base import Transformation
 allowed_identity_predecessor = [
     "BatchNormalization",
     "Sub",
-    # None,
+    None,
 ]
 
 
@@ -31,22 +31,28 @@ class ConvertQuantActToMultiThreshold(Transformation):
                     continue
                 predecessor = model.find_direct_predecessors(n)
                 if predecessor is not None:
-                    predecessor = predecessor[0]
+                    predecessor_op_type = predecessor[0].op_type
+                else:
+                    predecessor_op_type = predecessor
                 if model.is_fork_node(n):
                     raise RuntimeError(
                         "Forking Quant nodes are not currently supported by FINN."
+                    )
+                if not model.get_initializer(n.input[2]) == 0:
+                    raise ValueError(
+                        "Only Quant nodes with zero-point == 0 are currently supported."
                     )
 
                 # ToDo: Check for activation functions behind (or infront of?)
                 #  the Quant node, such as ReLu
 
                 # Check that this is an idendity operation
-                if predecessor.op_type in allowed_identity_predecessor:
+                if predecessor_op_type in allowed_identity_predecessor:
                     handler = QuantIdentityHandler(model, n, node_ind)
                 else:
                     raise RuntimeError(
                         f"Quant nodes in the activation path and with predecessor "
-                        f"nodes of type {predecessor.op_type} are currently not "
+                        f"nodes of type {predecessor_op_type} are currently not "
                         f"supported by FINN and can not be converted to "
                         f"MultiThreshold nodes."
                     )
