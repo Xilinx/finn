@@ -69,6 +69,18 @@ def get_brev_model_and_sample_inputs(model_name, wbits, abits):
     return brev_model, in_shape, input_tensor
 
 
+def analysis_testing_for_no_quant_nodes(model):
+    # Test that all Quant nodes have been converted to MultiThreshold nodes
+    # or folded into tensor initializers.
+    graph = model.graph
+
+    for n in graph.node:
+        if n.op_type == "Quant":
+            raise ValueError("There should be no Quant nodes left in the graph.")
+
+    return dict()
+
+
 # ToDo: Add KWS networks, when they are ready to be added to finn-base.
 # ToDo: Add RadioML_VGG10, if possible
 @pytest.mark.parametrize("abits", [1, 2])
@@ -135,5 +147,9 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
         "The output of the FINN model "
         "and the QONNX -> FINN converted model should match."
     )
+
+    # Run analysis passes on the converted model
+    model = ModelWrapper(qonnx_base_path.format("whole_trafo"))
+    _ = model.analysis(analysis_testing_for_no_quant_nodes)
 
     temp_dir.cleanup()
