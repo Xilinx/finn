@@ -7,6 +7,7 @@ from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
+from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 
 allowed_identity_predecessor = [
@@ -18,6 +19,27 @@ allowed_identity_predecessor = [
 allowed_relu_predecessor = [
     "Relu",
 ]
+
+
+class ConvertQONNXtoFINN(Transformation):
+    """Converts QONNX dialect to FINN ONNX dialect.
+    First the weights are converted using the FoldQuantWeights transformation,
+    then the ConvertQuantActToMultiThreshold transformation is used to convert
+    the activations.
+    If incompatibilities are found a ValueError or RuntimeError is raised.
+    """
+
+    def apply(self, model):
+        # Make sure the datatypes exist, these are required for folding the weights
+        model = model.transform(InferDataTypes())
+        # Fold weights
+        model = model.transform(FoldQuantWeights())
+        # Convert activations
+        model = model.transform(ConvertQuantActToMultiThreshold())
+        # Some datatypes have changed
+        model = model.transform(InferDataTypes())
+
+        return (model, False)
 
 
 class ConvertQuantActToMultiThreshold(Transformation):
@@ -42,7 +64,7 @@ class ConvertQuantActToMultiThreshold(Transformation):
                 else:
                     predecessor_op_type = predecessor
                 if model.is_fork_node(n):
-                    raise RuntimeError(
+                    raise ValueError(
                         "Forking Quant nodes are not currently supported by FINN."
                     )
                 if not model.get_initializer(n.input[2]) == 0:
@@ -59,7 +81,7 @@ class ConvertQuantActToMultiThreshold(Transformation):
                 elif predecessor_op_type in allowed_relu_predecessor:
                     handler = QuantReluHandler(model, n, node_ind)
                 else:
-                    raise RuntimeError(
+                    raise ValueError(
                         f"Quant nodes in the activation path and with predecessor "
                         f"nodes of type {predecessor_op_type} are currently not "
                         f"supported by FINN and can not be converted to "
