@@ -32,7 +32,6 @@ from onnx import TensorProto, helper
 
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
-from finn.util.basic import get_by_name
 
 
 class QuantActBaseHandler(ABC):
@@ -155,18 +154,6 @@ class QuantActBaseHandler(ABC):
         )
         graph.node.insert(running_node_index, outp_trans_node)
         running_node_index += 1
-
-        # Unset the FINN datatype
-        qnt_annotations = model._model_proto.graph.quantization_annotation
-        ret = get_by_name(qnt_annotations, n.output[0], "tensor_name")
-        if ret is not None:
-            ret_dt = get_by_name(
-                ret.quant_parameter_tensor_names, "finn_datatype", "key"
-            )
-            if ret_dt is not None:
-                ret_dt.Clear()
-        # ToDo: This should be supported by finn-base, by calling the following:
-        # model.set_tensor_datatype(n.output[0], None)
 
         # Insert Add node
         if adder_bias.shape == (1,):
