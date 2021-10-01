@@ -346,7 +346,12 @@ class QuantActBaseHandler(ABC):
         # Unset the FINN datatype
         qnt_annotations = model._model_proto.graph.quantization_annotation
         ret = get_by_name(qnt_annotations, n.output[0], "tensor_name")
-        ret.Clear()
+        if ret is not None:
+            ret_dt = get_by_name(
+                ret.quant_parameter_tensor_names, "finn_datatype", "key"
+            )
+            if ret_dt is not None:
+                ret_dt.Clear()
         # ToDo: This should be supported by finn-base, by calling the following:
         # model.set_tensor_datatype(n.output[0], None)
 
