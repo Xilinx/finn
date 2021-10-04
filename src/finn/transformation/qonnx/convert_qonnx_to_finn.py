@@ -52,8 +52,6 @@ class ConvertQONNXtoFINN(Transformation):
         model = model.transform(FoldQuantWeights())
         # Convert activations
         model = model.transform(ConvertQuantActToMultiThreshold())
-        # Infer types again
-        model = model.transform(InferDataTypes())
 
         # Unset FINN datatypes from MultiThreshold node output tensors to avoid warnings
         mt_nodes = model.get_nodes_by_op_type("MultiThreshold")
