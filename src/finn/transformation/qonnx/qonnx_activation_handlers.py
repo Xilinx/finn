@@ -159,8 +159,8 @@ class QuantActBaseHandler(ABC):
         # If these values are scalar then they can be set as attributes
         # of the MultiThreshold node, if not they get inserted as adder and mul nodes
         # behind the MultiTrheshold nodes.
-        scale_compatible = adder_bias.shape == (1,) or len(adder_bias.shape) == 0
-        bias_compatible = mul_scale.shape == (1,) or len(mul_scale.shape) == 0
+        bias_compatible = adder_bias.shape == (1,) or len(adder_bias.shape) == 0
+        scale_compatible = mul_scale.shape == (1,) or len(mul_scale.shape) == 0
         if scale_compatible and bias_compatible and True:
             # Get Quant parameters
             mul_scale = np.atleast_1d(mul_scale)
@@ -176,81 +176,93 @@ class QuantActBaseHandler(ABC):
             # we thus need to adjust the bias in the MultiThreshold node
             mt_inst.set_nodeattr("out_bias", adder_bias[0] * mul_scale[0])
         else:
+            # Insertion parameters
+            in_tensor = n.output[0]
+            successor_node = model.find_direct_successors(n)
+            if successor_node is not None:
+                successor_node = successor_node[0]
+
+            # Set bias
+            zero_bias = False
             if bias_compatible:
                 adder_bias = np.atleast_1d(adder_bias)
                 # ONNX only accepts 64bit floats as attributes
                 adder_bias = adder_bias.astype(dtype=np.float64)[0]
                 add_shape = tuple()
+                if adder_bias == 0.0:
+                    zero_bias = True
             else:
                 add_shape = adder_bias.shape
 
-            in_tensor = n.output[0]
-            successor_node = model.find_direct_successors(n)
-            if successor_node is not None:
-                successor_node = successor_node[0]
-            # Insert Add node
-            add_tensor = helper.make_tensor_value_info(
-                model.make_new_valueinfo_name(),
-                TensorProto.FLOAT,
-                add_shape,
-            )
-            graph.value_info.append(add_tensor)
-            model.set_initializer(add_tensor.name, adder_bias)
+            if not zero_bias:
+                # Insert Add node
+                add_tensor = helper.make_tensor_value_info(
+                    model.make_new_valueinfo_name(),
+                    TensorProto.FLOAT,
+                    add_shape,
+                )
+                graph.value_info.append(add_tensor)
+                model.set_initializer(add_tensor.name, adder_bias)
 
-            output_shape = model.get_tensor_shape(n.output[0])
-            act_add_tensor = helper.make_tensor_value_info(
-                model.make_new_valueinfo_name(),
-                TensorProto.FLOAT,
-                output_shape,
-            )
-            graph.value_info.append(act_add_tensor)
-            if successor_node is not None:
-                successor_node.input[0] = act_add_tensor.name
+                output_shape = model.get_tensor_shape(n.output[0])
+                act_add_tensor = helper.make_tensor_value_info(
+                    model.make_new_valueinfo_name(),
+                    TensorProto.FLOAT,
+                    output_shape,
+                )
+                graph.value_info.append(act_add_tensor)
+                if successor_node is not None:
+                    successor_node.input[0] = act_add_tensor.name
 
-            add_node = helper.make_node(
-                "Add",
-                [in_tensor, add_tensor.name],
-                [act_add_tensor.name],
-            )
-            graph.node.insert(running_node_index, add_node)
-            running_node_index += 1
+                add_node = helper.make_node(
+                    "Add",
+                    [in_tensor, add_tensor.name],
+                    [act_add_tensor.name],
+                )
+                graph.node.insert(running_node_index, add_node)
+                running_node_index += 1
 
-            # Re-point the input node for the next node to insert
-            in_tensor = act_add_tensor.name
+                # Re-point the input node for the next node to insert
+                in_tensor = act_add_tensor.name
 
             # Set scale
             # Insert Mul node
-            if mul_scale:
+            unity_scale = False
+            if scale_compatible:
                 mul_scale = np.atleast_1d(mul_scale)
                 mul_scale = mul_scale.astype(dtype=np.float64)[0]
                 mul_shape = tuple()
+                if mul_scale == 1.0:
+                    unity_scale = True
             else:
                 mul_shape = mul_scale.shape
-            mul_tensor = helper.make_tensor_value_info(
-                model.make_new_valueinfo_name(),
-                TensorProto.FLOAT,
-                mul_shape,
-            )
-            graph.value_info.append(mul_tensor)
-            model.set_initializer(mul_tensor.name, mul_scale)
 
-            output_shape = model.get_tensor_shape(n.output[0])
-            act_mul_tensor = helper.make_tensor_value_info(
-                model.make_new_valueinfo_name(),
-                TensorProto.FLOAT,
-                output_shape,
-            )
-            graph.value_info.append(act_mul_tensor)
-            if successor_node is not None:
-                successor_node.input[0] = act_mul_tensor.name
+            if not unity_scale:
+                mul_tensor = helper.make_tensor_value_info(
+                    model.make_new_valueinfo_name(),
+                    TensorProto.FLOAT,
+                    mul_shape,
+                )
+                graph.value_info.append(mul_tensor)
+                model.set_initializer(mul_tensor.name, mul_scale)
 
-            mul_node = helper.make_node(
-                "Mul",
-                [in_tensor, mul_tensor.name],
-                [act_mul_tensor.name],
-            )
-            graph.node.insert(running_node_index, mul_node)
-            running_node_index += 1
+                output_shape = model.get_tensor_shape(n.output[0])
+                act_mul_tensor = helper.make_tensor_value_info(
+                    model.make_new_valueinfo_name(),
+                    TensorProto.FLOAT,
+                    output_shape,
+                )
+                graph.value_info.append(act_mul_tensor)
+                if successor_node is not None:
+                    successor_node.input[0] = act_mul_tensor.name
+
+                mul_node = helper.make_node(
+                    "Mul",
+                    [in_tensor, mul_tensor.name],
+                    [act_mul_tensor.name],
+                )
+                graph.node.insert(running_node_index, mul_node)
+                running_node_index += 1
 
         # Remove activation node
         self._remove_activation_node()
