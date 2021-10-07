@@ -1,10 +1,14 @@
 # Community
 
-We have a Gitter channel for all things FINN-related here:
+Connect with the FINN community and ask questions on GitHub Discussions here: ![GitHub Discussions](https://img.shields.io/github/discussions/Xilinx/finn)
+
+We also have a Gitter channel for all things FINN-related here:
 [![Gitter](https://badges.gitter.im/xilinx-finn/community.svg)](https://gitter.im/xilinx-finn/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
 
 
 ### External Collaborators
+* Paderborn University, Germany: Felix Paul Jentzsch, Marco Platzner
+* TU Munich and BMW Group, Germany: Nael Fasfous, Manoj-Rohit Vemparala, Alexander Frickenstein, Lukas Frickenstein, Walter Stechele
 * TU Delft, Netherlands: Jakoba Petri-Koenig, Mirza Mrahorovic, Zaid Al-Ars
 * Heidelberg University, Germany: Hendrik Borras, Holger Froening
 * NTNU, Norway: Magnus Jahre, Magnus Sjalander
