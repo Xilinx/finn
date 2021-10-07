@@ -332,12 +332,13 @@ class CreateStitchedIP(Transformation):
         )
         tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
+        # mark bus interface params as user-resolvable to avoid FREQ_MHZ mismatches
+        tcl.append(
+            "set_property value_resolve_type user [ipx::get_bus_parameters "
+            "-of [ipx::get_bus_interfaces -of [ipx::current_core ]]]"
+        )
         # if targeting Vitis, add some properties to the IP
         if self.vitis:
-            tcl.append(
-                "set_property value_resolve_type user [ipx::get_bus_parameters "
-                "-of [ipx::get_bus_interfaces -of [ipx::current_core ]]]"
-            )
             # replace source code with dcp
             tcl.append(
                 "set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv
