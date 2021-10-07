@@ -27,12 +27,14 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from onnx import TensorProto, helper
+from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.transformation.base import Transformation
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.qonnx.gemm_to_matmul import GemmToMatMul
 from finn.transformation.qonnx.qonnx_activation_handlers import QuantActBaseHandler
 from finn.util.basic import get_by_name
 
@@ -46,6 +48,9 @@ class ConvertQONNXtoFINN(Transformation):
     """
 
     def apply(self, model):
+        # Gemm operations are not supported by FINN, so we convert them to MatMul
+        model = model.transform(GemmToMatMul())
+        model = model.transform(FoldTransposeIntoQuantInit())
         # Make sure the datatypes exist, these are required for folding the weights
         model = model.transform(InferDataTypes())
         # Fold weights
