@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
 from onnx import TensorProto, helper
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 
@@ -139,7 +140,10 @@ class FoldQuantWeights(Transformation):
                         # For buth mul and Add:
                         # Move the scale factor behind the next operator
                         scale = model.get_initializer(n.input[1])
-                        model.set_initializer(node_out, q_node_output / scale)
+                        new_initializer = q_node_output / scale
+                        # Round, to correct for floating point errors
+                        new_initializer = np.round(new_initializer)
+                        model.set_initializer(node_out, new_initializer)
                         new_dtype = DataType[dtype.name.replace("SCALED", "")]
                         model.set_tensor_datatype(node_out, new_dtype)
 
