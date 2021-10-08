@@ -48,11 +48,14 @@ def test_build_dataflow_directory():
     # check the generated files
     output_dir = target_dir + "/output_tfc_w1a1_Pynq-Z1"
     assert os.path.isfile(output_dir + "/time_per_step.json")
+    assert os.path.isfile(output_dir + "/auto_folding_config.json")
     assert os.path.isfile(output_dir + "/final_hw_config.json")
     assert os.path.isfile(output_dir + "/stitched_ip/ip/component.xml")
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
+    assert os.path.isfile(output_dir + "/report/verify_rtlsim.vcd")
+    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_1.vcd")
     assert os.path.isfile(
         output_dir + "/report/estimate_layer_config_alternatives.json"
     )
