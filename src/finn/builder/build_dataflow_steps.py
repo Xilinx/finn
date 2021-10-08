@@ -31,6 +31,7 @@ import numpy as np
 import os
 from copy import deepcopy
 from distutils.dir_util import copy_tree
+from qonnx.util.cleanup import cleanup_model
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -94,6 +95,7 @@ from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.util.config import extract_model_config_to_json
@@ -185,6 +187,22 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
     # TODO make configurable
     # verify_model.set_metadata_prop("rtlsim_trace", "trace.vcd")
     return verify_model
+
+
+def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """
+    This runs the tidy-up step from QONNX and then converts the QONNX model
+    to the FINN-ONNX dialect.
+    """
+    # QONNX cleanup
+    model = cleanup_model(model)
+    # QONNX to FINN-ONNX
+    model = model.transform(ConvertQONNXtoFINN())
+
+    if VerificationStepType.TIDY_UP_PYTHON in cfg._resolve_verification_steps():
+        verify_step(model, cfg, "initial_python", need_parent=False)
+
+    return model
 
 
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -618,6 +636,7 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 #: map step name strings to step functions
 build_dataflow_step_lookup = {
+    "step_qonnx_to_finn": step_qonnx_to_finn,
     "step_tidy_up": step_tidy_up,
     "step_streamline": step_streamline,
     "step_convert_to_hls": step_convert_to_hls,

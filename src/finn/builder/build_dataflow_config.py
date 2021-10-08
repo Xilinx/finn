@@ -291,6 +291,11 @@ class DataflowBuildConfig:
     #: If given, stop at this step.
     stop_step: Optional[str] = None
 
+    #: If set to True, the dataflow builder will assume that the input ONNX file is
+    #: in the QONNX dialect. FINN will then try to convert the input to the
+    #: FINN-ONNX dialect.
+    expect_QONNX_as_input: Optional[bool] = False
+
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
             # use same clk for synth and hls if not explicitly specified

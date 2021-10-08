@@ -34,6 +34,7 @@ import pdb  # NOQA
 import sys
 import time
 import traceback
+from copy import deepcopy
 
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
@@ -66,6 +67,9 @@ def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
     steps = cfg.steps
     if steps is None:
         steps = default_build_dataflow_steps
+    if cfg.expect_QONNX_as_input:
+        steps = deepcopy(steps)
+        steps.insert(0, "step_qonnx_to_finn")
     steps_as_fxns = []
     for transform_step in steps:
         if type(transform_step) is str:
