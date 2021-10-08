@@ -78,7 +78,9 @@ def test_brevitas_mobilenet():
     bo.export_finn_onnx(preproc, (1, 3, 224, 224), preproc_onnx)
     preproc_model = ModelWrapper(preproc_onnx)
     # set input finn datatype to UINT8
-    preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType.UINT8)
+    preproc_model.set_tensor_datatype(
+        preproc_model.graph.input[0].name, DataType["UINT8"]
+    )
     preproc_model = preproc_model.transform(InferShapes())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
     preproc_model = preproc_model.transform(GiveUniqueParameterTensors())

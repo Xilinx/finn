@@ -60,7 +60,7 @@ class ForceDataTypeForTensors(Transformation):
     Forces a certain datatype for all tensors in a model.
     """
 
-    def __init__(self, dType=DataType.INT8):
+    def __init__(self, dType=DataType["INT8"]):
         super().__init__()
         self._dType = dType
 
@@ -116,7 +116,7 @@ class PyTorchTestModel(nn.Module):
 
 
 # param datatype
-@pytest.mark.parametrize("dt", [DataType.INT8])
+@pytest.mark.parametrize("dt", [DataType["INT8"]])
 # Width/height of square input feature map
 @pytest.mark.parametrize("IFMDim", [3, 5])
 # upscaling factor

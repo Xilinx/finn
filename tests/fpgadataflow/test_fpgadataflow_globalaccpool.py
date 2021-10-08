@@ -78,7 +78,7 @@ def prepare_inputs(input_tensor, idt):
 
 
 # data type
-@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.UINT16])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT16"]])
 # channels
 @pytest.mark.parametrize("ch", [64])
 # folding
@@ -127,7 +127,7 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
         # commented out, needs performance debug:
-        # test_fpgadataflow_globalaccpool[rtlsim-7-1-64-DataType.UINT4]
+        # test_fpgadataflow_globalaccpool[rtlsim-7-1-64-DataType["UINT4"]]
         # assert False where False =
         # <function isclose at 0x7eff26d5ca60>(50, 103, atol=(0.1 * 103))
         # assert np.isclose(exp_cycles, cycles_rtlsim, atol=0.1 * cycles_rtlsim)

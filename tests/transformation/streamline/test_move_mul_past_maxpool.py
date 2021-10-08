@@ -66,7 +66,7 @@ def test_move_mul_past_maxpool(ifm_dim, ifm_ch, k, stride, pad, cw, negative):
 
     model = helper.make_model(graph, producer_name="mulpastmaxpool-model")
     model = ModelWrapper(model)
-    inp_values = gen_finn_dt_tensor(DataType.INT2, [1, ifm_ch, ifm_dim, ifm_dim])
+    inp_values = gen_finn_dt_tensor(DataType["INT2"], [1, ifm_ch, ifm_dim, ifm_dim])
     mul_values = np.random.random_sample(mul_shape).astype(np.float32)
     if negative == 1:
         mul_values = mul_values * (-1)

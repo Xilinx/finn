@@ -589,18 +589,18 @@ class InferBinaryStreamingFCLayer(Transformation):
                 mm_output = n.output[0]
                 mm_in_shape = model.get_tensor_shape(mm_input)
                 mm_out_shape = model.get_tensor_shape(mm_output)
-                assert model.get_tensor_datatype(mm_input) == DataType.BINARY, (
+                assert model.get_tensor_datatype(mm_input) == DataType["BINARY"], (
                     n.name
                     + """: First
                 input for xnorpopcount is not set to FINN DataType BINARY."""
                 )
-                assert model.get_tensor_datatype(mm_weight) == DataType.BINARY, (
+                assert model.get_tensor_datatype(mm_weight) == DataType["BINARY"], (
                     n.name
                     + """: Second
                 input (weights) for xnorpopcount is not set to FINN DataType BINARY."""
                 )
-                idt = DataType.BINARY
-                wdt = DataType.BINARY
+                idt = DataType["BINARY"]
+                wdt = DataType["BINARY"]
                 mm_output = n.output[0]
                 W = model.get_initializer(mm_weight)
                 # extract weight shape, note that ONNX and finn-hlslib
@@ -766,7 +766,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             + ": out_bias must be integer for HLS conversion."
                         )
                         actval = int(actval)
-                        odt_is_bipolar = odt == DataType.BIPOLAR
+                        odt_is_bipolar = odt == DataType["BIPOLAR"]
                         bipolar_ok = (
                             odt_is_bipolar and (scale == 2.0) and (actval == -1)
                         )
@@ -1254,7 +1254,7 @@ class InferChannelwiseLinearLayer(Transformation):
         for k in DataType.__members__:
             dt = DataType[k]
 
-            if dt in [DataType.BIPOLAR, DataType.TERNARY, DataType.FLOAT32]:
+            if dt in [DataType["BIPOLAR"], DataType["TERNARY"], DataType["FLOAT32"]]:
                 # not currently supported
                 continue
 
@@ -1270,9 +1270,9 @@ class InferChannelwiseLinearLayer(Transformation):
         )
 
         if (0 <= vals).all():
-            return DataType.UINT64
+            return DataType["UINT64"]
         else:
-            return DataType.INT64
+            return DataType["INT64"]
 
     def apply(self, model):
         graph = model.graph

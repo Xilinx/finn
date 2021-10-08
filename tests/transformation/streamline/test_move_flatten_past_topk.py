@@ -69,7 +69,7 @@ def test_move_flatten_past_affine(data_layout, batch_size):
     model = helper.make_model(graph, producer_name="move_flatten_model")
     model = ModelWrapper(model)
 
-    model.set_tensor_datatype("inp", DataType.INT2)
+    model.set_tensor_datatype("inp", DataType["INT2"])
     model.set_tensor_layout("inp", data_layout)
     model = model.transform(InsertTopK())
     model = model.transform(InferShapes())
@@ -79,7 +79,7 @@ def test_move_flatten_past_affine(data_layout, batch_size):
     model = model.transform(GiveReadableTensorNames())
 
     # compare execution before and after transformation
-    inp_values = gen_finn_dt_tensor(DataType.INT2, ishape)
+    inp_values = gen_finn_dt_tensor(DataType["INT2"], ishape)
     idict = {model.graph.input[0].name: inp_values}
     model_transformed = model.transform(MoveFlattenPastTopK())
     assert oxe.compare_execution(model, model_transformed, idict)

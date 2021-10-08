@@ -118,9 +118,9 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.INT4, DataType.INT8])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["INT4"], DataType["INT8"]])
 # output datatype
-@pytest.mark.parametrize("odt", [DataType.UINT4, DataType.INT4])
+@pytest.mark.parametrize("odt", [DataType["UINT4"], DataType["INT4"]])
 # pool configuration:                   ( k,stride, pad, ifm_dim )
 @pytest.mark.parametrize("pool_config", [(7, 7, 0, 7), (3, 2, 1, 5)])
 # input channels

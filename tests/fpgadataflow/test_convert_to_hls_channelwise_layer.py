@@ -76,9 +76,13 @@ def make_single_maxpool_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
 
 
 # parameter datatype
-@pytest.mark.parametrize("pdt", [DataType.BIPOLAR, DataType.UINT4, DataType.INT2])
+@pytest.mark.parametrize(
+    "pdt", [DataType["BIPOLAR"], DataType["UINT4"], DataType["INT2"]]
+)
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.INT32, DataType.UINT4, DataType.INT4])
+@pytest.mark.parametrize(
+    "idt", [DataType["INT32"], DataType["UINT4"], DataType["INT4"]]
+)
 # function
 @pytest.mark.parametrize("onnx_op_name", ["Add", "Mul"])
 # vector parameter or scalar parameter (broadcast)
@@ -103,10 +107,10 @@ def test_convert_to_hls_channelwise_layer(
 
     # Since the aren't Data types with a bit width of a non power of 2,
     # there are cases where the input won't use it full range.
-    if idt == DataType.INT32:
-        x = gen_finn_dt_tensor(DataType.INT16, (1, ifm_ch, ifm_dim, ifm_dim))
-    elif idt == DataType.UINT32:
-        x = gen_finn_dt_tensor(DataType.UINT16, (1, ifm_ch, ifm_dim, ifm_dim))
+    if idt == DataType["INT32"]:
+        x = gen_finn_dt_tensor(DataType["INT16"], (1, ifm_ch, ifm_dim, ifm_dim))
+    elif idt == DataType["UINT32"]:
+        x = gen_finn_dt_tensor(DataType["UINT16"], (1, ifm_ch, ifm_dim, ifm_dim))
     else:
         x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
 

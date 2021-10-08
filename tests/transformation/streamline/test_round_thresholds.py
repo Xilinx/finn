@@ -47,17 +47,17 @@ def test_round_thresholds():
     model = ModelWrapper(model_def)
     threshold_val = np.asarray([[-1.1], [0.7], [2.3], [5.1]], dtype=np.float32)
     model.set_initializer("thresholds", threshold_val)
-    model.set_tensor_datatype("v", DataType.INT8)
+    model.set_tensor_datatype("v", DataType["INT8"])
     inp_dict_f = {"v": np.floor(threshold_val).T}
     inp_dict_n = {"v": np.round(threshold_val).T}
     inp_dict_c = {"v": np.ceil(threshold_val).T}
     orig_f = oxe.execute_onnx(model, inp_dict_f)["out"]
     orig_n = oxe.execute_onnx(model, inp_dict_n)["out"]
     orig_c = oxe.execute_onnx(model, inp_dict_c)["out"]
-    assert model.get_tensor_datatype("thresholds") == DataType.FLOAT32
+    assert model.get_tensor_datatype("thresholds") == DataType["FLOAT32"]
     new_model = model.transform(RoundAndClipThresholds())
     # rounded up thresholds should have same dtype as input
-    assert new_model.get_tensor_datatype("thresholds") == DataType.INT8
+    assert new_model.get_tensor_datatype("thresholds") == DataType["INT8"]
     new_f = oxe.execute_onnx(new_model, inp_dict_f)["out"]
     new_n = oxe.execute_onnx(new_model, inp_dict_n)["out"]
     new_c = oxe.execute_onnx(new_model, inp_dict_c)["out"]
