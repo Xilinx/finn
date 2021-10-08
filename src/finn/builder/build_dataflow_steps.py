@@ -289,7 +289,9 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
 
 def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfig):
     """If target_fps was specified, use the SetFolding transformation to determine
-    parallelization attributes."""
+    parallelization attributes. The auto-generated config will be saved under
+    auto_folding_config.json under the outputs, which can serve as a basis for
+    customizing the folding factors further."""
 
     target_cycles_per_frame = cfg._resolve_cycles_per_frame()
     if target_cycles_per_frame is not None:
@@ -300,6 +302,19 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
                 two_pass_relaxation=cfg.folding_two_pass_relaxation,
             )
         )
+        # extract the suggested configuration and save it as json
+        hw_attrs = [
+            "PE",
+            "SIMD",
+            "ram_style",
+            "resType",
+            "mem_mode",
+            "runtime_writeable_weights",
+        ]
+        extract_model_config_to_json(
+            model, cfg.output_dir + "/auto_folding_config.json", hw_attrs
+        )
+
     return model
 
 
