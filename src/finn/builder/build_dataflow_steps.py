@@ -96,6 +96,7 @@ from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.util.basic import get_rtlsim_trace_depth
 from finn.util.config import extract_model_config_to_json
 from finn.util.pyverilator import pyverilate_get_liveness_threshold_cycles
 from finn.util.test import execute_parent
@@ -509,16 +510,24 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         rtlsim_model = deepcopy(model)
         rtlsim_model = prepare_for_stitched_ip_rtlsim(rtlsim_model, cfg)
         # run with single input to get latency
+        orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
+        rtlsim_bs = int(cfg.rtlsim_batch_size)
+        assert rtlsim_bs > 0, "rtlsim batch size must be >0"
         if cfg.verify_save_rtlsim_waveforms:
+            # set depth to 3 for layer-by-layer visibility
+            os.environ["RTLSIM_TRACE_DEPTH"] = "3"
             rtlsim_model.set_metadata_prop(
-                "rtlsim_trace", "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, 1)
+                "rtlsim_trace", "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs)
             )
         rtlsim_model.set_metadata_prop("extra_verilator_args", str(["-CFLAGS", "-O3"]))
-        rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, 1)
-        rtlsim_latency_bs1 = rtlsim_perf_dict["cycles"]
-        rtlsim_perf_dict["latency_cycles"] = rtlsim_latency_bs1
+        rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
+        rtlsim_latency = rtlsim_perf_dict["cycles"]
+        rtlsim_perf_dict["latency_cycles"] = rtlsim_latency
         with open(report_dir + "/rtlsim_performance.json", "w") as f:
             json.dump(rtlsim_perf_dict, f, indent=2)
+        if cfg.verify_save_rtlsim_waveforms:
+            # restore original trace depth
+            os.environ["RTLSIM_TRACE_DEPTH"] = str(orig_rtlsim_trace_depth)
 
     return model
 

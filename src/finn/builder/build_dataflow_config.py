@@ -291,6 +291,9 @@ class DataflowBuildConfig:
     #: If given, stop at this step.
     stop_step: Optional[str] = None
 
+    #: Override the number of inputs for rtlsim performance measurement.
+    rtlsim_batch_size: Optional[int] = 1
+
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
             # use same clk for synth and hls if not explicitly specified
