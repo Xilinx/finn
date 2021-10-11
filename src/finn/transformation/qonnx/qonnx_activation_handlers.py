@@ -41,11 +41,11 @@ class QuantActBaseHandler(ABC):
     :type model: class: `finn.core.modelwrapper.ModelWrapper`
     :param quant_node: The Quant node which a given handler should replace.
     :param quant_node_index: The index of the Quant node in the given model.
-    :type model: `int`
+    :type quant_node_index: `int`
     """
 
     def __init__(self, model: ModelWrapper, quant_node, quant_node_index: int):
-        """Constructor"""
+        """Base class constructor"""
         super().__init__()
         self._model = model
         self._q_node = quant_node
