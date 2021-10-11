@@ -1251,7 +1251,7 @@ class InferChannelwiseLinearLayer(Transformation):
         for v in vals:
             assert int(v) == v, "Error float value"
 
-        for k in DataType.__members__:
+        for k in DataType.get_accumulator_dt_cands():
             dt = DataType[k]
 
             if dt in [DataType["BIPOLAR"], DataType["TERNARY"], DataType["FLOAT32"]]:
