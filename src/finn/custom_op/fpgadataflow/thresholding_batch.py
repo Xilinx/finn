@@ -132,8 +132,8 @@ class Thresholding_Batch(HLSCustomOp):
         if idt != self.get_input_datatype():
             warn_str = "inputDataType changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype()),
-                str(idt),
+                str(self.get_input_datatype().name),
+                str(idt.name),
             )
             warnings.warn(warn_str)
         self.set_nodeattr("inputDataType", idt.name)
