@@ -623,6 +623,10 @@ class MoveScalarLinearPastInvariants(Transformation):
                     # if initializer is not scalar, skip
                     if np.prod(init0.shape) != 1:
                         continue
+                    # Flatten input if required
+                    if len(init0.shape) > 0:
+                        init0 = init0.flatten()[0]
+                        model.set_initializer(prod0.input[1], init0)
                     # move prod0 from input to output,
                     old_prod0_in = prod0.input[0]
                     old_prod0_out = prod0.output[0]
