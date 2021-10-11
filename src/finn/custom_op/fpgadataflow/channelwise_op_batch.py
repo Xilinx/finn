@@ -30,7 +30,7 @@ import numpy as np
 import os
 import warnings
 from math import ceil
-from onnx import TensorProto, helper
+from onnx import helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -125,17 +125,11 @@ class ChannelwiseOp_Batch(HLSCustomOp):
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
         # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
         return helper.make_node(
-            "Constant",
+            "RandomNormal",
             inputs=[],
             outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
+            shape=list(oshape),
         )
 
     def infer_node_datatype(self, model):

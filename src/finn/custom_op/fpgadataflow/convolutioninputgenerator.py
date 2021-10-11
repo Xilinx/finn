@@ -29,7 +29,7 @@
 import math
 import numpy as np
 import os
-from onnx import TensorProto, helper
+from onnx import helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -148,17 +148,11 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == exp_ishape, "Unexpect input shape for ConvInpGen."
         # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
         return helper.make_node(
-            "Constant",
+            "RandomNormal",
             inputs=[],
             outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
+            shape=list(oshape),
         )
 
     def infer_node_datatype(self, model):

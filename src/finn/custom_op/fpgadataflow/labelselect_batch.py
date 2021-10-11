@@ -102,18 +102,12 @@ class LabelSelect_Batch(HLSCustomOp):
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == exp_ishape, "Unexpected input shape."
-        # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.int64)
         return helper.make_node(
-            "Constant",
+            "RandomNormal",
             inputs=[],
             outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.INT64,
-                dims=values.shape,
-                vals=values.flatten(),
-            ),
+            shape=list(oshape),
+            dtype=TensorProto.INT64,
         )
 
     def infer_node_datatype(self, model):
