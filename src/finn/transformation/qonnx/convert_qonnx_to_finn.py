@@ -54,7 +54,7 @@ class ConvertQONNXtoFINN(Transformation):
     :param max_multithreshold_bit_width: The value of max_multithreshold_bit_width is
     checked against the bit width of any given Quant node and the transformation to a
     MultiTrheshold node is rejected, when the bitwidth of the Quant node is larger
-    than value of max_multithreshold_bit_with. Defaults to: 4
+    than value of max_multithreshold_bit_with. Defaults to: 8
     :type max_multithreshold_bit_width: `int`, optional
     :param filter_lambda: Each candidate Quant and BinaryQant node is first evaluated
     by this lambda function. If the function returns False,
@@ -64,7 +64,7 @@ class ConvertQONNXtoFINN(Transformation):
     """
 
     def __init__(
-        self, max_multithreshold_bit_width=4, filter_lambda=lambda q_node: True
+        self, max_multithreshold_bit_width=8, filter_lambda=lambda q_node: True
     ):
         super().__init__()
         self.max_multithreshold_bit_width = max_multithreshold_bit_width

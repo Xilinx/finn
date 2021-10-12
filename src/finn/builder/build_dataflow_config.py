@@ -300,8 +300,8 @@ class DataflowBuildConfig:
     #: only affects Quant nodes in the activation path. Quant nodes, which define a
     #: bit width larger than `max_multithreshold_bit_width` are not converted to
     #: MultiThreshold nodes and a warning is raised instead.
-    #: If not given `max_multithreshold_bit_width` defaults to 4.
-    max_multithreshold_bit_width: Optional[int] = 4
+    #: If not given `max_multithreshold_bit_width` defaults to 8.
+    max_multithreshold_bit_width: Optional[int] = 8
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
