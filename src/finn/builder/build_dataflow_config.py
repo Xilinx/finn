@@ -89,6 +89,8 @@ class LargeFIFOMemStyle(str, Enum):
 class VerificationStepType(str, Enum):
     "Steps at which FINN ONNX execution can be launched for verification."
 
+    #: verify after step_qonnx_to_finn, using Python execution
+    FINN_ONNX_PYTHON = "finn_onnx_python"
     #: verify after step_tidy_up, using Python execution
     TIDY_UP_PYTHON = "initial_python"
     #: verify after step_streamline , using Python execution
@@ -103,6 +105,7 @@ class VerificationStepType(str, Enum):
 #: specified order. Use the `steps` as part of build config to restrict which
 #: steps will be run.
 default_build_dataflow_steps = [
+    "step_qonnx_to_finn",
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
@@ -123,6 +126,7 @@ default_build_dataflow_steps = [
 
 #: List of steps to run for an estimate-only (no synthesis) dataflow build
 estimate_only_dataflow_steps = [
+    "step_qonnx_to_finn",
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
@@ -290,11 +294,6 @@ class DataflowBuildConfig:
 
     #: If given, stop at this step.
     stop_step: Optional[str] = None
-
-    #: If set to True, the dataflow builder will assume that the input ONNX file is
-    #: in the QONNX dialect. FINN will then try to convert the input to the
-    #: FINN-ONNX dialect.
-    expect_QONNX_as_input: Optional[bool] = False
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:

@@ -191,15 +191,24 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
 
 def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
-    This runs the tidy-up step from QONNX and then converts the QONNX model
-    to the FINN-ONNX dialect.
+    This step will only execute if QONNX nodes are found.
+    These include the following op_types: "Quant" , "Trunc" and "BinaryQuant".
+    If such nodes are found the step will run the tidy-up step from QONNX
+    and then convert the QONNX model to the FINN-ONNX dialect.
     """
+    # Check if any QONNX nodes exist, i.e. BinaryQuant, Quant or Trunc
+    q_count = 0
+    for op_type in ["BinaryQuant", "Quant", "Trunc"]:
+        q_count += len(model.get_nodes_by_op_type(op_type))
+    if q_count == 0:
+        return model
+
     # QONNX cleanup
     model = cleanup_model(model)
     # QONNX to FINN-ONNX
     model = model.transform(ConvertQONNXtoFINN())
 
-    if VerificationStepType.TIDY_UP_PYTHON in cfg._resolve_verification_steps():
+    if VerificationStepType.FINN_ONNX_PYTHON in cfg._resolve_verification_steps():
         verify_step(model, cfg, "initial_python", need_parent=False)
 
     return model
