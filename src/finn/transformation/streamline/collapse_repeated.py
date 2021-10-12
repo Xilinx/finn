@@ -85,8 +85,8 @@ class CollapseRepeatedOp(Transformation):
                     # replace parameter value
                     model.set_initializer(new_node_param_name, new_param)
                     # be conservative with param/output DataTypes
-                    model.set_tensor_datatype(new_node_param_name, DataType.FLOAT32)
-                    model.set_tensor_datatype(end_name, DataType.FLOAT32)
+                    model.set_tensor_datatype(new_node_param_name, DataType["FLOAT32"])
+                    model.set_tensor_datatype(end_name, DataType["FLOAT32"])
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)

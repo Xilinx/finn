@@ -49,8 +49,8 @@ target_clk_ns = 5
 
 @pytest.mark.vivado
 def test_runtime_weights_single_layer():
-    idt = DataType.UINT32
-    wdt = DataType.UINT4
+    idt = DataType["UINT32"]
+    wdt = DataType["UINT4"]
     act = None
     mw = 64
     mh = 32

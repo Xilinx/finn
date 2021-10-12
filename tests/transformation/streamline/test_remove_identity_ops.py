@@ -69,11 +69,11 @@ def test_remove_identity_ops(op, as_first_node, approx):
 
     model = helper.make_model(graph, producer_name="mulpastconv-model")
     model = ModelWrapper(model)
-    inp_values = gen_finn_dt_tensor(DataType.INT2, [1, 4, 1, 1])
+    inp_values = gen_finn_dt_tensor(DataType["INT2"], [1, 4, 1, 1])
     mul_values = np.random.uniform(low=0.1, high=0.99, size=(1)).astype(np.float32)
     shape_values = np.asarray([1, -1], dtype=np.int64)
     div_values = np.random.uniform(low=0.1, high=0.99, size=(1)).astype(np.float32)
-    matmul_values = gen_finn_dt_tensor(DataType.INT2, [4, 2])
+    matmul_values = gen_finn_dt_tensor(DataType["INT2"], [4, 2])
     model.set_initializer("mul", mul_values)
     model.set_initializer("shape", shape_values)
     model.set_initializer("div", div_values)

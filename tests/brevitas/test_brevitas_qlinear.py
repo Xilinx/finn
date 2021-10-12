@@ -48,7 +48,7 @@ export_onnx_path = "test_brevitas_qlinear.onnx"
 @pytest.mark.parametrize("out_features", [4])
 @pytest.mark.parametrize("in_features", [3])
 @pytest.mark.parametrize("w_bits", [4])
-@pytest.mark.parametrize("i_dtype", [DataType.UINT4])
+@pytest.mark.parametrize("i_dtype", [DataType["UINT4"]])
 def test_brevitas_qlinear(bias, out_features, in_features, w_bits, i_dtype):
     i_shape = (1, in_features)
     w_shape = (out_features, in_features)

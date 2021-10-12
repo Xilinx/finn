@@ -85,7 +85,7 @@ def prepare_inputs(input_tensor, idt):
 
 
 # data type
-@pytest.mark.parametrize("idt", [DataType.INT4, DataType.UINT16])
+@pytest.mark.parametrize("idt", [DataType["INT4"], DataType["UINT16"]])
 # channels
 @pytest.mark.parametrize("ch", [64])
 # folding

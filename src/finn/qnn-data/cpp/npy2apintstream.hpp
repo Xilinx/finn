@@ -3,6 +3,7 @@
 #include "hls_stream.h"
 #include "ap_int.h"
 #include <vector>
+#include <stdio.h>
 
 #ifdef DEBUG
 #define DEBUG_NPY2APINTSTREAM(x) std::cout << "[npy2apintstream] " << x << std::endl;
@@ -34,7 +35,7 @@ void npy2apintstream(const char * npy_path, hls::stream<PackedT> & out_stream, b
         NpyT loaded_elem_npyt = *loaded_data;
         ElemT loaded_elem = (ElemT) loaded_elem_npyt;
         DEBUG_NPY2APINTSTREAM("NpyT " << loaded_elem_npyt << " elem " << loaded_elem)
-        packed_elem((i+1)*ElemBits-1, i*ElemBits) = loaded_elem;
+        packed_elem((i+1)*ElemBits-1, i*ElemBits) = *reinterpret_cast<ap_uint<ElemBits>*>(&loaded_elem);
         loaded_data++;
       }
       DEBUG_NPY2APINTSTREAM("packed hls elem " << std::hex << packed_elem << std::dec)
@@ -59,7 +60,11 @@ void apintstream2npy(hls::stream<PackedT> & in_stream, const std::vector<size_t>
       DEBUG_APINTSTREAM2NPY("packed hls elem " << std::hex << packed_elem << std::dec)
       for(size_t ii = 0; ii < inner_dim_elems; ii++) {
         size_t i = reverse_inner ? inner_dim_elems-ii-1 : ii;
-        ElemT elem = packed_elem((i+1)*ElemBits-1, i*ElemBits);
+        ap_uint<ElemBits> tmp_elem = packed_elem((i+1)*ElemBits-1, i*ElemBits);
+        // important: don't init elem = reinterpret_cast.. directly here
+        // this causes weird behavior for conversion to NpyT afterwards
+        ElemT elem;
+        elem = reinterpret_cast<ElemT&>(tmp_elem);
         NpyT npyt = (NpyT) elem;
         DEBUG_APINTSTREAM2NPY("elem " << elem << " NpyT " << npyt)
         data_to_save.push_back(npyt);
