@@ -31,12 +31,12 @@ import pkg_resources as pk
 
 import pytest
 
+import brevitas.export.onnx.generic as b_onnx
 import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import warnings
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from pkgutil import get_data
 from qonnx.util.cleanup import cleanup
 from tempfile import TemporaryDirectory
@@ -79,11 +79,12 @@ def get_brev_model_and_sample_inputs(model_name, wbits, abits):
 def analysis_testing_for_no_quant_nodes(model):
     # Test that all Quant nodes have been converted to MultiThreshold nodes
     # or folded into tensor initializers.
-    graph = model.graph
 
-    for n in graph.node:
-        if n.op_type == "Quant":
-            raise ValueError("There should be no Quant nodes left in the graph.")
+    # ToDo: Also check for the Trunc node
+    for op_type in ["BinaryQuant", "Quant"]:
+        q_count = len(model.get_nodes_by_op_type(op_type))
+        if q_count > 0:
+            raise ValueError(f"There should be no {op_type} nodes left in the graph.")
 
     return dict()
 
@@ -128,7 +129,10 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     finn_export_output = output_dict[model.graph.output[0].name]
 
     # Get the equivalent QONNX model
-    _ = BrevitasONNXManager.export(brev_model, in_shape, qonnx_base_path.format("raw"))
+    b_onnx.function.DOMAIN_STRING = "finn.custom_op.general"
+    _ = b_onnx.manager.BrevitasONNXManager.export(
+        brev_model, in_shape, qonnx_base_path.format("raw")
+    )
     cleanup(qonnx_base_path.format("raw"), out_file=qonnx_base_path.format("clean"))
 
     # Compare output
@@ -142,6 +146,9 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
         assert np.isclose(
             qonnx_export_output, finn_export_output
         ).all(), "The output of the FINN model and the QONNX model should match."
+
+    # ToDo: add a test, which compares if the FINN-ONNX and PyTorch output
+    #   match and another one, which checks if the QONNX and PyTorch output match.
 
     # Run QONNX to FINN conversion
     model = ModelWrapper(qonnx_base_path.format("clean"))
