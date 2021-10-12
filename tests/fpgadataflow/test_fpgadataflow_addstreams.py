@@ -82,7 +82,7 @@ def prepare_inputs(input1, input2):
 
 
 # data types
-@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.UINT8])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
 # channels
 @pytest.mark.parametrize("ch", [1, 64])
 # folding

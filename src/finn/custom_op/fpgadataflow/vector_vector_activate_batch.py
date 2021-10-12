@@ -229,8 +229,8 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         ret = dict()
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
-        inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+        inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
+        wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
         # fill in TSrcI and TWeightI
         # TODO handle bipolar inputs
         if inp_is_bipolar or wt_is_bipolar:

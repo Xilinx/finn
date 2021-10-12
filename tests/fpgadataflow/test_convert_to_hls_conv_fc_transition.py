@@ -79,10 +79,10 @@ def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
 @pytest.mark.slow
 def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
     np.random.seed(0)
-    idt = DataType.UINT4
-    odt = DataType.UINT4
-    conv_weight_dt = DataType.INT4
-    fc_weight_dt = DataType.INT4
+    idt = DataType["UINT4"]
+    odt = DataType["UINT4"]
+    conv_weight_dt = DataType["INT4"]
+    fc_weight_dt = DataType["INT4"]
 
     input_shape, kernel_shape, stride, pad = conv_config
     kernel_size_h, kernel_size_w = kernel_shape
@@ -186,8 +186,8 @@ def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
     model.set_tensor_datatype("global_out", odt)
     model.set_tensor_datatype("conv_param", conv_weight_dt)
     model.set_tensor_datatype("matmul_param", fc_weight_dt)
-    model.set_tensor_datatype("thres1_param", DataType.INT32)
-    model.set_tensor_datatype("thres2_param", DataType.INT32)
+    model.set_tensor_datatype("thres1_param", DataType["INT32"])
+    model.set_tensor_datatype("thres2_param", DataType["INT32"])
 
     model.set_initializer(
         "conv_param", gen_finn_dt_tensor(conv_weight_dt, conv_param_shape)

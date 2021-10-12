@@ -108,7 +108,7 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt, pad_sty
 # PaddingStyle: selects behavior when (odim-idim)%2 != 0
 @pytest.mark.parametrize("pad_style", [2])
 # FINN input datatype
-@pytest.mark.parametrize("idt", [DataType.INT2, DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType["INT2"], DataType["INT4"]])
 # execution mode
 @pytest.mark.parametrize("mode", ["cppsim", "rtlsim"])
 @pytest.mark.slow

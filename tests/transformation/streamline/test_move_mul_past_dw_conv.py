@@ -68,9 +68,9 @@ def test_move_mul_past_dw_conv(ifm_dim, ifm_ch, k, stride, pad_amt, dw):
 
     model = helper.make_model(graph, producer_name="mulpastconv-model")
     model = ModelWrapper(model)
-    inp_values = gen_finn_dt_tensor(DataType.INT2, [1, ifm_ch, ifm_dim, ifm_dim])
-    mul_values = gen_finn_dt_tensor(DataType.INT2, [1, ifm_ch, 1, 1])
-    W_values = gen_finn_dt_tensor(DataType.INT2, W_shape)
+    inp_values = gen_finn_dt_tensor(DataType["INT2"], [1, ifm_ch, ifm_dim, ifm_dim])
+    mul_values = gen_finn_dt_tensor(DataType["INT2"], [1, ifm_ch, 1, 1])
+    W_values = gen_finn_dt_tensor(DataType["INT2"], W_shape)
     model.set_initializer("W", W_values)
     model.set_initializer("mul", mul_values)
     model = model.transform(InferShapes())

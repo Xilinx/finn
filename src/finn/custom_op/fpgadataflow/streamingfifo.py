@@ -254,10 +254,10 @@ class StreamingFIFO(HLSCustomOp):
                 not float32 as expected."""
             expected_inp_shape = self.get_folded_input_shape()
             reshaped_input = inp.reshape(expected_inp_shape)
-            if DataType[self.get_nodeattr("dataType")] == DataType.BIPOLAR:
+            if DataType[self.get_nodeattr("dataType")] == DataType["BIPOLAR"]:
                 # store bipolar activations as binary
                 reshaped_input = (reshaped_input + 1) / 2
-                export_idt = DataType.BINARY
+                export_idt = DataType["BINARY"]
             else:
                 export_idt = DataType[self.get_nodeattr("dataType")]
             # make copy before saving the array

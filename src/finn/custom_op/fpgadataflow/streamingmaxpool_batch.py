@@ -198,9 +198,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -248,9 +248,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -316,10 +316,10 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             inp.shape == exp_ishape
         ), """Input shape doesn't
         match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
-        if self.get_input_datatype() == DataType.BIPOLAR:
+        if self.get_input_datatype() == DataType["BIPOLAR"]:
             # store bipolar activations as binary
             inp = (inp + 1) / 2
-            export_idt = DataType.BINARY
+            export_idt = DataType["BINARY"]
         else:
             export_idt = self.get_input_datatype()
         # no reshaping for input since assuming no folding on input
@@ -366,7 +366,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 )
             )
         # binary -> bipolar if needed
-        if self.get_output_datatype() == DataType.BIPOLAR:
+        if self.get_output_datatype() == DataType["BIPOLAR"]:
             out = context[node.output[0]]
             out = 2 * out - 1
             context[node.output[0]] = out

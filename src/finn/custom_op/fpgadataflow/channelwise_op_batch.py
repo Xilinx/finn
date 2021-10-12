@@ -56,10 +56,10 @@ def get_smallest_possible(vals):
     for v in vals:
         assert int(v) == v, "Error float value"
 
-    for k in DataType.__members__:
+    for k in DataType.get_accumulator_dt_cands():
         dt = DataType[k]
 
-        if dt in [DataType.BIPOLAR, DataType.TERNARY, DataType.FLOAT32]:
+        if dt in [DataType["BIPOLAR"], DataType["TERNARY"], DataType["FLOAT32"]]:
             # not currently supported
             continue
 
@@ -75,9 +75,9 @@ def get_smallest_possible(vals):
     )
 
     if (0 <= vals).all():
-        return DataType.UINT64
+        return DataType["UINT64"]
     else:
-        return DataType.INT64
+        return DataType["INT64"]
 
 
 class ChannelwiseOp_Batch(HLSCustomOp):
@@ -341,8 +341,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         )
         # get input data type
         export_idt = self.get_input_datatype()
-        if self.get_input_datatype() == DataType.BIPOLAR:
-            export_idt = DataType.BINARY
+        if self.get_input_datatype() == DataType["BIPOLAR"]:
+            export_idt = DataType["BINARY"]
         idt_hls = export_idt.get_hls_datatype_str()
 
         # write parameters into params.h
@@ -350,8 +350,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         pdt_hls = pdt.get_hls_datatype_str()
         # use binary to export bipolar activations
         export_odt = self.get_output_datatype()
-        if self.get_output_datatype() == DataType.BIPOLAR:
-            export_odt = DataType.BINARY
+        if self.get_output_datatype() == DataType["BIPOLAR"]:
+            export_odt = DataType["BINARY"]
         odt_hls = export_odt.get_hls_datatype_str()
         # get desired function
         func = self.get_nodeattr("Func")
@@ -432,7 +432,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType.BIPOLAR:
+            if self.get_output_datatype() == DataType["BIPOLAR"]:
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
@@ -540,9 +540,9 @@ class ChannelwiseOp_Batch(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits

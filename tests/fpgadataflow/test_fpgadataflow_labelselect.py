@@ -81,7 +81,9 @@ def prepare_inputs(input_tensor, idt):
     return {"inp": input_tensor}
 
 
-@pytest.mark.parametrize("idt", [DataType.UINT8, DataType.UINT16, DataType.INT16])
+@pytest.mark.parametrize(
+    "idt", [DataType["UINT8"], DataType["UINT16"], DataType["INT16"]]
+)
 # labels
 @pytest.mark.parametrize("labels", [10, 100])
 # folding
