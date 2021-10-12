@@ -90,7 +90,7 @@ class VerificationStepType(str, Enum):
     "Steps at which FINN ONNX execution can be launched for verification."
 
     #: verify after step_qonnx_to_finn, using Python execution
-    FINN_ONNX_PYTHON = "finn_onnx_python"
+    QONNX_TO_FINN_PYTHON = "finn_onnx_python"
     #: verify after step_tidy_up, using Python execution
     TIDY_UP_PYTHON = "initial_python"
     #: verify after step_streamline , using Python execution
