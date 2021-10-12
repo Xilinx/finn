@@ -40,7 +40,13 @@ from finn.util.data_packing import numpy_to_hls_code
 
 @pytest.mark.parametrize(
     "dtype",
-    [DataType["BINARY"], DataType["INT2"], DataType["INT32"], DataType["FIXED<9,6>"]],
+    [
+        DataType["BINARY"],
+        DataType["INT2"],
+        DataType["INT32"],
+        DataType["FIXED<9,6>"],
+        DataType["FLOAT32"],
+    ],
 )
 @pytest.mark.parametrize("test_shape", [(1, 2, 4), (1, 1, 64), (2, 64)])
 @pytest.mark.vivado
