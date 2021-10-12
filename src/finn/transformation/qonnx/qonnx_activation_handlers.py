@@ -145,7 +145,7 @@ class QuantActBaseHandler(ABC):
             "MultiThreshold",
             [n.input[0], thresh_tensor.name],
             [n.output[0]],
-            out_dtype=out_dtype,
+            out_dtype="FLOAT32",
             domain="finn.custom_op.general",
         )
         graph.node.insert(running_node_index, outp_trans_node)
@@ -174,7 +174,14 @@ class QuantActBaseHandler(ABC):
             # which is the other way around in Brevitas,
             # we thus need to adjust the bias in the MultiThreshold node
             mt_inst.set_nodeattr("out_bias", adder_bias[0] * mul_scale[0])
+
+            # If the bias and scale are integers, then the output will be as well.
+            if adder_bias % 1 == 0 and mul_scale % 1 == 0:
+                mt_inst.set_nodeattr("out_dtype", out_dtype)
         else:
+            # Set datatype
+            mt_inst.set_nodeattr("out_dtype", out_dtype)
+
             # Insertion parameters
             in_tensor = n.output[0]
             successor_node = model.find_direct_successors(n)

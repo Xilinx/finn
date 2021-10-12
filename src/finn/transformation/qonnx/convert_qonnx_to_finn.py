@@ -35,7 +35,6 @@ from finn.transformation.qonnx.gemm_to_matmul import GemmToMatMul
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     ConvertQuantActToMultiThreshold,
 )
-from finn.util.basic import get_by_name
 
 
 class ConvertQONNXtoFINN(Transformation):
@@ -56,20 +55,7 @@ class ConvertQONNXtoFINN(Transformation):
         model = model.transform(FoldQuantWeights())
         # Convert activations
         model = model.transform(ConvertQuantActToMultiThreshold())
-
-        # Unset FINN datatypes from MultiThreshold node output tensors to avoid warnings
-        mt_nodes = model.get_nodes_by_op_type("MultiThreshold")
-        qnt_annotations = model._model_proto.graph.quantization_annotation
-        for n in mt_nodes:
-            ret = get_by_name(qnt_annotations, n.output[0], "tensor_name")
-            if ret is not None:
-                ret_dt = get_by_name(
-                    ret.quant_parameter_tensor_names, "finn_datatype", "key"
-                )
-                if ret_dt is not None:
-                    ret_dt.Clear()
-        # ToDo: This might be supported by finn-base in the future,
-        #  by calling the following:
-        # model.set_tensor_datatype(n.output[0], None)
+        # Recompute datatypes
+        model = model.transform(InferDataTypes())
 
         return (model, False)
