@@ -27,12 +27,41 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
+import warnings
+
 from finn.transformation.base import Transformation
 from finn.transformation.qonnx.qonnx_activation_handlers import QuantActBaseHandler
 
 
 class ConvertQuantActToMultiThreshold(Transformation):
-    """Converts Quant nodes in the activation path to MultiThreshold nodes."""
+    """
+    Converts Quant nodes in the activation path to MultiThreshold nodes.
+
+    The optional keyword arguments `max_multithreshold_bit_width` and `filter_lambda`
+    present a way to control which Quant and BinaryQuant nodes in the activation path
+    are converted to MultiThreshold nodes.
+    The filters which are represented by `max_multithreshold_bit_width` and
+    `filter_lambda` are internally connected by an `AND` operation. A warning
+    will be emitted when a Quant node is not converted to a MultiThreshold node.
+
+    :param max_multithreshold_bit_width: The value of max_multithreshold_bit_width is
+    checked against the bit width of any given Quant node and the transformation to a
+    MultiTrheshold node is rejected, when the bitwidth of the Quant node is larger
+    than value of max_multithreshold_bit_with. Defaults to: 4
+    :type max_multithreshold_bit_width: `int`, optional
+    :param filter_lambda: Each candidate Quant and BinaryQant node is first evaluated
+    by this lambda function. If the function returns False,
+    then the node is not converted to a MultiTrheshold node.
+    Defaults to: lambda q_node: True
+    :type filter_lambda: `lambda`, optional
+    """
+
+    def __init__(
+        self, max_multithreshold_bit_width=4, filter_lambda=lambda q_node: True
+    ):
+        super().__init__()
+        self.max_multithreshold_bit_width = max_multithreshold_bit_width
+        self._filter_lambda = filter_lambda
 
     def apply(self, model):
         graph = model.graph
@@ -60,6 +89,27 @@ class ConvertQuantActToMultiThreshold(Transformation):
                     raise ValueError(
                         "Only Quant nodes with zero-point == 0 are currently supported."
                     )
+
+                # Check if the bit width is low enough
+                bit_width = model.get_initializer(n.input[3])
+                if bit_width is None:
+                    raise ValueError("Quant nodes must have a static bit width.")
+                if bit_width > self.max_multithreshold_bit_width:
+                    warnings.warn(
+                        f'The Quant node with name: "{n.name}" was not converted to a '
+                        f"MultiThreshold node, because its bit width of {bit_width} is "
+                        f"higher than the configured maximum bit width of "
+                        f"{self.max_multithreshold_bit_width}."
+                    )
+                    continue
+                # Check that this node passes the user filter
+                if not self._filter_lambda(n):
+                    warnings.warn(
+                        f'The Quant node with name: "{n.name}" was not converted to a '
+                        f"MultiThreshold node, because the filtering lambda function "
+                        f"returned False for this node."
+                    )
+                    continue
 
                 # Check for possible ambiguity in handler selection
                 valid_predecessors = []

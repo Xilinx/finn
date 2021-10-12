@@ -43,7 +43,32 @@ class ConvertQONNXtoFINN(Transformation):
     then the ConvertQuantActToMultiThreshold transformation is used to convert
     the activations.
     If incompatibilities are found a ValueError or RuntimeError is raised.
+
+    The optional keyword arguments `max_multithreshold_bit_width` and `filter_lambda`
+    present a way to control which Quant and BinaryQuant nodes in the activation path
+    are converted to MultiThreshold nodes.
+    The filters which are represented by `max_multithreshold_bit_width` and
+    `filter_lambda` are internally connected by an `AND` operation. A warning
+    will be emitted when a Quant node is not converted to a MultiThreshold node.
+
+    :param max_multithreshold_bit_width: The value of max_multithreshold_bit_width is
+    checked against the bit width of any given Quant node and the transformation to a
+    MultiTrheshold node is rejected, when the bitwidth of the Quant node is larger
+    than value of max_multithreshold_bit_with. Defaults to: 4
+    :type max_multithreshold_bit_width: `int`, optional
+    :param filter_lambda: Each candidate Quant and BinaryQant node is first evaluated
+    by this lambda function. If the function returns False,
+    then the node is not converted to a MultiTrheshold node.
+    Defaults to: lambda q_node: True
+    :type filter_lambda: `lambda`, optional
     """
+
+    def __init__(
+        self, max_multithreshold_bit_width=4, filter_lambda=lambda q_node: True
+    ):
+        super().__init__()
+        self.max_multithreshold_bit_width = max_multithreshold_bit_width
+        self._filter_lambda = filter_lambda
 
     def apply(self, model):
         # Gemm operations are not supported by FINN, so we convert them to MatMul
@@ -54,7 +79,12 @@ class ConvertQONNXtoFINN(Transformation):
         # Fold weights
         model = model.transform(FoldQuantWeights())
         # Convert activations
-        model = model.transform(ConvertQuantActToMultiThreshold())
+        model = model.transform(
+            ConvertQuantActToMultiThreshold(
+                max_multithreshold_bit_width=self.max_multithreshold_bit_width,
+                filter_lambda=self._filter_lambda,
+            )
+        )
         # Recompute datatypes
         model = model.transform(InferDataTypes())
 

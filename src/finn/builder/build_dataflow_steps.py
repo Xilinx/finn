@@ -206,7 +206,11 @@ def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     # QONNX cleanup
     model = cleanup_model(model)
     # QONNX to FINN-ONNX
-    model = model.transform(ConvertQONNXtoFINN())
+    model = model.transform(
+        ConvertQONNXtoFINN(
+            max_multithreshold_bit_width=cfg.max_multithreshold_bit_width
+        )
+    )
 
     if VerificationStepType.QONNX_TO_FINN_PYTHON in cfg._resolve_verification_steps():
         verify_step(model, cfg, "initial_python", need_parent=False)

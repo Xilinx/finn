@@ -295,6 +295,14 @@ class DataflowBuildConfig:
     #: If given, stop at this step.
     stop_step: Optional[str] = None
 
+    #: The optional argument `max_multithreshold_bit_width` affects which Quant nodes
+    #: of the QONNX format get converted to the MultiThreshold nodes of FINN. This
+    #: only affects Quant nodes in the activation path. Quant nodes, which define a
+    #: bit width larger than `max_multithreshold_bit_width` are not converted to
+    #: MultiThreshold nodes and a warning is raised instead.
+    #: If not given `max_multithreshold_bit_width` defaults to 4.
+    max_multithreshold_bit_width: Optional[int] = 4
+
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
             # use same clk for synth and hls if not explicitly specified
