@@ -1,7 +1,6 @@
 import numpy as np
 import os
 import warnings
-from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -99,19 +98,7 @@ class FMPadding_Batch(HLSCustomOp):
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == exp_ishape, "Unexpect input shape for SameResize."
-        # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
-        return helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
-        )
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
