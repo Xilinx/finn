@@ -29,9 +29,9 @@
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 
 from finn.transformation.base import Transformation
+from finn.transformation.gemm_to_matmul import GemmToMatMul
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.qonnx.fold_quant_weights import FoldQuantWeights
-from finn.transformation.qonnx.gemm_to_matmul import GemmToMatMul
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     ConvertQuantActToMultiThreshold,
 )
