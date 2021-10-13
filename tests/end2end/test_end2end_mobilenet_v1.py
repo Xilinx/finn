@@ -62,9 +62,9 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.insert_topk import InsertTopK
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.merge_onnx_models import MergeONNXModels
+from finn.transformation.remove import RemoveIdentityOps
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
-from finn.transformation.streamline.remove import RemoveIdentityOps
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import alveo_default_platform, alveo_part_map
 from finn.util.pytorch import NormalizePreProc
