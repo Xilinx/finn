@@ -31,7 +31,6 @@ import numpy as np
 import os
 import textwrap
 import warnings
-from onnx import helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -151,12 +150,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
-        return helper.make_node(
-            "RandomNormal",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            shape=list(oshape),
-        )
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node

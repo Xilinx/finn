@@ -106,8 +106,10 @@ class LabelSelect_Batch(HLSCustomOp):
             "RandomNormal",
             inputs=[],
             outputs=[self.onnx_node.output[0]],
-            shape=list(oshape),
+            mean=0.0,
+            scale=1.0,
             dtype=TensorProto.INT64,
+            shape=list(oshape),
         )
 
     def infer_node_datatype(self, model):
