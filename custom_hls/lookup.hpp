@@ -41,18 +41,18 @@ template <
     unsigned NumInputs,
     typename InputType,
     typename EmbeddingType,
-    typename OutputType = ap_uint<EmbeddingDim*EmbeddingType::width>>
+    typename InputPackedType = ap_uint<InputType::width>,
+    typename OutputPackedType = ap_uint<EmbeddingDim*EmbeddingType::width>>
 void StreamingLookup(
-    hls::stream<InputType> &in,
-    hls::stream<OutputType> &out,
-    OutputType const &embeddings[NumEmbeddings]
+    hls::stream<InputPackedType> &in,
+    hls::stream<OutputPackedType> &out,
+    OutputPackedType const &embeddings[NumEmbeddings]
 ) {
     for(unsigned i = 0; i < NumInputs; i++) {
 #pragma HLS PIPELINE II=1
-        InputType inElem;
-        inElem = in.read();
-        OutputType outElem;
-        outElem = embeddings[inElem];
+        InputPackedType inPackedElem = in.read();
+        InputType inElem = *(reinterpret_cast<InputType*>(&inPackedElem));
+        OutputPackedType outElem = embeddings[inElem];
         out.write(outElem);
     }
 }
