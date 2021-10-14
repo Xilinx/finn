@@ -79,10 +79,10 @@ class Lookup(HLSCustomOp):
         return self.get_normal_output_shape()
 
     def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
+        exp_ishape = tuple(self.get_normal_input_shape())
+        oshape = tuple(self.get_normal_output_shape())
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for Lookup: %s vs %s" % (
+        assert ishape == exp_ishape, "Unexpected input shape for Lookup: %s vs %s" % (
             str(exp_ishape),
             str(ishape),
         )
