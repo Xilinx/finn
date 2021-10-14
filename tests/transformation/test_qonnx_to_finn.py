@@ -79,8 +79,7 @@ def analysis_testing_for_no_quant_nodes(model):
     # Test that all Quant nodes have been converted to MultiThreshold nodes
     # or folded into tensor initializers.
 
-    # ToDo: Also check for the Trunc node
-    for op_type in ["BinaryQuant", "Quant"]:
+    for op_type in ["BinaryQuant", "Quant", "Trunc"]:
         q_count = len(model.get_nodes_by_op_type(op_type))
         if q_count > 0:
             raise ValueError(f"There should be no {op_type} nodes left in the graph.")
@@ -88,7 +87,7 @@ def analysis_testing_for_no_quant_nodes(model):
     return dict()
 
 
-# ToDo: Add KWS networks, when they are ready to be added to finn-base.
+# ToDo: Add KWS networks, when they are ready to be added to finn-examples.
 # ToDo: Add RadioML_VGG10, if possible
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("wbits", [1, 2])

@@ -32,9 +32,11 @@ from finn.transformation.base import Transformation
 from finn.transformation.gemm_to_matmul import GemmToMatMul
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.qonnx.fold_quant_weights import FoldQuantWeights
+from finn.transformation.qonnx.infer_QuantAvgPool2d import AvgPoolAndTruncToQuantAvgPool
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     ConvertQuantActToMultiThreshold,
 )
+from finn.transformation.remove import RemoveEmptyPadding
 
 
 class ConvertQONNXtoFINN(Transformation):
@@ -87,5 +89,9 @@ class ConvertQONNXtoFINN(Transformation):
         )
         # Recompute datatypes
         model = model.transform(InferDataTypes())
+        # Convert AvgPool -> Mul -> Trunc structure to QuantAvgPool2d
+        model = model.transform(AvgPoolAndTruncToQuantAvgPool())
+        # Remove empty padding if it exists
+        model = model.transform(RemoveEmptyPadding())
 
         return (model, False)
