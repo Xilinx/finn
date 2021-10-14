@@ -223,8 +223,8 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
                 if stride_h == 1 and stride_w == 1:
                     if dilation_h == 1 and dilation_w == 1:
                         return True
-        else:
-            return False
+
+        return False
 
     def get_exp_cycles(self):
         simd = self.get_nodeattr("SIMD")
