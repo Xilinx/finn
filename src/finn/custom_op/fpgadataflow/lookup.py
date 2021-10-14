@@ -271,6 +271,7 @@ class Lookup(HLSCustomOp):
         assert inp.dtype == np.int64, "Inputs must be contained in int64 ndarray"
         assert inp.shape == exp_ishape, """Input shape doesn't match expected shape."""
         export_idt = self.get_input_datatype()
+        odt = self.get_output_datatype()
 
         reshaped_input = inp.reshape(folded_ishape)
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
@@ -293,13 +294,18 @@ class Lookup(HLSCustomOp):
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            odt = export_idt
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
             rtlsim_output_to_npy(
-                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+                rtlsim_output,
+                out_npy_path,
+                odt,
+                out_shape,
+                packed_bits,
+                target_bits,
+                reverse_inner=False,
             )
             # load and reshape output
             output = np.load(out_npy_path)
