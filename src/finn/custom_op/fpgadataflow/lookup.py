@@ -29,6 +29,7 @@
 import numpy as np
 import os
 import warnings
+from math import ceil
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -321,3 +322,17 @@ class Lookup(HLSCustomOp):
         assert (
             context[node.output[0]].shape == exp_oshape
         ), """Output shape doesn't match expected shape."""
+
+    def bram_estimation(self):
+        # current calculation assumes embeddings always stored in BRAM_18Ks
+        width_factor = ceil(self.get_outstream_width() / 16)
+        depth_factor = ceil(self.get_nodeattr("NumEmbeddings") / 1024)
+        return width_factor * depth_factor
+
+    def bram_efficiency_estimation(self):
+        bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
+        ebits = self.get_outstream_width() * self.get_nodeattr("NumEmbeddings")
+        bram16_est_capacity = bram16_est * 18 * 1024
+        return ebits / bram16_est_capacity
