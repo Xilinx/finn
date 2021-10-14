@@ -38,8 +38,12 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hls_layers import InferLookupLayer
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.basic import gen_finn_dt_tensor
@@ -114,5 +118,13 @@ def test_lookup_export_convert():
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
     model = model.transform(SetExecMode("cppsim"))
-    ret = execute_onnx(model, {iname: itensor})
-    assert (exp_out == ret[oname]).all()
+    ret_cppsim = execute_onnx(model, {iname: itensor})
+    assert (exp_out == ret_cppsim[oname]).all()
+    # prepare and execute rtlsim
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xc7z020clg400-1", 10))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareRTLSim())
+    ret_rtlsim = execute_onnx(model, {iname: itensor})
+    assert (exp_out == ret_rtlsim[oname]).all()
