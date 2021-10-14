@@ -36,6 +36,10 @@ from torch import nn
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.convert_to_hls_layers import InferLookupLayer
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.util.basic import gen_finn_dt_tensor
@@ -73,7 +77,7 @@ def make_lookup_model(embeddings, ishape, idt, edt):
     return model
 
 
-def test_lookup_export():
+def test_lookup_export_convert():
     export_path = tmpdir + "/test_lookup_export.onnx"
     ishape = (1, 10)
     idt = DataType["UINT8"]
@@ -99,4 +103,16 @@ def test_lookup_export():
     itensor = gen_finn_dt_tensor(idt, ishape).astype(np.int64)
     ret = execute_onnx(model, {iname: itensor})
     exp_out = np.take(embeddings, itensor, axis=0)
+    assert (exp_out == ret[oname]).all()
+    # call transformation to convert to HLS and verify conversion
+    model = model.transform(InferLookupLayer())
+    assert model.graph.node[0].op_type == "Lookup"
+    assert model.graph.node[0].input[0] == iname
+    assert model.graph.node[0].input[1] == ename
+    assert model.graph.node[0].output[0] == oname
+    # prepare and execute cppsim
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    model = model.transform(SetExecMode("cppsim"))
+    ret = execute_onnx(model, {iname: itensor})
     assert (exp_out == ret[oname]).all()
