@@ -31,8 +31,22 @@ from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.transformation.infer_shapes import InferShapes
+
+
+def get_dtype(bit_width: int, signed: bool) -> DataType:
+    bit_width = int(bit_width)
+    signed = bool(signed)
+    if bit_width == 1.0:
+        finn_dt = DataType["BIPOLAR"]
+    else:
+        if signed:
+            finn_dt = DataType["INT" + str(bit_width)]
+        else:
+            finn_dt = DataType["UINT" + str(bit_width)]
+    return finn_dt
 
 
 class FoldQuantWeights(Transformation):
@@ -47,7 +61,7 @@ class FoldQuantWeights(Transformation):
         execution_context = model.make_empty_exec_context()
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Quant":
+            if n.op_type == "Quant" or n.op_type == "BinaryQuant":
                 node_inp_inits = list(map(lambda x: model.get_initializer(x), n.input))
                 node_inp_dyn = list(filter(lambda x: x is None, node_inp_inits))
                 node_out = n.output[0]
@@ -55,18 +69,25 @@ class FoldQuantWeights(Transformation):
                 ishape = model.get_tensor_shape(n.input[0])
                 is_const_shape = (n.op_type == "Shape") and (ishape is not None)
                 if is_all_constant_inputs or is_const_shape:
-                    if not model.get_initializer(n.input[2]) == 0:
+                    if (
+                        n.op_type == "Quant"
+                        and not model.get_initializer(n.input[2]) == 0
+                    ):
                         raise ValueError(
                             "Only Quant nodes with zero-point == 0 "
                             "are currently supported."
                         )
+                    scale = model.get_initializer(n.input[1])
+                    unity_scale = (scale.flatten() == 1.0).all()
                     # this node has no dynamic inputs, only constant ones -- so we can
                     # do constant folding.
                     oxe.execute_node(n, execution_context, graph)
                     q_node_output = execution_context[node_out]
-                    # Check if the datatype can be directly constant folded
-                    dtype = model.get_tensor_datatype(n.output[0])
-                    if "SCALED" in dtype.name:
+                    # Check we can directly constant fold
+                    if unity_scale:
+                        # use the execution result as an initializer
+                        model.set_initializer(node_out, q_node_output)
+                    else:
                         # Reshape scale for Conv if required
                         if model.is_fork_node(n):
                             raise RuntimeError(
@@ -95,14 +116,23 @@ class FoldQuantWeights(Transformation):
                                 f"at node: {target_node}."
                             )
 
-                        # For buth mul and Add:
+                        # For both mul and Add:
                         # Move the scale factor behind the next operator
                         scale = model.get_initializer(n.input[1])
                         new_initializer = q_node_output / scale
                         # Round, to correct for floating point errors
                         new_initializer = np.round(new_initializer)
                         model.set_initializer(node_out, new_initializer)
-                        new_dtype = DataType[dtype.name.replace("SCALED", "")]
+                        if n.op_type == "Quant":
+                            bit_width = model.get_initializer(n.input[3])
+                            q_inst = getCustomOp(n)
+                            signed = q_inst.get_nodeattr("signed")
+                        elif n.op_type == "BinaryQuant":
+                            bit_width = 1.0
+                            signed = True
+                        else:
+                            raise RuntimeError("Got an unexpected quantizer node type")
+                        new_dtype = get_dtype(bit_width, signed)
                         model.set_tensor_datatype(node_out, new_dtype)
 
                         if target_node.op_type == "Conv" and len(scale.shape) > 0:
@@ -175,9 +205,6 @@ class FoldQuantWeights(Transformation):
                             )
                             graph.node.insert(node_ind, div_node)
 
-                    else:
-                        # use the execution result as an initializer
-                        model.set_initializer(node_out, q_node_output)
                     # remove old node
                     graph.node.remove(n)
                     graph_modified = True

@@ -160,7 +160,7 @@ class QuantActBaseHandler(ABC):
         # behind the MultiTrheshold nodes.
         bias_scalar = adder_bias.shape == (1,) or len(adder_bias.shape) == 0
         scale_scalar = mul_scale.shape == (1,) or len(mul_scale.shape) == 0
-        if scale_scalar and bias_scalar and False:
+        if scale_scalar and bias_scalar and self._q_node.op_type == "BinaryQuant":
             # Get Quant parameters
             mul_scale = np.atleast_1d(mul_scale)
             # ONNX only accepts 64bit floats as attributes
@@ -173,10 +173,11 @@ class QuantActBaseHandler(ABC):
             # FINN applies scale first then bias,
             # which is the other way around in Brevitas,
             # we thus need to adjust the bias in the MultiThreshold node
-            mt_inst.set_nodeattr("out_bias", adder_bias[0] * mul_scale[0])
+            finn_bias = adder_bias[0] * mul_scale[0]
+            mt_inst.set_nodeattr("out_bias", finn_bias)
 
             # If the bias and scale are integers, then the output will be as well.
-            if adder_bias % 1 == 0 and mul_scale % 1 == 0:
+            if finn_bias % 1 == 0 and mul_scale % 1 == 0:
                 mt_inst.set_nodeattr("out_dtype", out_dtype)
         else:
             # Set datatype
@@ -289,19 +290,24 @@ class QuantReluHandler(QuantActBaseHandler):
     ]
 
     def _check_compatibility(self):
-        q_inst = getCustomOp(self._q_node)
-        narrow = q_inst.get_nodeattr("narrow")
-        signed = q_inst.get_nodeattr("signed")
-        if signed or narrow:
-            raise ValueError(
-                "FINN only supports unsigned and non-narrow Quant nodes "
-                "for Relu activations."
-            )
-        if not self._model.get_initializer(self._q_node.input[2]) == 0:
-            raise ValueError(
-                "Only Quant nodes with zero-point == 0 "
-                "are currently supported for ReLu activations."
-            )
+        if self._q_node.op_type == "Quant":
+            q_inst = getCustomOp(self._q_node)
+            narrow = q_inst.get_nodeattr("narrow")
+            signed = q_inst.get_nodeattr("signed")
+            if signed or narrow:
+                raise ValueError(
+                    "FINN only supports unsigned and non-narrow Quant nodes "
+                    "for Relu activations."
+                )
+            if not self._model.get_initializer(self._q_node.input[2]) == 0:
+                raise ValueError(
+                    "Only Quant nodes with zero-point == 0 "
+                    "are currently supported for ReLu activations."
+                )
+        elif self._q_node.op_type == "BinaryQuant":
+            return
+        else:
+            raise RuntimeError("Got an unexpected quantizer node type")
 
     def _calculate_act_bias(self):
         # No bias allowed for Relu activations, see: https://github.com/Xilinx/
@@ -312,7 +318,12 @@ class QuantReluHandler(QuantActBaseHandler):
 
     def _calculate_thresholds(self):
         # Gather parameters
-        bit_width = self._model.get_initializer(self._q_node.input[3])
+        if self._q_node.op_type == "Quant":
+            bit_width = self._model.get_initializer(self._q_node.input[3])
+        elif self._q_node.op_type == "BinaryQuant":
+            bit_width = 1.0
+        else:
+            raise RuntimeError("Got an unexpected quantizer node type")
         quant_scale = self._model.get_initializer(self._q_node.input[1])
         # q_inst = getCustomOp(self._q_node)
         # narrow = q_inst.get_nodeattr("narrow")
@@ -388,27 +399,42 @@ class QuantIdentityHandler(QuantActBaseHandler):
 
     def _check_compatibility(self):
         # Gather parameters to check
-        q_inst = getCustomOp(self._q_node)
-        signed = q_inst.get_nodeattr("signed")
-        if not signed:
-            raise ValueError(
-                "FINN only supports signed Quant nodes for identity activations."
-            )
-        if not self._model.get_initializer(self._q_node.input[2]) == 0:
-            raise ValueError(
-                "Only Quant nodes with zero-point == 0 "
-                "are currently supported for identity activations."
-            )
+        if self._q_node.op_type == "Quant":
+            q_inst = getCustomOp(self._q_node)
+            signed = q_inst.get_nodeattr("signed")
+            if not signed:
+                raise ValueError(
+                    "FINN only supports signed Quant nodes for identity activations."
+                )
+            if not self._model.get_initializer(self._q_node.input[2]) == 0:
+                raise ValueError(
+                    "Only Quant nodes with zero-point == 0 "
+                    "are currently supported for identity activations."
+                )
+        elif self._q_node.op_type == "BinaryQuant":
+            quant_scale = self._model.get_initializer(self._q_node.input[1])
+            if (quant_scale.flatten().shape[0] != 1) or quant_scale.flatten()[0] != 1.0:
+                raise ValueError(
+                    "FINN only supports Bipolar identity activations "
+                    "with out per channel scaling and the scaling must be 1. "
+                )
+        else:
+            raise RuntimeError("Got an unexpected quantizer node type")
 
     def _calculate_act_bias(self):
         # Gather parameters
-        bit_width = self._model.get_initializer(self._q_node.input[3])
         q_inst = getCustomOp(self._q_node)
-        narrow = q_inst.get_nodeattr("narrow")
+        if self._q_node.op_type == "Quant":
+            bit_width = self._model.get_initializer(self._q_node.input[3])
+            narrow = q_inst.get_nodeattr("narrow")
+        elif self._q_node.op_type == "BinaryQuant":
+            bit_width = 1.0
+        else:
+            raise RuntimeError("Got an unexpected quantizer node type")
         # Calculate bias, see: https://github.com/Xilinx/brevitas/blob/
         # a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/export/
         # onnx/finn/handler/act.py#L64
-        if bit_width == 1:
+        if bit_width == 1.0:
             bias = np.array([-0.5])
         else:
             if narrow:
@@ -420,45 +446,62 @@ class QuantIdentityHandler(QuantActBaseHandler):
 
     def _calculate_thresholds(self):
         # Gather parameters
-        bit_width = self._model.get_initializer(self._q_node.input[3])
         quant_scale = self._model.get_initializer(self._q_node.input[1])
         q_inst = getCustomOp(self._q_node)
-        narrow = q_inst.get_nodeattr("narrow")
+        if self._q_node.op_type == "Quant":
+            bit_width = self._model.get_initializer(self._q_node.input[3])
+            narrow = q_inst.get_nodeattr("narrow")
+        elif self._q_node.op_type == "BinaryQuant":
+            bit_width = 1.0
+        else:
+            raise RuntimeError("Got an unexpected quantizer node type")
 
         # Calculate thersholds, see: https://github.com/Xilinx/brevitas/
         # blob/a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/
         # export/onnx/finn/handler/act.py#L76
-        if narrow:
-            num_distinct_values = 2 ** bit_width - 1
+        if bit_width == 1.0:
+            thresholds = np.empty([1, 1])
+            thresholds[0] = 0
+            return thresholds
         else:
-            num_distinct_values = 2 ** bit_width
+            if narrow:
+                num_distinct_values = 2 ** bit_width - 1
+            else:
+                num_distinct_values = 2 ** bit_width
 
-        num_thresholds = int(num_distinct_values - 1)
-        flat_scale = quant_scale.flatten()
-        num_scale_channels = flat_scale.shape[0]
-        step = np.abs(flat_scale)
-        half_step = step / 2.0
-        thresholds = np.empty((num_scale_channels, num_thresholds))
-        # compute the value of the smallest threshold, we'll neg-bias all
-        # generated thresholds by this much
-        min_threshold = -half_step - step * ((num_thresholds // 2) - 1)
-        if not narrow:
-            min_threshold -= step
-        for c in range(num_scale_channels):
-            for t in range(num_thresholds):
-                thresholds[c][t] = min_threshold[c] + step[c] * t
+            num_thresholds = int(num_distinct_values - 1)
+            flat_scale = quant_scale.flatten()
+            num_scale_channels = flat_scale.shape[0]
+            step = np.abs(flat_scale)
+            half_step = step / 2.0
+            thresholds = np.empty((num_scale_channels, num_thresholds))
+            # compute the value of the smallest threshold, we'll neg-bias all
+            # generated thresholds by this much
+            min_threshold = -half_step - step * ((num_thresholds // 2) - 1)
+            if not narrow:
+                min_threshold -= step
+            for c in range(num_scale_channels):
+                for t in range(num_thresholds):
+                    thresholds[c][t] = min_threshold[c] + step[c] * t
 
-        # ToDo: The index 1 needs to be changed to -1 for the channels last format
-        num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[1]
-        final_shape = (num_output_channels, num_thresholds)
-        if thresholds.shape != final_shape:
-            thresholds = np.broadcast_to(thresholds, final_shape)
+            # ToDo: The index 1 needs to be changed to -1 for the channels last format
+            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[
+                1
+            ]
+            final_shape = (num_output_channels, num_thresholds)
+            if thresholds.shape != final_shape:
+                thresholds = np.broadcast_to(thresholds, final_shape)
 
-        return thresholds
+            return thresholds
 
     def _calculate_act_scale(self):
         # Gather parameters
-        bit_width = self._model.get_initializer(self._q_node.input[3])
+        if self._q_node.op_type == "Quant":
+            bit_width = self._model.get_initializer(self._q_node.input[3])
+        elif self._q_node.op_type == "BinaryQuant":
+            bit_width = 1.0
+        else:
+            raise RuntimeError("Got an unexpected quantizer node type")
         quant_scale = self._model.get_initializer(self._q_node.input[1])
         # Calculate scale, see: https://github.com/Xilinx/brevitas/
         # blob/a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/
@@ -466,12 +509,10 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if bit_width != 1:
             scale = quant_scale
         else:
-            # ToDo: This needs testing and/or rewriting when the BinarayQuant op
-            #  comes around
             assert (
                 quant_scale.flatten().shape[0] == 1
             ), "Unsupported BIPOLAR per channel scale"
-            assert quant_scale.flatten().item() == 1.0, "Unsupported BIPOLAR scale != 1"
+            assert quant_scale.flatten()[0] == 1.0, "Unsupported BIPOLAR scale != 1"
             scale = quant_scale * 2
         return scale
 

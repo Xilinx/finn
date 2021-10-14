@@ -89,6 +89,7 @@ def analysis_testing_for_no_quant_nodes(model):
 
 # ToDo: Add KWS networks, when they are ready to be added to finn-examples.
 # ToDo: Add RadioML_VGG10, if possible
+# This test currently takes about 4 min and 42 seconds
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("model_name", ["TFC", "SFC", "LFC", "CNV", "mobilenet"])
@@ -97,12 +98,8 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
         pytest.skip("No wbits > abits cases at the moment")
     if model_name == "LFC" and wbits == 2 and abits == 2:
         pytest.skip("No LFC-w2a2 present at the moment")
-    if model_name == "mobilenet" and wbits < 2 and abits < 2:
+    if model_name == "mobilenet" and (wbits != 2 or abits != 2):
         pytest.skip("Mobilenet only runs at W2A2, though it's technically W4A4.")
-
-    # ToDo: Remove the following restriction when QONNX supports binary operations.
-    if wbits == 1 or abits == 1:
-        pytest.skip("wbits == 1 or abits == 1 is currently not supported by QONNX.")
 
     brev_model, in_shape, input_tensor = get_brev_model_and_sample_inputs(
         model_name, wbits, abits

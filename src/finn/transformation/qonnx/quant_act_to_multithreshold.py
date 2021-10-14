@@ -70,7 +70,7 @@ class ConvertQuantActToMultiThreshold(Transformation):
 
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Quant":
+            if n.op_type == "Quant" or n.op_type == "BinaryQuant":
                 # Check that the node is in the activation path
                 inp = model.get_initializer(n.input[0])
                 out = model.get_initializer(n.output[0])
@@ -83,15 +83,21 @@ class ConvertQuantActToMultiThreshold(Transformation):
                     predecessor_op_type = predecessor
                 if model.is_fork_node(n):
                     raise ValueError(
-                        "Forking Quant nodes are not currently supported by FINN."
+                        "Forking Quant/BinaryQuant nodes are currently "
+                        "not supported by FINN."
                     )
-                if not model.get_initializer(n.input[2]) == 0:
+                if n.op_type == "Quant" and not model.get_initializer(n.input[2]) == 0:
                     raise ValueError(
                         "Only Quant nodes with zero-point == 0 are currently supported."
                     )
 
                 # Check if the bit width is low enough
-                bit_width = model.get_initializer(n.input[3])
+                if n.op_type == "Quant":
+                    bit_width = model.get_initializer(n.input[3])
+                elif n.op_type == "BinaryQuant":
+                    bit_width = 1.0
+                else:
+                    raise RuntimeError("Got an unexpected quantizer node type")
                 if bit_width is None:
                     raise ValueError("Quant nodes must have a static bit width.")
                 if bit_width > self.max_multithreshold_bit_width:
