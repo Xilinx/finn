@@ -36,7 +36,6 @@ import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
-import warnings
 from pkgutil import get_data
 from qonnx.util.cleanup import cleanup
 from tempfile import TemporaryDirectory
@@ -158,22 +157,12 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     # Compare output
     model = ModelWrapper(qonnx_base_path.format("whole_trafo"))
     input_dict = {model.graph.input[0].name: input_tensor}
-    with warnings.catch_warnings(record=True) as warn_list:
-        warnings.simplefilter("always")
-        output_dict = oxe.execute_onnx(model, input_dict, False)
-        test_output = output_dict[model.graph.output[0].name]
-        assert np.isclose(test_output, finn_export_output).all(), (
-            "The output of the FINN model "
-            "and the QONNX -> FINN converted model should match."
-        )
-        # Check for UserWarnings
-        for warn in warn_list:
-            if issubclass(warn.category, UserWarning):
-                raise RuntimeError(
-                    "Treating the following warning as an error, "
-                    "since the warning is potentially unfixable for the user: "
-                    + str(warn)
-                )
+    output_dict = oxe.execute_onnx(model, input_dict, False)
+    test_output = output_dict[model.graph.output[0].name]
+    assert np.isclose(test_output, finn_export_output).all(), (
+        "The output of the FINN model "
+        "and the QONNX -> FINN converted model should match."
+    )
 
     # Run analysis passes on the converted model
     model = ModelWrapper(qonnx_base_path.format("whole_trafo"))
