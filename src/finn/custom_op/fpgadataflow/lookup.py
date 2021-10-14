@@ -32,7 +32,11 @@ import warnings
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    npy_to_rtlsim_input,
+    numpy_to_hls_code,
+    rtlsim_output_to_npy,
+)
 
 
 class Lookup(HLSCustomOp):
@@ -127,7 +131,9 @@ class Lookup(HLSCustomOp):
         return np.prod(folded_oshape[:-1])
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "lookup.hpp"']
+        global_incls = ['#include "lookup.hpp"']
+        global_incls.append('#include "embeddings.hpp"')
+        self.code_gen_dict["$GLOBALS$"] = global_incls
 
     def defines(self, var):
         n_inputs = np.prod(self.get_folded_input_shape()[:-1])
@@ -155,7 +161,7 @@ class Lookup(HLSCustomOp):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
+        npy_type = "int64_t"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
@@ -224,13 +230,30 @@ class Lookup(HLSCustomOp):
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         self.code_gen_dict["$PRAGMAS$"] = my_pragmas
 
+    def generate_params(self, model, path):
+        code_gen_dir = path
+        embeddings = model.get_initializer(self.onnx_node.input[1])
+        weight_filename = "{}/embeddings.hpp".format(code_gen_dir)
+        edt = DataType[self.get_nodeattr("EmbeddingType")]
+        # obits = self.get_outstream_width()
+        # packed_output_hls_type = "ap_uint<%d>" % obits
+        assert np.vectorize(edt.allowed)(
+            embeddings
+        ).all(), "Embeddings can't be expressed with type %s" % str(edt)
+        embeddings_hls_code = numpy_to_hls_code(
+            embeddings, edt, "embeddings", True, False
+        )
+        f_thresh = open(weight_filename, "w")
+        f_thresh.write(embeddings_hls_code)
+        f_thresh.close()
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        exp_ishape = self.get_normal_input_shape()
-        exp_oshape = self.get_normal_output_shape()
-        folded_ishape = self.get_folded_input_shape()
-        folded_oshape = self.get_folded_output_shape()
+        exp_ishape = tuple(self.get_normal_input_shape())
+        exp_oshape = tuple(self.get_normal_output_shape())
+        folded_ishape = tuple(self.get_folded_input_shape())
+        folded_oshape = tuple(self.get_folded_output_shape())
 
         if mode == "cppsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -245,7 +268,7 @@ class Lookup(HLSCustomOp):
             )
 
         inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32", "Input datatype is not float32"
+        assert inp.dtype == np.int64, "Inputs must be contained in int64 ndarray"
         assert inp.shape == exp_ishape, """Input shape doesn't match expected shape."""
         export_idt = self.get_input_datatype()
 

@@ -46,7 +46,7 @@ template <
 void StreamingLookup(
     hls::stream<InputPackedType> &in,
     hls::stream<OutputPackedType> &out,
-    OutputPackedType const &embeddings[NumEmbeddings]
+    OutputPackedType const embeddings[NumEmbeddings]
 ) {
     for(unsigned i = 0; i < NumInputs; i++) {
 #pragma HLS PIPELINE II=1
