@@ -374,6 +374,7 @@ class HLSCustomOp(CustomOp):
         builder.append_includes("-I/workspace/finn/src/finn/qnn-data/cpp")
         builder.append_includes("-I/workspace/cnpy/")
         builder.append_includes("-I/workspace/finn-hlslib")
+        builder.append_includes("-I/workspace/finn/custom_hls")
         builder.append_includes("-I{}/include".format(os.environ["VIVADO_PATH"]))
         builder.append_includes("--std=c++11")
         builder.append_includes("-O3")
