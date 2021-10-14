@@ -160,7 +160,7 @@ class QuantActBaseHandler(ABC):
         # behind the MultiTrheshold nodes.
         bias_scalar = adder_bias.shape == (1,) or len(adder_bias.shape) == 0
         scale_scalar = mul_scale.shape == (1,) or len(mul_scale.shape) == 0
-        if scale_scalar and bias_scalar and True:
+        if scale_scalar and bias_scalar and False:
             # Get Quant parameters
             mul_scale = np.atleast_1d(mul_scale)
             # ONNX only accepts 64bit floats as attributes
