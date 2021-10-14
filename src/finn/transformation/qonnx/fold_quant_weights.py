@@ -30,23 +30,9 @@ import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
-from finn.core.datatype import DataType
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.transformation.infer_shapes import InferShapes
-
-
-def get_dtype(bit_width: int, signed: bool) -> DataType:
-    bit_width = int(bit_width)
-    signed = bool(signed)
-    if bit_width == 1.0:
-        finn_dt = DataType["BIPOLAR"]
-    else:
-        if signed:
-            finn_dt = DataType["INT" + str(bit_width)]
-        else:
-            finn_dt = DataType["UINT" + str(bit_width)]
-    return finn_dt
 
 
 class FoldQuantWeights(Transformation):
@@ -123,16 +109,8 @@ class FoldQuantWeights(Transformation):
                         # Round, to correct for floating point errors
                         new_initializer = np.round(new_initializer)
                         model.set_initializer(node_out, new_initializer)
-                        if n.op_type == "Quant":
-                            bit_width = model.get_initializer(n.input[3])
-                            q_inst = getCustomOp(n)
-                            signed = q_inst.get_nodeattr("signed")
-                        elif n.op_type == "BinaryQuant":
-                            bit_width = 1.0
-                            signed = True
-                        else:
-                            raise RuntimeError("Got an unexpected quantizer node type")
-                        new_dtype = get_dtype(bit_width, signed)
+                        q_inst = getCustomOp(n)
+                        new_dtype = q_inst.get_internal_dtype(model)
                         model.set_tensor_datatype(node_out, new_dtype)
 
                         if target_node.op_type == "Conv" and len(scale.shape) > 0:

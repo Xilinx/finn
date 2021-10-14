@@ -95,9 +95,9 @@ class QuantActBaseHandler(ABC):
 
     def _extract_output_datatype(self):
         """Get the output datatype for the MultiThreshold node."""
-        dtype = self._model.get_tensor_datatype(self._q_node.output[0]).name
-        if dtype is not None:
-            dtype = dtype.replace("SCALED", "")
+        q_inst = getCustomOp(self._q_node)
+        dtype = q_inst.get_internal_dtype(self._model)
+        dtype = dtype.name
         return dtype
 
     def calculate_node_parameters(self):
