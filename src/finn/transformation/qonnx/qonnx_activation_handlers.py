@@ -89,7 +89,7 @@ class QuantActBaseHandler(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def _remove_activation_node(self):
+    def _remove_activation_node(self, multi_threshold_node):
         """Remove the activation node in front of the Quant node."""
         raise NotImplementedError()
 
@@ -273,7 +273,7 @@ class QuantActBaseHandler(ABC):
                 up_stream_node = mul_node
 
         # Remove activation node
-        self._remove_activation_node()
+        self._remove_activation_node(mt_node)
 
         # Remove the Quant node
         graph.node.remove(n)
@@ -360,7 +360,7 @@ class QuantReluHandler(QuantActBaseHandler):
         scale = quant_scale
         return scale
 
-    def _remove_activation_node(self):
+    def _remove_activation_node(self, multi_threshold_node):
         # Find the activation node
         act_node = self._model.find_direct_predecessors(self._q_node)
         if act_node is None:
@@ -375,11 +375,8 @@ class QuantReluHandler(QuantActBaseHandler):
                 "of Relu activations."
             )
 
-        # Reroute possible predecessors
-        act_predecessors = self._model.find_direct_predecessors(act_node)
-        if act_node is not None:
-            for act_pre in act_predecessors:
-                act_pre.output[0] = act_node.output[0]
+        # Reroute upstream tensor
+        multi_threshold_node.input[0] = act_node.input[0]
 
         # Remove the activation node
         self._model.graph.node.remove(act_node)
@@ -517,6 +514,6 @@ class QuantIdentityHandler(QuantActBaseHandler):
             scale = quant_scale * 2
         return scale
 
-    def _remove_activation_node(self):
+    def _remove_activation_node(self, multi_threshold_node):
         # The Quant identity activation has per definition no explicit activation node
         return
