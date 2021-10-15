@@ -312,8 +312,7 @@ def topology2dataset(topology):
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("topology", ["lfc", "tfc", "cnv"])
-# @pytest.mark.parametrize("QONNX_export", [False, True])
-@pytest.mark.parametrize("QONNX_export", [True])
+@pytest.mark.parametrize("QONNX_export", [False, True])
 class TestEnd2End:
     def test_export(self, topology, wbits, abits, QONNX_export):
         if wbits > abits:
