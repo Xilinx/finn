@@ -161,7 +161,7 @@ class QuantActBaseHandler(ABC):
         # behind the MultiTrheshold nodes.
         bias_scalar = adder_bias.shape == (1,) or len(adder_bias.shape) == 0
         scale_scalar = mul_scale.shape == (1,) or len(mul_scale.shape) == 0
-        if scale_scalar and bias_scalar and self._q_node.op_type == "BinaryQuant":
+        if scale_scalar and bias_scalar and self._q_node.op_type == "BipolarQuant":
             # Get Quant parameters
             mul_scale = np.atleast_1d(mul_scale)
             # ONNX only accepts 64bit floats as attributes
@@ -305,7 +305,7 @@ class QuantReluHandler(QuantActBaseHandler):
                     "Only Quant nodes with zero-point == 0 "
                     "are currently supported for ReLu activations."
                 )
-        elif self._q_node.op_type == "BinaryQuant":
+        elif self._q_node.op_type == "BipolarQuant":
             return
         else:
             raise RuntimeError("Got an unexpected quantizer node type")
@@ -321,11 +321,13 @@ class QuantReluHandler(QuantActBaseHandler):
         # Gather parameters
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
-        elif self._q_node.op_type == "BinaryQuant":
+        elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
             raise RuntimeError("Got an unexpected quantizer node type")
-        quant_scale = self._model.get_initializer(self._q_node.input[1])
+        quant_scale = self._model.get_initializer(self._q_node.input[1]).astype(
+            np.float32
+        )
         # q_inst = getCustomOp(self._q_node)
         # narrow = q_inst.get_nodeattr("narrow")
 
@@ -334,11 +336,11 @@ class QuantReluHandler(QuantActBaseHandler):
         # onnx/finn/handler/act.py#L21
         num_distinct_values = 2 ** bit_width
         num_thresholds = int(num_distinct_values - 1)
-        flat_scale = quant_scale.flatten()
+        flat_scale = quant_scale.flatten().astype(np.float32)
         num_scale_channels = flat_scale.shape[0]
-        step = np.abs(flat_scale)
+        step = np.abs(flat_scale).astype(np.float32)
         min_threshold = step / 2
-        thresholds = np.empty((num_scale_channels, num_thresholds))
+        thresholds = np.empty((num_scale_channels, num_thresholds)).astype(np.float32)
         for c in range(num_scale_channels):
             for t in range(num_thresholds):
                 thresholds[c][t] = min_threshold[c] + step[c] * t
@@ -349,6 +351,7 @@ class QuantReluHandler(QuantActBaseHandler):
         if thresholds.shape != final_shape:
             thresholds = np.broadcast_to(thresholds, final_shape)
 
+        print(f"{thresholds.dtype=}")
         return thresholds
 
     def _calculate_act_scale(self):
@@ -409,7 +412,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
                     "Only Quant nodes with zero-point == 0 "
                     "are currently supported for identity activations."
                 )
-        elif self._q_node.op_type == "BinaryQuant":
+        elif self._q_node.op_type == "BipolarQuant":
             quant_scale = self._model.get_initializer(self._q_node.input[1])
             if (quant_scale.flatten().shape[0] != 1) or quant_scale.flatten()[0] != 1.0:
                 raise ValueError(
@@ -425,7 +428,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
             narrow = q_inst.get_nodeattr("narrow")
-        elif self._q_node.op_type == "BinaryQuant":
+        elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
             raise RuntimeError("Got an unexpected quantizer node type")
@@ -449,7 +452,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
             narrow = q_inst.get_nodeattr("narrow")
-        elif self._q_node.op_type == "BinaryQuant":
+        elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
             raise RuntimeError("Got an unexpected quantizer node type")
@@ -496,7 +499,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
         # Gather parameters
         if self._q_node.op_type == "Quant":
             bit_width = self._model.get_initializer(self._q_node.input[3])
-        elif self._q_node.op_type == "BinaryQuant":
+        elif self._q_node.op_type == "BipolarQuant":
             bit_width = 1.0
         else:
             raise RuntimeError("Got an unexpected quantizer node type")

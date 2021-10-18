@@ -38,7 +38,7 @@ class ConvertQuantActToMultiThreshold(Transformation):
     Converts Quant nodes in the activation path to MultiThreshold nodes.
 
     The optional keyword arguments `max_multithreshold_bit_width` and `filter_lambda`
-    present a way to control which Quant and BinaryQuant nodes in the activation path
+    present a way to control which Quant and BipolarQuant nodes in the activation path
     are converted to MultiThreshold nodes.
     The filters which are represented by `max_multithreshold_bit_width` and
     `filter_lambda` are internally connected by an `AND` operation. A warning
@@ -70,7 +70,7 @@ class ConvertQuantActToMultiThreshold(Transformation):
 
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Quant" or n.op_type == "BinaryQuant":
+            if n.op_type == "Quant" or n.op_type == "BipolarQuant":
                 # Check that the node is in the activation path
                 inp = model.get_initializer(n.input[0])
                 out = model.get_initializer(n.output[0])
@@ -83,7 +83,7 @@ class ConvertQuantActToMultiThreshold(Transformation):
                     predecessor_op_type = predecessor
                 if model.is_fork_node(n):
                     raise ValueError(
-                        "Forking Quant/BinaryQuant nodes are currently "
+                        "Forking Quant/BipolarQuant nodes are currently "
                         "not supported by FINN."
                     )
                 if n.op_type == "Quant" and not model.get_initializer(n.input[2]) == 0:
@@ -94,7 +94,7 @@ class ConvertQuantActToMultiThreshold(Transformation):
                 # Check if the bit width is low enough
                 if n.op_type == "Quant":
                     bit_width = model.get_initializer(n.input[3])
-                elif n.op_type == "BinaryQuant":
+                elif n.op_type == "BipolarQuant":
                     bit_width = 1.0
                 else:
                     raise RuntimeError("Got an unexpected quantizer node type")

@@ -48,7 +48,7 @@ class ConvertQONNXtoFINN(Transformation):
     If incompatibilities are found a ValueError or RuntimeError is raised.
 
     The optional keyword arguments `max_multithreshold_bit_width` and `filter_lambda`
-    present a way to control which Quant and BinaryQuant nodes in the activation path
+    present a way to control which Quant and BipolarQuant nodes in the activation path
     are converted to MultiThreshold nodes.
     The filters which are represented by `max_multithreshold_bit_width` and
     `filter_lambda` are internally connected by an `AND` operation. A warning

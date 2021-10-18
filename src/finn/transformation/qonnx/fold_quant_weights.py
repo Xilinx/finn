@@ -47,7 +47,7 @@ class FoldQuantWeights(Transformation):
         execution_context = model.make_empty_exec_context()
         for n in graph.node:
             node_ind += 1
-            if n.op_type == "Quant" or n.op_type == "BinaryQuant":
+            if n.op_type == "Quant" or n.op_type == "BipolarQuant":
                 node_inp_inits = list(map(lambda x: model.get_initializer(x), n.input))
                 node_inp_dyn = list(filter(lambda x: x is None, node_inp_inits))
                 node_out = n.output[0]
