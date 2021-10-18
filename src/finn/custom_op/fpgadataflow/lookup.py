@@ -29,152 +29,128 @@
 import numpy as np
 import os
 import warnings
+from math import ceil
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.data_packing import (
+    npy_to_rtlsim_input,
+    numpy_to_hls_code,
+    rtlsim_output_to_npy,
+)
 
 
-class DownSampler(HLSCustomOp):
-    """Corresponds to finn-hlslib ConvolutionInputGenerator_kernel1 function.
-    Basically performs a down sampling of the image removing rows and columns."""
+class Lookup(HLSCustomOp):
+    "Streaming elementwise HLS lookup, mapping indices to values."
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 
     def get_nodeattr_types(self):
         my_attrs = {
-            # spatial size of input images
-            "ImgDim": ("i", True, 0),
-            # number of channels in input image
-            "NumChannels": ("i", True, 0),
-            # Number of input columns computed in parallel
-            "SIMD": ("i", False, 1),
-            "Stride": ("i", True, 2),
-            # FINN input datatype
-            "inputDataType": ("s", True, ""),
-            # Batch size
-            "numInputVectors": ("i", False, 1),
+            # Number of embeddings ("memory depth")
+            "NumEmbeddings": ("i", True, 0),
+            # Dimensionality of each embedding (part of "memory width")
+            "EmbeddingDim": ("i", True, 0),
+            # Datatype for embeddings (part of "memory width")
+            "EmbeddingType": ("s", True, ""),
+            # Datatype for inputs
+            "InputType": ("s", True, ""),
+            # Input shape
+            "InputShape": ("ints", False, [1]),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_downsampled_odim(self):
-        "Return the down sampled spatial size of the output."
-        idim = self.get_nodeattr("ImgDim")
-        stride = self.get_nodeattr("Stride")
-        return int(np.floor((idim - 1) / stride) + 1)
-
     def get_exp_cycles(self):
-        idim = self.get_nodeattr("ImgDim")
-        channels = self.get_nodeattr("NumChannels")
-        simd = self.get_nodeattr("SIMD")
-        batch_size = self.get_nodeattr("numInputVectors")
-        exp_cycles = channels / simd * batch_size * idim * idim
-        return int(exp_cycles)
+        n_inputs = np.prod(self.get_nodeattr("InputShape"))
+        exp_cycles = int(n_inputs)
+        return exp_cycles
 
     def get_normal_input_shape(self):
-        idim = self.get_nodeattr("ImgDim")
-        num_ch = self.get_nodeattr("NumChannels")
-        batch = self.get_nodeattr("numInputVectors")
-        ishape = (batch, idim, idim, num_ch)
-        return ishape
+        return self.get_nodeattr("InputShape")
 
     def get_normal_output_shape(self):
-        odim = self.get_downsampled_odim()
-        num_ch = self.get_nodeattr("NumChannels")
-        batch = self.get_nodeattr("numInputVectors")
-        oshape = (batch, odim, odim, num_ch)
-        return oshape
+        ishape = self.get_normal_input_shape()
+        oshape = list(ishape) + [self.get_nodeattr("EmbeddingDim")]
+        return tuple(oshape)
 
     def get_folded_input_shape(self):
-        normal_ishape = list(self.get_normal_input_shape())
-        ifm_ch = self.get_nodeattr("NumChannels")
-        simd = self.get_nodeattr("SIMD")
-        assert ifm_ch % simd == 0, "SIMD must divide input channels"
-        fold = int(normal_ishape[-1] / simd)
-        folded_ishape = normal_ishape[:-1] + [fold, simd]
+        ishape = self.get_normal_input_shape()
+        folded_ishape = list(ishape) + [1]
         return tuple(folded_ishape)
 
     def get_folded_output_shape(self):
-        normal_oshape = list(self.get_normal_output_shape())
-        ifm_ch = self.get_nodeattr("NumChannels")
-        simd = self.get_nodeattr("SIMD")
-        assert ifm_ch % simd == 0, "SIMD must divide input channels"
-        fold = int(normal_oshape[-1] / simd)
-        folded_oshape = normal_oshape[:-1] + [fold, simd]
-        return tuple(folded_oshape)
+        return self.get_normal_output_shape()
 
     def make_shape_compatible_op(self, model):
-        exp_ishape = self.get_normal_input_shape()
-        oshape = self.get_normal_output_shape()
+        exp_ishape = tuple(self.get_normal_input_shape())
+        oshape = tuple(self.get_normal_output_shape())
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for DownSampler."
+        assert ishape == exp_ishape, "Unexpected input shape for Lookup: %s vs %s" % (
+            str(exp_ishape),
+            str(ishape),
+        )
         return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        # data type stays the same
         idt = model.get_tensor_datatype(node.input[0])
         if idt != self.get_input_datatype():
-            warn_str = "inputDataType changing for %s: %s -> %s " % (
+            warn_str = "InputType changing for %s: %s -> %s " % (
                 node.name,
                 str(self.get_input_datatype()),
                 str(idt),
             )
             warnings.warn(warn_str)
-        self.set_nodeattr("inputDataType", idt.name)
-        model.set_tensor_datatype(node.output[0], idt)
+        self.set_nodeattr("InputType", idt.name)
+        odt = DataType[self.get_nodeattr("EmbeddingType")]
+        model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
         pass
 
     def get_input_datatype(self):
-        """Returns FINN DataType of input."""
-        ret = DataType[self.get_nodeattr("inputDataType")]
+        ret = DataType[self.get_nodeattr("InputType")]
         return ret
 
     def get_output_datatype(self):
-        """Returns FINN DataType of output. (Same as input datatype)"""
-        return self.get_input_datatype()
+        ret = DataType[self.get_nodeattr("EmbeddingType")]
+        return ret
 
     def get_instream_width(self):
         ibits = self.get_input_datatype().bitwidth()
-        simd = self.get_nodeattr("SIMD")
-        return ibits * simd
+        return ibits
 
     def get_outstream_width(self):
         obits = self.get_output_datatype().bitwidth()
-        simd = self.get_nodeattr("SIMD")
-        return obits * simd
+        ofm_ch = self.get_nodeattr("EmbeddingDim")
+        return obits * ofm_ch
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
+        global_incls = ['#include "lookup.hpp"']
+        global_incls.append('#include "embeddings.hpp"')
+        self.code_gen_dict["$GLOBALS$"] = global_incls
 
     def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = []
-
-        ifm_ch = self.get_nodeattr("NumChannels")
-        self.code_gen_dict["$DEFINES$"] += ["#define IFMChannels {}".format(ifm_ch)]
-
-        ibits = self.get_input_datatype().bitwidth()
-        self.code_gen_dict["$DEFINES$"] += ["#define Input_precision {}".format(ibits)]
-
-        idim = self.get_nodeattr("ImgDim")
-        self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(idim)]
-
-        simd = self.get_nodeattr("SIMD")
-        self.code_gen_dict["$DEFINES$"] += ["#define SIMD {}".format(simd)]
-
-        stride = self.get_nodeattr("Stride")
-        self.code_gen_dict["$DEFINES$"] += ["#define Stride {}".format(stride)]
-
-        batch_size = self.get_nodeattr("numInputVectors")
-        self.code_gen_dict["$DEFINES$"] += ["#define numReps {}".format(batch_size)]
+        n_inputs = np.prod(self.get_folded_input_shape()[:-1])
+        dtype = self.get_input_datatype()
+        elem_hls_type = dtype.get_hls_datatype_str()
+        emb_type = DataType[self.get_nodeattr("EmbeddingType")]
+        emb_hls_type = emb_type.get_hls_datatype_str()
+        my_defines = []
+        my_defines.append(
+            "#define NumEmbeddings %d" % self.get_nodeattr("NumEmbeddings")
+        )
+        my_defines.append("#define EmbeddingDim %d" % self.get_nodeattr("EmbeddingDim"))
+        my_defines.append("#define NumInputs %d" % n_inputs)
+        my_defines.append("#define InputType %s" % elem_hls_type)
+        my_defines.append("#define EmbeddingType %s" % emb_hls_type)
+        self.code_gen_dict["$DEFINES$"] = my_defines
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -186,28 +162,13 @@ class DownSampler(HLSCustomOp):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
+        npy_type = "int64_t"
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
             'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
             % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
         )
-
-    def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
-        )
-
-    def docompute(self):
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """ConvolutionInputGenerator_kernel1<IFMChannels, Input_precision,
-            IFMDim, SIMD,Stride> (in0, out, numReps);"""
-        ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -239,28 +200,61 @@ class DownSampler(HLSCustomOp):
     def save_as_npy(self):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
+    def strm_decl(self):
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+        )
+
+    def docompute(self):
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            """StreamingLookup<NumEmbeddings,  EmbeddingDim, NumInputs,
+            InputType, EmbeddingType >(in0, out, embeddings);"""
+        ]
+
     def blackboxfunction(self):
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
+        ibits = self.get_instream_width()
+        packed_input_hls_type = "ap_uint<%d>" % ibits
+        obits = self.get_outstream_width()
+        packed_output_hls_type = "ap_uint<%d>" % obits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+            % (self.onnx_node.name, packed_input_hls_type, packed_output_hls_type)
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
+        my_pragmas = ["#pragma HLS INTERFACE axis port=in0"]
+        my_pragmas.append("#pragma HLS INTERFACE axis port=out")
+        my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        self.code_gen_dict["$PRAGMAS$"] = my_pragmas
+
+    def generate_params(self, model, path):
+        code_gen_dir = path
+        embeddings = model.get_initializer(self.onnx_node.input[1])
+        weight_filename = "{}/embeddings.hpp".format(code_gen_dir)
+        edt = DataType[self.get_nodeattr("EmbeddingType")]
+        # obits = self.get_outstream_width()
+        # packed_output_hls_type = "ap_uint<%d>" % obits
+        assert np.vectorize(edt.allowed)(
+            embeddings
+        ).all(), "Embeddings can't be expressed with type %s" % str(edt)
+        embeddings_hls_code = numpy_to_hls_code(
+            embeddings, edt, "embeddings", True, False
         )
+        f_thresh = open(weight_filename, "w")
+        f_thresh.write(embeddings_hls_code)
+        f_thresh.close()
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
-        exp_ishape = self.get_normal_input_shape()
-        exp_oshape = self.get_normal_output_shape()
-        folded_ishape = self.get_folded_input_shape()
-        folded_oshape = self.get_folded_output_shape()
+        exp_ishape = tuple(self.get_normal_input_shape())
+        exp_oshape = tuple(self.get_normal_output_shape())
+        folded_ishape = tuple(self.get_folded_input_shape())
+        folded_oshape = tuple(self.get_folded_output_shape())
 
         if mode == "cppsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -275,12 +269,10 @@ class DownSampler(HLSCustomOp):
             )
 
         inp = context[node.input[0]]
-        assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input shape doesn't
-        match expected shape (numInputVectors, ImgDim, ImgDim, NumChannels)."""
+        assert inp.dtype == np.int64, "Inputs must be contained in int64 ndarray"
+        assert inp.shape == exp_ishape, """Input shape doesn't match expected shape."""
         export_idt = self.get_input_datatype()
+        odt = self.get_output_datatype()
 
         reshaped_input = inp.reshape(folded_ishape)
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
@@ -303,13 +295,18 @@ class DownSampler(HLSCustomOp):
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
             rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            odt = export_idt
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
             rtlsim_output_to_npy(
-                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+                rtlsim_output,
+                out_npy_path,
+                odt,
+                out_shape,
+                packed_bits,
+                target_bits,
+                reverse_inner=False,
             )
             # load and reshape output
             output = np.load(out_npy_path)
@@ -324,5 +321,18 @@ class DownSampler(HLSCustomOp):
             )
         assert (
             context[node.output[0]].shape == exp_oshape
-        ), """Output shape doesn't match expected shape
-            (1, OutputDim, OutputDim, NumChannels)."""
+        ), """Output shape doesn't match expected shape."""
+
+    def bram_estimation(self):
+        # current calculation assumes embeddings always stored in BRAM_18Ks
+        width_factor = ceil(self.get_outstream_width() / 16)
+        depth_factor = ceil(self.get_nodeattr("NumEmbeddings") / 1024)
+        return width_factor * depth_factor
+
+    def bram_efficiency_estimation(self):
+        bram16_est = self.bram_estimation()
+        if bram16_est == 0:
+            return 1
+        ebits = self.get_outstream_width() * self.get_nodeattr("NumEmbeddings")
+        bram16_est_capacity = bram16_est * 18 * 1024
+        return ebits / bram16_est_capacity
