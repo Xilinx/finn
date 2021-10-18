@@ -395,6 +395,10 @@ class QuantIdentityHandler(QuantActBaseHandler):
     valid_predecessor_op_types = [
         "BatchNormalization",
         "Sub",
+        "Add",
+        "Mul",
+        "Div",
+        "DebugMarker",
         None,
     ]
 

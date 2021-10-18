@@ -28,11 +28,13 @@
 
 import numpy as np
 from onnx import TensorProto, helper
+from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 
 import finn.core.onnx_exec as oxe
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.remove import remove_node_and_rewire
 
 
 class FoldQuantWeights(Transformation):
@@ -55,6 +57,7 @@ class FoldQuantWeights(Transformation):
                 ishape = model.get_tensor_shape(n.input[0])
                 is_const_shape = (n.op_type == "Shape") and (ishape is not None)
                 if is_all_constant_inputs or is_const_shape:
+                    # Check node validity
                     if (
                         n.op_type == "Quant"
                         and not model.get_initializer(n.input[2]) == 0
@@ -63,6 +66,31 @@ class FoldQuantWeights(Transformation):
                             "Only Quant nodes with zero-point == 0 "
                             "are currently supported."
                         )
+                    if model.is_fork_node(n):
+                        raise ValueError(
+                            "Weights quantized with the Quant node are not "
+                            "allowed to be fork nodes node."
+                        )
+                    target_node = model.find_direct_successors(n)
+                    if target_node is None:
+                        raise RuntimeError(
+                            "Weights quantized with the Quant node must have "
+                            "a successor node."
+                        )
+                    else:
+                        target_node = target_node[0]
+                    # If there is a DebugMarker in the weight path,
+                    # then the DebugMarker needs to be removed before any further
+                    # action is taken. Because this node interferes
+                    # with how the constant folding tries to determine how to
+                    # apply scale factors and in any case the DebugMarker would not
+                    # return useful information after folding.
+                    if target_node.op_type == "DebugMarker":
+                        remove_node_and_rewire(model, target_node)
+                        model = model.transform(FoldTransposeIntoQuantInit())
+                        return model, True
+
+                    # Continue with constant folding the quant node
                     scale = model.get_initializer(n.input[1])
                     unity_scale = (scale.flatten() == 1.0).all()
                     # this node has no dynamic inputs, only constant ones -- so we can
@@ -74,21 +102,6 @@ class FoldQuantWeights(Transformation):
                         # use the execution result as an initializer
                         model.set_initializer(node_out, q_node_output)
                     else:
-                        # Reshape scale for Conv if required
-                        if model.is_fork_node(n):
-                            raise RuntimeError(
-                                "Weights quantized with the Quant node are not "
-                                "allowed to be join nodes node."
-                            )
-                        target_node = model.find_direct_successors(n)
-                        if target_node is None:
-                            raise RuntimeError(
-                                "Weights quantized with the Quant node must have "
-                                "a successor node."
-                            )
-                        else:
-                            target_node = target_node[0]
-
                         # Check next operator type
                         mul_like_nodes = ["Mul", "Div", "Conv", "MatMul"]
                         add_like_nodes = ["Add", "Sub"]
@@ -113,6 +126,7 @@ class FoldQuantWeights(Transformation):
                         new_dtype = q_inst.get_internal_dtype(model)
                         model.set_tensor_datatype(node_out, new_dtype)
 
+                        # Reshape scale for Conv if required
                         if target_node.op_type == "Conv" and len(scale.shape) > 0:
                             bias_shape = [1] * len(scale.shape)
                             bias_shape[1] = -1
