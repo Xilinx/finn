@@ -33,7 +33,9 @@ from finn.transformation.gemm_to_matmul import GemmToMatMul
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.qonnx.extract_conv_bias import ExtractBiasFromConv
 from finn.transformation.qonnx.fold_quant_weights import FoldQuantWeights
-from finn.transformation.qonnx.infer_QuantAvgPool2d import AvgPoolAndTruncToQuantAvgPool
+from finn.transformation.qonnx.infer_quant_avg_pool_2d import (
+    AvgPoolAndTruncToQuantAvgPool,
+)
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     ConvertQuantActToMultiThreshold,
     default_filter_function_generator,
