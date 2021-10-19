@@ -29,7 +29,6 @@
 import math
 import numpy as np
 import os
-from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -148,18 +147,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == exp_ishape, "Unexpect input shape for ConvInpGen."
         # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
-        return helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
-        )
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -319,10 +307,10 @@ class ConvolutionInputGenerator(HLSCustomOp):
             inp.shape == exp_ishape
         ), """Input shape doesn't
         match expected shape (1, ifm_dim_h, ifm_dim_w, ifm_ch)."""
-        if self.get_input_datatype() == DataType.BIPOLAR:
+        if self.get_input_datatype() == DataType["BIPOLAR"]:
             # store bipolar activations as binary
             inp = (inp + 1) / 2
-            export_idt = DataType.BINARY
+            export_idt = DataType["BINARY"]
         else:
             export_idt = self.get_input_datatype()
         # reshape input into folded form
@@ -370,7 +358,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
                 )
             )
         # binary -> bipolar if needed
-        if self.get_output_datatype() == DataType.BIPOLAR:
+        if self.get_output_datatype() == DataType["BIPOLAR"]:
             out = context[node.output[0]]
             out = 2 * out - 1
             context[node.output[0]] = out
@@ -404,9 +392,9 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -465,9 +453,9 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits

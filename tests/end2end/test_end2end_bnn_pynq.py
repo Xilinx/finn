@@ -377,7 +377,7 @@ class TestEnd2End:
         model = model.transform(MergeONNXModels(pre_model))
         # add input quantization annotation: UINT8 for all BNN-PYNQ models
         global_inp_name = model.graph.input[0].name
-        model.set_tensor_datatype(global_inp_name, DataType.UINT8)
+        model.set_tensor_datatype(global_inp_name, DataType["UINT8"])
         # postprocessing: insert Top-1 node at the end
         model = model.transform(InsertTopK(k=1))
         chkpt_name = get_checkpoint_name(

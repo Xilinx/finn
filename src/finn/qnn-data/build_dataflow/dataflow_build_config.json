@@ -6,6 +6,7 @@
   "board": "Pynq-Z1",
   "standalone_thresholds": true,
   "shell_flow_type": "vivado_zynq",
+  "verify_save_rtlsim_waveforms": true,
   "verify_steps": [
     "initial_python",
     "streamlined_python",

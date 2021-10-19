@@ -31,7 +31,6 @@ import numpy as np
 import os
 import textwrap
 import warnings
-from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -151,19 +150,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
 
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
-        # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
-        return helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
-        )
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -509,15 +496,15 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ret = dict()
         inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
         out_hls_str = self.get_output_datatype().get_hls_datatype_str()
-        inp_is_binary = self.get_input_datatype() == DataType.BINARY
-        # out_is_binary = self.get_output_datatype() == DataType.BINARY
-        wt_is_binary = self.get_weight_datatype() == DataType.BINARY
+        inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
+        # out_is_binary = self.get_output_datatype() == DataType["BINARY"]
+        wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
         bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
         if (inp_is_binary or wt_is_binary) and (not bin_xnor_mode):
             raise Exception("True binary (non-bipolar) inputs not yet supported")
-        inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        # out_is_bipolar = self.get_output_datatype() == DataType.BIPOLAR
-        wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+        inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
+        # out_is_bipolar = self.get_output_datatype() == DataType["BIPOLAR"]
+        wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
         # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
         wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
@@ -567,7 +554,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         # ONNX uses (in_features, out_features) and matmul(x, W)
         # finn-hlslib uses (out_features, in_features) and matmul(W, x)
         ret = orig_weight_matrix.T
-        if self.get_weight_datatype() == DataType.BIPOLAR:
+        if self.get_weight_datatype() == DataType["BIPOLAR"]:
             # convert bipolar to binary
             ret = (ret + 1) / 2
         # interleave rows between PEs and reshape
@@ -658,11 +645,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         ), """Threshold matrix dimension is
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
-        inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-        wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+        inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
+        wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
         # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-        inp_is_binary = self.get_input_datatype() == DataType.BINARY
-        wt_is_binary = self.get_weight_datatype() == DataType.BINARY
+        inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
+        wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
         bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
         inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
         wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
@@ -717,8 +704,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         export_wdt = self.get_weight_datatype()
         # we have converted bipolar weights to binary for export,
         # so use it as such for weight generation
-        if self.get_weight_datatype() == DataType.BIPOLAR:
-            export_wdt = DataType.BINARY
+        if self.get_weight_datatype() == DataType["BIPOLAR"]:
+            export_wdt = DataType["BINARY"]
         if weight_file_mode == "hls_header":
             weight_hls_code = numpy_to_hls_code(
                 weight_tensor, export_wdt, "weights", True, True
@@ -847,11 +834,11 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             if thresholds is not None:
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
                 # use UINT32 threshold export for bipolar times bipolar
-                inp_is_bipolar = self.get_input_datatype() == DataType.BIPOLAR
-                wt_is_bipolar = self.get_weight_datatype() == DataType.BIPOLAR
+                inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
+                wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
                 # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-                inp_is_binary = self.get_input_datatype() == DataType.BINARY
-                wt_is_binary = self.get_weight_datatype() == DataType.BINARY
+                inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
+                wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
                 bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
                 inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
                 wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
@@ -872,8 +859,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 tdt_hls = tdt.get_hls_datatype_str()
                 # use binary to export bipolar activations
                 export_odt = self.get_output_datatype()
-                if self.get_output_datatype() == DataType.BIPOLAR:
-                    export_odt = DataType.BINARY
+                if self.get_output_datatype() == DataType["BIPOLAR"]:
+                    export_odt = DataType["BINARY"]
                 odt_hls = export_odt.get_hls_datatype_str()
                 f_thresh.write(
                     "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
@@ -921,10 +908,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 not float32 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
-                if self.get_input_datatype() == DataType.BIPOLAR:
+                if self.get_input_datatype() == DataType["BIPOLAR"]:
                     # store bipolar activations as binary
                     reshaped_input = (reshaped_input + 1) / 2
-                    export_idt = DataType.BINARY
+                    export_idt = DataType["BINARY"]
                 else:
                     export_idt = self.get_input_datatype()
                 # make copy before saving the array
@@ -943,7 +930,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType.BIPOLAR:
+            if self.get_output_datatype() == DataType["BIPOLAR"]:
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
@@ -966,8 +953,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 export_wdt = self.get_weight_datatype()
                 # we have converted bipolar weights to binary for export,
                 # so use it as such for weight generation
-                if self.get_weight_datatype() == DataType.BIPOLAR:
-                    export_wdt = DataType.BINARY
+                if self.get_weight_datatype() == DataType["BIPOLAR"]:
+                    export_wdt = DataType["BINARY"]
                 wei = npy_to_rtlsim_input(
                     "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
                 )
@@ -1058,9 +1045,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -1134,8 +1121,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             ]
         elif mem_mode == "decoupled" or mem_mode == "external":
             wdt = self.get_weight_datatype()
-            if wdt == DataType.BIPOLAR:
-                export_wdt = DataType.BINARY
+            if wdt == DataType["BIPOLAR"]:
+                export_wdt = DataType["BINARY"]
             else:
                 export_wdt = wdt
             wdtype_hls_str = export_wdt.get_hls_datatype_str()
@@ -1160,9 +1147,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits

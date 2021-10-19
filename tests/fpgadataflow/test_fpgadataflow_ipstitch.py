@@ -69,9 +69,9 @@ ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
 def create_one_fc_model(mem_mode="const"):
     # create a model with a StreamingFCLayer instance with no activation
     # the wider range of the full accumulator makes debugging a bit easier
-    wdt = DataType.INT2
-    idt = DataType.INT32
-    odt = DataType.INT32
+    wdt = DataType["INT2"]
+    idt = DataType["INT32"]
+    odt = DataType["INT32"]
     m = 4
     no_act = 1
     binary_xnor_mode = 0
@@ -122,9 +122,9 @@ def create_one_fc_model(mem_mode="const"):
 
 def create_two_fc_model(mem_mode="decoupled"):
     # create a model with two StreamingFCLayer instances
-    wdt = DataType.INT2
-    idt = DataType.INT32
-    odt = DataType.INT32
+    wdt = DataType["INT2"]
+    idt = DataType["INT32"]
+    odt = DataType["INT32"]
     m = 4
     actval = 0
     no_act = 1

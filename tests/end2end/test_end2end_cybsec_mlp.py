@@ -171,9 +171,11 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
         assert finn_model.graph.node[3].op_type == "MatMul"
         assert finn_model.graph.node[-1].op_type == "MultiThreshold"
     # verify datatypes on some tensors
-    assert finn_model.get_tensor_datatype(finnonnx_in_tensor_name) == DataType.BIPOLAR
+    assert (
+        finn_model.get_tensor_datatype(finnonnx_in_tensor_name) == DataType["BIPOLAR"]
+    )
     first_matmul_w_name = finn_model.get_nodes_by_op_type("MatMul")[0].input[1]
-    assert finn_model.get_tensor_datatype(first_matmul_w_name) == DataType.INT2
+    assert finn_model.get_tensor_datatype(first_matmul_w_name) == DataType["INT2"]
 
 
 @pytest.mark.slow

@@ -60,14 +60,14 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
     ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, total_pad=total_pad)
 
     if act is None:
-        odt = DataType.INT32
+        odt = DataType["INT32"]
     else:
         odt = act
         out_act = oh.make_tensor_value_info(
             "out_act", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ofm_ch]
         )
         T = oh.make_tensor_value_info("T", TensorProto.FLOAT, [ofm_ch, 15])
-        tdt = DataType.INT32
+        tdt = DataType["INT32"]
         thresh_node = oh.make_node(
             "MultiThreshold",
             domain="finn.custom_op.general",
@@ -161,7 +161,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 # PE
 @pytest.mark.parametrize("pe", [1, 2, 4])
 # Output activation
-@pytest.mark.parametrize("act", [None, DataType.UINT4])
+@pytest.mark.parametrize("act", [None, DataType["UINT4"]])
 # kernel size
 @pytest.mark.parametrize("k", [2, 4])
 # stride
@@ -171,7 +171,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
-    idt = wdt = DataType.INT4
+    idt = wdt = DataType["INT4"]
     ifm_dim = 6
     ifm_ch = 4
 
@@ -203,7 +203,7 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
 # PE
 @pytest.mark.parametrize("pe", [1, 2, 4])
 # Output activation
-@pytest.mark.parametrize("act", [None, DataType.UINT4])
+@pytest.mark.parametrize("act", [None, DataType["UINT4"]])
 # kernel size
 @pytest.mark.parametrize("k", [2, 4])
 # stride
@@ -213,7 +213,7 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
-    idt = wdt = DataType.INT4
+    idt = wdt = DataType["INT4"]
     ifm_dim = 6
     ifm_ch = 4
 

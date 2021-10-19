@@ -589,18 +589,18 @@ class InferBinaryStreamingFCLayer(Transformation):
                 mm_output = n.output[0]
                 mm_in_shape = model.get_tensor_shape(mm_input)
                 mm_out_shape = model.get_tensor_shape(mm_output)
-                assert model.get_tensor_datatype(mm_input) == DataType.BINARY, (
+                assert model.get_tensor_datatype(mm_input) == DataType["BINARY"], (
                     n.name
                     + """: First
                 input for xnorpopcount is not set to FINN DataType BINARY."""
                 )
-                assert model.get_tensor_datatype(mm_weight) == DataType.BINARY, (
+                assert model.get_tensor_datatype(mm_weight) == DataType["BINARY"], (
                     n.name
                     + """: Second
                 input (weights) for xnorpopcount is not set to FINN DataType BINARY."""
                 )
-                idt = DataType.BINARY
-                wdt = DataType.BINARY
+                idt = DataType["BINARY"]
+                wdt = DataType["BINARY"]
                 mm_output = n.output[0]
                 W = model.get_initializer(mm_weight)
                 # extract weight shape, note that ONNX and finn-hlslib
@@ -766,7 +766,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             + ": out_bias must be integer for HLS conversion."
                         )
                         actval = int(actval)
-                        odt_is_bipolar = odt == DataType.BIPOLAR
+                        odt_is_bipolar = odt == DataType["BIPOLAR"]
                         bipolar_ok = (
                             odt_is_bipolar and (scale == 2.0) and (actval == -1)
                         )
@@ -1251,10 +1251,10 @@ class InferChannelwiseLinearLayer(Transformation):
         for v in vals:
             assert int(v) == v, "Error float value"
 
-        for k in DataType.__members__:
+        for k in DataType.get_accumulator_dt_cands():
             dt = DataType[k]
 
-            if dt in [DataType.BIPOLAR, DataType.TERNARY, DataType.FLOAT32]:
+            if dt in [DataType["BIPOLAR"], DataType["TERNARY"], DataType["FLOAT32"]]:
                 # not currently supported
                 continue
 
@@ -1270,9 +1270,9 @@ class InferChannelwiseLinearLayer(Transformation):
         )
 
         if (0 <= vals).all():
-            return DataType.UINT64
+            return DataType["UINT64"]
         else:
-            return DataType.INT64
+            return DataType["INT64"]
 
     def apply(self, model):
         graph = model.graph
@@ -1532,6 +1532,59 @@ class InferGlobalAccPoolLayer(Transformation):
                 graph.node.insert(insert_point, new_pool)
                 graph.node.insert(insert_point + 1, new_mul)
                 node_ind += 1
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferLookupLayer(Transformation):
+    """Convert Gather nodes with constant op0 into Lookup HLS layers."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Gather":
+                emb_name = node.input[0]
+                embs = model.get_initializer(emb_name)
+                axis = get_by_name(node.attribute, "axis")
+                # skip conversion if input0 is not constant
+                if embs is None:
+                    continue
+                # skip conversion if axis != 0
+                if axis is not None and axis.i != 0:
+                    continue
+                ind_name = node.input[1]
+                ind_dtype = model.get_tensor_datatype(ind_name)
+                emb_dtype = model.get_tensor_datatype(emb_name)
+                # skip conversion if inputs are not unsigned integers
+                if (not ind_dtype.is_integer()) or ind_dtype.signed():
+                    continue
+                num_embs, emb_dim = embs.shape
+                out_name = node.output[0]
+                ishape = model.get_tensor_shape(node.input[1])
+                # create and insert new Lookup node
+                new_node = helper.make_node(
+                    "Lookup",
+                    [ind_name, emb_name],
+                    [out_name],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    name="Lookup_" + node.name,
+                    NumEmbeddings=num_embs,
+                    EmbeddingDim=emb_dim,
+                    EmbeddingType=emb_dtype.name,
+                    InputType=ind_dtype.name,
+                    InputShape=list(ishape),
+                )
+                graph.node.insert(node_ind, new_node)
                 # remove old node
                 graph.node.remove(node)
                 graph_modified = True

@@ -121,7 +121,7 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["INT4"]])
 # 1d maxpool
 @pytest.mark.parametrize("dim_1d", [False, True])
 # kernel size
@@ -151,7 +151,7 @@ def test_fpgadataflow_streamingmaxpool(idt, dim_1d, k, ifm_dim, ifm_ch, exec_mod
     ofm_dim_h = int(((ifm_dim_h - k_h) / stride_h) + 1)
     ofm_dim_w = int(((ifm_dim_w - k_w) / stride_w) + 1)
     ofm_dim = (ofm_dim_h, ofm_dim_w)
-    if idt == DataType.BIPOLAR and dim_1d:
+    if idt == DataType["BIPOLAR"] and dim_1d:
         pytest.skip("Skipping binary StreamingMaxPool_1d (not implemented)")
     if ifm_dim_h % k_h != 0 or ifm_dim_w % k_w != 0:
         pytest.skip("Skipping StreamingMaxPool test w/ ImgDim % PoolDim != 0")

@@ -90,7 +90,7 @@ def test_brevitas_QConv2d(dw, bias, in_channels, QONNX_export):
         weight_narrow_range=True,
         weight_scaling_min_val=2e-16,
     )
-    weight_tensor = gen_finn_dt_tensor(DataType.INT4, w_shape)
+    weight_tensor = gen_finn_dt_tensor(DataType["INT4"], w_shape)
     b_conv.weight = torch.nn.Parameter(torch.from_numpy(weight_tensor).float())
     b_conv.eval()
     if QONNX_export:

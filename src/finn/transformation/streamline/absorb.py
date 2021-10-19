@@ -205,7 +205,7 @@ class FactorOutMulSignMagnitude(Transformation):
                 actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
                 is_1d = actual_ndims == 1
                 is_not_bipolar = (
-                    model.get_tensor_datatype(mul_weight_name) != DataType.BIPOLAR
+                    model.get_tensor_datatype(mul_weight_name) != DataType["BIPOLAR"]
                 )
                 is_signed = (A < 0).any()
                 if is_signed and (is_scalar or is_1d) and is_not_bipolar:
@@ -217,7 +217,7 @@ class FactorOutMulSignMagnitude(Transformation):
                     # create new mul node with sign(A) as the operand
                     sgn = np.sign(A)
                     model.set_initializer(sign_mul_param_name, sgn)
-                    model.set_tensor_datatype(sign_mul_param_name, DataType.BIPOLAR)
+                    model.set_tensor_datatype(sign_mul_param_name, DataType["BIPOLAR"])
                     # replace original mul weight by magnitudes
                     model.set_initializer(mul_weight_name, np.abs(A))
                     new_mul = oh.make_node(
@@ -457,7 +457,7 @@ class AbsorbScalarMulAddIntoTopK(Transformation):
                         graph.node.remove(prod)
                         n.input[0] = prod_input
                         # to avoid error the dataype is set to float32
-                        model.set_tensor_datatype(n.input[0], DataType.FLOAT32)
+                        model.set_tensor_datatype(n.input[0], DataType["FLOAT32"])
                         graph_modified = True
         if graph_modified:
             model = model.transform(InferShapes())

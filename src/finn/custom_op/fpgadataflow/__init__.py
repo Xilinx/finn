@@ -40,6 +40,7 @@ from finn.custom_op.fpgadataflow.fmpadding_batch import FMPadding_Batch
 from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
 from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
+from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
@@ -81,3 +82,4 @@ custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
 custom_op["IODMA"] = IODMA
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 custom_op["UpsampleNearestNeighbour_Batch"] = UpsampleNearestNeighbour_Batch
+custom_op["Lookup"] = Lookup

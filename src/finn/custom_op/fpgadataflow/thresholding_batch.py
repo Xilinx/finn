@@ -31,7 +31,6 @@ import os
 import textwrap
 import warnings
 from math import ceil, log2
-from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -112,19 +111,7 @@ class Thresholding_Batch(HLSCustomOp):
 
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
-        # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
-        return helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
-        )
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -132,8 +119,8 @@ class Thresholding_Batch(HLSCustomOp):
         if idt != self.get_input_datatype():
             warn_str = "inputDataType changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype()),
-                str(idt),
+                str(self.get_input_datatype().name),
+                str(idt.name),
             )
             warnings.warn(warn_str)
         self.set_nodeattr("inputDataType", idt.name)
@@ -390,8 +377,8 @@ class Thresholding_Batch(HLSCustomOp):
             tdt_hls = tdt.get_hls_datatype_str()
             # use binary to export bipolar activations
             export_odt = self.get_output_datatype()
-            if self.get_output_datatype() == DataType.BIPOLAR:
-                export_odt = DataType.BINARY
+            if self.get_output_datatype() == DataType["BIPOLAR"]:
+                export_odt = DataType["BINARY"]
             odt_hls = export_odt.get_hls_datatype_str()
             f_thresh.write(
                 "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
@@ -515,10 +502,10 @@ class Thresholding_Batch(HLSCustomOp):
                 not float32 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
-                if self.get_input_datatype() == DataType.BIPOLAR:
+                if self.get_input_datatype() == DataType["BIPOLAR"]:
                     # store bipolar activations as binary
                     reshaped_input = (reshaped_input + 1) / 2
-                    export_idt = DataType.BINARY
+                    export_idt = DataType["BINARY"]
                 else:
                     export_idt = self.get_input_datatype()
                 # make copy before saving the array
@@ -537,7 +524,7 @@ class Thresholding_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType.BIPOLAR:
+            if self.get_output_datatype() == DataType["BIPOLAR"]:
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
@@ -711,9 +698,9 @@ class Thresholding_Batch(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits

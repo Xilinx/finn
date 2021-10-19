@@ -39,7 +39,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 
 @pytest.mark.vivado
 def test_code_gen_trafo():
-    idt = wdt = odt = DataType.BIPOLAR
+    idt = wdt = odt = DataType["BIPOLAR"]
     mw = 8
     mh = 8
     pe = 4

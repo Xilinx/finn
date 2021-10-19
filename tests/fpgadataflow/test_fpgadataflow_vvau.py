@@ -141,11 +141,11 @@ def prepare_inputs(input_tensor):
 
 
 # mem_mode: const or decoupled
-@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.UINT8])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType.INT4])
+@pytest.mark.parametrize("wdt", [DataType["INT4"]])
 # activation: None or DataType
-@pytest.mark.parametrize("act", [DataType.UINT4, None])
+@pytest.mark.parametrize("act", [DataType["UINT4"], None])
 # PE
 @pytest.mark.parametrize("pe", [1, "channels"])
 # Input image shape
@@ -187,14 +187,14 @@ def test_fpgadataflow_vvau(
     if act is None:
         T = None
         tdt = None
-        odt = DataType.INT32
+        odt = DataType["INT32"]
     else:
         odt = act
         (min_v, max_v) = _calculate_dot_prod_range(idt, wdt, k_h * k_w * channels)
         n_steps = act.get_num_possible_values() - 1
         T = np.random.randint(min_v, max_v - 1, (channels, n_steps)).astype(np.float32)
         T = np.sort(T, axis=1)
-        tdt = DataType.INT32
+        tdt = DataType["INT32"]
 
     model = _make_single_vvau_modelwrapper(
         W, pe, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt

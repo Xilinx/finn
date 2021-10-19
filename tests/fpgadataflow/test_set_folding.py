@@ -115,7 +115,7 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
 def test_set_folding(target_fps, platform):
 
     model = make_multi_fclayer_model(
-        128, DataType.INT4, DataType.INT2, DataType.INT16, 5
+        128, DataType["INT4"], DataType["INT2"], DataType["INT16"], 5
     )
 
     model = model.transform(GiveUniqueNodeNames())
