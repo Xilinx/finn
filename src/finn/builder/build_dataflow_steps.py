@@ -96,6 +96,9 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.qonnx.quant_act_to_multithreshold import (
+    default_filter_function_generator,
+)
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.util.config import extract_model_config_to_json
@@ -208,7 +211,9 @@ def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     # QONNX to FINN-ONNX
     model = model.transform(
         ConvertQONNXtoFINN(
-            max_multithreshold_bit_width=cfg.max_multithreshold_bit_width
+            filter_function=default_filter_function_generator(
+                max_multithreshold_bit_width=cfg.max_multithreshold_bit_width
+            )
         )
     )
 

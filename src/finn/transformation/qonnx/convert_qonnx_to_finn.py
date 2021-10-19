@@ -36,6 +36,7 @@ from finn.transformation.qonnx.fold_quant_weights import FoldQuantWeights
 from finn.transformation.qonnx.infer_QuantAvgPool2d import AvgPoolAndTruncToQuantAvgPool
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
     ConvertQuantActToMultiThreshold,
+    default_filter_function_generator,
 )
 from finn.transformation.remove import RemoveEmptyPadding
 
@@ -47,31 +48,28 @@ class ConvertQONNXtoFINN(Transformation):
     the activations.
     If incompatibilities are found a ValueError or RuntimeError is raised.
 
-    The optional keyword arguments `max_multithreshold_bit_width` and `filter_lambda`
-    present a way to control which Quant and BipolarQuant nodes in the activation path
-    are converted to MultiThreshold nodes.
-    The filters which are represented by `max_multithreshold_bit_width` and
-    `filter_lambda` are internally connected by an `AND` operation. A warning
-    will be emitted when a Quant node is not converted to a MultiThreshold node.
+    The optional keyword argument `filter_function`
+    presents a way to control which Quant and BipolarQuant nodes in the activation path
+    are converted to MultiThreshold nodes. A warning will be emitted when a Quant node
+    is not converted to a MultiThreshold node.
 
-    :param max_multithreshold_bit_width: The value of max_multithreshold_bit_width is
-    checked against the bit width of any given Quant node and the transformation to a
-    MultiTrheshold node is rejected, when the bitwidth of the Quant node is larger
-    than value of max_multithreshold_bit_with. Defaults to: 8
-    :type max_multithreshold_bit_width: `int`, optional
-    :param filter_lambda: Each candidate Quant and BinaryQant node is first evaluated
-    by this lambda function. If the function returns False,
+    :param filter_function: Each candidate Quant and BinaryQant node is first evaluated
+    by this function. If the function returns False,
     then the node is not converted to a MultiTrheshold node.
-    Defaults to: lambda q_node: True
-    :type filter_lambda: `lambda`, optional
+    The function is given the model and candidate node as parameters.
+    Per default a filter function is inserted, which disables the conversion of
+    Quant nodes, which have a bit width of larger than 8.
+    Defaults to: default_filter_function_generator(max_multithreshold_bit_width=8)
     """
 
     def __init__(
-        self, max_multithreshold_bit_width=8, filter_lambda=lambda q_node: True
+        self,
+        filter_function=default_filter_function_generator(
+            max_multithreshold_bit_width=8
+        ),
     ):
         super().__init__()
-        self.max_multithreshold_bit_width = max_multithreshold_bit_width
-        self._filter_lambda = filter_lambda
+        self._filter_function = filter_function
 
     def apply(self, model):
         # Extract the bias from Conv node
@@ -86,8 +84,7 @@ class ConvertQONNXtoFINN(Transformation):
         # Convert activations
         model = model.transform(
             ConvertQuantActToMultiThreshold(
-                max_multithreshold_bit_width=self.max_multithreshold_bit_width,
-                filter_lambda=self._filter_lambda,
+                filter_function=self._filter_function,
             )
         )
         # Recompute datatypes
