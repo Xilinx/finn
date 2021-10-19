@@ -155,7 +155,7 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
     assert tuple(finn_model.get_tensor_shape(finnonnx_in_tensor_name)) == (1, 600)
     # verify a few exported ops
     if QONNX_export:
-        # The first "Mul" node dosen't exist in the QONNX export,
+        # The first "Mul" node doesn't exist in the QONNX export,
         # because the QuantTensor scale is not exported.
         # However, this node would have been unity scale anyways and
         # the models are still equivalent.
@@ -180,8 +180,7 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
 
 @pytest.mark.slow
 @pytest.mark.vivado
-# @pytest.mark.parametrize("QONNX_export", [False, True])
-@pytest.mark.parametrize("QONNX_export", [True])
+@pytest.mark.parametrize("QONNX_export", [False, True])
 def test_end2end_cybsec_mlp_build(QONNX_export):
     model_file = get_checkpoint_name("export", QONNX_export)
     load_test_checkpoint_or_skip(model_file)
