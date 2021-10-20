@@ -162,7 +162,7 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
                         t_inst = getCustomOp(t_node)
                         signed = t_inst._get_signed_from_upstream(model)
                         # ToDo: Change this to NHWC,
-                        #  when the channels last input comes around
+                        #  when the channels last layout comes around.
                         data_layout = "NCHW"
 
                         # Insert scale nodes, QuantAvgPool2d node and required tensors

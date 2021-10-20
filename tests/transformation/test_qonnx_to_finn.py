@@ -88,9 +88,7 @@ def analysis_testing_for_no_quant_nodes(model):
     return dict()
 
 
-# ToDo: Add KWS networks, when they are ready to be added to finn-examples.
-# ToDo: Add RadioML_VGG10, if possible
-# This test currently takes about 4 min and 42 seconds
+# This test currently takes about 4 min and 20 seconds
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("model_name", ["TFC", "SFC", "LFC", "CNV", "mobilenet"])
