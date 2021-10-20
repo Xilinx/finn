@@ -177,9 +177,8 @@ class QuantActBaseHandler(ABC):
             finn_bias = adder_bias[0] * mul_scale[0]
             mt_inst.set_nodeattr("out_bias", finn_bias)
 
-            # If the bias and scale are integers, then the output will be as well.
-            if finn_bias % 1 == 0 and mul_scale % 1 == 0:
-                mt_inst.set_nodeattr("out_dtype", out_dtype)
+            # Set the output data type
+            mt_inst.set_nodeattr("out_dtype", out_dtype)
         else:
             # Set datatype
             mt_inst.set_nodeattr("out_dtype", out_dtype)
