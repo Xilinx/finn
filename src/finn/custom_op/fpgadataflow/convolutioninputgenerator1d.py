@@ -604,9 +604,16 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         npy_out = "%s/output.npy" % code_gen_dir
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
+        if self.use_parallel_window_output():
+            # pass the number of pixels in the folded output to apintstream2npy, needed
+            # to unpack the ouput correctly and reverse only the inner SIMD dimension
+            k_h, k_w = self.get_nodeattr("ConvKernelDim")
+            mmv = k_h * k_w
+        else:
+            mmv = 1
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", true, 1, %d);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -614,6 +621,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
                 npy_type,
                 oshape_cpp_str,
                 npy_out,
+                mmv,
             )
         ]
 
