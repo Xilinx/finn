@@ -1593,3 +1593,60 @@ class InferLookupLayer(Transformation):
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
+
+
+class InferConcatLayer(Transformation):
+    """Convert suitable Concat nodes (operating on last/-1 axis)
+    into Concat HLS layers."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Concat":
+                ishape = model.get_tensor_shape(node.input[0])
+                axis = get_by_name(node.attribute, "axis")
+                if (axis is None) or (ishape is None):
+                    continue
+                axis = axis.i
+                last_axis = len(ishape) - 1
+                # skip conversion if not using last axis
+                if (axis != -1) and (axis != last_axis):
+                    continue
+                # check datatype coherence
+                dt0 = model.get_tensor_datatype(node.input[0])
+                if dt0 is None:
+                    continue
+                dt_coherent = all(
+                    [model.get_tensor_datatype(x) == dt0 for x in node.input]
+                )
+                if not dt_coherent:
+                    continue
+                # skip conversion if inputs are not integers
+                if not dt0.is_integer():
+                    continue
+                # ready for conversion
+                elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
+                inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
+                new_node = helper.make_node(
+                    "Concat",
+                    node.input,
+                    node.output,
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    name="Concat_" + node.name,
+                    ElemsPerStream=elems_per_stream,
+                    inputDataType=dt0.name,
+                    numInputVectors=inp_vec,
+                )
+                graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
