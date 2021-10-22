@@ -132,16 +132,12 @@ class Concat(HLSCustomOp):
         idt = self.get_input_datatype()
         total_elems = self.get_total_elems()
         total_bw = idt.bitwidth() * total_elems
-        lbit = 0
-        hbit = total_bw - 1
         for (i, elems) in enumerate(elems_per_stream):
             bw = idt.bitwidth() * elems
-            lbit = hbit - bw + 1
             inp_stream = "hls::stream<ap_uint<%d> > &in%d" % (bw, i)
             inp_streams.append(inp_stream)
-            cmd = "out_elem(%d,%d) = in%d.read();" % (hbit, lbit, i)
+            cmd = "in%d.read()" % i
             commands.append(cmd)
-            hbit = lbit - 1
         out_stream = "hls::stream<ap_uint<%d> > &out" % (total_bw)
         inp_streams.append(out_stream)
 
@@ -152,7 +148,7 @@ class Concat(HLSCustomOp):
         impl_hls_code.append("for(unsigned int i = 0; i < numReps; i++) {")
         impl_hls_code.append("#pragma HLS PIPELINE II=1")
         impl_hls_code.append("ap_uint<%d> out_elem;" % total_bw)
-        impl_hls_code.append("\n".join(commands))
+        impl_hls_code.append("out_elem = (" + ",".join(commands) + ");")
         impl_hls_code.append("out.write(out_elem);")
         impl_hls_code.append("}")
         impl_hls_code.append("}")
@@ -210,7 +206,10 @@ class Concat(HLSCustomOp):
             for i in range(n_inps):
                 nbits = self.get_instream_width(i)
                 rtlsim_inp = npy_to_rtlsim_input(
-                    "%s/input_%d.npy" % (code_gen_dir, i), export_idt, nbits
+                    "%s/input_%d.npy" % (code_gen_dir, i),
+                    export_idt,
+                    nbits,
+                    reverse_inner=False,
                 )
                 io_dict["inputs"]["in%d" % i] = rtlsim_inp
             super().reset_rtlsim(sim)
@@ -224,7 +223,13 @@ class Concat(HLSCustomOp):
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
             rtlsim_output_to_npy(
-                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+                rtlsim_output,
+                out_npy_path,
+                odt,
+                out_shape,
+                packed_bits,
+                target_bits,
+                reverse_inner=False,
             )
             # load and reshape output
             output = np.load(out_npy_path)
