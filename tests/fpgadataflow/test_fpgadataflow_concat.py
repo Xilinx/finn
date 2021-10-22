@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 import numpy as np
 import onnx
 import torch
@@ -66,10 +68,12 @@ def make_concat_model(i_shapes, idt):
     return model
 
 
-def test_fpgadataflow_concat():
-    exec_mode = "cppsim"
-    i_shapes = [(1, 2, 4), (1, 2, 6)]
-    idt = DataType["INT4"]
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("idt", [DataType["INT4"]])
+@pytest.mark.vivado
+@pytest.mark.slow
+def test_fpgadataflow_concat(exec_mode, idt):
+    i_shapes = [(1, 2, 4), (1, 2, 6), (1, 2, 1)]
     i_data = [gen_finn_dt_tensor(idt, x) for x in i_shapes]
     model = make_concat_model(i_shapes, idt)
     assert len(i_shapes) == len(model.graph.input)
@@ -80,7 +84,6 @@ def test_fpgadataflow_concat():
     exp_out = np.concatenate(i_data, axis=-1)
     inp_dict = {}
     for i in range(len(i_shapes)):
-        print("inp %d : %s" % (i, str(i_data[i])))
         inp_dict[model.graph.input[i].name] = i_data[i]
     ret = execute_onnx(model, inp_dict)
     assert (ret[oname] == exp_out).all()
