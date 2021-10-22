@@ -133,27 +133,30 @@ class Concat(HLSCustomOp):
         total_elems = self.get_total_elems()
         total_bw = idt.bitwidth() * total_elems
         lbit = 0
-        hbit = 0
+        hbit = total_bw - 1
         for (i, elems) in enumerate(elems_per_stream):
             bw = idt.bitwidth() * elems
-            hbit = lbit + bw - 1
+            lbit = hbit - bw + 1
             inp_stream = "hls::stream<ap_uint<%d> > &in%d" % (bw, i)
             inp_streams.append(inp_stream)
             cmd = "out_elem(%d,%d) = in%d.read();" % (hbit, lbit, i)
             commands.append(cmd)
-            lbit = hbit + 1
+            hbit = lbit - 1
         out_stream = "hls::stream<ap_uint<%d> > &out" % (total_bw)
         inp_streams.append(out_stream)
 
         impl_hls_code = []
         impl_hls_code.append("void StreamingConcat(")
         impl_hls_code.append(",".join(inp_streams))
-        impl_hls_code.append(") {")
+        impl_hls_code.append(", unsigned int numReps) {")
+        impl_hls_code.append("for(unsigned int i = 0; i < numReps; i++) {")
         impl_hls_code.append("#pragma HLS PIPELINE II=1")
         impl_hls_code.append("ap_uint<%d> out_elem;" % total_bw)
         impl_hls_code.append("\n".join(commands))
         impl_hls_code.append("out.write(out_elem);")
         impl_hls_code.append("}")
+        impl_hls_code.append("}")
+        impl_hls_code = "\n".join(impl_hls_code)
 
         impl_filename = "{}/concat_impl.hpp".format(path)
         f_impl = open(impl_filename, "w")
@@ -243,19 +246,23 @@ class Concat(HLSCustomOp):
         self.code_gen_dict["$GLOBALS$"] = ['#include "concat_impl.hpp"']
 
     def defines(self, var):
-        self.code_gen_dict["$DEFINES$"] = []
+        num_reps = self.get_nodeattr("numInputVectors")
+        num_reps = np.prod(num_reps)
+        self.code_gen_dict["$DEFINES$"] = ["#define NumReps %d" % num_reps]
 
     def read_npy_data(self):
         n_inputs = self.get_n_inputs()
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         npy_type = "float"
         self.code_gen_dict["$READNPYDATA$"] = []
+        idt = self.get_input_datatype()
+        idt_bw = idt.bitwidth()
+        elem_hls_type = idt.get_hls_datatype_str()
+        elem_bits = idt_bw
         for i in range(n_inputs):
             packed_bits = self.get_instream_width(i)
             packed_hls_type = "ap_uint<%d>" % packed_bits
-            elem_hls_type = packed_hls_type
-            elem_bits = packed_bits
-            npy_in = "%s/input_0.npy" % code_gen_dir
+            npy_in = "%s/input_%d.npy" % (code_gen_dir, i)
             self.code_gen_dict["$READNPYDATA$"].append(
                 'npy2apintstream<%s, %s, %d, %s>("%s", in%d);'
                 % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in, i)
@@ -281,7 +288,7 @@ class Concat(HLSCustomOp):
         n_inputs = self.get_n_inputs()
         in_stream_names = ["in%d" % x for x in range(n_inputs)]
         in_stream_names = ",".join(in_stream_names)
-        comp_call = "StreamingConcat(%s, out);" % (in_stream_names)
+        comp_call = "StreamingConcat(%s, out, NumReps);" % (in_stream_names)
         self.code_gen_dict["$DOCOMPUTE$"] = [comp_call]
 
     def dataoutstrm(self):
