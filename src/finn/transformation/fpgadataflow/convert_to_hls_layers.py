@@ -1180,8 +1180,9 @@ class InferDuplicateStreamsLayer(Transformation):
         for node in graph.node:
             node_ind += 1
             successors = model.find_consumers(node.output[0])
-            if successors is not None and len(successors) == 2:
+            if successors is not None and len(successors) >= 2:
                 output_tensor = node.output[0]
+                n_outputs = len(successors)
 
                 dt = model.get_tensor_datatype(output_tensor)
 
@@ -1192,7 +1193,7 @@ class InferDuplicateStreamsLayer(Transformation):
                 # create clone tensors
                 out_shape = model.get_tensor_shape(output_tensor)
                 out_tensor_clones = []
-                for i in range(2):
+                for i in range(n_outputs):
                     clone = helper.make_tensor_value_info(
                         model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
                     )
@@ -1215,6 +1216,7 @@ class InferDuplicateStreamsLayer(Transformation):
                     PE=pe,
                     inputDataType=dt.name,
                     numInputVectors=vecs,
+                    NumOutputStreams=n_outputs,
                     name="DuplicateStreams_Batch_" + node.name,
                 )
 
