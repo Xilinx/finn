@@ -61,6 +61,7 @@ def make_dupstreams_modelwrapper(ch, pe, idim, idt):
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=ch,
+        NumOutputStreams=2,
         PE=pe,
         inputDataType=idt.name,
         numInputVectors=[1, idim, idim],
