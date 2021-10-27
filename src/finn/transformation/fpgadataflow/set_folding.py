@@ -150,7 +150,7 @@ class SetFolding(Transformation):
                 # also set the folding of the upsteam DW SWU
                 # which must be identical to this node
                 swu_node = model.find_producer(node.input[0])
-                if swu_node.op_type == "ConvolutionInputGenerator":
+                if swu_node.op_type.startswith("ConvolutionInputGenerator"):
                     swu_node_inst = getCustomOp(swu_node)
                     pe = node_inst.get_nodeattr("PE")
                     swu_node_inst.set_nodeattr("SIMD", pe)
