@@ -1599,7 +1599,7 @@ class InferLookupLayer(Transformation):
 
 class InferConcatLayer(Transformation):
     """Convert suitable Concat nodes (operating on last/-1 axis)
-    into Concat HLS layers."""
+    into StreamingConcat HLS layers."""
 
     def apply(self, model):
         graph = model.graph
@@ -1633,7 +1633,7 @@ class InferConcatLayer(Transformation):
                 elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
                 inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
                 new_node = helper.make_node(
-                    "Concat",
+                    "StreamingConcat",
                     node.input,
                     node.output,
                     domain="finn.custom_op.fpgadataflow",

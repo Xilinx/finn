@@ -34,7 +34,7 @@ from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-class Concat(HLSCustomOp):
+class StreamingConcat(HLSCustomOp):
     """Streaming concatenation node with dynamically generated HLS.
     Only supports concatenating along the last axis."""
 
