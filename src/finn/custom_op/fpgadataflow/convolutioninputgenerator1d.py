@@ -288,20 +288,24 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
 
     def uram_estimation(self):
         # NOTE: not tested for correctness
-        simd = self.get_nodeattr("SIMD")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ifm_dim = np.prod(self.get_nodeattr("IFMDim"))
-        k = np.prod(self.get_nodeattr("ConvKernelDim"))
-        stride = np.prod(self.get_nodeattr("Stride"))
+        (
+            ifm_ch,
+            ifm_dim,
+            ofm_dim,
+            k,
+            stride,
+            dilation,
+        ) = self.get_1d_conv_attrs_normalized()
+        ifm_dim_y, ifm_dim_x = ifm_dim
+        k_y, k_x = k
+        stride_y, stride_x = stride
         ram_style = self.get_nodeattr("ram_style")
+        simd = self.get_nodeattr("SIMD")
         if ram_style == "ultra":
-            return int(
-                (k + stride)
-                * (
-                    math.ceil(simd * self.get_input_datatype().bitwidth() / 64)
-                    * math.ceil(ifm_dim * ifm_ch / simd / 4096)
-                )
-            )
+            block_mul = 2
+            width_mul = math.ceil(simd * self.get_input_datatype().bitwidth() / 64)
+            depth_mul = math.ceil(stride_x * ifm_dim_x * (ifm_ch // simd) / 4096)
+            return block_mul * width_mul * depth_mul
         else:
             return 0
 
