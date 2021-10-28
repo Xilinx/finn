@@ -608,9 +608,9 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             # pass the number of pixels in the folded output to apintstream2npy, needed
             # to unpack the ouput correctly and reverse only the inner SIMD dimension
             k_h, k_w = self.get_nodeattr("ConvKernelDim")
-            mmv = k_h * k_w
+            multi_pixel_out = k_h * k_w
         else:
-            mmv = 1
+            multi_pixel_out = 1
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
             'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", true, 1, %d);'
@@ -621,7 +621,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
                 npy_type,
                 oshape_cpp_str,
                 npy_out,
-                mmv,
+                multi_pixel_out,
             )
         ]
 
