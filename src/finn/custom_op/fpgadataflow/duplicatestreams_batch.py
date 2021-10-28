@@ -399,6 +399,6 @@ class DuplicateStreams_Batch(HLSCustomOp):
         intf_names["m_axis"] = []
         for i in range(n_outputs):
             intf_names["m_axis"].append(
-                ("out%d_V_V", self.get_outstream_width_padded())
+                ("out%d_V_V" % i, self.get_outstream_width_padded())
             )
         return intf_names
