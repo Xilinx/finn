@@ -40,7 +40,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
     ConvertQuantActToMultiThreshold,
     default_filter_function_generator,
 )
-from finn.transformation.remove import RemoveEmptyPadding
+from finn.transformation.remove import RemoveIdentityOps
 
 
 class ConvertQONNXtoFINN(Transformation):
@@ -94,6 +94,6 @@ class ConvertQONNXtoFINN(Transformation):
         # Convert AvgPool -> Mul -> Trunc structure to QuantAvgPool2d
         model = model.transform(AvgPoolAndTruncToQuantAvgPool())
         # Remove empty padding if it exists
-        model = model.transform(RemoveEmptyPadding())
+        model = model.transform(RemoveIdentityOps())
 
         return model, False

@@ -96,7 +96,7 @@ class QuantActBaseHandler(ABC):
     def _extract_output_datatype(self):
         """Get the output datatype for the MultiThreshold node."""
         q_inst = getCustomOp(self._q_node)
-        dtype = q_inst.get_internal_dtype(self._model)
+        dtype = q_inst.get_integer_datatype(self._model)
         dtype = dtype.name
         return dtype
 

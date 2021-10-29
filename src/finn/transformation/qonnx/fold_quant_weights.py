@@ -123,7 +123,7 @@ class FoldQuantWeights(Transformation):
                         new_initializer = np.round(new_initializer)
                         model.set_initializer(node_out, new_initializer)
                         q_inst = getCustomOp(n)
-                        new_dtype = q_inst.get_internal_dtype(model)
+                        new_dtype = q_inst.get_integer_datatype(model)
                         model.set_tensor_datatype(node_out, new_dtype)
 
                         # Reshape scale for Conv if required
