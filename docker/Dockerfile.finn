@@ -86,7 +86,7 @@ RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg
 
 # git-based Python repo dependencies
 # these are installed in editable mode for easier co-development
-ARG FINN_BASE_COMMIT="686639de94f96f02fef794a693a295591d3f25c6"
+ARG FINN_BASE_COMMIT="901d38414c7507b1eb5a7afa76e58a4368864455"
 ARG QONNX_COMMIT="6d55dce220c7f744ef23585686460b9370b672a0"
 ARG FINN_EXP_COMMIT="f82c0d9868bb88ea045dfadb28508d327d287221"
 ARG BREVITAS_COMMIT="5b22551871d25bf5e26917fe5900fcaa49406faf"
