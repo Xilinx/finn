@@ -89,6 +89,8 @@ class LargeFIFOMemStyle(str, Enum):
 class VerificationStepType(str, Enum):
     "Steps at which FINN ONNX execution can be launched for verification."
 
+    #: verify after step_qonnx_to_finn, using Python execution
+    QONNX_TO_FINN_PYTHON = "finn_onnx_python"
     #: verify after step_tidy_up, using Python execution
     TIDY_UP_PYTHON = "initial_python"
     #: verify after step_streamline , using Python execution
@@ -103,6 +105,7 @@ class VerificationStepType(str, Enum):
 #: specified order. Use the `steps` as part of build config to restrict which
 #: steps will be run.
 default_build_dataflow_steps = [
+    "step_qonnx_to_finn",
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
@@ -123,6 +126,7 @@ default_build_dataflow_steps = [
 
 #: List of steps to run for an estimate-only (no synthesis) dataflow build
 estimate_only_dataflow_steps = [
+    "step_qonnx_to_finn",
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
@@ -290,6 +294,14 @@ class DataflowBuildConfig:
 
     #: If given, stop at this step.
     stop_step: Optional[str] = None
+
+    #: The optional argument `max_multithreshold_bit_width` affects which Quant nodes
+    #: of the QONNX format get converted to the MultiThreshold nodes of FINN. This
+    #: only affects Quant nodes in the activation path. Quant nodes, which define a
+    #: bit width larger than `max_multithreshold_bit_width` are not converted to
+    #: MultiThreshold nodes and a warning is raised instead.
+    #: If not given `max_multithreshold_bit_width` defaults to 8.
+    max_multithreshold_bit_width: Optional[int] = 8
 
     #: Override the number of inputs for rtlsim performance measurement.
     rtlsim_batch_size: Optional[int] = 1

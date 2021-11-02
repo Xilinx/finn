@@ -31,6 +31,7 @@ import numpy as np
 import os
 from copy import deepcopy
 from distutils.dir_util import copy_tree
+from qonnx.util.cleanup import cleanup_model
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -94,6 +95,10 @@ from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.qonnx.quant_act_to_multithreshold import (
+    default_filter_function_generator,
+)
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.util.basic import get_rtlsim_trace_depth
@@ -186,6 +191,37 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
     # TODO make configurable
     # verify_model.set_metadata_prop("rtlsim_trace", "trace.vcd")
     return verify_model
+
+
+def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """
+    This step will only execute if QONNX nodes are found.
+    These include the following op_types: "Quant" , "Trunc" and "BinaryQuant".
+    If such nodes are found the step will run the tidy-up step from QONNX
+    and then convert the QONNX model to the FINN-ONNX dialect.
+    """
+    # Check if any QONNX nodes exist, i.e. BinaryQuant, Quant or Trunc
+    q_count = 0
+    for op_type in ["BinaryQuant", "Quant", "Trunc"]:
+        q_count += len(model.get_nodes_by_op_type(op_type))
+    if q_count == 0:
+        return model
+
+    # QONNX cleanup
+    model = cleanup_model(model)
+    # QONNX to FINN-ONNX
+    model = model.transform(
+        ConvertQONNXtoFINN(
+            filter_function=default_filter_function_generator(
+                max_multithreshold_bit_width=cfg.max_multithreshold_bit_width
+            )
+        )
+    )
+
+    if VerificationStepType.QONNX_TO_FINN_PYTHON in cfg._resolve_verification_steps():
+        verify_step(model, cfg, "qonnx_to_finn_python", need_parent=False)
+
+    return model
 
 
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -642,6 +678,7 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
 
 #: map step name strings to step functions
 build_dataflow_step_lookup = {
+    "step_qonnx_to_finn": step_qonnx_to_finn,
     "step_tidy_up": step_tidy_up,
     "step_streamline": step_streamline,
     "step_convert_to_hls": step_convert_to_hls,
