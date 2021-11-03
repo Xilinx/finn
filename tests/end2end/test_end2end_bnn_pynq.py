@@ -446,6 +446,41 @@ class TestEnd2End:
                 topology, wbits, abits, QONNX_export, "convert_to_hls_layers"
             )
         )
+        exp_layer_counts = {
+            "tfc": [
+                ("Reshape", 1),
+                ("Thresholding_Batch", 1),
+                ("StreamingFCLayer_Batch", 4),
+                ("LabelSelect_Batch", 1),
+            ],
+            "tfc-1-1": [
+                ("Reshape", 1),
+                ("Thresholding_Batch", 4),
+                ("StreamingFCLayer_Batch", 4),
+                ("LabelSelect_Batch", 1),
+            ],
+            "lfc": [
+                ("Reshape", 1),
+                ("Thresholding_Batch", 1),
+                ("StreamingFCLayer_Batch", 4),
+                ("LabelSelect_Batch", 1),
+            ],
+            "cnv": [
+                ("Transpose", 1),
+                ("Thresholding_Batch", 1),
+                ("ConvolutionInputGenerator", 6),
+                ("StreamingFCLayer_Batch", 9),
+                ("StreamingMaxPool_Batch", 2),
+                ("LabelSelect_Batch", 1),
+            ],
+        }
+        if topology == "tfc" and wbits == 1 and abits == 1:
+            exp_key = "tfc-1-1"
+        else:
+            exp_key = topology
+        exp_layer_counts = exp_layer_counts[exp_key]
+        for (op_type, exp_count) in exp_layer_counts:
+            assert len(model.get_nodes_by_op_type(op_type)) == exp_count
 
     def test_create_dataflow_partition(self, topology, wbits, abits, QONNX_export):
         prev_chkpt_name = get_checkpoint_name(
