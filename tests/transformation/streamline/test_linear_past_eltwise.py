@@ -26,19 +26,18 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import numpy as np
+import pytest
 
+import numpy as np
+import os
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from finn.transformation.streamline.reorder import MoveLinearPastEltwiseAdd
 from finn.transformation.infer_shapes import InferShapes
-
-import pytest
+from finn.transformation.streamline.reorder import MoveLinearPastEltwiseAdd
 
 export_onnx_path = "test_linear_past_eltwise.onnx"
 

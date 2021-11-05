@@ -26,13 +26,13 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 import numpy as np
+import os
 import warnings
+
+from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.custom_op.general.im2col import compute_conv_output_dim
-from finn.core.datatype import DataType
-from onnx import TensorProto, helper
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -41,8 +41,8 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def get_nodeattr_types(self):
         my_attrs = {
-            "ImgDim": ("i", True, 0),
-            "PoolDim": ("i", True, 0),
+            "ImgDim": ("ints", True, []),  # [H, W] = [Y, X]
+            "PoolDim": ("ints", True, []),  # [H, W] = [Y, X]
             "NumChannels": ("i", True, 0),
             # FINN DataTypes for inputs/outputs
             "dataType": ("s", True, ""),
@@ -58,10 +58,27 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("dataType")]
 
-    def get_normal_input_shape(self):
+    def get_1d_attrs_normalized(self):
+        # support both (1, D) and (D, 1) cases transparently:
+        # assume the dummy ('1') dimension is the Y-dimension, i.e.
+        # images and kernels (and their attributes) of dimension
+        # [H, W] = [Y, X] = [D, 1] or [1, D] are always mapped to [1, D]
         ifm_dim = self.get_nodeattr("ImgDim")
+        k = self.get_nodeattr("PoolDim")
         ifm_ch = self.get_nodeattr("NumChannels")
-        ishape = (1, ifm_dim, ifm_dim, ifm_ch)
+        if ifm_dim[1] == 1:
+            ifm_dim = ifm_dim[::-1]
+            k = k[::-1]
+        return (ifm_dim, k, ifm_ch)
+
+    def is_1d(self):
+        ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
+        return (ifm_dim[0] == 1) and (k[0] == 1)
+
+    def get_normal_input_shape(self):
+        ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
+        ifm_ch = self.get_nodeattr("NumChannels")
+        ishape = (1, ifm_dim_h, ifm_dim_w, ifm_ch)
         return ishape
 
     def get_folded_input_shape(self):
@@ -73,14 +90,17 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         return tuple(ret)
 
     def get_normal_output_shape(self):
-        k = self.get_nodeattr("PoolDim")
-        ifm_dim = self.get_nodeattr("ImgDim")
+        ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
+        k_h, k_w = tuple(self.get_nodeattr("PoolDim"))
         ifm_ch = self.get_nodeattr("NumChannels")
-        stride = k
+        stride_h = k_h
+        stride_w = k_w
         pad = 0
-        assert ifm_dim % k == 0, "StreamingMaxPool needs ImgDim % PoolDim == 0"
-        ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, pad)
-        oshape = (1, ofm_dim, ofm_dim, ifm_ch)
+        assert ifm_dim_h % k_h == 0, "StreamingMaxPool needs ImgDim_h % PoolDim_h == 0"
+        assert ifm_dim_w % k_w == 0, "StreamingMaxPool needs ImgDim_w % PoolDim_w == 0"
+        ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, pad)
+        ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, pad)
+        oshape = (1, ofm_dim_h, ofm_dim_w, ifm_ch)
         return oshape
 
     def get_folded_output_shape(self):
@@ -97,9 +117,12 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def get_exp_cycles(self):
         # derived from StreamingMaxPool_Batch loop nest
-        k = self.get_nodeattr("PoolDim")
-        ifm_dim = self.get_nodeattr("ImgDim")
-        return int(ifm_dim * (ifm_dim + (ifm_dim / k)))
+        ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
+        if self.is_1d():
+            return int(ifm_dim[1] + k[1])
+        else:
+            # TODO: adjust inaccurate formula
+            return int(ifm_dim[1] * (ifm_dim[1] + (ifm_dim[1] / k[1])))
 
     def get_instream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()
@@ -116,19 +139,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == exp_ishape, "Unexpect input shape for StreamingMaxPool."
-        # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
-        return helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
-        )
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -166,11 +177,13 @@ class StreamingMaxPool_Batch(HLSCustomOp):
 
     def defines(self, var):
         numReps = 2
+        ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
+
         self.code_gen_dict["$DEFINES$"] = [
             """#define ImgDim {}\n #define PoolDim {}\n
             #define NumChannels {}\n #define numReps {}""".format(
-                self.get_nodeattr("ImgDim"),
-                self.get_nodeattr("PoolDim"),
+                ifm_dim[1],
+                k[1],
                 self.get_nodeattr("NumChannels"),
                 numReps,
             )
@@ -179,9 +192,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -206,12 +219,18 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def docompute(self):
         dtype = self.get_input_datatype()
         if dtype.bitwidth() == 1:
-            op = "StreamingMaxPool_Batch"
+            if self.is_1d():
+                raise Exception("Binary 1d MaxPool not implemented on HLS backend")
+            else:
+                op = "StreamingMaxPool_Batch"
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 "%s<ImgDim, PoolDim, NumChannels>(in0, out, numReps);" % (op)
             ]
         else:
-            op = "StreamingMaxPool_Precision_Batch"
+            if self.is_1d():
+                op = "StreamingMaxPool_Precision_Batch_1d"
+            else:
+                op = "StreamingMaxPool_Precision_Batch"
             dtype = self.get_input_datatype()
             dtype_hls = dtype.get_hls_datatype_str()
             minval_str = str(int(dtype.min()))
@@ -223,9 +242,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -291,10 +310,10 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             inp.shape == exp_ishape
         ), """Input shape doesn't
         match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
-        if self.get_input_datatype() == DataType.BIPOLAR:
+        if self.get_input_datatype() == DataType["BIPOLAR"]:
             # store bipolar activations as binary
             inp = (inp + 1) / 2
-            export_idt = DataType.BINARY
+            export_idt = DataType["BINARY"]
         else:
             export_idt = self.get_input_datatype()
         # no reshaping for input since assuming no folding on input
@@ -341,7 +360,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 )
             )
         # binary -> bipolar if needed
-        if self.get_output_datatype() == DataType.BIPOLAR:
+        if self.get_output_datatype() == DataType["BIPOLAR"]:
             out = context[node.output[0]]
             out = 2 * out - 1
             context[node.output[0]] = out

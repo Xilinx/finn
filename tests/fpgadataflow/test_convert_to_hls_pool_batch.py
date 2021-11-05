@@ -28,23 +28,24 @@
 
 import pytest
 
-from onnx import TensorProto, helper
 import numpy as np
+from onnx import TensorProto, helper
+
 import finn.core.onnx_exec as oxe
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.custom_op.registry import getCustomOp
-from finn.util.basic import gen_finn_dt_tensor
 from finn.transformation.infer_shapes import InferShapes
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.util.basic import gen_finn_dt_tensor
 
 
 def make_single_maxpool_modelwrapper(k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt):
@@ -117,9 +118,9 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.INT4, DataType.INT8])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["INT4"], DataType["INT8"]])
 # output datatype
-@pytest.mark.parametrize("odt", [DataType.UINT4, DataType.INT4])
+@pytest.mark.parametrize("odt", [DataType["UINT4"], DataType["INT4"]])
 # pool configuration:                   ( k,stride, pad, ifm_dim )
 @pytest.mark.parametrize("pool_config", [(7, 7, 0, 7), (3, 2, 1, 5)])
 # input channels

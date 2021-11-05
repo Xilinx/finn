@@ -26,26 +26,29 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pkg_resources as pk
+
+import pytest
+
 import brevitas.onnx as bo
 import numpy as np
-import pytest
-import pkg_resources as pk
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import (
-    RemoveUnusedTensors,
-    RemoveStaticGraphInputs,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
+    RemoveStaticGraphInputs,
+    RemoveUnusedTensors,
 )
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import Streamline
-from finn.util.test import get_test_model_trained
 from finn.util.basic import make_build_dir
+from finn.util.test import get_test_model_trained
 
 export_onnx_path = make_build_dir("test_streamline_cnv_")
+
 
 # act bits
 @pytest.mark.parametrize("abits", [1, 2])

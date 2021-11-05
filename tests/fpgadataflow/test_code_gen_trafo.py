@@ -26,10 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-
-from onnx import TensorProto, helper
 import pytest
+
+import os
+from onnx import TensorProto, helper
+
 import finn.util.basic as util
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
@@ -38,7 +39,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 
 @pytest.mark.vivado
 def test_code_gen_trafo():
-    idt = wdt = odt = DataType.BIPOLAR
+    idt = wdt = odt = DataType["BIPOLAR"]
     mw = 8
     mh = 8
     pe = 4

@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 import numpy as np
 import onnx.helper as oh
 from onnx import TensorProto
@@ -34,7 +36,6 @@ import finn.core.onnx_exec as ox
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import CollapseRepeatedAdd, CollapseRepeatedMul
-import pytest
 
 
 def test_collapse_repeated_op():
@@ -74,7 +75,8 @@ def test_collapse_repeated_op():
 
 
 @pytest.mark.parametrize(
-    "test_args", [("Add", CollapseRepeatedAdd()), ("Mul", CollapseRepeatedMul())],
+    "test_args",
+    [("Add", CollapseRepeatedAdd()), ("Mul", CollapseRepeatedMul())],
 )
 def test_collapse_repeated_only_if_linear(test_args):
     scalar_op = test_args[0]

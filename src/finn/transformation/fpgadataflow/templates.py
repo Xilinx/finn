@@ -103,8 +103,8 @@ create_project finn_zynq_link ./ -part $FPGA_PART
 # set board part repo paths to find PYNQ-Z1/Z2
 set paths_prop [get_property BOARD_PART_REPO_PATHS [current_project]]
 set paths_param [get_param board.repoPaths]
-lappend paths_prop /workspace/finn/board_files
-lappend paths_param /workspace/finn/board_files
+lappend paths_prop /workspace/board_files
+lappend paths_param /workspace/board_files
 set_property BOARD_PART_REPO_PATHS $paths_prop [current_project]
 set_param board.repoPaths $paths_param
 
@@ -119,6 +119,7 @@ if {$BOARD == "ZCU104"} {
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Pynq-Z2"} {
     set ZYNQ_TYPE "zynq_7000"
+    set_property board_part tul.com.tw:pynq-z2:part0:1.0 [current_project]
 } elseif {$BOARD == "Pynq-Z1"} {
     set ZYNQ_TYPE "zynq_7000"
     set_property board_part www.digilentinc.com:pynq-z1:part0:1.0 [current_project]
@@ -134,6 +135,7 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     set_property -dict [list CONFIG.PSU__USE__S_AXI_GP2 {1}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PSU__USE__M_AXI_GP1 {0}] [get_bd_cells zynq_ps]
     #set frequency of PS clock (this can't always be exactly met)
+    set_property -dict [list CONFIG.PSU__OVERRIDE__BASIC_CLOCK {0}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ [expr int($FREQ_MHZ)]] [get_bd_cells zynq_ps]
 } elseif {$ZYNQ_TYPE == "zynq_7000"} {
     create_bd_cell -type ip -vlnv xilinx.com:ip:processing_system7:5.5 zynq_ps

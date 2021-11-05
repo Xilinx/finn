@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from pkgutil import get_data
-
 import pytest
 
 import brevitas.onnx as bo
@@ -35,16 +33,21 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
+from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from pkgutil import get_data
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.general import RemoveStaticGraphInputs
 from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
 
 export_onnx_path = make_build_dir("test_brevitas_fc_")
+
 
 # act bits
 @pytest.mark.parametrize("abits", [1, 2])
@@ -52,15 +55,25 @@ export_onnx_path = make_build_dir("test_brevitas_fc_")
 @pytest.mark.parametrize("wbits", [1, 2])
 # network topology / size
 @pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
-def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
+# QONNX export
+@pytest.mark.parametrize("QONNX_export", [False, True])
+def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits, QONNX_export):
     if size == "LFC" and wbits == 2 and abits == 2:
         pytest.skip("No LFC-w2a2 present at the moment")
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
-    nname = "%s_%dW%dA" % (size, wbits, abits)
+    nname = "%s_%dW%dA_QONNX-%d" % (size, wbits, abits, QONNX_export)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
     fc = get_test_model_trained(size, wbits, abits)
-    bo.export_finn_onnx(fc, (1, 1, 28, 28), finn_onnx)
+    ishape = (1, 1, 28, 28)
+    if QONNX_export:
+        BrevitasONNXManager.export(fc, ishape, finn_onnx)
+        qonnx_cleanup(finn_onnx, out_file=finn_onnx)
+        model = ModelWrapper(finn_onnx)
+        model = model.transform(ConvertQONNXtoFINN())
+        model.save(finn_onnx)
+    else:
+        bo.export_finn_onnx(fc, ishape, finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
@@ -71,7 +84,7 @@ def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
     raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
-    input_dict = {"0": nph.to_array(input_tensor)}
+    input_dict = {model.graph.input[0].name: nph.to_array(input_tensor)}
     output_dict = oxe.execute_onnx(model, input_dict)
     produced = output_dict[list(output_dict.keys())[0]]
     # run using PyTorch/Brevitas

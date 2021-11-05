@@ -26,13 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from math import ceil, log2
-import textwrap
-import os
-import warnings
 import numpy as np
+import os
+import textwrap
+import warnings
+from math import ceil, log2
 
-from onnx import TensorProto, helper
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import (
@@ -42,9 +41,10 @@ from finn.util.basic import (
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
-    rtlsim_output_to_npy,
     pack_innermost_dim_as_hex_string,
+    rtlsim_output_to_npy,
 )
+
 from . import templates
 
 # ONNX i/o tensor shape assumptions for Thresholding:
@@ -111,19 +111,7 @@ class Thresholding_Batch(HLSCustomOp):
 
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
-        # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
-        return helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
-        )
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -131,8 +119,8 @@ class Thresholding_Batch(HLSCustomOp):
         if idt != self.get_input_datatype():
             warn_str = "inputDataType changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype()),
-                str(idt),
+                str(self.get_input_datatype().name),
+                str(idt.name),
             )
             warnings.warn(warn_str)
         self.set_nodeattr("inputDataType", idt.name)
@@ -180,7 +168,7 @@ class Thresholding_Batch(HLSCustomOp):
             return 0
 
     def lut_estimation(self):
-        """Calculates LUT cost, taking memory resource type into account """
+        """Calculates LUT cost, taking memory resource type into account"""
         # TODO add in/out FIFO contributions
         style = self.get_nodeattr("ram_style")
         P = self.get_nodeattr("PE")
@@ -224,7 +212,7 @@ class Thresholding_Batch(HLSCustomOp):
             if abs(tdt_min) > tdt_max:
                 tdt = DataType.get_smallest_possible(tdt_min)
             else:
-                tdt = DataType.get_smallest_possible(0 - tdt_max - 1)
+                tdt = DataType.get_smallest_possible(-tdt_max - 1)
         else:
             tdt = DataType.get_smallest_possible(tdt_max)
         assert np.vectorize(tdt.allowed)(
@@ -335,7 +323,7 @@ class Thresholding_Batch(HLSCustomOp):
         ).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
         # workaround for vivado_hls threshold bug
-        if ret[0][0] == 0:
+        if ret[0][0] == 0 and n_thres_steps == 1:
             ret = np.copy(ret)
             ret[0][0] = 1
             warnings.warn(
@@ -389,8 +377,8 @@ class Thresholding_Batch(HLSCustomOp):
             tdt_hls = tdt.get_hls_datatype_str()
             # use binary to export bipolar activations
             export_odt = self.get_output_datatype()
-            if self.get_output_datatype() == DataType.BIPOLAR:
-                export_odt = DataType.BINARY
+            if self.get_output_datatype() == DataType["BIPOLAR"]:
+                export_odt = DataType["BINARY"]
             odt_hls = export_odt.get_hls_datatype_str()
             f_thresh.write(
                 "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
@@ -514,10 +502,10 @@ class Thresholding_Batch(HLSCustomOp):
                 not float32 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
-                if self.get_input_datatype() == DataType.BIPOLAR:
+                if self.get_input_datatype() == DataType["BIPOLAR"]:
                     # store bipolar activations as binary
                     reshaped_input = (reshaped_input + 1) / 2
-                    export_idt = DataType.BINARY
+                    export_idt = DataType["BINARY"]
                 else:
                     export_idt = self.get_input_datatype()
                 # make copy before saving the array
@@ -536,7 +524,7 @@ class Thresholding_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType.BIPOLAR:
+            if self.get_output_datatype() == DataType["BIPOLAR"]:
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
@@ -604,7 +592,9 @@ class Thresholding_Batch(HLSCustomOp):
         numReps = numInputVectors[0]
         self.code_gen_dict["$DEFINES$"] = [
             """#define NumChannels1 {}\n #define PE1 {}\n #define numReps {}""".format(
-                self.get_nodeattr("NumChannels"), self.get_nodeattr("PE"), numReps,
+                self.get_nodeattr("NumChannels"),
+                self.get_nodeattr("PE"),
+                numReps,
             )
         ]
         if self.get_nodeattr("mem_mode") == "decoupled":
@@ -617,10 +607,6 @@ class Thresholding_Batch(HLSCustomOp):
             )
             self.code_gen_dict["$DEFINES$"].append(
                 "#define NumSteps1 %d" % self.get_nodeattr("numSteps")
-            )
-            # TODO remove once Thresholding_Stream_Batch is in hlslib:
-            self.code_gen_dict["$DEFINES$"].append(
-                templates.decoupled_thresholding_template
             )
 
     def read_npy_data(self):
@@ -676,25 +662,32 @@ class Thresholding_Batch(HLSCustomOp):
         node = self.onnx_node
         ishape = self.get_folded_input_shape()
         if len(ishape) == 3:
-            imgdim = 1
+            imgdimh = 1
+            imgdimw = 1
         elif len(ishape) == 5:
-            imgdim = ishape[1]
+            imgdimh = ishape[1]
+            imgdimw = ishape[2]
         else:
-            raise Exception("""Unexpeted input shape""")
+            raise Exception("""Unexpected input shape""")
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<{}, NumChannels1, PE1, {}, {}>
+                """{}<{}, {}, NumChannels1, PE1, {}, {}>
                 (in0, out, threshs, numReps);""".format(
-                    node.op_type, imgdim, tmpl_args["TSrcI"], tmpl_args["TDstI"],
+                    node.op_type,
+                    imgdimh,
+                    imgdimw,
+                    tmpl_args["TSrcI"],
+                    tmpl_args["TDstI"],
                 )
             ]
         elif mem_mode == "decoupled":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<{}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
+                """{}<{}, {}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
                 (in0, out, weights, numReps);""".format(
                     "Thresholding_Stream_Batch",
-                    imgdim,
+                    imgdimh,
+                    imgdimw,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                 )
@@ -705,9 +698,9 @@ class Thresholding_Batch(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits

@@ -26,20 +26,28 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import shutil
-import subprocess
-
 import pytest
 
 import numpy as np
+import os
+import shutil
+import subprocess
 
 import finn.util.basic as cutil
 from finn.core.datatype import DataType
 from finn.util.data_packing import numpy_to_hls_code
 
 
-@pytest.mark.parametrize("dtype", [DataType.BINARY, DataType.INT2, DataType.INT32])
+@pytest.mark.parametrize(
+    "dtype",
+    [
+        DataType["BINARY"],
+        DataType["INT2"],
+        DataType["INT32"],
+        DataType["FIXED<9,6>"],
+        DataType["FLOAT32"],
+    ],
+)
 @pytest.mark.parametrize("test_shape", [(1, 2, 4), (1, 1, 64), (2, 64)])
 @pytest.mark.vivado
 def test_npy2apintstream(test_shape, dtype):
@@ -120,17 +128,17 @@ def test_numpy_to_hls_code():
         return "".join(s.split())
 
     A = [[1, 1, 1, 0], [0, 1, 1, 0]]
-    ret = numpy_to_hls_code(A, DataType.BINARY, "test", True)
+    ret = numpy_to_hls_code(A, DataType["BINARY"], "test", True)
     eA = """ap_uint<4> test[2] =
     {ap_uint<4>("0xe", 16), ap_uint<4>("0x6", 16)};"""
     assert remove_all_whitespace(ret) == remove_all_whitespace(eA)
     B = [[[3, 3], [3, 3]], [[1, 3], [3, 1]]]
-    ret = numpy_to_hls_code(B, DataType.UINT2, "test", True)
+    ret = numpy_to_hls_code(B, DataType["UINT2"], "test", True)
     eB = """ap_uint<4> test[2][2] =
     {{ap_uint<4>("0xf", 16), ap_uint<4>("0xf", 16)},
      {ap_uint<4>("0x7", 16), ap_uint<4>("0xd", 16)}};"""
     assert remove_all_whitespace(ret) == remove_all_whitespace(eB)
-    ret = numpy_to_hls_code(B, DataType.UINT2, "test", True, True)
+    ret = numpy_to_hls_code(B, DataType["UINT2"], "test", True, True)
     eB = """{{ap_uint<4>("0xf", 16), ap_uint<4>("0xf", 16)},
      {ap_uint<4>("0x7", 16), ap_uint<4>("0xd", 16)}};"""
     assert remove_all_whitespace(ret) == remove_all_whitespace(eB)

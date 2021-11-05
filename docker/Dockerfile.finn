@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2021, Xilinx
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -28,11 +28,9 @@
 
 FROM pytorch/pytorch:1.7.1-cuda11.0-cudnn8-runtime
 LABEL maintainer="Yaman Umuroglu <yamanu@xilinx.com>"
-ARG GID
-ARG GNAME
-ARG UNAME
-ARG UID
-ARG PASSWD
+
+# XRT version to be installed
+ARG XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"
 
 WORKDIR /workspace
 
@@ -40,7 +38,6 @@ WORKDIR /workspace
 # use workaround from https://grigorkh.medium.com/fix-tzdata-hangs-docker-image-build-cdb52cc3360d
 ENV TZ="Europe/Dublin"
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
 
 RUN apt-get update
 RUN apt-get -y upgrade
@@ -56,14 +53,24 @@ RUN apt-get install -y rsync
 RUN apt-get install -y git
 RUN apt-get install -y sshpass
 RUN apt-get install -y wget
+RUN apt-get install -y sudo
 RUN apt-get install -y unzip
 RUN apt-get install -y zip
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 
+# install XRT
+RUN wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb
+RUN apt install -y /tmp/$XRT_DEB_VERSION.deb
+RUN rm /tmp/$XRT_DEB_VERSION.deb
+
+# versioned Python package requirements for FINN compiler
+# these are given in requirements.txt
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 RUN rm requirements.txt
+# extra Python package dependencies (for testing and interaction)
 RUN pip install pygments==2.4.1
+RUN pip install ipykernel==5.5.5
 RUN pip install jupyter==1.0.0
 RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1
@@ -71,67 +78,80 @@ RUN pip install sphinx==3.1.2
 RUN pip install sphinx_rtd_theme==0.5.0
 RUN pip install pytest-xdist==2.0.0
 RUN pip install pytest-parallel==0.1.0
-RUN pip install netron>=4.7.9
+RUN pip install "netron>=5.0.0"
 RUN pip install pandas==1.1.5
 RUN pip install scikit-learn==0.24.1
 RUN pip install tqdm==4.31.1
 RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
+# git-based Python repo dependencies
+# these are installed in editable mode for easier co-development
+ARG FINN_BASE_COMMIT="e8facdd719b55839cca46da2cc4f4a4a372afb41"
+ARG QONNX_COMMIT="9f9eff95227cc57aadc6eafcbd44b7acda89f067"
+ARG FINN_EXP_COMMIT="af6102769226b82b639f243dc36f065340991513"
+ARG BREVITAS_COMMIT="a5b71d6de1389d3e7db898fef72e014842670f03"
+ARG PYVERILATOR_COMMIT="0c3eb9343500fc1352a02c020a736c8c2db47e8e"
+ARG CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
+ARG HLSLIB_COMMIT="966d17d3fddd801927b2167627d23a9a15ed1461"
+ARG OMX_COMMIT="1dfc4aa2f2895632742cd5751520c6b472feb74e"
+ARG AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 
-# switch user
-RUN groupadd -g $GID $GNAME
-RUN useradd -M -u $UID $UNAME -g $GNAME
-RUN usermod -aG sudo $UNAME
-RUN echo "$UNAME:$PASSWD" | chpasswd
-RUN echo "root:$PASSWD" | chpasswd
-RUN chown -R $UNAME:$GNAME /workspace
-RUN ln -s /workspace /home/$UNAME
-USER $UNAME
-
-
-# cloning dependency repos (as user)
 # finn-base
 RUN git clone https://github.com/Xilinx/finn-base.git /workspace/finn-base
+RUN git -C /workspace/finn-base checkout $FINN_BASE_COMMIT
+RUN pip install -e /workspace/finn-base
+# Install qonnx without dependencies, currently its only dependency is finn-base
+RUN git clone https://github.com/fastmachinelearning/qonnx.git /workspace/qonnx
+RUN git -C /workspace/qonnx checkout $QONNX_COMMIT
+RUN pip install --no-dependencies -e /workspace/qonnx
 # finn-experimental
 RUN git clone https://github.com/Xilinx/finn-experimental.git /workspace/finn-experimental
-# Brevitas
+RUN git -C /workspace/finn-experimental checkout $FINN_EXP_COMMIT
+RUN pip install -e /workspace/finn-experimental
+# brevitas
 RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
-# CNPY
+RUN git -C /workspace/brevitas checkout $BREVITAS_COMMIT
+RUN pip install -e /workspace/brevitas
+# pyverilator
+RUN git clone https://github.com/maltanar/pyverilator.git /workspace/pyverilator
+RUN git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT
+RUN pip install -e /workspace/pyverilator
+# other git-based dependencies (non-Python)
+# cnpy
 RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
-# FINN hlslib
+RUN git -C /workspace/cnpy checkout $CNPY_COMMIT
+# finn-hlslib
 RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
-# PyVerilator
-RUN git clone https://github.com/maltanar/pyverilator /workspace/pyverilator
+RUN git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT
 # oh-my-xilinx
 RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
+RUN git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT
+# board files
+RUN cd /tmp; \
+    wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip; \
+    wget -q https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip; \
+    unzip -q pynq-z1.zip; \
+    unzip -q pynq-z2.zip; \
+    mkdir /workspace/board_files; \
+    mv pynq-z1/ /workspace/board_files/; \
+    mv pynq-z2/ /workspace/board_files/; \
+    rm pynq-z1.zip; \
+    rm pynq-z2.zip; \
+    git clone https://github.com/Avnet/bdf.git /workspace/avnet-bdf; \
+    git -C /workspace/avnet-bdf checkout  $AVNET_BDF_COMMIT; \
+    mv /workspace/avnet-bdf/* /workspace/board_files/;
 
-# for this developer-oriented Docker container we assume the FINN repo is cloned and mounted from the host
-# at /workspace/finn -- see run-docker.sh for an example of how to do this.
-ENV PATH "${PATH}:/workspace/oh-my-xilinx:/home/$UNAME/.local/bin"
+
+# extra environment variables for FINN compiler
+ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
+ENV PATH "${PATH}:/workspace/oh-my-xilinx"
 ENV OHMYXILINX "/workspace/oh-my-xilinx"
 
-WORKDIR /home/$UNAME/finn
-RUN echo "PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '" >>  /home/$UNAME/.bashrc
-RUN echo "source \$VIVADO_PATH/settings64.sh" >> /home/$UNAME/.bashrc
+WORKDIR /workspace/finn
 
-# copy entrypoint script
-USER root
 COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
-# install vitis deps if required
-ARG INSTALL_XRT_DEPS
-ARG XRT_DEB_VERSION
-RUN if [ "$INSTALL_XRT_DEPS" = "1" ] ; then \
-    echo "Installing XRT: $XRT_DEB_VERSION"; \
-    wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb; \
-    apt install -y /tmp/$XRT_DEB_VERSION.deb; \
-  else \
-    echo "Skipping installation of XRT dependencies"; \
-  fi
-
-USER $UNAME
-
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]

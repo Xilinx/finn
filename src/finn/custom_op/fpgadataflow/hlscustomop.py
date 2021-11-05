@@ -27,22 +27,24 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 # namespace package, extend path
 
-from abc import abstractmethod
 import numpy as np
 import os
 import subprocess
+from abc import abstractmethod
+
 from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
+    get_rtlsim_trace_depth,
     make_build_dir,
     roundup_to_integer_multiple,
-    get_rtlsim_trace_depth,
 )
+from finn.util.hls import CallHLS
 from finn.util.pyverilator import (
     pyverilate_get_liveness_threshold_cycles,
     rtlsim_multi_io,
 )
-from finn.util.hls import CallHLS
+
 from . import templates
 
 try:
@@ -289,6 +291,7 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$HWSRCDIR$"] = [code_gen_dir]
         self.code_gen_dict["$FPGAPART$"] = [fpgapart]
         self.code_gen_dict["$FINNHLSLIBDIR$"] = ["/workspace/finn-hlslib"]
+        self.code_gen_dict["$FINNHLSCUSTOMDIR$"] = ["/workspace/finn/custom_hls"]
         self.code_gen_dict["$TOPFXN$"] = [node.name]
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
@@ -372,6 +375,7 @@ class HLSCustomOp(CustomOp):
         builder.append_includes("-I/workspace/finn/src/finn/qnn-data/cpp")
         builder.append_includes("-I/workspace/cnpy/")
         builder.append_includes("-I/workspace/finn-hlslib")
+        builder.append_includes("-I/workspace/finn/custom_hls")
         builder.append_includes("-I{}/include".format(os.environ["VIVADO_PATH"]))
         builder.append_includes("--std=c++11")
         builder.append_includes("-O3")

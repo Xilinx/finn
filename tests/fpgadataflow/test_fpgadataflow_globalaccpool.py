@@ -27,23 +27,23 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import numpy as np
 
+import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
-from finn.custom_op.registry import getCustomOp
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_accpool_modelwrapper(ch, pe, idim, idt):
@@ -78,7 +78,7 @@ def prepare_inputs(input_tensor, idt):
 
 
 # data type
-@pytest.mark.parametrize("idt", [DataType.UINT4, DataType.UINT16])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT16"]])
 # channels
 @pytest.mark.parametrize("ch", [64])
 # folding
@@ -127,7 +127,7 @@ def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
         # commented out, needs performance debug:
-        # test_fpgadataflow_globalaccpool[rtlsim-7-1-64-DataType.UINT4]
+        # test_fpgadataflow_globalaccpool[rtlsim-7-1-64-DataType["UINT4"]]
         # assert False where False =
         # <function isclose at 0x7eff26d5ca60>(50, 103, atol=(0.1 * 103))
         # assert np.isclose(exp_cycles, cycles_rtlsim, atol=0.1 * cycles_rtlsim)

@@ -31,42 +31,38 @@ from pkgutil import extend_path
 __path__ = extend_path(__path__, __name__)
 
 from finn.transformation.base import Transformation
-from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.batchnorm_to_affine import BatchNormToAffine
 from finn.transformation.general import (
-    ConvertSubToAdd,
     ConvertDivToMul,
+    ConvertSubToAdd,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
 )
-
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.remove import RemoveIdentityOps
 from finn.transformation.streamline.absorb import (
+    Absorb1BitMulIntoConv,
+    Absorb1BitMulIntoMatMul,
     AbsorbAddIntoMultiThreshold,
     AbsorbMulIntoMultiThreshold,
-    FactorOutMulSignMagnitude,
-    Absorb1BitMulIntoMatMul,
-    Absorb1BitMulIntoConv,
     AbsorbSignBiasIntoMultiThreshold,
+    FactorOutMulSignMagnitude,
 )
-
 from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedAdd,
     CollapseRepeatedMul,
 )
-
 from finn.transformation.streamline.reorder import (
-    MoveAddPastMul,
-    MoveScalarMulPastMatMul,
-    MoveScalarAddPastMatMul,
     MoveAddPastConv,
-    MoveScalarMulPastConv,
+    MoveAddPastMul,
     MoveMulPastMaxPool,
+    MoveScalarAddPastMatMul,
     MoveScalarLinearPastInvariants,
+    MoveScalarMulPastConv,
+    MoveScalarMulPastMatMul,
 )
-
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.transformation.streamline.sign_to_thres import ConvertSignToThres
-from finn.transformation.batchnorm_to_affine import BatchNormToAffine
-from finn.transformation.streamline.remove import RemoveIdentityOps
 
 
 class Streamline(Transformation):
