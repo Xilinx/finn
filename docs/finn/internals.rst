@@ -4,12 +4,12 @@
 Internals
 *********
 
-Intermediate Representation: FINN-ONNX
-======================================
+Intermediate Representation: QONNX and FINN-ONNX
+================================================
 
 FINN uses `ONNX <https://github.com/onnx/onnx>`_ as an intermediate representation (IR) for neural networks. As such, almost every component inside FINN uses ONNX and its `Python API <https://github.com/onnx/onnx/blob/master/docs/PythonAPIOverview.md>`_, so you may want to familiarize yourself with how ONNX represents DNNs. Specifically, the `ONNX protobuf description <https://github.com/onnx/onnx/blob/master/onnx/onnx.proto>`_ (or its `human-readable documentation <https://github.com/onnx/onnx/blob/master/docs/IR.md>`_ and the `operator schemas <https://github.com/onnx/onnx/blob/master/docs/Operators.md>`_ are useful as reference documents. We also provide a Jupyter notebook that can help to get familiar with ONNX by showing how to work with a simple ONNX model in FINN, see chapter :ref:`tutorials` for details.
 
-.. note:: FINN uses ONNX is a specific way that we refer to as FINN-ONNX, and not all ONNX graphs are supported by FINN (and vice versa).
+.. note:: FINN supports two specialized variants of ONNX called QONNX and FINN-ONNX, and not all ONNX graphs are supported by FINN (and vice versa).
 
 Custom Quantization Annotations
 ===============================
