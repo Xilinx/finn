@@ -13,9 +13,9 @@ and the [hls4ml](https://fastmachinelearning.org/hls4ml/) team.
 
 ### But what even is QONNX?
 
-<a href="https://netron.app/?url=https://raw.githubusercontent.com/fastmachinelearning/QONNX_model_zoo/main/models/MNIST/Brevitas_FINN_TFC/TFC/TFC_1W2A.onnx" target="_blank">
-<img src="https://xilinx.github.io/finn/img/TFC_1W2A.onnx.png" align="right"/>
-</a>
+*Interactive visualization of the TFC-w1a2 model in Netron below*
+<iframe src="https://netron.app/?url=https://raw.githubusercontent.com/fastmachinelearning/QONNX_model_zoo/main/models/MNIST/Brevitas_FINN_TFC/TFC/TFC_1W2A.onnx" width="400" height=400" style="border:none;">
+</iframe>
 
 Today, the ONNX standard itself only supports down to 8-bit quantization, whereas QONNX supports expressing down to 1-bit quantization for both weights and activations.
 At its core QONNX is standard ONNX with three additional node types that enable flexible expression of quantized networks. These are the following:
