@@ -23,6 +23,13 @@ finn.analysis.base
    :undoc-members:
    :show-inheritance:
 
+finn.analysis.inference\_cost
+-----------------------------
+
+.. automodule:: finn.analysis.inference_cost
+   :members:
+   :undoc-members:
+   :show-inheritance:
 
 finn.analysis.topology
 -----------------------------

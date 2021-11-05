@@ -32,7 +32,8 @@ from finn.util.basic import is_finn_op
 
 def verify_nodes(model):
     """Checks if custom ops in graph are correctly built, with all attributes
-    and inputs.
+    and inputs. Please note that many FINN CustomOps don't yet implement the
+    verify_node function required for this analysis pass to work correctly.
 
     Returns {node op_type : info_messages}
 
