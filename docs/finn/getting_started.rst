@@ -28,7 +28,7 @@ In general, the approach for using the FINN framework is as follows:
 
 1. Train your own quantized neural network (QNN) in `Brevitas <https://github.com/Xilinx/brevitas>`_. We have some `guidelines <https://bit.ly/finn-hls4ml-qat-guidelines>`_ on quantization-aware training (QAT).
 2. Export to FINN-ONNX by following `this tutorial <https://github.com/Xilinx/finn/blob/master/notebooks/basics/1_brevitas_network_import.ipynb>`_ .
-3. Use FINN's ``build_dataflow`` system on the exported model by following `this tutorial <https://github.com/Xilinx/finn/blob/master/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_
+3. Use FINN's ``build_dataflow`` system on the exported model by following this `tutorial <https://github.com/Xilinx/finn/blob/master/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_
 4. Adjust your QNN topology, quantization settings and ``build_dataflow`` configuration to get the desired results.
 
 Please note that the framework is still under development, and how well this works will depend on how similar your custom network is to the examples we provide.
