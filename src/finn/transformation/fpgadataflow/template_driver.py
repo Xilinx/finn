@@ -119,6 +119,8 @@ if __name__ == "__main__":
         for ifn in inputfile:
             ibuf_normal.append(np.load(ifn))
         obuf_normal = accel.execute(ibuf_normal)
+        if not isinstance(obuf_normal, list):
+            obuf_normal = [obuf_normal]
         for o, obuf in enumerate(obuf_normal):
             np.save(outputfile[o], obuf)
     elif exec_mode == "throughput_test":
