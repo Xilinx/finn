@@ -350,7 +350,6 @@ class QuantReluHandler(QuantActBaseHandler):
         if thresholds.shape != final_shape:
             thresholds = np.broadcast_to(thresholds, final_shape)
 
-        print(f"{thresholds.dtype=}")
         return thresholds
 
     def _calculate_act_scale(self):
