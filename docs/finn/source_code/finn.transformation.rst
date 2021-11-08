@@ -11,6 +11,7 @@ Submodules
    :maxdepth: 2
 
    finn.transformation.fpgadataflow
+   finn.transformation.qonnx
    finn.transformation.streamline
 
 Transformation Passes
@@ -40,6 +41,14 @@ finn.transformation.bipolar\_to\_xnor
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.change\_3d\_tensors\_to\_4d
+------------------------------------------------
+
+.. automodule:: finn.transformation.change_3d_tensors_to_4d
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 finn.transformation.change\_datalayout
 --------------------------------------------
 
@@ -48,6 +57,13 @@ finn.transformation.change\_datalayout
   :undoc-members:
   :show-inheritance:
 
+finn.transformation.create\_generic\_partitions
+------------------------------------------------
+
+.. automodule:: finn.transformation.create_generic_partitions
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 finn.transformation.double\_to\_single\_float
 ----------------------------------------------------
@@ -57,10 +73,35 @@ finn.transformation.double\_to\_single\_float
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.extend\_partition
+------------------------------------------
+
+.. automodule:: finn.transformation.extend_partition
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.transformation.extract\_conv\_bias
+------------------------------------------
+
+.. automodule:: finn.transformation.extract_conv_bias
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.transformation.fold\_constants
 ------------------------------------------
 
 .. automodule:: finn.transformation.fold_constants
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.transformation.gemm\_to\_matmul
+------------------------------------------
+
+.. automodule:: finn.transformation.gemm_to_matmul
    :members:
    :undoc-members:
    :show-inheritance:
@@ -113,6 +154,13 @@ finn.transformation.lower\_convs\_to\_matmul
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.make\_input\_chanlast
+------------------------------------------
+
+.. automodule:: finn.transformation.make_input_chanlast
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 finn.transformation.merge\_onnx\_models
 ----------------------------------------
@@ -130,3 +178,11 @@ finn.transformation.move\_reshape
    :members:
    :undoc-members:
    :show-inheritance:
+
+finn.transformation.remove
+-------------------------------------
+
+.. automodule:: finn.transformation.remove
+  :members:
+  :undoc-members:
+  :show-inheritance:

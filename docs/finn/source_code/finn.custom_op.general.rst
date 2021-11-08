@@ -5,10 +5,26 @@ Custom Op - General
 General Custom Ops
 ===================
 
+finn.custom\_op.general.bipolar_quant
+--------------------------------------
+
+.. automodule:: finn.custom_op.general.bipolar_quant
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.custom\_op.general.debugmarker
 -----------------------------------
 
 .. automodule:: finn.custom_op.general.debugmarker
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.general.genericpartition
+-----------------------------------------
+
+.. automodule:: finn.custom_op.general.genericpartition
    :members:
    :undoc-members:
    :show-inheritance:
@@ -37,6 +53,14 @@ finn.custom\_op.general.multithreshold
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.general.quant
+------------------------------
+
+.. automodule:: finn.custom_op.general.quant
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 finn.custom\_op.general.quantavgpool2d
 --------------------------------------
 
@@ -45,13 +69,13 @@ finn.custom\_op.general.quantavgpool2d
   :undoc-members:
   :show-inheritance:
 
-finn.custom\_op.general.streamingdataflowpartition
----------------------------------------------------
+finn.custom\_op.general.trunc
+------------------------------
 
-.. automodule:: finn.custom_op.general.streamingdataflowpartition
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. automodule:: finn.custom_op.general.trunc
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 finn.custom\_op.general.xnorpopcount
 -------------------------------------

@@ -7,7 +7,7 @@ Developer documentation
 This page is intended to serve as a starting point for new FINN developers.
 Power users may also find this information useful.
 
-Getting started
+Prerequisites
 ================
 
 Before starting to do development on FINN it's a good idea to start

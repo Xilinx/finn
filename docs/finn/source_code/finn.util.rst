@@ -72,6 +72,15 @@ finn.util.onnx
    :undoc-members:
    :show-inheritance:
 
+finn.util.platforms
+--------------------
+
+.. automodule:: finn.util.platforms
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.util.pytorch
 ------------------
 

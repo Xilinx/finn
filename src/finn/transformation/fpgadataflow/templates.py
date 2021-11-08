@@ -119,6 +119,7 @@ if {$BOARD == "ZCU104"} {
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Pynq-Z2"} {
     set ZYNQ_TYPE "zynq_7000"
+    set_property board_part tul.com.tw:pynq-z2:part0:1.0 [current_project]
 } elseif {$BOARD == "Pynq-Z1"} {
     set ZYNQ_TYPE "zynq_7000"
     set_property board_part www.digilentinc.com:pynq-z1:part0:1.0 [current_project]

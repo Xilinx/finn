@@ -62,6 +62,14 @@ finn.transformation.fpgadataflow.create\_stitched\_ip
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.fpgadataflow.externalize\_params
+------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.externalize_params
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.transformation.fpgadataflow.floorplan
 ----------------------------------------------------
 

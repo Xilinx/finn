@@ -44,7 +44,6 @@ from finn.transformation.fpgadataflow.floorplan import Floorplan
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.insert_tlastmarker import InsertTLastMarker
-from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
@@ -363,11 +362,6 @@ def test_fpgadataflow_ipstitch_zynqbuild(board):
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
-    # generate inputs for remote exec
-    iname = "inp"
-    idt = model.get_tensor_datatype(iname)
-    ishape = model.get_tensor_shape(iname)
-    x = gen_finn_dt_tensor(idt, ishape)
     # bitfile using ZynqBuild
     model = model.transform(ZynqBuild(board, 10))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_customzynq.onnx")
@@ -375,22 +369,3 @@ def test_fpgadataflow_ipstitch_zynqbuild(board):
     bitfile_name = model.get_metadata_prop("bitfile")
     assert bitfile_name is not None
     assert os.path.isfile(bitfile_name)
-    # deployment
-    try:
-        ip = os.environ["PYNQ_IP"]  # no default for this one; skip if not defined
-        if ip == "":
-            pytest.skip("PYNQ board IP address not specified")
-        username = os.getenv("PYNQ_USERNAME", "xilinx")
-        password = os.getenv("PYNQ_PASSWORD", "xilinx")
-        port = os.getenv("PYNQ_PORT", 22)
-        target_dir = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
-        model = model.transform(DeployToPYNQ(ip, port, username, password, target_dir))
-        deployment_dir = model.get_metadata_prop("pynq_deploy_dir")
-        assert deployment_dir is not None
-        assert os.path.isdir(deployment_dir)
-        # remote exec
-        input_dict = {"global_in": x}
-        outp = execute_onnx(model, input_dict)
-        assert np.isclose(outp["global_out"], x).all()
-    except KeyError:
-        pytest.skip("PYNQ board IP address not specified")

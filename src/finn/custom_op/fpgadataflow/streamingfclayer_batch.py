@@ -1013,10 +1013,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         if var == "ipgen":
             SIMD = self.get_nodeattr("SIMD")
             MW = self.get_nodeattr("MW")
-            condition = SIMD > (MW / 1024)
+            condition = SIMD >= (MW / 1024)
             msg = (
                 f"HLS synthesis of StreamingFCLayer_Batch requires: "
-                f"SIMD > MW / 1024. This is not fulfilled with: SIMD={SIMD} "
+                f"SIMD >= MW / 1024. This is not fulfilled with: SIMD={SIMD} "
                 f"and MW={MW} for node: {self.onnx_node.name}."
             )
             assert condition, msg
