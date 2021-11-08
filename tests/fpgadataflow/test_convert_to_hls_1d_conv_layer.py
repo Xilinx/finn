@@ -62,6 +62,7 @@ from finn.util.basic import gen_finn_dt_tensor
         [[0, 0, 0, 0], [4, 1], [1, 1], [1, 1]],
         [[1, 0, 1, 0], [4, 1], [1, 1], [1, 1]],
         [[1, 0, 1, 0], [4, 1], [2, 1], [1, 1]],
+        [[1, 0, 1, 0], [3, 1], [3, 1], [1, 1]],
         # [[1, 0, 1, 0], [4, 1], [1, 1], [2, 1]]
     ],
 )
@@ -163,7 +164,7 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, exec_mode):
     elif exec_mode == "rtlsim":
         new_model = new_model.transform(SetExecMode("rtlsim"))
         new_model = new_model.transform(GiveUniqueNodeNames())
-        new_model = new_model.transform(PrepareIP("xc7z020clg400-1", 5))
+        new_model = new_model.transform(PrepareIP("xc7z020clg400-1", 10))
         new_model = new_model.transform(HLSSynthIP())
         new_model = new_model.transform(PrepareRTLSim())
     else:

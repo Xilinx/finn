@@ -213,16 +213,13 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
     def use_parallel_window_output(self):
         # Check if simple "ConvolutionInputGenerator_1D_parallel" variant can be used to
         # feed window in parallel to the following layer, enabling full SIMD unfolding.
-        stride = self.get_nodeattr("Stride")
         dilation = self.get_nodeattr("Dilation")
-        stride_h, stride_w = stride
         dilation_h, dilation_w = dilation
 
         if self.get_nodeattr("SIMD") == self.get_nodeattr("IFMChannels"):
             if self.get_nodeattr("depthwise") == 0:
-                if stride_h == 1 and stride_w == 1:
-                    if dilation_h == 1 and dilation_w == 1:
-                        return True
+                if dilation_h == 1 and dilation_w == 1:
+                    return True
 
         return False
 
@@ -246,7 +243,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         mmv = 1
         # see https://github.com/Xilinx/finn-hlslib/blob/master/slidingwindow.h
         if self.use_parallel_window_output():
-            exp_cycles = k_w + ofm_dim_w
+            exp_cycles = ifm_dim_w + 1
         else:
             cycles_write_block = (ofm_dim_w * k_w * k_h * (ifm_ch / simd)) / mmv
             cycles_read_block = stride_w * ifm_dim_w * (ifm_ch / simd)
