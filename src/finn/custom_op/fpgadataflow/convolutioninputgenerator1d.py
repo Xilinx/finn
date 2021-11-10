@@ -265,6 +265,8 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         k = np.prod(self.get_nodeattr("ConvKernelDim"))
         stride = np.prod(self.get_nodeattr("Stride"))
         ram_style = self.get_nodeattr("ram_style")
+        if self.use_parallel_window_output():
+            return 0
         if ram_style == "block" or ram_style == "auto":
             ram_depth = ifm_dim * ifm_ch / simd
             if ram_depth <= 512:
@@ -297,7 +299,11 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         k = np.prod(self.get_nodeattr("ConvKernelDim"))
         stride = np.prod(self.get_nodeattr("Stride"))
         ram_style = self.get_nodeattr("ram_style")
-        if ram_style == "distributed":
+        if self.use_parallel_window_output():
+            ram_luts = math.ceil(
+                (simd * self.get_input_datatype().bitwidth() * (k + 1)) / 64
+            )
+        elif ram_style == "distributed":
             ram_luts = int(
                 (k + stride)
                 * (
@@ -325,7 +331,9 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         stride_y, stride_x = stride
         ram_style = self.get_nodeattr("ram_style")
         simd = self.get_nodeattr("SIMD")
-        if ram_style == "ultra":
+        if self.use_parallel_window_output():
+            return 0
+        elif ram_style == "ultra":
             block_mul = 2
             width_mul = math.ceil(simd * self.get_input_datatype().bitwidth() / 64)
             depth_mul = math.ceil(stride_x * ifm_dim_x * (ifm_ch // simd) / 4096)
