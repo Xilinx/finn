@@ -145,11 +145,16 @@ class InsertFIFO(Transformation):
                     first_node.op_type != "StreamingFIFO"
                     and first_node.op_type != "IODMA"
                 ):
-                    n_input = first_node.input[0]
+                    inp_ind = list(first_node.input).index(graph_in_name)
+                    n_input = first_node.input[inp_ind]
                     n0 = getCustomOp(first_node)
                     # determine fifo node attributes
-                    fld_shape = n0.get_folded_input_shape()
-                    dtype = n0.get_input_datatype()
+                    if inp_ind == 0:
+                        fld_shape = n0.get_folded_input_shape()
+                        dtype = n0.get_input_datatype()
+                    else:
+                        fld_shape = n0.get_folded_input_shape(inp_ind)
+                        dtype = n0.get_input_datatype(inp_ind)
                     fifo_depth = n0.get_nodeattr("inFIFODepth")
 
                     if fifo_depth <= 2:
@@ -179,7 +184,7 @@ class InsertFIFO(Transformation):
                     graph.node.insert(0, fifo_node)
 
                     # set fifo output tensor as new input tensor of second node
-                    first_node.input[0] = fifo_output_tensor.name
+                    first_node.input[inp_ind] = fifo_output_tensor.name
 
             # insert FIFO as last node, except when last node is DMA
             graph_out_names = [x.name for x in model.graph.output]
