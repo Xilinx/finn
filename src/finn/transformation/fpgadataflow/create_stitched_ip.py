@@ -331,7 +331,10 @@ class CreateStitchedIP(Transformation):
             tcl.append("write_verilog -force -mode synth_stub %s.v" % block_name)
             tcl.append("write_checkpoint %s.dcp" % block_name)
             tcl.append("write_xdc %s.xdc" % block_name)
-            tcl.append("report_utilization -file %s_partition_util.rpt" % block_name)
+            tcl.append(
+                "report_utilization -hierarchical -hierarchical_depth 5 "
+                "-file %s_partition_util.rpt" % block_name
+            )
         # export block design itself as an IP core
         block_vendor = "xilinx_finn"
         block_library = "finn"
