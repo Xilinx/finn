@@ -150,7 +150,14 @@ class StreamingConcat(HLSCustomOp):
         impl_hls_code.append("for(unsigned int i = 0; i < numReps; i++) {")
         impl_hls_code.append("#pragma HLS PIPELINE II=1")
         impl_hls_code.append("ap_uint<%d> out_elem;" % total_bw)
+        # FIXME: the order of streams for concatenation works out differently
+        # for cppsim vs rtlsim, addressed via reversing the order of commands
+        # for now
+        impl_hls_code.append("#ifdef __SYNTHESIS__")
+        impl_hls_code.append("out_elem = (" + ",".join(commands[::-1]) + ");")
+        impl_hls_code.append("#else")
         impl_hls_code.append("out_elem = (" + ",".join(commands) + ");")
+        impl_hls_code.append("#endif")
         impl_hls_code.append("out.write(out_elem);")
         impl_hls_code.append("}")
         impl_hls_code.append("}")
@@ -211,7 +218,7 @@ class StreamingConcat(HLSCustomOp):
                     "%s/input_%d.npy" % (code_gen_dir, i),
                     export_idt,
                     nbits,
-                    reverse_inner=False,
+                    reverse_inner=True,
                 )
                 io_dict["inputs"]["in%d" % i] = rtlsim_inp
             super().reset_rtlsim(sim)
@@ -231,7 +238,7 @@ class StreamingConcat(HLSCustomOp):
                 out_shape,
                 packed_bits,
                 target_bits,
-                reverse_inner=False,
+                reverse_inner=True,
             )
             # load and reshape output
             output = np.load(out_npy_path)
