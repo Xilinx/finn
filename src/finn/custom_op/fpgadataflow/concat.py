@@ -102,7 +102,8 @@ class StreamingConcat(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
+        # input dt identical for all inputs
         return DataType[self.get_nodeattr("inputDataType")]
 
     def get_output_datatype(self):
