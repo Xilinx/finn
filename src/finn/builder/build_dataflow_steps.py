@@ -451,7 +451,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             InsertAndSetFIFODepths(
                 cfg._resolve_fpga_part(),
                 cfg._resolve_hls_clk_period(),
-                vivado_ram_style=cfg.large_fifo_mem_style.value,
+                vivado_ram_style=cfg.large_fifo_mem_style,
             )
         )
     else:
