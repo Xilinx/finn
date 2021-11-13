@@ -217,12 +217,13 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         dilation = self.get_nodeattr("Dilation")
         stride_h, stride_w = stride
         dilation_h, dilation_w = dilation
+        ram_style = self.get_nodeattr("ram_style")
 
         if self.get_nodeattr("SIMD") == self.get_nodeattr("IFMChannels"):
             if self.get_nodeattr("depthwise") == 0:
                 if stride_h == 1 and stride_w == 1:
                     if dilation_h == 1 and dilation_w == 1:
-                        return True
+                        return ram_style in ["auto", "distributed"]
 
         return False
 
