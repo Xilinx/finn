@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
 import warnings
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
@@ -154,9 +155,16 @@ class SetFolding(Transformation):
                     pe = node_inst.get_nodeattr("PE")
                     swu_node_inst.set_nodeattr("SIMD", pe)
                 else:
-                    raise Exception(
-                        "Expected SWU on DW op input, found " + swu_node.op_type
-                    )
+                    if op_type == "Vector_Vector_Activate_Batch":
+                        ksize = np.prod(node_inst.get_nodeattr("Kernel"))
+                    elif op_type == "Pool_Batch":
+                        ksize = node_inst.get_nodeattr("KernelSize")
+                    else:
+                        raise Exception("Undefined edge case for %s" % op_type)
+                    if ksize != 1:  # pointwise vvau/pool lack a SWU
+                        raise Exception(
+                            "Expected SWU on DW op input, found " + swu_node.op_type
+                        )
             elif op_type in simd_ops:
                 if op_type == "ConvolutionInputGenerator":
                     depthwise = node_inst.get_nodeattr("depthwise")

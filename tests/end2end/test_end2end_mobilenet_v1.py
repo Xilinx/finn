@@ -62,9 +62,9 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.insert_topk import InsertTopK
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.merge_onnx_models import MergeONNXModels
+from finn.transformation.remove import RemoveIdentityOps
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
-from finn.transformation.streamline.remove import RemoveIdentityOps
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.basic import alveo_default_platform, alveo_part_map
 from finn.util.pytorch import NormalizePreProc
@@ -97,7 +97,9 @@ def test_end2end_mobilenet_export():
     bo.export_finn_onnx(preproc, (1, 3, 224, 224), preproc_onnx)
     preproc_model = ModelWrapper(preproc_onnx)
     # set input finn datatype to UINT8
-    preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType.UINT8)
+    preproc_model.set_tensor_datatype(
+        preproc_model.graph.input[0].name, DataType["UINT8"]
+    )
     preproc_model = preproc_model.transform(InferShapes())
     preproc_model = preproc_model.transform(FoldConstants())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
@@ -198,6 +200,7 @@ def test_end2end_mobilenet_lowering():
     )
     model = model.transform(LowerConvsToMatMul())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+    model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(InferDataTypes())

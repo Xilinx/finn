@@ -29,7 +29,6 @@
 import math
 import numpy as np
 import os
-from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -128,8 +127,12 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, pad, dilation_h)
         ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, pad, dilation_w)
         assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        wf = int((k_h * k_w * ifm_ch) // simd)
-        folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, simd)
+        if self.use_parallel_window_output():
+            wf = int((ifm_ch) // simd)
+            folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, k_h * k_w * simd)
+        else:
+            wf = int((k_h * k_w * ifm_ch) // simd)
+            folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, simd)
         return folded_oshape
 
     def make_shape_compatible_op(self, model):
@@ -137,19 +140,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
         assert ishape == exp_ishape, "Unexpect input shape for ConvInpGen."
-        # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
-        return helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
-        )
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -169,8 +160,6 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_instream_width(self):
-        """Returns stream width, input and output stream width are equal for
-        the sliding window function"""
         ibits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -179,10 +168,13 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         return in_width
 
     def get_outstream_width(self):
-        """Returns stream width, input and output stream width are equal for
-        the sliding window function, so the function to determine the input
-        stream width can be reused."""
-        return self.get_instream_width()
+        if self.use_parallel_window_output():
+            # feed all window pixels in parallel
+            k_h, k_w = self.get_nodeattr("ConvKernelDim")
+            return self.get_instream_width() * k_h * k_w
+        else:
+            # if parallel variant not in use: same width for output and input stream
+            return self.get_instream_width()
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
@@ -218,6 +210,22 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
 
         return (ifm_ch, ifm_dim, ofm_dim, k, stride, dilation)
 
+    def use_parallel_window_output(self):
+        # Check if simple "ConvolutionInputGenerator_1D_parallel" variant can be used to
+        # feed window in parallel to the following layer, enabling full SIMD unfolding.
+        stride = self.get_nodeattr("Stride")
+        dilation = self.get_nodeattr("Dilation")
+        stride_h, stride_w = stride
+        dilation_h, dilation_w = dilation
+
+        if self.get_nodeattr("SIMD") == self.get_nodeattr("IFMChannels"):
+            if self.get_nodeattr("depthwise") == 0:
+                if stride_h == 1 and stride_w == 1:
+                    if dilation_h == 1 and dilation_w == 1:
+                        return True
+
+        return False
+
     def get_exp_cycles(self):
         simd = self.get_nodeattr("SIMD")
         (
@@ -237,12 +245,15 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
         # see https://github.com/Xilinx/finn-hlslib/blob/master/slidingwindow.h
-        cycles_write_block = (ofm_dim_w * k_w * k_h * (ifm_ch / simd)) / mmv
-        cycles_read_block = stride_w * ifm_dim_w * (ifm_ch / simd)
-        max_cycles = max(cycles_write_block, cycles_read_block)
-        exp_cycles = (
-            ifm_dim_w * k_h * dilation_h * (ifm_ch / simd) + ofm_dim_h * max_cycles
-        )
+        if self.use_parallel_window_output():
+            exp_cycles = k_w + ofm_dim_w
+        else:
+            cycles_write_block = (ofm_dim_w * k_w * k_h * (ifm_ch / simd)) / mmv
+            cycles_read_block = stride_w * ifm_dim_w * (ifm_ch / simd)
+            max_cycles = max(cycles_write_block, cycles_read_block)
+            exp_cycles = (
+                ifm_dim_w * k_h * dilation_h * (ifm_ch / simd) + ofm_dim_h * max_cycles
+            )
 
         return int(exp_cycles)
 
@@ -345,10 +356,10 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             inp.shape == exp_ishape
         ), """Input shape doesn't
         match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
-        if self.get_input_datatype() == DataType.BIPOLAR:
+        if self.get_input_datatype() == DataType["BIPOLAR"]:
             # store bipolar activations as binary
             inp = (inp + 1) / 2
-            export_idt = DataType.BINARY
+            export_idt = DataType["BINARY"]
         else:
             export_idt = self.get_input_datatype()
         # reshape input into folded form
@@ -396,7 +407,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
                 )
             )
         # binary -> bipolar if needed
-        if self.get_output_datatype() == DataType.BIPOLAR:
+        if self.get_output_datatype() == DataType["BIPOLAR"]:
             out = context[node.output[0]]
             out = 2 * out - 1
             context[node.output[0]] = out
@@ -502,9 +513,9 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -535,46 +546,56 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             "ultra": "ap_resource_uram()",
         }
         hls_ram_style = map_to_hls_ram_style[ram_style]
-        hls_call = "ConvolutionInputGenerator"
-        # check which ConvolutionInputGenerator is needed
-        dilation_h, dilation_w = self.get_nodeattr("Dilation")
 
-        hls_call += "_NonSquare"
-        if dilation_h > 1 or dilation_w > 1:
-            hls_call += "_Dilated"
-            if self.get_nodeattr("depthwise") == 1:
-                hls_call += "_dws"
+        # check which ConvolutionInputGenerator is needed
+        if self.use_parallel_window_output():
+            hls_call = "ConvolutionInputGenerator_1D_parallel"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1, Input_precision1,
-                IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y, SIMD1, Stride1_x, Stride1_y,
-                Dilation1_x, Dilation1_y> (in0, out, numReps, {});""".format(
-                    hls_call, hls_ram_style
-                )
-            ]
-        elif self.get_nodeattr("depthwise") == 1:
-            hls_call += "_dws"
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1, Input_precision1,
-                IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y, SIMD1, Stride1_x, Stride1_y>
+                """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
+                IFMDim1_x, OFMDim1_x, SIMD1, Stride1_x>
                 (in0, out, numReps, {});""".format(
                     hls_call, hls_ram_style
                 )
             ]
         else:
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1, Input_precision1,
-                IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y, SIMD1, Stride1_x, Stride1_y>
-                (in0, out, numReps, {});""".format(
-                    hls_call, hls_ram_style
-                )
-            ]
+            hls_call = "ConvolutionInputGenerator_NonSquare"
+            dilation_h, dilation_w = self.get_nodeattr("Dilation")
+            if dilation_h > 1 or dilation_w > 1:
+                hls_call += "_Dilated"
+                if self.get_nodeattr("depthwise") == 1:
+                    hls_call += "_dws"
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1,
+                    Input_precision1, IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y,
+                    SIMD1, Stride1_x, Stride1_y, Dilation1_x, Dilation1_y>
+                    (in0, out, numReps, {});""".format(
+                        hls_call, hls_ram_style
+                    )
+                ]
+            elif self.get_nodeattr("depthwise") == 1:
+                hls_call += "_dws"
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1,
+                    Input_precision1, IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y,
+                    SIMD1, Stride1_x, Stride1_y> (in0, out, numReps, {});""".format(
+                        hls_call, hls_ram_style
+                    )
+                ]
+            else:
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1,
+                    Input_precision1, IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y,
+                    SIMD1, Stride1_x, Stride1_y> (in0, out, numReps, {});""".format(
+                        hls_call, hls_ram_style
+                    )
+                ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -583,9 +604,16 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         npy_out = "%s/output.npy" % code_gen_dir
         oshape = self.get_folded_output_shape()
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
+        if self.use_parallel_window_output():
+            # pass the number of pixels in the folded output to apintstream2npy, needed
+            # to unpack the ouput correctly and reverse only the inner SIMD dimension
+            k_h, k_w = self.get_nodeattr("ConvKernelDim")
+            multi_pixel_out = k_h * k_w
+        else:
+            multi_pixel_out = 1
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", true, 1, %d);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -593,6 +621,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
                 npy_type,
                 oshape_cpp_str,
                 npy_out,
+                multi_pixel_out,
             )
         ]
 
@@ -600,12 +629,21 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0,
-                hls::stream<ap_uint<SIMD1*Input_precision1>> &out)""".format(
-                self.onnx_node.name
-            )
-        ]
+        if self.use_parallel_window_output():
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0,
+                    hls::stream<ap_uint<ConvKernelDim1_x*SIMD1*Input_precision1>>
+                    &out)""".format(
+                    self.onnx_node.name
+                )
+            ]
+        else:
+            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0,
+                    hls::stream<ap_uint<SIMD1*Input_precision1>> &out)""".format(
+                    self.onnx_node.name
+                )
+            ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]

@@ -89,18 +89,24 @@ RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg
 
 # git-based Python repo dependencies
 # these are installed in editable mode for easier co-development
-ARG FINN_BASE_COMMIT="ac0b86a63eb937b869bfa453a996a8a8b8506546"
-ARG FINN_EXP_COMMIT="f82c0d9868bb88ea045dfadb28508d327d287221"
-ARG BREVITAS_COMMIT="462f86cdc60f9915baf13afd1676fb21da44c2ee"
-ARG PYVERILATOR_COMMIT="e2ff74030de3992dcac54bf1b6aad2915946e8cb"
+ARG FINN_BASE_COMMIT="e8facdd719b55839cca46da2cc4f4a4a372afb41"
+ARG QONNX_COMMIT="9f9eff95227cc57aadc6eafcbd44b7acda89f067"
+ARG FINN_EXP_COMMIT="af6102769226b82b639f243dc36f065340991513"
+ARG BREVITAS_COMMIT="a5b71d6de1389d3e7db898fef72e014842670f03"
+ARG PYVERILATOR_COMMIT="0c3eb9343500fc1352a02c020a736c8c2db47e8e"
 ARG CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
 ARG HLSLIB_COMMIT="6e06b2969dcfebbf963596b51b4fb70c5045acf6"
 ARG OMX_COMMIT="1dfc4aa2f2895632742cd5751520c6b472feb74e"
 ARG AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
+
 # finn-base
 RUN git clone https://github.com/Xilinx/finn-base.git /workspace/finn-base
 RUN git -C /workspace/finn-base checkout $FINN_BASE_COMMIT
 RUN pip install -e /workspace/finn-base
+# Install qonnx without dependencies, currently its only dependency is finn-base
+RUN git clone https://github.com/fastmachinelearning/qonnx.git /workspace/qonnx
+RUN git -C /workspace/qonnx checkout $QONNX_COMMIT
+RUN pip install --no-dependencies -e /workspace/qonnx
 # finn-experimental
 RUN git clone https://github.com/Xilinx/finn-experimental.git /workspace/finn-experimental
 RUN git -C /workspace/finn-experimental checkout $FINN_EXP_COMMIT

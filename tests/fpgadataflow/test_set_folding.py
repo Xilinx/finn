@@ -98,7 +98,8 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
     model.set_tensor_datatype("outp", adt)
 
     for i in range(1, nnodes + 1):
-        model.graph.value_info.append(tensors[i])
+        if tensors[i].name != "outp":
+            model.graph.value_info.append(tensors[i])
         model.set_initializer("weights_" + str(i - 1), W)
         model.set_initializer("thresh_" + str(i - 1), T)
         model.set_tensor_datatype("weights_" + str(i - 1), wdt)
@@ -114,7 +115,7 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
 def test_set_folding(target_fps, platform):
 
     model = make_multi_fclayer_model(
-        128, DataType.INT4, DataType.INT2, DataType.INT16, 5
+        128, DataType["INT4"], DataType["INT2"], DataType["INT16"], 5
     )
 
     model = model.transform(GiveUniqueNodeNames())

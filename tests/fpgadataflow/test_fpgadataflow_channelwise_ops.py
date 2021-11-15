@@ -85,11 +85,11 @@ def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
 
 
 # activation: None or DataType
-@pytest.mark.parametrize("act", [DataType.INT8])
+@pytest.mark.parametrize("act", [DataType["INT8"]])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType["INT4"]])
 # param datatype
-@pytest.mark.parametrize("pdt", [DataType.INT4])
+@pytest.mark.parametrize("pdt", [DataType["INT4"]])
 # folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2])
 # number of input features

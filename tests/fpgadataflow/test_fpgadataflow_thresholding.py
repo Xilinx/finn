@@ -43,6 +43,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -97,9 +98,9 @@ def make_single_thresholding_modelwrapper(T, pe, idt, odt, actval, mem_mode):
 
 
 # activation: None or DataType
-@pytest.mark.parametrize("act", [DataType.INT4, DataType.BIPOLAR])
+@pytest.mark.parametrize("act", [DataType["INT4"], DataType["BIPOLAR"]])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.INT16, DataType.UINT16])
+@pytest.mark.parametrize("idt", [DataType["INT16"], DataType["UINT16"]])
 # folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2, 1])
 # number of input features
@@ -124,12 +125,12 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     T = np.random.randint(idt.min(), idt.max() + 1, (ich, n_steps)).astype(np.float32)
     # make the vivado_hls threshold bug appear (incorrect rtlsim result when first
     # threshold of first channel is zero, while using BIPOLAR output)
-    if act == DataType.BIPOLAR:
+    if act == DataType["BIPOLAR"]:
         T[0][0] = 0
     # provide non-decreasing thresholds
     T = np.sort(T, axis=1)
 
-    if odt == DataType.BIPOLAR:
+    if odt == DataType["BIPOLAR"]:
         actval = 0
     else:
         actval = odt.min()
@@ -153,7 +154,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     input_dict = {"inp": x}
 
     y = multithreshold(x, T)
-    if act == DataType.BIPOLAR:
+    if act == DataType["BIPOLAR"]:
         # binary to bipolar
         y = 2 * y - 1
     else:
@@ -185,8 +186,8 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
 @pytest.mark.vivado
 def test_runtime_thresholds_single_layer():
     mem_mode = "decoupled"
-    act = DataType.INT4
-    idt = DataType.INT16
+    act = DataType["INT4"]
+    idt = DataType["INT16"]
     nf = 8
     ich = 16
     pe = ich // nf
@@ -201,7 +202,7 @@ def test_runtime_thresholds_single_layer():
     # provide non-decreasing thresholds
     T = np.sort(T, axis=1)
 
-    if odt == DataType.BIPOLAR:
+    if odt == DataType["BIPOLAR"]:
         actval = 0
     else:
         actval = odt.min()
@@ -216,6 +217,7 @@ def test_runtime_thresholds_single_layer():
     old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
     old_weight_stream = list(old_weight_stream)
     # need to create stitched IP for runtime weight testing
+    model = model.transform(InsertFIFO(True))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
@@ -243,7 +245,7 @@ def test_runtime_thresholds_single_layer():
     # old weights (see above)
     y = exec_ctx["outp"][1]
     expected = multithreshold(in_tensor, T)[1]
-    if act == DataType.BIPOLAR:
+    if act == DataType["BIPOLAR"]:
         # binary to bipolar
         expected = 2 * expected - 1
     else:
@@ -272,7 +274,7 @@ def test_runtime_thresholds_single_layer():
     rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
     y = exec_ctx["outp"][1]
     expected = multithreshold(in_tensor, new_weights)[1]
-    if act == DataType.BIPOLAR:
+    if act == DataType["BIPOLAR"]:
         # binary to bipolar
         expected = 2 * expected - 1
     else:

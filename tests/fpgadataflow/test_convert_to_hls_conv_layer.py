@@ -63,7 +63,7 @@ from finn.util.basic import gen_finn_dt_tensor
 def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
     kernel_size, stride, pad = conv_config
     np.random.seed(0)
-    idt = DataType.UINT4
+    idt = DataType["UINT4"]
 
     in_feature_dim = 7
     in_chn = 16
@@ -84,7 +84,7 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
     input_shape = [1, in_chn, in_feature_dim, in_feature_dim]
     output_shape = [1, out_chn, out_feature_dim, out_feature_dim]
 
-    conv_weight_dt = DataType.UINT4
+    conv_weight_dt = DataType["UINT4"]
 
     conv_config = {}
     conv_config["dilations"] = [1, 1]

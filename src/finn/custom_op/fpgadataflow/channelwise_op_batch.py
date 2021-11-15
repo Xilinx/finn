@@ -30,7 +30,6 @@ import numpy as np
 import os
 import warnings
 from math import ceil
-from onnx import TensorProto, helper
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -56,10 +55,10 @@ def get_smallest_possible(vals):
     for v in vals:
         assert int(v) == v, "Error float value"
 
-    for k in DataType.__members__:
+    for k in DataType.get_accumulator_dt_cands():
         dt = DataType[k]
 
-        if dt in [DataType.BIPOLAR, DataType.TERNARY, DataType.FLOAT32]:
+        if dt in [DataType["BIPOLAR"], DataType["TERNARY"], DataType["FLOAT32"]]:
             # not currently supported
             continue
 
@@ -75,9 +74,9 @@ def get_smallest_possible(vals):
     )
 
     if (0 <= vals).all():
-        return DataType.UINT64
+        return DataType["UINT64"]
     else:
-        return DataType.INT64
+        return DataType["INT64"]
 
 
 class ChannelwiseOp_Batch(HLSCustomOp):
@@ -125,18 +124,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
         # implement tensor with correct shape
-        values = np.random.randn(*oshape).astype(np.float32)
-        return helper.make_node(
-            "Constant",
-            inputs=[],
-            outputs=[self.onnx_node.output[0]],
-            value=helper.make_tensor(
-                name="const_tensor",
-                data_type=TensorProto.FLOAT,
-                dims=values.shape,
-                vals=values.flatten().astype(float),
-            ),
-        )
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
@@ -347,8 +335,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         )
         # get input data type
         export_idt = self.get_input_datatype()
-        if self.get_input_datatype() == DataType.BIPOLAR:
-            export_idt = DataType.BINARY
+        if self.get_input_datatype() == DataType["BIPOLAR"]:
+            export_idt = DataType["BINARY"]
         idt_hls = export_idt.get_hls_datatype_str()
 
         # write parameters into params.h
@@ -356,8 +344,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         pdt_hls = pdt.get_hls_datatype_str()
         # use binary to export bipolar activations
         export_odt = self.get_output_datatype()
-        if self.get_output_datatype() == DataType.BIPOLAR:
-            export_odt = DataType.BINARY
+        if self.get_output_datatype() == DataType["BIPOLAR"]:
+            export_odt = DataType["BINARY"]
         odt_hls = export_odt.get_hls_datatype_str()
         # get desired function
         func = self.get_nodeattr("Func")
@@ -438,7 +426,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType.BIPOLAR:
+            if self.get_output_datatype() == DataType["BIPOLAR"]:
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
@@ -526,15 +514,18 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         # should ImgDim be defined or just filled in here like we do now?
         ishape = self.get_folded_input_shape()
         if len(ishape) == 3:
-            imgdim = 1
+            imgdim_h = 1
+            imgdim_w = 1
         elif len(ishape) == 5:
-            imgdim = ishape[1]
+            imgdim_h = ishape[1]
+            imgdim_w = ishape[2]
         else:
             raise Exception("""Unexpeted input shape""")
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """Thresholding_Batch<{}, NumChannels1, PE1, {}, {}>
+            """Thresholding_Batch<{}, {}, NumChannels1, PE1, {}, {}>
             (in0, out, threshs, numReps);""".format(
-                imgdim,
+                imgdim_h,
+                imgdim_w,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
             )
@@ -543,9 +534,9 @@ class ChannelwiseOp_Batch(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
-        if dtype == DataType.BIPOLAR:
+        if dtype == DataType["BIPOLAR"]:
             # use binary for bipolar storage
-            dtype = DataType.BINARY
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits

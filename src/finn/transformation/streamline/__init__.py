@@ -39,6 +39,7 @@ from finn.transformation.general import (
     GiveUniqueNodeNames,
 )
 from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.remove import RemoveIdentityOps
 from finn.transformation.streamline.absorb import (
     Absorb1BitMulIntoConv,
     Absorb1BitMulIntoMatMul,
@@ -51,7 +52,6 @@ from finn.transformation.streamline.collapse_repeated import (
     CollapseRepeatedAdd,
     CollapseRepeatedMul,
 )
-from finn.transformation.streamline.remove import RemoveIdentityOps
 from finn.transformation.streamline.reorder import (
     MoveAddPastConv,
     MoveAddPastMul,

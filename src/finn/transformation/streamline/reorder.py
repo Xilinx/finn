@@ -408,16 +408,16 @@ class MoveMulPastDWConv(Transformation):
                         # rewire mul input to be conv input
                         conv_node.input[0] = start_name
                         model.set_tensor_shape(start_name, conv_in_shape)
-                        model.set_tensor_datatype(start_name, DataType.FLOAT32)
+                        model.set_tensor_datatype(start_name, DataType["FLOAT32"])
                         # use old conv input tensor as conv output
                         conv_node.output[0] = conv_in_name
                         model.set_tensor_shape(conv_in_name, conv_out_shape)
-                        model.set_tensor_datatype(conv_in_name, DataType.FLOAT32)
+                        model.set_tensor_datatype(conv_in_name, DataType["FLOAT32"])
                         # use new conv output as new mul node input
                         mul_node.input[0] = conv_in_name
                         # use old conv output as new mul node output
                         mul_node.output[0] = conv_out_name
-                        model.set_tensor_datatype(conv_out_name, DataType.FLOAT32)
+                        model.set_tensor_datatype(conv_out_name, DataType["FLOAT32"])
                         # move mul node past conv node
                         graph.node.remove(mul_node)
                         graph.node.insert(node_ind, mul_node)
@@ -482,16 +482,16 @@ class MoveMulPastMaxPool(Transformation):
                         # rewire mul input to be maxpool input
                         maxpool_node.input[0] = start_name
                         model.set_tensor_shape(start_name, maxpool_in_shape)
-                        model.set_tensor_datatype(start_name, DataType.FLOAT32)
+                        model.set_tensor_datatype(start_name, DataType["FLOAT32"])
                         # use old maxpool input tensor as maxpool output
                         maxpool_node.output[0] = maxpool_in_name
                         model.set_tensor_shape(maxpool_in_name, maxpool_out_shape)
-                        model.set_tensor_datatype(maxpool_in_name, DataType.FLOAT32)
+                        model.set_tensor_datatype(maxpool_in_name, DataType["FLOAT32"])
                         # use new maxpool output as new mul node input
                         mul_node.input[0] = maxpool_in_name
                         # use old maxpool output as new mul node output
                         mul_node.output[0] = maxpool_out_name
-                        model.set_tensor_datatype(maxpool_out_name, DataType.FLOAT32)
+                        model.set_tensor_datatype(maxpool_out_name, DataType["FLOAT32"])
                         # move mul node past maxpool node
                         graph.node.remove(mul_node)
                         graph.node.insert(node_ind, mul_node)
@@ -594,11 +594,17 @@ class MoveScalarLinearPastInvariants(Transformation):
         nodes = [n for n in graph.node]
         for n in nodes:
             node_ind += 1
+            is_nearest_neighbor_resample = False
+            if n.op_type == "Upsample" or n.op_type == "Resize":
+                # Extract mode and scales and input shape
+                mode = get_by_name(n.attribute, "mode").s.decode("ascii")
+                is_nearest_neighbor_resample = mode == "nearest"
             if (
                 n.op_type == "GlobalAveragePool"
                 or n.op_type == "Reshape"
                 or n.op_type == "Transpose"
                 or n.op_type == "Flatten"
+                or is_nearest_neighbor_resample
             ):
                 in0 = n.input[0]
                 if in0 is None:
@@ -617,6 +623,10 @@ class MoveScalarLinearPastInvariants(Transformation):
                     # if initializer is not scalar, skip
                     if np.prod(init0.shape) != 1:
                         continue
+                    # Flatten input if required
+                    if len(init0.shape) > 0:
+                        init0 = init0.flatten()[0]
+                        model.set_initializer(prod0.input[1], init0)
                     # move prod0 from input to output,
                     old_prod0_in = prod0.input[0]
                     old_prod0_out = prod0.output[0]
@@ -632,7 +642,7 @@ class MoveScalarLinearPastInvariants(Transformation):
                     model.set_tensor_shape(n.output[0], out_shape)
                     model.set_tensor_shape(prod0.output[0], out_shape)
                     model.set_tensor_datatype(prod0.output[0], scalar_op_odt)
-                    model.set_tensor_datatype(n.output[0], DataType.FLOAT32)
+                    model.set_tensor_datatype(n.output[0], DataType["FLOAT32"])
                     graph.node.remove(prod0)
                     graph.node.insert(node_ind - 1, prod0)
                     graph_modified = True

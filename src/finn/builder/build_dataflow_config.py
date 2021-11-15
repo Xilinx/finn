@@ -89,6 +89,8 @@ class LargeFIFOMemStyle(str, Enum):
 class VerificationStepType(str, Enum):
     "Steps at which FINN ONNX execution can be launched for verification."
 
+    #: verify after step_qonnx_to_finn, using Python execution
+    QONNX_TO_FINN_PYTHON = "finn_onnx_python"
     #: verify after step_tidy_up, using Python execution
     TIDY_UP_PYTHON = "initial_python"
     #: verify after step_streamline , using Python execution
@@ -103,6 +105,7 @@ class VerificationStepType(str, Enum):
 #: specified order. Use the `steps` as part of build config to restrict which
 #: steps will be run.
 default_build_dataflow_steps = [
+    "step_qonnx_to_finn",
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
@@ -123,6 +126,7 @@ default_build_dataflow_steps = [
 
 #: List of steps to run for an estimate-only (no synthesis) dataflow build
 estimate_only_dataflow_steps = [
+    "step_qonnx_to_finn",
     "step_tidy_up",
     "step_streamline",
     "step_convert_to_hls",
@@ -172,6 +176,13 @@ class DataflowBuildConfig:
     #: that will override the target_fps setting here.
     target_fps: Optional[int] = None
 
+    #: (Optional) Use two-pass relaxation for folding, only relevant if target_fps
+    #: is set. If enabled, parallelization will internally run a second time if the
+    #: target cycles from the first pass could not be achieved, instead using the
+    #: achievable target to obtain a balanced pipeline. If disabled, this can be
+    #: useful for decreasing the latency (even though throughput won't increase).
+    folding_two_pass_relaxation: Optional[bool] = True
+
     #: (Optional) At which steps the generated intermediate output model
     #: will be verified. See documentation of VerificationStepType for
     #: available options.
@@ -184,6 +195,19 @@ class DataflowBuildConfig:
     #: (Optional) Name of .npy file that will be used as the expected output for
     #: verification. Only required if verify_steps is not empty.
     verify_expected_output_npy: Optional[str] = "expected_output.npy"
+
+    #: (Optional) Save full execution context for each of the verify_steps.
+    #: By default, only the top-level graph output is saved.
+    verify_save_full_context: Optional[bool] = False
+
+    #: (Optional) Save .vcd waveforms from rtlsim under reports.
+    #: By default, waveforms won't be saved.
+    verify_save_rtlsim_waveforms: Optional[bool] = False
+
+    #: (Optional) Run synthesis to generate a .dcp for the stitched-IP output product.
+    #: This can make it easier to treat it as a standalone artifact without requiring
+    #: the full list of layer IP build directories. By default, synthesis will not run.
+    stitched_ip_gen_dcp: Optional[bool] = False
 
     #: (Optional) Control the maximum width of the per-PE MVAU stream while
     #: exploring the parallelization attributes to reach target_fps
@@ -264,6 +288,24 @@ class DataflowBuildConfig:
     #: - functions are called with (model, DataflowBuildConfig) as args
     steps: Optional[List[Any]] = None
 
+    #: If given, start from this step, loading the intermediate model generated
+    #: from the previous step (save_intermediate_models must be enabled)
+    start_step: Optional[str] = None
+
+    #: If given, stop at this step.
+    stop_step: Optional[str] = None
+
+    #: The optional argument `max_multithreshold_bit_width` affects which Quant nodes
+    #: of the QONNX format get converted to the MultiThreshold nodes of FINN. This
+    #: only affects Quant nodes in the activation path. Quant nodes, which define a
+    #: bit width larger than `max_multithreshold_bit_width` are not converted to
+    #: MultiThreshold nodes and a warning is raised instead.
+    #: If not given `max_multithreshold_bit_width` defaults to 8.
+    max_multithreshold_bit_width: Optional[int] = 8
+
+    #: Override the number of inputs for rtlsim performance measurement.
+    rtlsim_batch_size: Optional[int] = 1
+
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
             # use same clk for synth and hls if not explicitly specified
@@ -333,4 +375,7 @@ class DataflowBuildConfig:
                 + self.verify_expected_output_npy
             )
             verify_expected_output_npy = np.load(self.verify_expected_output_npy)
-            return (verify_input_npy, verify_expected_output_npy)
+            return (
+                verify_input_npy.astype(np.float32),
+                verify_expected_output_npy.astype(np.float32),
+            )

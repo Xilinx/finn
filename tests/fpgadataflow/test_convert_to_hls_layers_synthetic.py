@@ -138,7 +138,7 @@ def make_model(ch, ifmdim):
 
 
 # data types
-@pytest.mark.parametrize("idt", [DataType.UINT2])
+@pytest.mark.parametrize("idt", [DataType["UINT2"]])
 # channels
 @pytest.mark.parametrize("ch", [16])
 # ifmdim
