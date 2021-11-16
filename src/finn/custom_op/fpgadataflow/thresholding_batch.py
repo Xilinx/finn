@@ -660,34 +660,25 @@ class Thresholding_Batch(HLSCustomOp):
         # TODO: why put some template parameters into defines and not others?
         # should ImgDim be defined or just filled in here like we do now?
         node = self.onnx_node
-        ishape = self.get_folded_input_shape()
-        if len(ishape) == 3:
-            imgdimh = 1
-            imgdimw = 1
-        elif len(ishape) == 5:
-            imgdimh = ishape[1]
-            imgdimw = ishape[2]
-        else:
-            raise Exception("""Unexpected input shape""")
+        inp_vecs = self.get_nodeattr("numInputVectors")
+        total_spatial_size = int(np.prod(inp_vecs))
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<{}, {}, NumChannels1, PE1, {}, {}>
+                """{}<{}, NumChannels1, PE1, {}, {}>
                 (in0, out, threshs, numReps);""".format(
                     node.op_type,
-                    imgdimh,
-                    imgdimw,
+                    total_spatial_size,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                 )
             ]
         elif mem_mode == "decoupled":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<{}, {}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
+                """{}<{}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
                 (in0, out, weights, numReps);""".format(
                     "Thresholding_Stream_Batch",
-                    imgdimh,
-                    imgdimw,
+                    total_spatial_size,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                 )
