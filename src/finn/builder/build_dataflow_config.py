@@ -171,6 +171,29 @@ class DataflowBuildConfig:
     #: that will override the target_fps setting here.
     target_fps: Optional[int] = None
 
+    #: (Optional) Fraction that indicates what part of the LUTs of the targeted
+    #: FPGA board are set available for user's network.
+    #: If parallelization attributes are specified as part of folding_config_file
+    #: that will override the resource_frac setting here.
+    resource_frac: Optional[float] = 0.7
+
+    #: (Optional) Maximum number of LUTs available to be used.
+    #: If max_luts is specified with folding_mode="resources", the network is
+    #: folded while ensuring to stay under the budget of the specified
+    #: maximum number of LUTs. If not specified, the resource_frac and board
+    #: attributes will be used to determine the LUT budget.
+    max_luts: Optional[int] = None
+
+    #: (Optional) Indicate whether the network should be explored based on
+    #: either target_fps requirement or the resource limit on the board scaled
+    #: by resource_frac. If invalid folding_mode specified, then folding is
+    #: is done according to target_fps.
+    #: If target_fps is specified, the network is folded either until the resource
+    #: budget is reached or until the target_fps is met. If target_fps is not
+    #: specified, the network is folded until the resource budget is reached.
+    #: Expected: ["frames", "resources"]
+    folding_mode: Optional[str] = "frames"
+
     #: (Optional) At which steps the generated intermediate output model
     #: will be verified. See documentation of VerificationStepType for
     #: available options.

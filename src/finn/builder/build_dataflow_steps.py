@@ -100,6 +100,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.core.throughput_test import throughput_test_rtlsim
 from copy import deepcopy
+from finn.util.platforms import platforms
 
 
 def verify_step(
@@ -230,11 +231,39 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
     """If target_fps was specified, use the SetFolding transformation to determine
     parallelization attributes."""
 
-    target_cycles_per_frame = cfg._resolve_cycles_per_frame()
-    if target_cycles_per_frame is not None:
+    folding_mode = cfg.folding_mode
+    if folding_mode=="resources":
+        print("Folding the network based on the resource budget of {}x of the available LUTs!".format(cfg.resource_frac))
+        if cfg.max_luts is not None:
+            max_luts = cfg.max_luts
+        elif cfg.board is not None:
+            try:
+                board_resources = platforms[cfg.board]().compute_resources
+                max_luts = sum(res[0] for res in board_resources)
+            except KeyError as e:
+                print("Board {} not found in finn.util.platforms!".format(board))
+                raise
+        else:
+            raise Exception("Please specify either the maximum number of LUTs available or board")
+        target_cycles_per_frame = cfg._resolve_cycles_per_frame()
         model = model.transform(
-            SetFolding(target_cycles_per_frame, mvau_wwidth_max=cfg.mvau_wwidth_max)
+            SetFoldingExhaustive(
+                target_cycles_per_frame, cfg.mvau_wwidth_max, scale_ratio=cfg.resource_frac, max_luts=max_luts
+            )
         )
+    elif folding_mode=="frames":
+        print("Folding the network based on target frames per second!")
+        target_cycles_per_frame = cfg._resolve_cycles_per_frame()
+        if target_cycles_per_frame is not None:
+            model = model.transform(
+                SetFolding(
+                    target_cycles_per_frame,
+                    mvau_wwidth_max=cfg.mvau_wwidth_max,
+                    two_pass_relaxation=cfg.folding_two_pass_relaxation,
+                )
+            )
+    else:
+        raise("Folding mode {} not recognized! Please choose either 'frames' or 'resources'.".format(folding_mode))
     return model
 
 
