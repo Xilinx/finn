@@ -1,11 +1,11 @@
+import numpy as np
+import warnings
 from onnx import TensorProto
 from onnx import helper as oh
 
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.util.fpgadataflow import is_fpgadataflow_node
-import warnings
-import numpy as np
 
 
 def _is_fifo_node(node):
@@ -180,49 +180,50 @@ class InsertFIFO(Transformation):
                 n.input[0] = fifo_output_tensor.name
 
             # insert FIFO as last node, except when last node is DMA
-            if (
-                graph.node[-1].op_type != "StreamingFIFO"
-                and graph.node[-1].op_type != "IODMA"
-            ):
-                n = graph.node[-1]
-                assert (
-                    n.op_type != "TLastMarker"
-                ), """Insert tlast marker should be done
-                    after inserting the FIFOs"""
-                graph_out_name = graph.output[0].name
-                n0 = getCustomOp(n)
-                # determine fifo node attributes
-                fld_shape = n0.get_folded_output_shape()
-                dtype = n0.get_output_datatype()
-                fifo_depth = n0.get_nodeattr("outFIFODepth")
+            graph_out_names = [x.name for x in model.graph.output]
+            for graph_out_name in graph_out_names:
+                final_node = model.find_producer(graph_out_name)
+                if (
+                    final_node.op_type != "StreamingFIFO"
+                    and final_node.op_type != "IODMA"
+                ):
+                    assert (
+                        final_node.op_type != "TLastMarker"
+                    ), """Insert tlast marker should be done
+                        after inserting the FIFOs"""
+                    n0 = getCustomOp(final_node)
+                    # determine fifo node attributes
+                    fld_shape = n0.get_folded_output_shape()
+                    dtype = n0.get_output_datatype()
+                    fifo_depth = n0.get_nodeattr("outFIFODepth")
 
-                if fifo_depth <= 2:
-                    warnings.warn("Overriding output FIFO depth to 32")
-                    fifo_depth = 32
+                    if fifo_depth <= 2:
+                        warnings.warn("Overriding output FIFO depth to 32")
+                        fifo_depth = 32
 
-                # create fifo node
-                fifo_input_tensor = oh.make_tensor_value_info(
-                    model.make_new_valueinfo_name(),
-                    TensorProto.FLOAT,
-                    n0.get_normal_output_shape(),
-                )
-                graph.value_info.append(fifo_input_tensor)
-                model.set_tensor_datatype(fifo_input_tensor.name, dtype)
+                    # create fifo node
+                    fifo_input_tensor = oh.make_tensor_value_info(
+                        model.make_new_valueinfo_name(),
+                        TensorProto.FLOAT,
+                        n0.get_normal_output_shape(),
+                    )
+                    graph.value_info.append(fifo_input_tensor)
+                    model.set_tensor_datatype(fifo_input_tensor.name, dtype)
 
-                fifo_node = oh.make_node(
-                    "StreamingFIFO",
-                    [fifo_input_tensor.name],
-                    [graph_out_name],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    depth=fifo_depth,
-                    folded_shape=fld_shape,
-                    dataType=str(dtype.name),
-                )
-                # insert fifo
-                graph.node.append(fifo_node)
+                    fifo_node = oh.make_node(
+                        "StreamingFIFO",
+                        [fifo_input_tensor.name],
+                        [graph_out_name],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        depth=fifo_depth,
+                        folded_shape=fld_shape,
+                        dataType=str(dtype.name),
+                    )
+                    # insert fifo
+                    graph.node.append(fifo_node)
 
-                # set fifo output tensor as new input tensor of second node
-                n.output[0] = fifo_input_tensor.name
+                    # set fifo output tensor as new input tensor of second node
+                    final_node.output[0] = fifo_input_tensor.name
 
         return (model, graph_modified)

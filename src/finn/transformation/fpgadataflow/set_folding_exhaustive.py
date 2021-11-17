@@ -1,10 +1,10 @@
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.transformation.general import GiveUniqueNodeNames
+from copy import deepcopy
 from math import floor
 
-from copy import deepcopy
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def get_sorted_attrs(attrs, op_type, reverse=True):
@@ -64,7 +64,12 @@ class SetFoldingExhaustive(Transformation):
             "GlobalAccPool_Batch",
             "Thresholding_Batch",
         ]
-        self.simd_ops = ["DownSampler", "FMPadding_Batch", "ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]
+        self.simd_ops = [
+            "DownSampler",
+            "FMPadding_Batch",
+            "ConvolutionInputGenerator",
+            "ConvolutionInputGenerator1D",
+        ]
         self.depthwise_op_exceptions = ["Vector_Vector_Activate_Batch", "Pool_Batch"]
 
     def get_attrs(self, model):
@@ -103,12 +108,16 @@ class SetFoldingExhaustive(Transformation):
             node_inst = getCustomOp(node)
             # Dealing with SIMD Ops
             if node.op_type in self.simd_ops:
-                if node.op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]:
+                if node.op_type in [
+                    "ConvolutionInputGenerator",
+                    "ConvolutionInputGenerator1D",
+                ]:
                     depthwise = node_inst.get_nodeattr("depthwise")
                     if depthwise == 0:
                         max_simd = node_inst.get_nodeattr("IFMChannels")
                     else:
-                        # SIMD value will be set equal to the PE value of its consumer node
+                        # SIMD value will be set equal to the
+                        # PE value of its consumer node
                         continue
                 else:
                     max_simd = node_inst.get_nodeattr("NumChannels")
@@ -182,9 +191,9 @@ class SetFoldingExhaustive(Transformation):
 
     def inst_model(self, model):
         """
-        If from_scratch = True, sets node attributes to 1. Logs LUTs and expected cycles of each node.
-        Instantiates the among_slowest dict with the slowest node, which is used to update slow nodes
-        per iteration.
+        If from_scratch = True, sets node attributes to 1. Logs LUTs and expected cycles
+        of each node. Instantiates the among_slowest dict with the slowest node, which
+        is used to update slow nodes per iteration.
         """
         new_model = deepcopy(model)
         graph = new_model.graph
@@ -262,13 +271,15 @@ class SetFoldingExhaustive(Transformation):
         for idx, v in enumerate(sorted_attrs):
             if v[0] == node_key:
                 next_opt = idx + 1
-                # If the current setting for the node is the highest setting, we're done optimizing
+                # If the current setting for the node is the highest setting,
+                # we're done optimizing
                 if next_opt >= len(sorted_attrs):
                     done = True
                     return sorted_attrs[idx][0], current_attrs, done
 
-                # Multiple folding settings have the same cycle count. During optimization
-                # we want to choose the next folding configuration that has a lower cycle count
+                # Multiple folding settings have the same cycle count. During
+                # optimization we want to choose the next folding configuration
+                # that has a lower cycle count
                 while node_inst.get_exp_cycles() <= sorted_attrs[next_opt][1].get(
                     "cycles"
                 ):
@@ -294,7 +305,8 @@ class SetFoldingExhaustive(Transformation):
                             next_opt += 1
                             break
 
-                # We've found a folding configuration that satisfies constraints and is within budget
+                # We've found a folding configuration that satisfies constraints
+                # and is within budget
                 if (sorted_attrs[next_opt][1].get("viability")) and (
                     sorted_attrs[next_opt][1].get("lut") - node_luts + total_luts
                 ) < self.max_luts:
@@ -324,11 +336,13 @@ class SetFoldingExhaustive(Transformation):
 
                     return sorted_attrs[next_opt][0], current_attrs, done
                 else:
-                    # Didn't find a viable folding configuration for cycle count at 'level' above
-                    # the current cycle count. Maybe possible to find viable configurations with lower
-                    # cycle count and still stay within LUT budget?
+                    # Didn't find a viable folding configuration for cycle count at
+                    # 'level' above the current cycle count. Maybe possible to find
+                    # viable configurations with lower cycle count and still stay
+                    # within LUT budget?
 
-                    # If we have the slowest layer and find no possible configs we need to stop optimization
+                    # If we have the slowest layer and find no possible configs
+                    # we need to stop optimization
                     optimizable = False
 
                     for attr in sorted_attrs[next_opt:]:
@@ -367,8 +381,8 @@ class SetFoldingExhaustive(Transformation):
 
     def incr_folding(self, model, among_slowest, attrs):
         """
-        Loops over the nodes of the model and updates the folding of the nodes in `among_slowest`
-        incrementally.
+        Loops over the nodes of the model and updates the folding of the
+        nodes in `among_slowest` incrementally.
         """
         done = False
         new_model = deepcopy(model)
@@ -402,7 +416,10 @@ class SetFoldingExhaustive(Transformation):
                 # update upstream ConvInpGen node
                 if node.op_type in self.depthwise_op_exceptions:
                     swu_node = new_model.find_producer(node.input[0])
-                    if swu_node.op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]:
+                    if swu_node.op_type in [
+                        "ConvolutionInputGenerator",
+                        "ConvolutionInputGenerator1D",
+                    ]:
                         swu_node_inst = getCustomOp(swu_node)
                         swu_node_inst.set_nodeattr("SIMD", val)
 
@@ -442,7 +459,10 @@ class SetFoldingExhaustive(Transformation):
                         total_luts -= old_lut
                         total_luts += new_lut
 
-                elif op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]:
+                elif op_type in [
+                    "ConvolutionInputGenerator",
+                    "ConvolutionInputGenerator1D",
+                ]:
                     # If child is not in depthwise_op_exceptions, update ConvInpGen node
                     child_node = new_model.find_consumers(node.output[0])[0]
                     if child_node.op_type in self.depthwise_op_exceptions:
@@ -468,8 +488,8 @@ class SetFoldingExhaustive(Transformation):
         self, model, among_slowest, prev_slowest_cycles=0, prev_slowest_name=None
     ):
         """
-        Updates the list of slowest nodes. Upstream DW SWUs are always removed as updates to their
-        downstream counterparts will also update them.
+        Updates the list of slowest nodes. Upstream DW SWUs are always removed as
+        updates to their downstream counterparts will also update them.
         """
         slowest_layer = sorted(
             among_slowest.items(), key=lambda item: item[1].get("cycles"), reverse=True
@@ -480,9 +500,11 @@ class SetFoldingExhaustive(Transformation):
             node_inst = getCustomOp(node)
 
             if node_inst.get_exp_cycles() > slowest_layer[1].get("cycles"):
-                # remove ConvInpGen nodes if they have depthwise_op_exception node children
+                # remove ConvInpGen nodes if they have depthwise_op_exception
+                # node children
                 if (
-                    node.op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]
+                    node.op_type
+                    in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]
                     and model.find_consumers(node.output[0])[0].op_type
                     in self.depthwise_op_exceptions
                 ):
@@ -543,7 +565,10 @@ class SetFoldingExhaustive(Transformation):
                 reverse=True,
             )[0]
 
-            if self.target_cycles_per_frame is not None and slowest_layer[1].get("cycles") < self.target_cycles_per_frame:
+            if (
+                self.target_cycles_per_frame is not None
+                and slowest_layer[1].get("cycles") < self.target_cycles_per_frame
+            ):
                 print(f"Reached target of {self.target_cycles_per_frame} cycles")
                 break
 
@@ -577,7 +602,10 @@ class SetFoldingExhaustive(Transformation):
                         node_inst.set_nodeattr("PE", attr[1])
                     if node.op_type in self.depthwise_op_exceptions:
                         swu_node = model.find_producer(node.input[0])
-                        if not swu_node.op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]:
+                        if swu_node.op_type not in [
+                            "ConvolutionInputGenerator",
+                            "ConvolutionInputGenerator1D",
+                        ]:
                             node_inst.set_nodeattr("PE", attr)
                     if node.op_type in self.pe_ops:
                         node_inst.set_nodeattr("PE", attr)

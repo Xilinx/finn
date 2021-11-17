@@ -26,19 +26,23 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 import pkg_resources as pk
+
 import pytest
 
 import brevitas.onnx as bo
 import numpy as np
+import os
 import torch
+from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_brevitas_cnv.onnx"
@@ -46,11 +50,20 @@ export_onnx_path = "test_brevitas_cnv.onnx"
 
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("wbits", [1, 2])
-def test_brevitas_cnv_export_exec(wbits, abits):
+@pytest.mark.parametrize("QONNX_export", [False, True])
+def test_brevitas_cnv_export_exec(wbits, abits, QONNX_export):
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
     cnv = get_test_model_trained("CNV", wbits, abits)
-    bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path)
+    ishape = (1, 3, 32, 32)
+    if QONNX_export:
+        BrevitasONNXManager.export(cnv, ishape, export_onnx_path)
+        qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
+        model = ModelWrapper(export_onnx_path)
+        model = model.transform(ConvertQONNXtoFINN())
+        model.save(export_onnx_path)
+    else:
+        bo.export_finn_onnx(cnv, ishape, export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferShapes())

@@ -27,30 +27,29 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+
+import numpy as np
 import onnx.helper as oh
 from onnx import TensorProto
-import numpy as np
 
-from finn.core.modelwrapper import ModelWrapper
+import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
-from finn.transformation.infer_shapes import InferShapes
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.general.im2col import compute_conv_output_dim
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hls_layers import (
     InferConvInpGen,
     InferVVAU,
 )
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-
-import finn.core.onnx_exec as oxe
-from finn.custom_op.general.im2col import compute_conv_output_dim
-from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
-from finn.custom_op.registry import getCustomOp
-
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.infer_shapes import InferShapes
+from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 
 def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
@@ -61,14 +60,14 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
     ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, total_pad=total_pad)
 
     if act is None:
-        odt = DataType.INT32
+        odt = DataType["INT32"]
     else:
         odt = act
         out_act = oh.make_tensor_value_info(
             "out_act", TensorProto.FLOAT, [1, ofm_dim, ofm_dim, ofm_ch]
         )
         T = oh.make_tensor_value_info("T", TensorProto.FLOAT, [ofm_ch, 15])
-        tdt = DataType.INT32
+        tdt = DataType["INT32"]
         thresh_node = oh.make_node(
             "MultiThreshold",
             domain="finn.custom_op.general",
@@ -162,7 +161,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 # PE
 @pytest.mark.parametrize("pe", [1, 2, 4])
 # Output activation
-@pytest.mark.parametrize("act", [None, DataType.UINT4])
+@pytest.mark.parametrize("act", [None, DataType["UINT4"]])
 # kernel size
 @pytest.mark.parametrize("k", [2, 4])
 # stride
@@ -172,7 +171,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
-    idt = wdt = DataType.INT4
+    idt = wdt = DataType["INT4"]
     ifm_dim = 6
     ifm_ch = 4
 
@@ -204,7 +203,7 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
 # PE
 @pytest.mark.parametrize("pe", [1, 2, 4])
 # Output activation
-@pytest.mark.parametrize("act", [None, DataType.UINT4])
+@pytest.mark.parametrize("act", [None, DataType["UINT4"]])
 # kernel size
 @pytest.mark.parametrize("k", [2, 4])
 # stride
@@ -214,7 +213,7 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
-    idt = wdt = DataType.INT4
+    idt = wdt = DataType["INT4"]
     ifm_dim = 6
     ifm_ch = 4
 

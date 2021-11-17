@@ -1,12 +1,12 @@
 import pytest
 
-from onnx import helper as oh
 from onnx import TensorProto
+from onnx import helper as oh
 
+import finn.core.onnx_exec as oxe
 from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.streamline.reorder import MoveTransposePastJoinAdd
 from finn.util.basic import gen_finn_dt_tensor
-import finn.core.onnx_exec as oxe
 
 
 def create_model(perm):

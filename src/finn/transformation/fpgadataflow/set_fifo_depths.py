@@ -29,16 +29,17 @@
 import math
 import numpy as np
 import warnings
+
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.general import GiveUniqueNodeNames, GiveReadableTensorNames
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.util.pyverilator import pyverilate_stitched_ip, reset_rtlsim, toggle_clk
 
@@ -86,9 +87,14 @@ class RemoveShallowFIFOs(Transformation):
     def apply(self, model):
         shallow_fifos = []
         for node in model.graph.node:
+            if len(node.input) > 0:
+                is_first_node = model.find_producer(node.input[0]) is None
+            else:
+                is_first_node = True
             if (
                 node.op_type == "StreamingFIFO"
                 and getCustomOp(node).get_nodeattr("depth") <= self.shallow_threshold
+                and (not is_first_node)
             ):
                 # bypass shallow fifos
                 shallow_fifos.append(node)

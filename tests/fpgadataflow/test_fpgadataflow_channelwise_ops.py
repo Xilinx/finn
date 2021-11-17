@@ -32,19 +32,19 @@ import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
-from finn.custom_op.registry import getCustomOp
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
@@ -85,11 +85,11 @@ def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
 
 
 # activation: None or DataType
-@pytest.mark.parametrize("act", [DataType.INT8])
+@pytest.mark.parametrize("act", [DataType["INT8"]])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType["INT4"]])
 # param datatype
-@pytest.mark.parametrize("pdt", [DataType.INT4])
+@pytest.mark.parametrize("pdt", [DataType["INT4"]])
 # folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2])
 # number of input features

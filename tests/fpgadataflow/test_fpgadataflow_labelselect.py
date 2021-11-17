@@ -27,20 +27,20 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-import numpy as np
 
+import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import gen_finn_dt_tensor
 from finn.util.test import soft_verify_topk
 
@@ -61,7 +61,10 @@ def make_labelselect_modelwrapper(labels, pe, k, idt):
         inputDataType=idt.name,
     )
     graph = helper.make_graph(
-        nodes=[labelselect_node], name="graph", inputs=[inp], outputs=[outp],
+        nodes=[labelselect_node],
+        name="graph",
+        inputs=[inp],
+        outputs=[outp],
     )
 
     model = helper.make_model(graph, producer_name="thresholding-model")
@@ -78,7 +81,9 @@ def prepare_inputs(input_tensor, idt):
     return {"inp": input_tensor}
 
 
-@pytest.mark.parametrize("idt", [DataType.UINT8, DataType.UINT16, DataType.INT16])
+@pytest.mark.parametrize(
+    "idt", [DataType["UINT8"], DataType["UINT16"], DataType["INT16"]]
+)
 # labels
 @pytest.mark.parametrize("labels", [10, 100])
 # folding

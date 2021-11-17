@@ -69,6 +69,6 @@ class ConvertSignToThres(Transformation):
                 graph.node.insert(node_ind, mt_node)
                 graph.node.remove(n)
                 # add quantization annotations
-                model.set_tensor_datatype(sign_out_name, DataType.BIPOLAR)
+                model.set_tensor_datatype(sign_out_name, DataType["BIPOLAR"])
                 graph_modified = True
         return (model, graph_modified)

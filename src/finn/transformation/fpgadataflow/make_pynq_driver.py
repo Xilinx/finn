@@ -27,24 +27,29 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-import shutil
-from finn.transformation.base import Transformation
-from finn.util.basic import gen_finn_dt_tensor, make_build_dir
-import finn.util.data_packing as dpk
-import finn.core.datatype as dtp
-from finn.custom_op.registry import getCustomOp
-import os
-import warnings
 import pkg_resources as pk
-from . import template_driver
-from finn.core.modelwrapper import ModelWrapper
-import numpy as np
 
-from finn.util.data_packing import (
-    pack_innermost_dim_as_hex_string,
-    hexstring2npbytearray,
+import numpy as np
+import os
+import shutil
+import warnings
+
+import finn.core.datatype as dtp
+import finn.util.data_packing as dpk
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
+from finn.util.basic import (
+    gen_finn_dt_tensor,
+    make_build_dir,
+    roundup_to_integer_multiple,
 )
-from finn.util.basic import roundup_to_integer_multiple
+from finn.util.data_packing import (
+    hexstring2npbytearray,
+    pack_innermost_dim_as_hex_string,
+)
+
+from . import template_driver
 
 
 def to_external_tensor(init, w_dtype):
@@ -85,6 +90,7 @@ class MakePYNQDriver(Transformation):
         self.platform = platform
 
     def apply(self, model):
+
         # create a temporary folder for the generated driver
         pynq_driver_dir = make_build_dir(prefix="pynq_driver_")
         model.set_metadata_prop("pynq_driver_dir", pynq_driver_dir)
@@ -95,59 +101,100 @@ class MakePYNQDriver(Transformation):
         )
         driver_base_py = pynq_driver_dir + "/driver_base.py"
         shutil.copy(driver_base_template, driver_base_py)
-
         # extract input-output shapes from the graph
         # TODO convert this to an analysis pass?
-        i_tensor_name = model.graph.input[0].name
-        o_tensor_name = model.graph.output[0].name
-        i_tensor_shape_normal = tuple(model.get_tensor_shape(i_tensor_name))
-        o_tensor_shape_normal = tuple(model.get_tensor_shape(o_tensor_name))
-        i_tensor_dt = model.get_tensor_datatype(i_tensor_name)
-        o_tensor_dt = model.get_tensor_datatype(o_tensor_name)
-
-        first_node = model.find_consumer(i_tensor_name)
-        last_node = model.find_producer(o_tensor_name)
-        if first_node.op_type == "StreamingDataflowPartition":
-            # IODMAs and dataflow partitions have already been created
-            # extract folded i/o shapes from IODMA consumer/producer
-            first_df_model = ModelWrapper(getCustomOp(first_node).get_nodeattr("model"))
+        idt = []
+        idma_names = []
+        ishape_normal = []
+        ishape_folded = []
+        ishape_packed = []
+        for idma_ind, graph_in in enumerate(model.graph.input):
+            i_tensor_name = graph_in.name
+            # get inp tensor properties
+            i_tensor_dt = model.get_tensor_datatype(i_tensor_name)
+            i_tensor_shape_normal = tuple(model.get_tensor_shape(i_tensor_name))
+            # go down into dataflow partition to get folded shape info etc
+            # TODO consider setting these as attributes during dataflow partitioning
+            i_consumer = model.find_consumer(i_tensor_name)
+            assert (
+                i_consumer.op_type == "StreamingDataflowPartition"
+            ), """
+                Ensure CreateDataflowPartition called before driver creation."""
+            first_df_model = ModelWrapper(getCustomOp(i_consumer).get_nodeattr("model"))
             assert (
                 first_df_model.graph.node[0].op_type == "IODMA"
             ), "First partition must hold input IODMA"
-            successors = model.find_direct_successors(first_node)
+            successors = model.find_direct_successors(i_consumer)
+            successor_input_num = list(successors[0].input).index(i_consumer.output[0])
             successor_sdp = getCustomOp(successors[0])
             successor_df_model = ModelWrapper(successor_sdp.get_nodeattr("model"))
             first_node = successor_df_model.find_consumer(
-                successor_df_model.graph.input[0].name
+                successor_df_model.graph.input[successor_input_num].name
             )
+            i_tensor_shape_folded = tuple(
+                getCustomOp(first_node).get_folded_input_shape()
+            )
+            # generate dummy folded i/o tensors and their packed versions
+            i_tensor_dummy_folded = gen_finn_dt_tensor(
+                i_tensor_dt, i_tensor_shape_folded
+            )
+            i_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
+                i_tensor_dummy_folded, i_tensor_dt
+            )
+            i_tensor_shape_packed = i_tensor_dummy_packed.shape
+            # append all input tensor info to relevant lists
+            idt.append("DataType['%s']" % i_tensor_dt.name)
+            ishape_normal.append(i_tensor_shape_normal)
+            ishape_folded.append(i_tensor_shape_folded)
+            ishape_packed.append(i_tensor_shape_packed)
+            idma_names.append(getCustomOp(i_consumer).get_nodeattr("instance_name"))
 
-            last_df_model = ModelWrapper(getCustomOp(last_node).get_nodeattr("model"))
+        odt = []
+        odma_names = []
+        oshape_normal = []
+        oshape_folded = []
+        oshape_packed = []
+        for odma_ind, graph_out in enumerate(model.graph.output):
+            o_tensor_name = graph_out.name
+            # get inp tensor properties
+            o_tensor_dt = model.get_tensor_datatype(o_tensor_name)
+            o_tensor_shape_normal = tuple(model.get_tensor_shape(o_tensor_name))
+            # go down into IODMA partition to get folded shape info etc
+            # TODO consider setting these as attributes during dataflow partitioning
+            o_producer = model.find_producer(o_tensor_name)
             assert (
-                last_df_model.graph.node[0].op_type == "IODMA"
-            ), "Last partition must hold output IODMA"
-            predecessors = model.find_direct_predecessors(last_node)
+                o_producer.op_type == "StreamingDataflowPartition"
+            ), """
+                Ensure CreateDataflowPartition called before driver creation."""
+            df_model = ModelWrapper(getCustomOp(o_producer).get_nodeattr("model"))
+            assert (
+                df_model.graph.node[-1].op_type == "IODMA"
+            ), "Partition must hold output IODMA"
+            predecessors = model.find_direct_predecessors(o_producer)
+            predecessor_output_num = list(predecessors[0].output).index(
+                o_producer.input[0]
+            )
             predecessor_sdp = getCustomOp(predecessors[0])
             predecessor_df_model = ModelWrapper(predecessor_sdp.get_nodeattr("model"))
             last_node = predecessor_df_model.find_producer(
-                predecessor_df_model.graph.output[0].name
+                predecessor_df_model.graph.output[predecessor_output_num].name
             )
-
-        # else: transformation called before IODMA/SDP creation (legacy flow)
-        # can access folded i/o shapes directly
-        i_tensor_shape_folded = tuple(getCustomOp(first_node).get_folded_input_shape())
-        o_tensor_shape_folded = tuple(getCustomOp(last_node).get_folded_output_shape())
-
-        # generate dummy folded i/o tensors and their packed versions
-        i_tensor_dummy_folded = gen_finn_dt_tensor(i_tensor_dt, i_tensor_shape_folded)
-        o_tensor_dummy_folded = gen_finn_dt_tensor(o_tensor_dt, o_tensor_shape_folded)
-        i_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
-            i_tensor_dummy_folded, i_tensor_dt
-        )
-        o_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
-            o_tensor_dummy_folded, o_tensor_dt
-        )
-        i_tensor_shape_packed = i_tensor_dummy_packed.shape
-        o_tensor_shape_packed = o_tensor_dummy_packed.shape
+            o_tensor_shape_folded = tuple(
+                getCustomOp(last_node).get_folded_output_shape()
+            )
+            o_tensor_dummy_folded = gen_finn_dt_tensor(
+                o_tensor_dt, o_tensor_shape_folded
+            )
+            o_tensor_dummy_packed = dpk.finnpy_to_packed_bytearray(
+                o_tensor_dummy_folded, o_tensor_dt
+            )
+            o_tensor_shape_packed = o_tensor_dummy_packed.shape
+            # append all output tensor info to relevant lists
+            odt.append("DataType['%s']" % o_tensor_dt.name)
+            oshape_normal.append(o_tensor_shape_normal)
+            oshape_folded.append(o_tensor_shape_folded)
+            oshape_packed.append(o_tensor_shape_packed)
+            odma_names.append(getCustomOp(o_producer).get_nodeattr("instance_name"))
 
         # generate external weights npy files
         weights_dir = pynq_driver_dir + "/runtime_weights"
@@ -161,47 +208,50 @@ class MakePYNQDriver(Transformation):
                 node.op_type == "StreamingDataflowPartition"
             ), "CreateDataflowPartition needs to be applied before driver generation"
 
-            producer = model.find_producer(node.input[0])
-            init_tensor = model.get_initializer(node.input[0])
+            if len(node.input) > 0:
+                producer = model.find_producer(node.input[0])
+                init_tensor = model.get_initializer(node.input[0])
+            else:
+                producer = None
+                init_tensor = None
 
             if producer is None:  # input dma?
-                idma_name = "idma" + str(idma_idx)
-                if init_tensor is not None:  # input weights dma?
+                sdp_inst = getCustomOp(node)
+                idma_name = sdp_inst.get_nodeattr("instance_name")
+                df_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
+                assert df_model.graph.node[0].op_type == "IODMA"
+                iodma_node = getCustomOp(df_model.graph.node[0])
+                if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
+                    init_tensor = df_model.get_initializer(
+                        iodma_node.onnx_node.input[0]
+                    )
                     ext_weight_dma_cnt += 1
-                    w_dtype = model.get_tensor_datatype(node.input[0])
+                    w_dtype = df_model.get_tensor_datatype(
+                        iodma_node.onnx_node.input[0]
+                    )
                     init_external_tensor = to_external_tensor(init_tensor, w_dtype)
                     np.save(
                         weights_dir + "/" + idma_name + ".npy", init_external_tensor
                     )
-                else:
-                    net_input_name = idma_name
-
                 idma_idx += 1
 
         # fill in the driver template
         driver_py = pynq_driver_dir + "/driver.py"
         driver = template_driver.pynq_driver_template
 
-        def mss(x, batch_var_name="1"):
-            # "make shape string"
-            # for a shape like (1, ...) emit a string (N, ...)
-            # where N is the default value for batch_var_name
-            # this lets the driver work with a batch of samples at once
-            ret = str(x)
-            ret = ret.replace("(1,", "(%s," % batch_var_name)
-            ret = ret.replace("[1,", "[%s," % batch_var_name)
-            return ret
-
         driver = driver.replace("$PLATFORM$", self.platform)
-        driver = driver.replace("$INPUT_FINN_DATATYPE$", str(i_tensor_dt))
-        driver = driver.replace("$INPUT_SHAPE_NORMAL$", mss(i_tensor_shape_normal))
-        driver = driver.replace("$INPUT_SHAPE_FOLDED$", mss(i_tensor_shape_folded))
-        driver = driver.replace("$INPUT_SHAPE_PACKED$", mss(i_tensor_shape_packed))
-        driver = driver.replace("$OUTPUT_FINN_DATATYPE$", str(o_tensor_dt))
-        driver = driver.replace("$OUTPUT_SHAPE_NORMAL$", mss(o_tensor_shape_normal))
-        driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", mss(o_tensor_shape_folded))
-        driver = driver.replace("$OUTPUT_SHAPE_PACKED$", mss(o_tensor_shape_packed))
-        driver = driver.replace("$INPUT_DMA_NAME$", "'%s'" % net_input_name)
+        driver = driver.replace("$INPUT_FINN_DATATYPE$", str(idt).replace('"', ""))
+        driver = driver.replace("$INPUT_SHAPE_NORMAL$", str(ishape_normal))
+        driver = driver.replace("$INPUT_SHAPE_FOLDED$", str(ishape_folded))
+        driver = driver.replace("$INPUT_SHAPE_PACKED$", str(ishape_packed))
+        driver = driver.replace("$OUTPUT_FINN_DATATYPE$", str(odt).replace('"', ""))
+        driver = driver.replace("$OUTPUT_SHAPE_NORMAL$", str(oshape_normal))
+        driver = driver.replace("$OUTPUT_SHAPE_FOLDED$", str(oshape_folded))
+        driver = driver.replace("$OUTPUT_SHAPE_PACKED$", str(oshape_packed))
+        driver = driver.replace("$INPUT_DMA_NAME$", "%s" % str(idma_names))
+        driver = driver.replace("$OUTPUT_DMA_NAME$", "%s" % str(odma_names))
+        driver = driver.replace("$NUM_INPUTS$", str(len(idma_names)))
+        driver = driver.replace("$NUM_OUTPUTS$", str(len(odma_names)))
         driver = driver.replace("$EXT_WEIGHT_NUM$", str(ext_weight_dma_cnt))
 
         with open(driver_py, "w") as f:

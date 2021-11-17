@@ -1,14 +1,15 @@
 import pytest
 
-from onnx import helper, TensorProto
-from finn.custom_op.general.im2col import compute_conv_output_dim
+from onnx import TensorProto, helper
+
 import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import gen_finn_dt_tensor
 from finn.transformation.streamline.reorder import MoveMulPastDWConv
+from finn.util.basic import gen_finn_dt_tensor
 
 
 # input dimension
@@ -67,9 +68,9 @@ def test_move_mul_past_dw_conv(ifm_dim, ifm_ch, k, stride, pad_amt, dw):
 
     model = helper.make_model(graph, producer_name="mulpastconv-model")
     model = ModelWrapper(model)
-    inp_values = gen_finn_dt_tensor(DataType.INT2, [1, ifm_ch, ifm_dim, ifm_dim])
-    mul_values = gen_finn_dt_tensor(DataType.INT2, [1, ifm_ch, 1, 1])
-    W_values = gen_finn_dt_tensor(DataType.INT2, W_shape)
+    inp_values = gen_finn_dt_tensor(DataType["INT2"], [1, ifm_ch, ifm_dim, ifm_dim])
+    mul_values = gen_finn_dt_tensor(DataType["INT2"], [1, ifm_ch, 1, 1])
+    W_values = gen_finn_dt_tensor(DataType["INT2"], W_shape)
     model.set_initializer("W", W_values)
     model.set_initializer("mul", mul_values)
     model = model.transform(InferShapes())

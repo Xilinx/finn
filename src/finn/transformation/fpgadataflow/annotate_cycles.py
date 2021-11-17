@@ -27,10 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import finn.custom_op.registry as registry
-from finn.transformation.base import Transformation
-from finn.transformation.move_reshape import _is_fpgadataflow_node
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
+from finn.transformation.move_reshape import _is_fpgadataflow_node
 
 
 class AnnotateCycles(Transformation):

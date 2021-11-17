@@ -28,15 +28,15 @@
 
 from onnx import helper as oh
 
+from finn.core.datatype import DataType
 from finn.transformation.base import Transformation
 from finn.transformation.infer_shapes import InferShapes
-from finn.core.datatype import DataType
 
 
 class CollapseRepeatedOp(Transformation):
     """Collapse repeated consecutive operations with constant parameters into
     a single operation. make_collapsed_param_fxn must take two tensors and
-    return a tensor which gives the equivalent result using a single op. """
+    return a tensor which gives the equivalent result using a single op."""
 
     def __init__(self, op_name, make_collapsed_param_fxn):
         super().__init__()
@@ -85,8 +85,8 @@ class CollapseRepeatedOp(Transformation):
                     # replace parameter value
                     model.set_initializer(new_node_param_name, new_param)
                     # be conservative with param/output DataTypes
-                    model.set_tensor_datatype(new_node_param_name, DataType.FLOAT32)
-                    model.set_tensor_datatype(end_name, DataType.FLOAT32)
+                    model.set_tensor_datatype(new_node_param_name, DataType["FLOAT32"])
+                    model.set_tensor_datatype(end_name, DataType["FLOAT32"])
                     # remove old nodes
                     graph.node.remove(n)
                     graph.node.remove(consumer)

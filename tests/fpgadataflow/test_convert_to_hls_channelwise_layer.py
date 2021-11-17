@@ -28,24 +28,23 @@
 
 import pytest
 
+import numpy as np
 from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import gen_finn_dt_tensor
+from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.transformation.infer_shapes import InferShapes
-import numpy as np
+from finn.util.basic import gen_finn_dt_tensor
 
 
 def prepare_inputs(input_tensor):
@@ -77,9 +76,13 @@ def make_single_maxpool_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
 
 
 # parameter datatype
-@pytest.mark.parametrize("pdt", [DataType.BIPOLAR, DataType.UINT4, DataType.INT2])
+@pytest.mark.parametrize(
+    "pdt", [DataType["BIPOLAR"], DataType["UINT4"], DataType["INT2"]]
+)
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.INT32, DataType.UINT4, DataType.INT4])
+@pytest.mark.parametrize(
+    "idt", [DataType["INT32"], DataType["UINT4"], DataType["INT4"]]
+)
 # function
 @pytest.mark.parametrize("onnx_op_name", ["Add", "Mul"])
 # vector parameter or scalar parameter (broadcast)
@@ -104,10 +107,10 @@ def test_convert_to_hls_channelwise_layer(
 
     # Since the aren't Data types with a bit width of a non power of 2,
     # there are cases where the input won't use it full range.
-    if idt == DataType.INT32:
-        x = gen_finn_dt_tensor(DataType.INT16, (1, ifm_ch, ifm_dim, ifm_dim))
-    elif idt == DataType.UINT32:
-        x = gen_finn_dt_tensor(DataType.UINT16, (1, ifm_ch, ifm_dim, ifm_dim))
+    if idt == DataType["INT32"]:
+        x = gen_finn_dt_tensor(DataType["INT16"], (1, ifm_ch, ifm_dim, ifm_dim))
+    elif idt == DataType["UINT32"]:
+        x = gen_finn_dt_tensor(DataType["UINT16"], (1, ifm_ch, ifm_dim, ifm_dim))
     else:
         x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
 

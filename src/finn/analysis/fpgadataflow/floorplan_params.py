@@ -26,8 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.custom_op.registry import getCustomOp
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def floorplan_params(model):

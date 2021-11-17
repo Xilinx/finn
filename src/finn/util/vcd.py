@@ -26,9 +26,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from vcdvcd import VCDVCD
-from finn.util.basic import get_num_default_workers
 import multiprocessing as mp
+from vcdvcd import VCDVCD
+
+from finn.util.basic import get_num_default_workers
 
 # string patterns to search for to find particular interfaces
 # streaming interfaces
@@ -162,7 +163,9 @@ def _get_stats(x):
     return (x[0], get_stream_if_stats(x[1], x[0]))
 
 
-def get_all_stream_if_stats(vcd_file, stream_ifs=None, sort_by="{'V': 1, 'R': 0}", num_workers=None):
+def get_all_stream_if_stats(
+    vcd_file, stream_ifs=None, sort_by="{'V': 1, 'R': 0}", num_workers=None
+):
     """Return a list of streaming interface stats, sorted by the percentage
     for the given sort_by key. If stream_ifs is None, all streaming interface
     stats will be returned, otherwise treated as a list of interface names to

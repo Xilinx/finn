@@ -26,81 +26,87 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.core.modelwrapper import ModelWrapper
-import os
 import json
+import numpy as np
+import os
+from copy import deepcopy
+from distutils.dir_util import copy_tree
+from qonnx.util.cleanup import cleanup_model
+from shutil import copy
+
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
-from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import (
-    ApplyConfig,
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    RemoveUnusedTensors,
-    RemoveStaticGraphInputs,
-)
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.streamline import Streamline
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from finn.transformation.streamline.reorder import (
-    MakeMaxPoolNHWC,
-    MoveScalarLinearPastInvariants,
-)
-from shutil import copy, copytree
-from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.set_fifo_depths import (
-    InsertAndSetFIFODepths,
-    RemoveShallowFIFOs,
-)
-from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
-from finn.transformation.fpgadataflow.vitis_build import VitisBuild
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
-from finn.transformation.fpgadataflow.set_folding import SetFolding
-from finn.transformation.fpgadataflow.create_dataflow_partition import (
-    CreateDataflowPartition,
-)
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
-from finn.custom_op.registry import getCustomOp
+from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.analysis.fpgadataflow.res_estimation import (
-    res_estimation,
-    res_estimation_complete,
-)
+from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.analysis.fpgadataflow.op_and_param_counts import (
     aggregate_dict_keys,
     op_and_param_counts,
 )
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
-from finn.util.config import extract_model_config_to_json
-from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
+from finn.analysis.fpgadataflow.res_estimation import (
+    res_estimation,
+    res_estimation_complete,
+)
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
     VerificationStepType,
 )
-from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
-import numpy as np
-from finn.util.test import execute_parent
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.core.throughput_test import throughput_test_rtlsim
-from copy import deepcopy
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
+)
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
+    ReplaceVerilogRelPaths,
+)
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.set_fifo_depths import (
+    InsertAndSetFIFODepths,
+    RemoveShallowFIFOs,
+)
+from finn.transformation.fpgadataflow.set_folding import SetFolding
+from finn.transformation.fpgadataflow.set_folding_exhaustive import SetFoldingExhaustive
+from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
+from finn.transformation.fpgadataflow.vitis_build import VitisBuild
+from finn.transformation.general import (
+    ApplyConfig,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    RemoveStaticGraphInputs,
+    RemoveUnusedTensors,
+)
+from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
+from finn.transformation.qonnx.quant_act_to_multithreshold import (
+    default_filter_function_generator,
+)
+from finn.transformation.streamline import Streamline
+from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
+from finn.util.basic import get_rtlsim_trace_depth
+from finn.util.config import extract_model_config_to_json
 from finn.util.platforms import platforms
+from finn.util.pyverilator import pyverilate_get_liveness_threshold_cycles
+from finn.util.test import execute_parent
 
 
 def verify_step(
@@ -118,19 +124,106 @@ def verify_step(
         parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
         child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
         model.save(child_model_fn)
-        out_npy = execute_parent(parent_model_fn, child_model_fn, in_npy)
+        out_tensor_name = ModelWrapper(parent_model_fn).graph.output[0].name
+        out_dict = execute_parent(
+            parent_model_fn, child_model_fn, in_npy, return_full_ctx=True
+        )
+        out_npy = out_dict[out_tensor_name]
     else:
         inp_tensor_name = model.graph.input[0].name
         out_tensor_name = model.graph.output[0].name
         inp_dict = {inp_tensor_name: in_npy}
-        out_dict = execute_onnx(model, inp_dict)
+        out_dict = execute_onnx(model, inp_dict, True)
         out_npy = out_dict[out_tensor_name]
     res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
     res_to_str = {True: "SUCCESS", False: "FAIL"}
     res_str = res_to_str[res]
-    verification_output_fn = verify_out_dir + "/verify_%s_%s.npy" % (step_name, res_str)
-    np.save(verification_output_fn, out_npy)
+    if cfg.verify_save_full_context:
+        verification_output_fn = verify_out_dir + "/verify_%s_%s.npz" % (
+            step_name,
+            res_str,
+        )
+        np.savez(verification_output_fn, **out_dict)
+    else:
+        verification_output_fn = verify_out_dir + "/verify_%s_%s.npy" % (
+            step_name,
+            res_str,
+        )
+        np.save(verification_output_fn, out_npy)
     print("Verification for %s : %s" % (step_name, res_str))
+
+
+def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
+    need_restitch = False
+    # rtlsim only supports certain impl_style for some nodes
+    # StreamingFIFO must have impl_style=rtl
+    for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
+        inst = getCustomOp(fifo_layer)
+        if inst.get_nodeattr("impl_style") != "rtl":
+            inst.set_nodeattr("impl_style", "rtl")
+            inst.set_nodeattr("code_gen_dir_ipgen", "")
+            inst.set_nodeattr("ipgen_path", "")
+            need_restitch = True
+    # StreamingDataWidthConverter must have impl_style=hls
+    for dwc_layer in verify_model.get_nodes_by_op_type(
+        "StreamingDataWidthConverter_Batch"
+    ):
+        inst = getCustomOp(dwc_layer)
+        if inst.get_nodeattr("impl_style") != "hls":
+            inst.set_nodeattr("impl_style", "hls")
+            inst.set_nodeattr("code_gen_dir_ipgen", "")
+            inst.set_nodeattr("ipgen_path", "")
+            need_restitch = True
+    # if we've made alterations to the model, need to do some re-prep
+    if need_restitch:
+        print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
+        verify_model = verify_model.transform(
+            PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+        )
+        verify_model = verify_model.transform(HLSSynthIP())
+        verify_model = verify_model.transform(
+            CreateStitchedIP(
+                cfg._resolve_fpga_part(),
+                cfg.synth_clk_period_ns,
+                vitis=False,
+            )
+        )
+    # set top-level prop for stitched-ip rtlsim and launch
+    verify_model.set_metadata_prop("exec_mode", "rtlsim")
+    # TODO make configurable
+    # verify_model.set_metadata_prop("rtlsim_trace", "trace.vcd")
+    return verify_model
+
+
+def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """
+    This step will only execute if QONNX nodes are found.
+    These include the following op_types: "Quant" , "Trunc" and "BinaryQuant".
+    If such nodes are found the step will run the tidy-up step from QONNX
+    and then convert the QONNX model to the FINN-ONNX dialect.
+    """
+    # Check if any QONNX nodes exist, i.e. BinaryQuant, Quant or Trunc
+    q_count = 0
+    for op_type in ["BinaryQuant", "Quant", "Trunc"]:
+        q_count += len(model.get_nodes_by_op_type(op_type))
+    if q_count == 0:
+        return model
+
+    # QONNX cleanup
+    model = cleanup_model(model)
+    # QONNX to FINN-ONNX
+    model = model.transform(
+        ConvertQONNXtoFINN(
+            filter_function=default_filter_function_generator(
+                max_multithreshold_bit_width=cfg.max_multithreshold_bit_width
+            )
+        )
+    )
+
+    if VerificationStepType.QONNX_TO_FINN_PYTHON in cfg._resolve_verification_steps():
+        verify_step(model, cfg, "qonnx_to_finn_python", need_parent=False)
+
+    return model
 
 
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
@@ -160,13 +253,14 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
 
     model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
-    model = model.transform(MoveScalarLinearPastInvariants())
     model = model.transform(Streamline())
     need_lowering = len(model.get_nodes_by_op_type("Conv")) > 0
     if need_lowering:
         model = model.transform(LowerConvsToMatMul())
         model = model.transform(MakeMaxPoolNHWC())
         model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
+        model = model.transform(MakeMaxPoolNHWC())
+        model = model.transform(absorb.AbsorbConsecutiveTransposes())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
     # absorb final add-mul nodes into TopK
@@ -183,7 +277,7 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Convert eligible nodes to `HLSCustomOp` subclasses that represent HLS
     layers. Which nodes and particular configurations can be converted to HLS
-    is limited, see the source code of the `convert_to_hls` module for more. """
+    is limited, see the source code of the `convert_to_hls` module for more."""
 
     mem_mode = cfg.default_mem_mode.value
     if cfg.standalone_thresholds:
@@ -215,7 +309,12 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
     nodes, which point to a separate ONNX file. Dataflow accelerator synthesis
     can only be performed on those HLSCustomOp sub-graphs."""
 
-    parent_model = model.transform(CreateDataflowPartition())
+    parent_model = model.transform(
+        CreateDataflowPartition(
+            partition_model_dir=cfg.output_dir
+            + "/intermediate_models/supported_op_partitions"
+        )
+    )
     sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
     assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
     sdp_node = sdp_nodes[0]
@@ -229,29 +328,41 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
 
 def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfig):
     """If target_fps was specified, use the SetFolding transformation to determine
-    parallelization attributes."""
+    parallelization attributes. The auto-generated config will be saved under
+    auto_folding_config.json under the outputs, which can serve as a basis for
+    customizing the folding factors further."""
 
     folding_mode = cfg.folding_mode
-    if folding_mode=="resources":
-        print("Folding the network based on the resource budget of {}x of the available LUTs!".format(cfg.resource_frac))
+    if folding_mode == "resources":
+        print(
+            "Folding the network based on the resource budget of {}x \
+            of the available LUTs!".format(
+                cfg.resource_frac
+            )
+        )
         if cfg.max_luts is not None:
             max_luts = cfg.max_luts
         elif cfg.board is not None:
             try:
                 board_resources = platforms[cfg.board]().compute_resources
                 max_luts = sum(res[0] for res in board_resources)
-            except KeyError as e:
-                print("Board {} not found in finn.util.platforms!".format(board))
+            except KeyError:
+                print("Board {} not found in finn.util.platforms!".format(cfg.board))
                 raise
         else:
-            raise Exception("Please specify either the maximum number of LUTs available or board")
+            raise Exception(
+                "Please specify either the maximum number of LUTs available or board"
+            )
         target_cycles_per_frame = cfg._resolve_cycles_per_frame()
         model = model.transform(
             SetFoldingExhaustive(
-                target_cycles_per_frame, cfg.mvau_wwidth_max, scale_ratio=cfg.resource_frac, max_luts=max_luts
+                target_cycles_per_frame,
+                cfg.mvau_wwidth_max,
+                scale_ratio=cfg.resource_frac,
+                max_luts=max_luts,
             )
         )
-    elif folding_mode=="frames":
+    elif folding_mode == "frames":
         print("Folding the network based on target frames per second!")
         target_cycles_per_frame = cfg._resolve_cycles_per_frame()
         if target_cycles_per_frame is not None:
@@ -263,7 +374,26 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
                 )
             )
     else:
-        raise("Folding mode {} not recognized! Please choose either 'frames' or 'resources'.".format(folding_mode))
+        raise (
+            "Folding mode {} not recognized! Please choose either 'frames'\
+             or 'resources'.".format(
+                folding_mode
+            )
+        )
+
+        # extract the suggested configuration and save it as json
+        hw_attrs = [
+            "PE",
+            "SIMD",
+            "ram_style",
+            "resType",
+            "mem_mode",
+            "runtime_writeable_weights",
+        ]
+        extract_model_config_to_json(
+            model, cfg.output_dir + "/auto_folding_config.json", hw_attrs
+        )
+
     return model
 
 
@@ -411,25 +541,35 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
         stitched_ip_dir = cfg.output_dir + "/stitched_ip"
         model = model.transform(
-            CreateStitchedIP(cfg._resolve_fpga_part(), cfg.synth_clk_period_ns)
+            CreateStitchedIP(
+                cfg._resolve_fpga_part(),
+                cfg.synth_clk_period_ns,
+                vitis=cfg.stitched_ip_gen_dcp,
+            )
         )
         # TODO copy all ip sources into output dir? as zip?
-        copytree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
+        copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
         print("Vivado stitched IP written into " + stitched_ip_dir)
     if VerificationStepType.STITCHED_IP_RTLSIM in cfg._resolve_verification_steps():
         # prepare ip-stitched rtlsim
         verify_model = deepcopy(model)
-        # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
-        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
-            getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
-        # similarly for StreamingDataWidthConverter with impl_style=hls
-        for dwc_layer in verify_model.get_nodes_by_op_type(
-            "StreamingDataWidthConverter_Batch"
-        ):
-            getCustomOp(dwc_layer).set_nodeattr("impl_style", "hls")
-        verify_model = verify_model.transform(PrepareRTLSim())
-        verify_model.set_metadata_prop("exec_mode", "rtlsim")
+        verify_model = prepare_for_stitched_ip_rtlsim(verify_model, cfg)
+        # use critical path estimate to set rtlsim liveness threshold
+        # (very conservative)
+        verify_model = verify_model.transform(AnnotateCycles())
+        estimate_network_performance = verify_model.analysis(dataflow_performance)
+        prev_liveness = pyverilate_get_liveness_threshold_cycles()
+        os.environ["LIVENESS_THRESHOLD"] = str(
+            int(estimate_network_performance["critical_path_cycles"])
+        )
+        if cfg.verify_save_rtlsim_waveforms:
+            report_dir = cfg.output_dir + "/report"
+            os.makedirs(report_dir, exist_ok=True)
+            verify_model.set_metadata_prop(
+                "rtlsim_trace", "%s/verify_rtlsim.vcd" % (report_dir)
+            )
         verify_step(verify_model, cfg, "stitched_ip_rtlsim", need_parent=True)
+        os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 
 
@@ -442,30 +582,30 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         assert (
             DataflowOutputType.STITCHED_IP in cfg.generate_outputs
         ), "rtlsim_perf needs stitched IP"
-        # prepare ip-stitched rtlsim
-        rtlsim_model = deepcopy(model)
-        # rtlsim only supports impl_style=rtl for StreamingFIFO, ensure that
-        for fifo_layer in rtlsim_model.get_nodes_by_op_type("StreamingFIFO"):
-            getCustomOp(fifo_layer).set_nodeattr("impl_style", "rtl")
-        # similarly for StreamingDataWidthConverter with impl_style=hls
-        for dwc_layer in rtlsim_model.get_nodes_by_op_type(
-            "StreamingDataWidthConverter_Batch"
-        ):
-            getCustomOp(dwc_layer).set_nodeattr("impl_style", "hls")
-        rtlsim_model = rtlsim_model.transform(PrepareRTLSim())
-        rtlsim_model.set_metadata_prop("exec_mode", "rtlsim")
-        # run with single input to get latency
-        rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, 1)
-        rtlsim_latency = rtlsim_perf_dict["cycles"]
-        # run with num inputs equal to layers to fill the whole pipeline
-        # to get the steady-state throughput
-        rtlsim_bs = len(rtlsim_model.graph.node)
-        rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
-        rtlsim_perf_dict["latency_cycles"] = rtlsim_latency
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
+        # prepare ip-stitched rtlsim
+        rtlsim_model = deepcopy(model)
+        rtlsim_model = prepare_for_stitched_ip_rtlsim(rtlsim_model, cfg)
+        # run with single input to get latency
+        orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
+        rtlsim_bs = int(cfg.rtlsim_batch_size)
+        assert rtlsim_bs > 0, "rtlsim batch size must be >0"
+        if cfg.verify_save_rtlsim_waveforms:
+            # set depth to 3 for layer-by-layer visibility
+            os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+            rtlsim_model.set_metadata_prop(
+                "rtlsim_trace", "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs)
+            )
+        rtlsim_model.set_metadata_prop("extra_verilator_args", str(["-CFLAGS", "-O3"]))
+        rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
+        rtlsim_latency = rtlsim_perf_dict["cycles"]
+        rtlsim_perf_dict["latency_cycles"] = rtlsim_latency
         with open(report_dir + "/rtlsim_performance.json", "w") as f:
             json.dump(rtlsim_perf_dict, f, indent=2)
+        if cfg.verify_save_rtlsim_waveforms:
+            # restore original trace depth
+            os.environ["RTLSIM_TRACE_DEPTH"] = str(orig_rtlsim_trace_depth)
 
     return model
 
@@ -477,7 +617,7 @@ def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     if DataflowOutputType.PYNQ_DRIVER in cfg.generate_outputs:
         driver_dir = cfg.output_dir + "/driver"
         model = model.transform(MakePYNQDriver(cfg._resolve_driver_platform()))
-        copytree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
+        copy_tree(model.get_metadata_prop("pynq_driver_dir"), driver_dir)
         print("PYNQ Python driver written into " + driver_dir)
     return model
 
@@ -518,9 +658,15 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
         os.makedirs(bitfile_dir, exist_ok=True)
         report_dir = cfg.output_dir + "/report"
         os.makedirs(report_dir, exist_ok=True)
+        partition_model_dir = cfg.output_dir + "/intermediate_models/kernel_partitions"
         if cfg.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
             model = model.transform(
-                ZynqBuild(cfg.board, cfg.synth_clk_period_ns, cfg.enable_hw_debug)
+                ZynqBuild(
+                    cfg.board,
+                    cfg.synth_clk_period_ns,
+                    cfg.enable_hw_debug,
+                    partition_model_dir=partition_model_dir,
+                )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.bit")
             copy(model.get_metadata_prop("hw_handoff"), bitfile_dir + "/finn-accel.hwh")
@@ -544,6 +690,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                     floorplan_file=cfg.vitis_floorplan_file,
+                    partition_model_dir=partition_model_dir,
                 )
             )
             copy(model.get_metadata_prop("bitfile"), bitfile_dir + "/finn-accel.xclbin")
@@ -566,13 +713,14 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         bitfile_dir = cfg.output_dir + "/bitfile"
         driver_dir = cfg.output_dir + "/driver"
         os.makedirs(deploy_dir, exist_ok=True)
-        copytree(bitfile_dir, deploy_dir + "/bitfile")
-        copytree(driver_dir, deploy_dir + "/driver")
+        copy_tree(bitfile_dir, deploy_dir + "/bitfile")
+        copy_tree(driver_dir, deploy_dir + "/driver")
     return model
 
 
 #: map step name strings to step functions
 build_dataflow_step_lookup = {
+    "step_qonnx_to_finn": step_qonnx_to_finn,
     "step_tidy_up": step_tidy_up,
     "step_streamline": step_streamline,
     "step_convert_to_hls": step_convert_to_hls,

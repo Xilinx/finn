@@ -31,22 +31,22 @@ import pytest
 import numpy as np
 from onnx import TensorProto, helper
 
-from finn.custom_op.registry import getCustomOp
 import finn.core.onnx_exec as oxe
 import finn.custom_op.general.xnorpopcount as xp
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.general.multithreshold import multithreshold
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -59,11 +59,11 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     # StreamingFC:
     # - specify their datatypes as such
     # - specify their datatypes as BINARY as use binaryXnorMode
-    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
         # we'll internally convert weights/inputs to binary and specify the
         # datatypes as such, and also set the binaryXnorMode attribute to 1
-        export_wdt = DataType.BINARY
-        export_idt = DataType.BINARY
+        export_wdt = DataType["BINARY"]
+        export_idt = DataType["BINARY"]
         binary_xnor_mode = 1
     else:
         export_wdt = wdt
@@ -75,7 +75,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     if T is not None:
         no_act = 0
         node_inp_list = ["inp", "weights", "thresh"]
-        if odt == DataType.BIPOLAR:
+        if odt == DataType["BIPOLAR"]:
             actval = 0
         else:
             actval = odt.min()
@@ -123,7 +123,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
 
 
 def prepare_inputs(input_tensor, idt, wdt):
-    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
         # convert bipolar to binary
         return {"inp": (input_tensor + 1) / 2}
     else:
@@ -133,11 +133,11 @@ def prepare_inputs(input_tensor, idt, wdt):
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled", "external"])
 # activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT4])
+@pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT4])
+@pytest.mark.parametrize("wdt", [DataType["BIPOLAR"], DataType["INT4"]])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["INT4"]])
 # neuron folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2, 1])
 # synapse folding, -1 is maximum possible
@@ -165,10 +165,10 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # no activation, produce accumulators
         T = None
         tdt = None
-        if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
-            odt = DataType.UINT32
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            odt = DataType["UINT32"]
         else:
-            odt = DataType.INT32
+            odt = DataType["INT32"]
     else:
         odt = act
         (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
@@ -177,13 +177,13 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # provide non-decreasing thresholds
         T = np.sort(T, axis=1)
         # generate thresholds for activation
-        if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
-            tdt = DataType.UINT32
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            tdt = DataType["UINT32"]
             # bias thresholds to be positive
             T = np.ceil((T + mw) / 2)
             assert (T >= 0).all()
         else:
-            tdt = DataType.INT32
+            tdt = DataType["INT32"]
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
@@ -194,14 +194,14 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     model = model.transform(CompileCppSim())
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
-    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
         # convert inputs to binary and use xnorpopcountmatmul
         y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
     else:
         y = np.matmul(x, W)
     if T is not None:
         y = multithreshold(y, T)
-        if act == DataType.BIPOLAR:
+        if act == DataType["BIPOLAR"]:
             # binary to bipolar
             y = 2 * y - 1
         else:
@@ -220,11 +220,11 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled", "external"])
 # activation: None or DataType
-@pytest.mark.parametrize("act", [None, DataType.BIPOLAR, DataType.INT4])
+@pytest.mark.parametrize("act", [None, DataType["BIPOLAR"], DataType["INT4"]])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType.BIPOLAR, DataType.INT4])
+@pytest.mark.parametrize("wdt", [DataType["BIPOLAR"], DataType["INT4"]])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.BIPOLAR, DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["INT4"]])
 # neuron folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1, 2, 1])
 # synapse folding, -1 is maximum possible
@@ -252,10 +252,10 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # no activation, produce accumulators
         T = None
         tdt = None
-        if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
-            odt = DataType.UINT32
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            odt = DataType["UINT32"]
         else:
-            odt = DataType.INT32
+            odt = DataType["INT32"]
     else:
         odt = act
         (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
@@ -264,13 +264,13 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # provide non-decreasing thresholds
         T = np.sort(T, axis=1)
         # generate thresholds for activation
-        if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
-            tdt = DataType.UINT32
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            tdt = DataType["UINT32"]
             # bias thresholds to be positive
             T = np.ceil((T + mw) / 2)
             assert (T >= 0).all()
         else:
-            tdt = DataType.INT32
+            tdt = DataType["INT32"]
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
@@ -279,14 +279,14 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
-    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
         # convert inputs to binary and use xnorpopcountmatmul
         y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
     else:
         y = np.matmul(x, W)
     if T is not None:
         y = multithreshold(y, T)
-        if act == DataType.BIPOLAR:
+        if act == DataType["BIPOLAR"]:
             # binary to bipolar
             y = 2 * y - 1
         else:
@@ -319,11 +319,11 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 # mem_mode: const or decoupled
 @pytest.mark.parametrize("mem_mode", ["decoupled"])
 # activation: None or DataType
-@pytest.mark.parametrize("act", [DataType.INT4])
+@pytest.mark.parametrize("act", [DataType["INT4"]])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType.INT4])
+@pytest.mark.parametrize("wdt", [DataType["INT4"]])
 # input datatype
-@pytest.mark.parametrize("idt", [DataType.INT4])
+@pytest.mark.parametrize("idt", [DataType["INT4"]])
 # neuron folding, -1 is maximum possible
 @pytest.mark.parametrize("nf", [-1])
 # synapse folding, -1 is maximum possible
@@ -352,10 +352,10 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
         # no activation, produce accumulators
         T = None
         tdt = None
-        if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
-            odt = DataType.UINT32
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            odt = DataType["UINT32"]
         else:
-            odt = DataType.INT32
+            odt = DataType["INT32"]
     else:
         odt = act
         (min, max) = calculate_signed_dot_prod_range(idt, wdt, mw)
@@ -364,13 +364,13 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
         # provide non-decreasing thresholds
         T = np.sort(T, axis=1)
         # generate thresholds for activation
-        if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
-            tdt = DataType.UINT32
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            tdt = DataType["UINT32"]
             # bias thresholds to be positive
             T = np.ceil((T + mw) / 2)
             assert (T >= 0).all()
         else:
-            tdt = DataType.INT32
+            tdt = DataType["INT32"]
     model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
     for node in model.graph.node:
         # lookup op_type in registry of CustomOps
@@ -379,14 +379,14 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
 
     # prepare input data
     input_dict = prepare_inputs(x, idt, wdt)
-    if wdt == DataType.BIPOLAR and idt == DataType.BIPOLAR:
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
         # convert inputs to binary and use xnorpopcountmatmul
         y = xp.xnorpopcountmatmul((x + 1) / 2, (W + 1) / 2)
     else:
         y = np.matmul(x, W)
     if T is not None:
         y = multithreshold(y, T)
-        if act == DataType.BIPOLAR:
+        if act == DataType["BIPOLAR"]:
             # binary to bipolar
             y = 2 * y - 1
         else:

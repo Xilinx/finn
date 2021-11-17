@@ -26,20 +26,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.util.create import hls_random_mlp_maker
-from finn.core.datatype import DataType
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.custom_op.registry import getCustomOp
-from finn.core.rtlsim_exec import rtlsim_exec
-from finn.util.basic import gen_finn_dt_tensor
-from finn.util.pyverilator import axilite_write, axilite_read
-import numpy as np
 import pytest
+
+import numpy as np
 import os
+
+from finn.core.datatype import DataType
+from finn.core.rtlsim_exec import rtlsim_exec
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.util.basic import gen_finn_dt_tensor
+from finn.util.create import hls_random_mlp_maker
+from finn.util.pyverilator import axilite_read, axilite_write
 
 test_fpga_part = "xc7z020clg400-1"
 target_clk_ns = 5
@@ -47,8 +49,8 @@ target_clk_ns = 5
 
 @pytest.mark.vivado
 def test_runtime_weights_single_layer():
-    idt = DataType.UINT32
-    wdt = DataType.UINT4
+    idt = DataType["UINT32"]
+    wdt = DataType["UINT4"]
     act = None
     mw = 64
     mh = 32
@@ -76,11 +78,11 @@ def test_runtime_weights_single_layer():
     os.remove("old_weights.dat")
     old_weight_stream = map(lambda x: int(x, 16), old_weight_stream.split("\n"))
     old_weight_stream = list(old_weight_stream)
+    model = model.transform(InsertFIFO(True))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
-    model = model.transform(PrepareRTLSim())
     model.set_metadata_prop("exec_mode", "rtlsim")
     in_tensor = np.asarray(range(mw), dtype=np.float32)
     # add two copies of the input tensor as the first one is just used to

@@ -26,15 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import copy
+import multiprocessing as mp
 import os
 
 import finn.custom_op.registry as registry
-from finn.util.basic import make_build_dir
-from finn.util.fpgadataflow import is_fpgadataflow_node
 from finn.transformation.base import Transformation
-from finn.util.basic import get_num_default_workers
-import multiprocessing as mp
-import copy
+from finn.util.basic import get_num_default_workers, make_build_dir
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def _codegen_single_node(node, model):

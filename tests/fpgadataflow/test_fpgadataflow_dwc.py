@@ -30,15 +30,15 @@ import pytest
 
 from onnx import TensorProto, helper
 
+import finn.core.onnx_exec as oxe
 from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor
-import finn.core.onnx_exec as oxe
 
 
 def make_single_dwc_modelwrapper(Shape, INWidth, OUTWidth, finn_dtype):
@@ -82,7 +82,7 @@ def prepare_inputs(input_tensor, dt):
 # outWidth
 @pytest.mark.parametrize("OUTWidth", [2, 4])
 # finn_dtype
-@pytest.mark.parametrize("finn_dtype", [DataType.BIPOLAR, DataType.INT2])
+@pytest.mark.parametrize("finn_dtype", [DataType["BIPOLAR"], DataType["INT2"]])
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_dwc_rtlsim(Shape, INWidth, OUTWidth, finn_dtype):

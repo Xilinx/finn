@@ -26,15 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
+import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
 
-from finn.util.basic import get_by_name
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
 from finn.transformation.general import SortGraph
-import math
-import numpy as np
+from finn.util.basic import get_by_name
 
 
 class InsertIODMA(Transformation):
@@ -87,6 +87,7 @@ class InsertIODMA(Transformation):
         return reshaped_w
 
     def apply(self, model):
+        modified = False
         # only makes sense for a pure fpgadataflow graph -- so we check!
         all_nodes = list(model.graph.node)
         assert all(
@@ -102,59 +103,14 @@ class InsertIODMA(Transformation):
                 all_nodes,
             )
         )
-        graph_in_name = model.graph.input[0].name
-        first_node = model.find_consumer(graph_in_name)
-        graph_out_name = model.graph.output[0].name
-        final_node = model.find_producer(graph_out_name)
-        if (
-            final_node.op_type == "IODMA"
-            and first_node.op_type == "IODMA"
-            and len(fc_extw_nodes) == 0
-        ):
-            # TODO maybe check the correctness of properties
-            return (model, False)
-        else:
-            if final_node.op_type != "IODMA":
-                out_shape = model.get_tensor_shape(graph_out_name)
-                out_dtype = model.get_tensor_datatype(graph_out_name)
-                final_node_inst = getCustomOp(final_node)
-                out_folded_shape = final_node_inst.get_folded_output_shape()
-                # take advantage of AXI stream width padding for DMA alignment
-                # (AXI streams are always padded to 8 bits)
-                # this is the width of stream input to DMA
-                padded_outstream_width = final_node_inst.get_outstream_width_padded()
-                padded_outstream_bytes = padded_outstream_width // 8
-                # determine the feasible interface width
-                transfer_bits = padded_outstream_width * np.prod(out_folded_shape[:-1])
-                intfwidth = math.gcd(transfer_bits, self.max_intfwidth)
-                assert (
-                    intfwidth % 8 == 0
-                ), "No feasible interface width for transfer size"
-                # make new buffer
-                final_node_out = oh.make_tensor_value_info(
-                    model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
-                )
-                model.graph.value_info.append(final_node_out)
-                model.set_tensor_datatype(final_node_out.name, out_dtype)
-                # reroute final node output to final_node_out_name
-                final_node.output[0] = final_node_out.name
-                # FIXME: currently always using 8-bit dtypes to work around the
-                # padding problems for i/o DMA
-                dma_node = oh.make_node(
-                    "IODMA",
-                    [final_node_out.name],
-                    [graph_out_name],
-                    numInputVectors=out_folded_shape[:-1],
-                    NumChannels=padded_outstream_bytes,
-                    dataType="UINT8",
-                    intfWidth=intfwidth,
-                    streamWidth=padded_outstream_width,
-                    direction="out",
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                )
-                model.graph.node.append(dma_node)
-            if first_node.op_type != "IODMA":
+        # insert IODMAs for graph inputs
+        graph_in_names = [x.name for x in model.graph.input]
+        for graph_in_name in graph_in_names:
+            first_node = model.find_consumer(graph_in_name)
+            if first_node.op_type == "IODMA":
+                # IODMA already inserted for this input
+                continue
+            else:
                 in_shape = model.get_tensor_shape(graph_in_name)
                 in_dtype = model.get_tensor_datatype(graph_in_name)
                 first_node_inst = getCustomOp(first_node)
@@ -194,47 +150,96 @@ class InsertIODMA(Transformation):
                     backend="fpgadataflow",
                 )
                 model.graph.node.insert(0, dma_node)
-            for fc_node in fc_extw_nodes:
-                fc_inst = getCustomOp(fc_node)
-                fc_w_name = fc_node.input[1]
-                w_shape = model.get_tensor_shape(fc_w_name)
-                w_dtype = model.get_tensor_datatype(fc_w_name)
+                modified = True
+        # insert IODMAs for graph outputs
+        graph_out_names = [x.name for x in model.graph.output]
+        for graph_out_name in graph_out_names:
+            final_node = model.find_producer(graph_out_name)
+            if final_node.op_type == "IODMA":
+                continue
+            else:
+                out_shape = model.get_tensor_shape(graph_out_name)
+                out_dtype = model.get_tensor_datatype(graph_out_name)
+                final_node_inst = getCustomOp(final_node)
+                out_folded_shape = final_node_inst.get_folded_output_shape()
+                # take advantage of AXI stream width padding for DMA alignment
+                # (AXI streams are always padded to 8 bits)
+                # this is the width of stream input to DMA
+                padded_outstream_width = final_node_inst.get_outstream_width_padded()
+                padded_outstream_bytes = padded_outstream_width // 8
                 # determine the feasible interface width
-                transfer_bits = np.prod(w_shape) * w_dtype.bitwidth()
+                transfer_bits = padded_outstream_width * np.prod(out_folded_shape[:-1])
                 intfwidth = math.gcd(transfer_bits, self.max_intfwidth)
                 assert (
                     intfwidth % 8 == 0
                 ), "No feasible interface width for transfer size"
-                # calculate width of stream output from DMA
-                pe = get_by_name(fc_node.attribute, "PE").i
-                simd = get_by_name(fc_node.attribute, "SIMD").i
-                streamWidth = fc_inst.get_weightstream_width_padded()
                 # make new buffer
-                W = model.get_initializer(fc_w_name)
-                iodma_mem = self.get_mem_init(W, pe, simd)
-                model.set_initializer(fc_w_name, iodma_mem)
-
-                fc_node_in = oh.make_tensor_value_info(
-                    model.make_new_valueinfo_name(), TensorProto.FLOAT, iodma_mem.shape
+                final_node_out = oh.make_tensor_value_info(
+                    model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
                 )
-                model.graph.value_info.append(fc_node_in)
-                model.set_tensor_datatype(fc_node_in.name, w_dtype)
-                model.set_initializer(fc_node_in.name, W)
+                model.graph.value_info.append(final_node_out)
+                model.set_tensor_datatype(final_node_out.name, out_dtype)
+                # reroute final node output to final_node_out_name
+                final_node.output[0] = final_node_out.name
+                # FIXME: currently always using 8-bit dtypes to work around the
+                # padding problems for i/o DMA
                 dma_node = oh.make_node(
                     "IODMA",
-                    [fc_w_name],
-                    [fc_node_in.name],
-                    numInputVectors=[iodma_mem.shape[0]],
-                    NumChannels=pe * simd,
-                    dataType=str(w_dtype.name),
+                    [final_node_out.name],
+                    [graph_out_name],
+                    numInputVectors=out_folded_shape[:-1],
+                    NumChannels=padded_outstream_bytes,
+                    dataType="UINT8",
                     intfWidth=intfwidth,
-                    streamWidth=streamWidth,
-                    direction="in",
-                    burstMode="wrap",
+                    streamWidth=padded_outstream_width,
+                    direction="out",
                     domain="finn.custom_op.fpgadataflow",
                     backend="fpgadataflow",
                 )
-                fc_node.input[1] = fc_node_in.name
-                model.graph.node.insert(0, dma_node)
+                model.graph.node.append(dma_node)
+                modified = True
+
+        for fc_node in fc_extw_nodes:
+            fc_inst = getCustomOp(fc_node)
+            fc_w_name = fc_node.input[1]
+            w_shape = model.get_tensor_shape(fc_w_name)
+            w_dtype = model.get_tensor_datatype(fc_w_name)
+            # determine the feasible interface width
+            transfer_bits = np.prod(w_shape) * w_dtype.bitwidth()
+            intfwidth = math.gcd(transfer_bits, self.max_intfwidth)
+            assert intfwidth % 8 == 0, "No feasible interface width for transfer size"
+            # calculate width of stream output from DMA
+            pe = get_by_name(fc_node.attribute, "PE").i
+            simd = get_by_name(fc_node.attribute, "SIMD").i
+            streamWidth = fc_inst.get_weightstream_width_padded()
+            # make new buffer
+            W = model.get_initializer(fc_w_name)
+            iodma_mem = self.get_mem_init(W, pe, simd)
+            model.set_initializer(fc_w_name, iodma_mem)
+
+            fc_node_in = oh.make_tensor_value_info(
+                model.make_new_valueinfo_name(), TensorProto.FLOAT, iodma_mem.shape
+            )
+            model.graph.value_info.append(fc_node_in)
+            model.set_tensor_datatype(fc_node_in.name, w_dtype)
+            model.set_initializer(fc_node_in.name, W)
+            dma_node = oh.make_node(
+                "IODMA",
+                [fc_w_name],
+                [fc_node_in.name],
+                numInputVectors=[iodma_mem.shape[0]],
+                NumChannels=pe * simd,
+                dataType=str(w_dtype.name),
+                intfWidth=intfwidth,
+                streamWidth=streamWidth,
+                direction="in",
+                burstMode="wrap",
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+            )
+            fc_node.input[1] = fc_node_in.name
+            model.graph.node.insert(0, dma_node)
+            modified = True
+        if modified:
             model = model.transform(SortGraph())
-            return (model, True)
+        return (model, modified)

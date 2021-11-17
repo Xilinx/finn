@@ -26,34 +26,33 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import json
 import os
 import subprocess
-import json
+from enum import Enum
 
 from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.base import Transformation
 from finn.custom_op.registry import getCustomOp
-
+from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.floorplan import Floorplan
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
-from finn.transformation.fpgadataflow.floorplan import Floorplan
-from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     RemoveUnusedTensors,
 )
-from finn.util.basic import make_build_dir
 from finn.transformation.infer_data_layouts import InferDataLayouts
+from finn.util.basic import make_build_dir
+
 from . import templates
-from enum import Enum
 
 
 def _check_vitis_envvars():
@@ -207,7 +206,10 @@ class VitisLink(Transformation):
             # has axis, aximm and axilite
             # everything else is axis-only
             # assume only one connection from each ip to the next
-            producer = model.find_producer(node.input[0])
+            if len(node.input) == 0:
+                producer = None
+            else:
+                producer = model.find_producer(node.input[0])
             consumer = model.find_consumers(node.output[0])
             # define kernel instances
             # name kernels connected to graph inputs as idmaxx
@@ -223,6 +225,7 @@ class VitisLink(Transformation):
             else:
                 instance_names[node.name] = node.name
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
+            sdp_node.set_nodeattr("instance_name", instance_names[node.name])
             # explicitly assign SLRs if the slr attribute is not -1
             node_slr = sdp_node.get_nodeattr("slr")
             if node_slr != -1:
@@ -231,7 +234,7 @@ class VitisLink(Transformation):
             if producer is None or consumer is None:
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
-                    #configure good defaults based on board
+                    # configure good defaults based on board
                     if "u50" in self.platform or "u280" in self.platform:
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
@@ -251,7 +254,9 @@ class VitisLink(Transformation):
                         mem_type = "DDR"
                         mem_idx = 1
                     node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
+                config.append(
+                    "sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port)
+                )
             # connect streams
             if producer is not None:
                 for i in range(len(node.input)):
@@ -373,6 +378,7 @@ class VitisBuild(Transformation):
         enable_debug=False,
         floorplan_file=None,
         enable_link=True,
+        partition_model_dir=None,
     ):
         super().__init__()
         self.fpga_part = fpga_part
@@ -382,6 +388,7 @@ class VitisBuild(Transformation):
         self.enable_debug = enable_debug
         self.floorplan_file = floorplan_file
         self.enable_link = enable_link
+        self.partition_model_dir = partition_model_dir
 
     def apply(self, model):
         _check_vitis_envvars()
@@ -396,7 +403,9 @@ class VitisBuild(Transformation):
 
         model = model.transform(Floorplan(floorplan=self.floorplan_file))
 
-        model = model.transform(CreateDataflowPartition())
+        model = model.transform(
+            CreateDataflowPartition(partition_model_dir=self.partition_model_dir)
+        )
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
 
@@ -437,6 +446,4 @@ class VitisBuild(Transformation):
         # set platform attribute for correct remote execution
         model.set_metadata_prop("platform", "alveo")
 
-        # create driver
-        model = model.transform(MakePYNQDriver(platform="alveo"))
         return (model, False)

@@ -26,12 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pytest
 import pkg_resources as pk
-from shutil import copytree
-from finn.util.basic import make_build_dir
-from finn.builder.build_dataflow import build_dataflow_directory
+
+import pytest
+
 import os
+from shutil import copytree
+
+from finn.builder.build_dataflow import build_dataflow_directory
+from finn.util.basic import make_build_dir
 
 
 @pytest.mark.slow
@@ -45,11 +48,14 @@ def test_build_dataflow_directory():
     # check the generated files
     output_dir = target_dir + "/output_tfc_w1a1_Pynq-Z1"
     assert os.path.isfile(output_dir + "/time_per_step.json")
+    assert os.path.isfile(output_dir + "/auto_folding_config.json")
     assert os.path.isfile(output_dir + "/final_hw_config.json")
     assert os.path.isfile(output_dir + "/stitched_ip/ip/component.xml")
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
+    assert os.path.isfile(output_dir + "/report/verify_rtlsim.vcd")
+    assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_1.vcd")
     assert os.path.isfile(
         output_dir + "/report/estimate_layer_config_alternatives.json"
     )

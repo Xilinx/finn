@@ -26,19 +26,19 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
-import warnings
-import subprocess
 import json
-
-from finn.transformation.base import Transformation
-from finn.util.basic import make_build_dir, get_num_default_workers
-from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.custom_op.registry import getCustomOp
 import multiprocessing as mp
+import os
+import subprocess
+import warnings
+
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
+from finn.util.basic import get_num_default_workers, make_build_dir
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def is_external_input(model, node, i):
@@ -86,11 +86,6 @@ class CreateStitchedIP(Transformation):
         self.clk_ns = clk_ns
         self.ip_name = ip_name
         self.vitis = vitis
-        if float(clk_ns) not in [5.0, 10.0, 20.0]:
-            warnings.warn(
-                """The chosen frequency may lead to failure due to clock divider
-                constraints."""
-            )
         self.has_aximm = False
         self.has_m_axis = False
         self.m_axis_idx = 0
@@ -221,6 +216,13 @@ class CreateStitchedIP(Transformation):
         ip_dirs = ["list"]
         # add RTL streamer IP
         ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
+        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
+            warnings.warn(
+                """First node is not StreamingFIFO or IODMA.
+                You may experience incorrect stitched-IP rtlsim or hardware
+                behavior. It is strongly recommended to insert FIFOs prior to
+                calling CreateStitchedIP."""
+            )
         # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
             assert is_fpgadataflow_node(
@@ -330,12 +332,13 @@ class CreateStitchedIP(Transformation):
         )
         tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
+        # mark bus interface params as user-resolvable to avoid FREQ_MHZ mismatches
+        tcl.append(
+            "set_property value_resolve_type user [ipx::get_bus_parameters "
+            "-of [ipx::get_bus_interfaces -of [ipx::current_core ]]]"
+        )
         # if targeting Vitis, add some properties to the IP
         if self.vitis:
-            tcl.append(
-                "ipx::remove_bus_parameter FREQ_HZ "
-                "[ipx::get_bus_interfaces CLK.AP_CLK -of_objects [ipx::current_core]]"
-            )
             # replace source code with dcp
             tcl.append(
                 "set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv

@@ -29,9 +29,9 @@
 import os
 import xml.etree.ElementTree as ET
 
-from finn.transformation.move_reshape import _is_fpgadataflow_node
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.registry import getCustomOp
+from finn.transformation.move_reshape import _is_fpgadataflow_node
 
 
 def post_synth_res(model, override_synth_report_filename=None):
