@@ -44,7 +44,6 @@ class SetFoldingExhaustive(Transformation):
         self,
         target_cycles_per_frame=None,
         max_luts=None,
-        board=None,
         mvau_wwidth_max=36,
         scale_ratio=0.7,
         from_scratch=True,
@@ -53,10 +52,10 @@ class SetFoldingExhaustive(Transformation):
         self.target_cycles_per_frame = (
             target_cycles_per_frame if target_cycles_per_frame is not None else None
         )
-        self.board = board if board is not None else None
         self.mvau_wwidth_max = mvau_wwidth_max
         self.from_scratch = from_scratch
-        self.max_luts = scale_ratio * max_luts if max_luts is not None else float("inf")
+
+        self.max_luts = scale_ratio * max_luts
 
         self.pe_ops = [
             "AddStreams_Batch",
@@ -65,7 +64,7 @@ class SetFoldingExhaustive(Transformation):
             "GlobalAccPool_Batch",
             "Thresholding_Batch",
         ]
-        self.simd_ops = ["DownSampler", "FMPadding_Batch", "ConvolutionInputGenerator"]
+        self.simd_ops = ["DownSampler", "FMPadding_Batch", "ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]
         self.depthwise_op_exceptions = ["Vector_Vector_Activate_Batch", "Pool_Batch"]
 
     def get_attrs(self, model):
@@ -104,7 +103,7 @@ class SetFoldingExhaustive(Transformation):
             node_inst = getCustomOp(node)
             # Dealing with SIMD Ops
             if node.op_type in self.simd_ops:
-                if node.op_type == "ConvolutionInputGenerator":
+                if node.op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]:
                     depthwise = node_inst.get_nodeattr("depthwise")
                     if depthwise == 0:
                         max_simd = node_inst.get_nodeattr("IFMChannels")
@@ -403,7 +402,7 @@ class SetFoldingExhaustive(Transformation):
                 # update upstream ConvInpGen node
                 if node.op_type in self.depthwise_op_exceptions:
                     swu_node = new_model.find_producer(node.input[0])
-                    if swu_node.op_type == "ConvolutionInputGenerator":
+                    if swu_node.op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]:
                         swu_node_inst = getCustomOp(swu_node)
                         swu_node_inst.set_nodeattr("SIMD", val)
 
@@ -443,7 +442,7 @@ class SetFoldingExhaustive(Transformation):
                         total_luts -= old_lut
                         total_luts += new_lut
 
-                elif op_type == "ConvolutionInputGenerator":
+                elif op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]:
                     # If child is not in depthwise_op_exceptions, update ConvInpGen node
                     child_node = new_model.find_consumers(node.output[0])[0]
                     if child_node.op_type in self.depthwise_op_exceptions:
@@ -483,7 +482,7 @@ class SetFoldingExhaustive(Transformation):
             if node_inst.get_exp_cycles() > slowest_layer[1].get("cycles"):
                 # remove ConvInpGen nodes if they have depthwise_op_exception node children
                 if (
-                    node.op_type == "ConvolutionInputGenerator"
+                    node.op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]
                     and model.find_consumers(node.output[0])[0].op_type
                     in self.depthwise_op_exceptions
                 ):
@@ -544,7 +543,7 @@ class SetFoldingExhaustive(Transformation):
                 reverse=True,
             )[0]
 
-            if slowest_layer[1].get("cycles") < self.target_cycles_per_frame:
+            if self.target_cycles_per_frame is not None and slowest_layer[1].get("cycles") < self.target_cycles_per_frame:
                 print(f"Reached target of {self.target_cycles_per_frame} cycles")
                 break
 
@@ -578,7 +577,7 @@ class SetFoldingExhaustive(Transformation):
                         node_inst.set_nodeattr("PE", attr[1])
                     if node.op_type in self.depthwise_op_exceptions:
                         swu_node = model.find_producer(node.input[0])
-                        if not swu_node.op_type == "ConvolutionInputGenerator":
+                        if not swu_node.op_type in ["ConvolutionInputGenerator", "ConvolutionInputGenerator1D"]:
                             node_inst.set_nodeattr("PE", attr)
                     if node.op_type in self.pe_ops:
                         node_inst.set_nodeattr("PE", attr)
