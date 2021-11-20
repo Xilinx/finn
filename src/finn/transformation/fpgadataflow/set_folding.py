@@ -104,7 +104,12 @@ class SetFolding(Transformation):
         ]
         # these ops use SIMD parallelism, up to a max value of NumChannels
         # ConvolutionInputGenerator has a special case when depthwise=1
-        simd_ops = ["DownSampler", "FMPadding_Batch", "ConvolutionInputGenerator"]
+        simd_ops = [
+            "DownSampler",
+            "FMPadding_Batch",
+            "ConvolutionInputGenerator",
+            "ConvolutionInputGenerator1D",
+        ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
         depthwise_op_exceptions = ["Vector_Vector_Activate_Batch", "Pool_Batch"]
@@ -150,7 +155,7 @@ class SetFolding(Transformation):
                 # also set the folding of the upsteam DW SWU
                 # which must be identical to this node
                 swu_node = model.find_producer(node.input[0])
-                if swu_node.op_type == "ConvolutionInputGenerator":
+                if swu_node.op_type.startswith("ConvolutionInputGenerator"):
                     swu_node_inst = getCustomOp(swu_node)
                     pe = node_inst.get_nodeattr("PE")
                     swu_node_inst.set_nodeattr("SIMD", pe)
@@ -166,7 +171,10 @@ class SetFolding(Transformation):
                             "Expected SWU on DW op input, found " + swu_node.op_type
                         )
             elif op_type in simd_ops:
-                if op_type == "ConvolutionInputGenerator":
+                if op_type in [
+                    "ConvolutionInputGenerator",
+                    "ConvolutionInputGenerator1D",
+                ]:
                     depthwise = node_inst.get_nodeattr("depthwise")
                     if depthwise == 0:
                         max_simd = node_inst.get_nodeattr("IFMChannels")
