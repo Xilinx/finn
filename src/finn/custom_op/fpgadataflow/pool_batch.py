@@ -211,7 +211,7 @@ class Pool_Batch(HLSCustomOp):
         self.code_gen_dict["$DEFINES$"] += ["#define PE {}".format(pe)]
 
         k = self.get_nodeattr("KernelSize")
-        self.code_gen_dict["$DEFINES$"] += ["#define KernelSize {}".format(k)]
+        self.code_gen_dict["$DEFINES$"] += ["#define KernelSize {}".format(k * k)]
 
         odim = self.get_nodeattr("OutImgDim")
         self.code_gen_dict["$DEFINES$"] += ["#define OFMDim {}".format(odim)]
