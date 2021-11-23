@@ -534,7 +534,7 @@ class InferPool_Batch(Transformation):
                     OutputDataType=odt.name,
                     Channels=ifm_ch,
                     PE=ifm_ch,
-                    KernelSize=k,
+                    KernelSize=[k, k],
                     Function=pool_fxn,
                     OutImgDim=ofm_dim,
                     AccumBits=accum_bits,
