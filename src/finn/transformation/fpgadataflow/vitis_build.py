@@ -49,7 +49,6 @@ from finn.transformation.general import (
     GiveUniqueNodeNames,
     RemoveUnusedTensors,
 )
-from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.util.basic import make_build_dir
 
 from . import templates
@@ -392,8 +391,6 @@ class VitisBuild(Transformation):
 
     def apply(self, model):
         _check_vitis_envvars()
-        # first infer layouts
-        model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels
         prep_transforms = [InsertIODMA(512), InsertDWC()]
         for trn in prep_transforms:
