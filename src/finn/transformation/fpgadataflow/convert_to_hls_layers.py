@@ -480,7 +480,7 @@ class InferPool_Batch(Transformation):
                     pool_output = node_output
 
                 accum_bits = 0
-                pool_size_param = kh  # TODO fix
+                pool_size_param = 0  # will be overridden if neededs
                 pad_value = 0
                 if node.op_type in ["MaxPool", "MaxPoolNHWC"]:
                     pool_fxn = "MaxPool"
@@ -489,7 +489,9 @@ class InferPool_Batch(Transformation):
                 elif node.op_type == "QuantAvgPool2d":
                     assert odt.is_integer(), """Output data type for QuantAvgPool2d
                     needs to be integer"""
-                    assert pad == 0, "Padding is not supported for QuantAvgPool2d"
+                    assert all(
+                        x == 0 for x in pad
+                    ), "Padding is not supported for QuantAvgPool2d"
                     inst = getCustomOp(node)
                     pool_fxn = "QuantAvgPool"
                     pool_size_param = inst.get_shifts()
@@ -533,7 +535,7 @@ class InferPool_Batch(Transformation):
                     PE=ifm_ch,
                     KernelSize=[kh, kw],
                     Function=pool_fxn,
-                    OutImgDim=ofm_h,  # TODO fix
+                    OutImgDims=[ofm_h, ofm_w],
                     AccumBits=accum_bits,
                     Size=pool_size_param,
                     BatchSize=1,

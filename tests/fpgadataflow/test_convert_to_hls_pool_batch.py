@@ -61,7 +61,7 @@ def make_single_maxpool_modelwrapper(
     else:
         ishape = [1, ifm_ch, ifm_dim, ifm_dim]
         oshape = [1, ifm_ch, ofm_dim, ofm_dim]
-        kshape = [1, k]
+        kshape = [k, k]
         pads = [pad, pad, pad, pad]
         strides = [stride, stride]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, ishape)
