@@ -228,15 +228,14 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             ]
         else:
             if self.is_1d():
-                # FIXME handle this for vitis_hls hlslib branch
                 op = "StreamingMaxPool_Precision_Batch_1d"
             else:
-                op = "StreamingMaxPool_Precision"
+                op = "StreamingMaxPool_Precision_Batch"
             dtype = self.get_input_datatype()
             dtype_hls = dtype.get_hls_datatype_str()
             minval_str = str(int(dtype.min()))
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out);"
+                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out, numReps);"
                 % (op, dtype_hls, minval_str)
             ]
 
