@@ -176,7 +176,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
 
     def defines(self, var):
-        numReps = 2
+        numReps = 1
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
 
         self.code_gen_dict["$DEFINES$"] = [
@@ -222,20 +222,20 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             if self.is_1d():
                 raise Exception("Binary 1d MaxPool not implemented on HLS backend")
             else:
-                op = "StreamingMaxPool_Batch"
+                op = "StreamingMaxPool"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels>(in0, out, numReps);" % (op)
+                "%s<ImgDim, PoolDim, NumChannels>(in0, out);" % (op)
             ]
         else:
             if self.is_1d():
-                op = "StreamingMaxPool_Precision_Batch_1d"
+                op = "StreamingMaxPool_Precision_1d"
             else:
-                op = "StreamingMaxPool_Precision_Batch"
+                op = "StreamingMaxPool_Precision"
             dtype = self.get_input_datatype()
             dtype_hls = dtype.get_hls_datatype_str()
             minval_str = str(int(dtype.min()))
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out, numReps);"
+                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out);"
                 % (op, dtype_hls, minval_str)
             ]
 
