@@ -79,7 +79,7 @@ RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1
 RUN pip install sphinx==3.1.2
 RUN pip install sphinx_rtd_theme==0.5.0
-RUN pip install pytest-xdist==2.0.0
+RUN pip install pytest-xdist[setproctitle]==2.4.0
 RUN pip install pytest-parallel==0.1.0
 RUN pip install "netron>=5.0.0"
 RUN pip install pandas==1.1.5
