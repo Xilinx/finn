@@ -362,9 +362,10 @@ class StreamingConcat(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         n_inputs = self.get_n_inputs()
+        sname = self.hls_sname()
         intf_names["s_axis"] = []
         for i in range(n_inputs):
             intf_names["s_axis"].append(
-                ("in%d_V_V" % i, self.get_instream_width_padded(i))
+                ("in%d_%s" % (i, sname), self.get_instream_width_padded(i))
             )
         return intf_names
