@@ -93,5 +93,16 @@ else
   fi
 fi
 
+if [ -f "$HLS_PATH/settings64.sh" ];then
+  # source Vitis HLS env.vars
+  source $HLS_PATH/settings64.sh
+  gecho "Found Vitis HLS at $HLS_PATH"
+else
+  yecho "Unable to find $HLS_PATH/settings64.sh"
+  yecho "Functionality dependent on Vitis HLS will not be available."
+  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support."
+  yecho "If you need Vitis HLS, ensure HLS_PATH is set correctly and mounted into the Docker container."
+fi
+
 # execute the provided command(s) as root
 exec "$@"
