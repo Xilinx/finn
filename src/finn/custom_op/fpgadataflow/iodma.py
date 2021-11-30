@@ -349,11 +349,11 @@ class IODMA(HLSCustomOp):
                 "#pragma HLS INTERFACE s_axilite port=in0 bundle=control"
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=out"
+                "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
             )
         elif direction == "out":
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=in0"
+                "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
             )
             if intfname == "":
                 self.code_gen_dict["$PRAGMAS$"].append(

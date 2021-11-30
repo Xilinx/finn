@@ -348,9 +348,14 @@ class StreamingConcat(HLSCustomOp):
         n_inputs = self.get_n_inputs()
         pragmas = []
         for i in range(n_inputs):
-            pragmas.append("#pragma HLS INTERFACE axis port=in%d" % i)
+            pragmas.append(
+                "#pragma HLS INTERFACE axis port=in%d name=in%d_%s"
+                % (i, i, self.hls_sname())
+            )
         self.code_gen_dict["$PRAGMAS$"] = pragmas
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+        )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )

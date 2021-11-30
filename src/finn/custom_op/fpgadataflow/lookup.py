@@ -226,8 +226,12 @@ class Lookup(HLSCustomOp):
         ]
 
     def pragmas(self):
-        my_pragmas = ["#pragma HLS INTERFACE axis port=in0"]
-        my_pragmas.append("#pragma HLS INTERFACE axis port=out")
+        my_pragmas = [
+            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+        ]
+        my_pragmas.append(
+            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+        )
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         self.code_gen_dict["$PRAGMAS$"] = my_pragmas
 

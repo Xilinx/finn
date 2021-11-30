@@ -198,8 +198,12 @@ class TLastMarker(HLSCustomOp):
             ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"] = [
+            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+        ]
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+        )
 
         dyn_iters = self.get_nodeattr("DynIters")
         if dyn_iters == 1:
@@ -245,12 +249,8 @@ class TLastMarker(HLSCustomOp):
         intf_names = super().get_verilog_top_module_intf_names()
         stream_width = self.get_nodeattr("StreamWidth")
         sname = self.hls_sname()
-        if self.get_nodeattr("Direction") == "in":
-            intf_names["s_axis"] = [("in0", stream_width)]
-            intf_names["m_axis"] = [("out_" + sname, stream_width)]
-        else:
-            intf_names["s_axis"] = [("in0_" + sname, stream_width)]
-            intf_names["m_axis"] = [("out_r", stream_width)]
+        intf_names["s_axis"] = [("in0_" + sname, stream_width)]
+        intf_names["m_axis"] = [("out_" + sname, stream_width)]
         if self.get_nodeattr("DynIters") == 1:
             intf_names["axilite"] = ["s_axi_control"]
         return intf_names
