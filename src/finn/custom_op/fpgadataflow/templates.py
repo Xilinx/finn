@@ -246,6 +246,8 @@ set_property supported_families { \
   kintex7l Production \
   kintexu Production \
   kintexuplus Production \
+  versal Production \
+  versalprime Production \
   virtex7 Production \
   virtexu Production \
   virtexuplus Production \

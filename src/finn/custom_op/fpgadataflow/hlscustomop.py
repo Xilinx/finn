@@ -409,7 +409,7 @@ class HLSCustomOp(CustomOp):
         builder.append_includes("-I/workspace/finn-hlslib")
         builder.append_includes("-I/workspace/finn/custom_hls")
         builder.append_includes("-I{}/include".format(os.environ["HLS_PATH"]))
-        builder.append_includes("--std=c++11")
+        builder.append_includes("--std=c++14")
         builder.append_includes("-O3")
         builder.append_sources(code_gen_dir + "/*.cpp")
         builder.append_sources("/workspace/cnpy/cnpy.cpp")
