@@ -94,7 +94,7 @@ set config_toplevelfxn "$TOPFXN$"
 set config_clkperiod $CLKPERIOD$
 
 open_project $config_proj_name
-add_files $config_hwsrcdir/top_$TOPFXN$.cpp -cflags "-std=c++0x -I$config_bnnlibdir -I$config_customhlsdir"
+add_files $config_hwsrcdir/top_$TOPFXN$.cpp -cflags "-std=c++14 -I$config_bnnlibdir -I$config_customhlsdir"
 
 set_top $config_toplevelfxn
 open_solution sol1
