@@ -39,25 +39,26 @@ WORKDIR /workspace
 ENV TZ="Europe/Dublin"
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-RUN apt-get update
-RUN apt-get -y upgrade
-RUN apt-get install -y build-essential
-RUN apt-get install -y libc6-dev-i386
-RUN apt-get install -y libglib2.0-0
-RUN apt-get install -y libsm6
-RUN apt-get install -y libxext6
-RUN apt-get install -y libxrender-dev
-RUN apt-get install -y verilator
-RUN apt-get install -y nano
-RUN apt-get install -y zsh
-RUN apt-get install -y rsync
-RUN apt-get install -y git
-RUN apt-get install -y sshpass
-RUN apt-get install -y wget
-RUN apt-get install -y sudo
-RUN apt-get install -y unzip
-RUN apt-get install -y zip
-RUN apt-get install -y locales
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    build-essential \
+    libc6-dev-i386 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    verilator \
+    nano \
+    zsh \
+    rsync \
+    git \
+    sshpass \
+    wget \
+    sudo \
+    unzip \
+    zip \
+    locales \
+    lsb-core
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
 
