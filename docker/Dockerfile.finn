@@ -40,7 +40,7 @@ ENV TZ="Europe/Dublin"
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y \
     build-essential \
     libc6-dev-i386 \
     libglib2.0-0 \
@@ -52,6 +52,7 @@ RUN apt-get update && \
     zsh \
     rsync \
     git \
+    openssh-client \
     sshpass \
     wget \
     sudo \
