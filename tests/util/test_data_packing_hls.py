@@ -99,7 +99,7 @@ def test_npy2apintstream(test_shape, dtype):
 g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
 -I/workspace/cnpy/ -I{}/include -I/workspace/finn/src/finn/qnn-data/cpp \
 --std=c++11 -lz""".format(
-        os.environ["VIVADO_PATH"]
+        os.environ["HLS_PATH"]
     )
     with open(test_dir + "/compile.sh", "w") as f:
         f.write(cmd_compile)

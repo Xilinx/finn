@@ -333,7 +333,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.vitis
-def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
+def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")
     platform = alveo_default_platform[board]
@@ -355,7 +355,7 @@ def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
 @pytest.mark.parametrize("board", ["Pynq-Z1"])
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_ipstitch_zynqbuild(board):
+def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
     model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])
