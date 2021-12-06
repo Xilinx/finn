@@ -206,8 +206,8 @@ def fold_cnv_small(model):
     fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
     # each tuple is (PE, SIMD) for a layer
     folding = [
-        (8, 3, "auto"),
-        (16, 16, "auto"),
+        (8, 3, "distributed"),
+        (16, 16, "distributed"),
         (8, 16, "auto"),
         (8, 16, "block"),
         (4, 8, "auto"),
