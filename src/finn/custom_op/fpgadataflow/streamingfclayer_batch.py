@@ -393,9 +393,16 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
+        # when performing FIFO insertion on an FC layer with ext weights, the ind
+        # parameter can be > 0 (referring to the weights) so handle that here
+        if ind == 0:
+            return DataType[self.get_nodeattr("inputDataType")]
+        elif ind == 1:
+            return DataType[self.get_nodeattr("weightDataType")]
+        else:
+            raise Exception("Undefined input ind for this layer type")
 
     def get_weight_datatype(self):
         """Returns FINN DataType of weights."""
