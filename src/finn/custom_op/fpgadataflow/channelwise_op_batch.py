@@ -350,13 +350,13 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         # get desired function
         func = self.get_nodeattr("Func")
         if func == "cmp_le":
-            func_str = "comp::less_equal"
+            func_str = "comp::less_equal<%s, %s>" % (idt_hls, pdt_hls)
         elif func == "cmp_ge":
-            func_str = "std::greater_equal"
+            func_str = "comp::greater_equal<%s, %s>" % (idt_hls, pdt_hls)
         elif func == "add":
-            func_str = "std::plus"
+            func_str = "comp::add<%s, %s, %s>" % (idt_hls, pdt_hls, odt_hls)
         elif func == "mul":
-            func_str = "std::multiplies"
+            func_str = "comp::mul<%s, %s, %s>" % (idt_hls, pdt_hls, odt_hls)
         else:
             raise Exception(
                 """Invalid value for attribute Func! Is currently set to: {}
@@ -373,7 +373,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
                 idt_hls,
                 pdt_hls,
                 odt_hls,
-                "%s<%s>" % (func_str, odt_hls),
+                func_str,
             )
         )
         f_params.write(parameters_hls_code)
