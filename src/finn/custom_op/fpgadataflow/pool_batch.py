@@ -200,6 +200,7 @@ class Pool_Batch(HLSCustomOp):
         return info_messages
 
     def global_includes(self):
+        self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"']
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
         self.code_gen_dict["$GLOBALS$"] += ['#include "pool.hpp"']
 
