@@ -27,10 +27,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+alias docker=podman
+
 export PYNQ_IP=128.131.80.208
-export FINN_XILINX_PATH=/tools/Xilinx/
+export FINN_XILINX_PATH=/eda/Xilinx/
 export FINN_XILINX_VERSION=2020.1
-export PLATFORM_REPO_PATHS=/tools/Xilinx/Vitis/2020.2/data/embeddedsw/lib/spm_templates/SPM_ZCU_102_HwPlatform
+export PLATFORM_REPO_PATHS=/eda/Xilinx/Vitis/2020.2/data/embeddedsw/lib/spm_templates/SPM_ZCU_102_HwPlatform
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
