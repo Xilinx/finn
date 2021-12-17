@@ -389,7 +389,7 @@ class Thresholding_Batch(HLSCustomOp):
                     tdt_hls,
                     odt_hls,
                     self.get_nodeattr("ActVal"),
-                    "comp::less_equal<%s>" % tdt_hls,
+                    "comp::less_equal<%s, %s>" % (tdt_hls, tdt_hls),
                 )
             )
             f_thresh.write(thresholds_hls_code)
