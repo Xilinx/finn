@@ -354,9 +354,9 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         elif func == "cmp_ge":
             func_str = "comp::greater_equal<%s, %s>" % (idt_hls, pdt_hls)
         elif func == "add":
-            func_str = "comp::add<%s, %s, %s>" % (idt_hls, pdt_hls, odt_hls)
+            func_str = "comp::add<%s, %s, %s>" % (odt_hls, odt_hls, odt_hls)
         elif func == "mul":
-            func_str = "comp::mul<%s, %s, %s>" % (idt_hls, pdt_hls, odt_hls)
+            func_str = "comp::mul<%s, %s, %s>" % (odt_hls, odt_hls, odt_hls)
         else:
             raise Exception(
                 """Invalid value for attribute Func! Is currently set to: {}
