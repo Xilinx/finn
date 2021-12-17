@@ -28,9 +28,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 export PYNQ_IP=128.131.80.208
-export FINN_XILINX_PATH=/tools/Xilinx/
+export FINN_XILINX_PATH=/tools/Xilinx
 export FINN_XILINX_VERSION=2020.1
-export PLATFORM_REPO_PATHS=/tools/Xilinx/Vitis/2020.2/data/embeddedsw/lib/spm_templates/SPM_ZCU_102_HwPlatform
+export PLATFORM_REPO_PATHS=/tools/Xilinx/Vitis/2020.1/data/embeddedsw/lib/spm_templates/SPM_ZCU_102_HwPlatform
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -228,7 +228,7 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   fi
 fi
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
-DOCKER_EXEC+="$FINN_DOCKER_TAG $DOCKER_CMD"
+DOCKER_EXEC+="$FINN_DOCKER_TAG $DOCKER_CMD "
 DOCKER_EXEC+="-v /etc/timezone:/etc/timezone "
 DOCKER_EXEC+="-v /etc/localtime:/etc/localtime "
 
