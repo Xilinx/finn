@@ -46,6 +46,8 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor
 
+fpga_part = "xc7z020clg400-1"
+
 
 def make_single_im2col_modelwrapper(
     k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt
@@ -232,7 +234,7 @@ def test_fpgadataflow_slidingwindow_1d(
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xcu250-figd2104-2L-e", 5))
+        model = model.transform(PrepareIP(fpga_part, 5))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
     else:
