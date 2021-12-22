@@ -46,7 +46,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor
 
-fpga_part = "xc7z020clg400-1"
+fpga_part = "xczu3eg-sbva484-1-e"
 
 
 def make_single_im2col_modelwrapper(
