@@ -46,6 +46,8 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor
 
+fpga_part = "xczu3eg-sbva484-1-e"
+
 
 def make_single_im2col_modelwrapper(
     k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt
@@ -90,7 +92,7 @@ def make_single_im2col_modelwrapper(
 
 
 def make_single_slidingwindow_modelwrapper(
-    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt, dw=0
+    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt, parallel_window, dw=0
 ):
     k_h, k_w = k
     ifm_dim_h, ifm_dim_w = ifm_dim
@@ -122,6 +124,7 @@ def make_single_slidingwindow_modelwrapper(
         inputDataType=idt.name,
         outputDataType=odt.name,
         depthwise=dw,
+        parallel_window=parallel_window,
     )
     graph = helper.make_graph(
         nodes=[SlidingWindow_node],
@@ -153,10 +156,10 @@ def prepare_inputs(input_tensor):
 # input channels
 @pytest.mark.parametrize("ifm_ch", [1, 4])
 # Stride
-@pytest.mark.parametrize("stride", [[1, 1], [2, 1]])
+# @pytest.mark.parametrize("stride", [[1, 1], [2, 1]])
+@pytest.mark.parametrize("stride", [[1, 1]])
 # Dilation
-# @pytest.mark.parametrize("dilation", [[1, 1], [2, 1]])
-@pytest.mark.parametrize("dilation", [[1, 1]])
+@pytest.mark.parametrize("dilation", [[1, 1], [2, 1]])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # input channel parallelism ("SIMD")
@@ -165,10 +168,22 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("dw", [0, 1])
 # Flip dimensions
 @pytest.mark.parametrize("flip", [False, True])
+# Use parallel window output variant
+@pytest.mark.parametrize("parallel_window", [False, True])
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_slidingwindow_1d(
-    idt, k, ifm_dim, ifm_ch, stride, dilation, exec_mode, simd, dw, flip
+    idt,
+    k,
+    ifm_dim,
+    ifm_ch,
+    stride,
+    dilation,
+    exec_mode,
+    simd,
+    dw,
+    flip,
+    parallel_window,
 ):
     if flip:
         k = k[::-1]
@@ -185,6 +200,11 @@ def test_fpgadataflow_slidingwindow_1d(
         pytest.skip(
             """Dilation value greater than 1 and stride greater than 1
             currently not supported for 1D convolutions"""
+        )
+    if (dilation_h > 1 or dilation_w > 1) and dw == 0:
+        pytest.skip(
+            """Dilation value greater than 1 currently not supported
+            for non-dws 1D convolutions"""
         )
     if simd > ifm_ch:
         pytest.skip("SIMD cannot be larger than number of input channels")
@@ -203,6 +223,7 @@ def test_fpgadataflow_slidingwindow_1d(
         stride=stride,
         dilation=dilation,
         idt=idt,
+        parallel_window=parallel_window,
         dw=dw,
     )
 
@@ -213,7 +234,7 @@ def test_fpgadataflow_slidingwindow_1d(
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+        model = model.transform(PrepareIP(fpga_part, 5))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
     else:
