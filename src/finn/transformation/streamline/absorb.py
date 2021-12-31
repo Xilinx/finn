@@ -379,9 +379,12 @@ class AbsorbTransposeIntoFlatten(Transformation):
         node_ind = 0
         for n in graph.node:
             node_ind += 1
+            first_cmp = (model.get_initializer(n.input[1] )== [1, -1])
+            if type(first_cmp) is not bool :
+                is_same_sp = (model.get_initializer(n.input[1] )== [1, -1]).all()
+
             if (
-                n.op_type == "Reshape"
-                and (model.get_initializer(n.input[1]) == [1, -1]).all()
+                n.op_type == "Reshape" and is_same_sp
             ) or n.op_type == "Flatten":
                 prod = model.find_producer(n.input[0])
                 if (
