@@ -95,4 +95,4 @@ MANIFEST
 /gdrive-key/
 
 # generated files as part of end2end notebooks
-/notebooks/end2end_example/**/*.onnx
+*.onnx
