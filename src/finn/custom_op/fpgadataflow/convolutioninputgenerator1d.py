@@ -272,10 +272,12 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             cycles_read_block = ifm_dim_w * ifm_ch / simd
             cycles_write_block = ofm_dim_w * k_w * ifm_ch / simd
             exp_cycles = cycles_read_block + cycles_write_block
-        else:
+        elif self.get_nodeattr("depthwise") == 1:
             cycles_read_block = ifm_ch / simd * (k_w - 1) - (k_w - 1)
             cycles_write_block = ofm_dim_w * k_w * ifm_ch / simd
             exp_cycles = cycles_read_block + cycles_write_block
+        else:
+            exp_cycles = 1 + ofm_dim_w * k_w * ifm_ch / simd
 
         return int(exp_cycles)
 
@@ -599,7 +601,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     """{}<ConvKernelDim1_x, IFMChannels1,
                     Input_precision1, IFMDim1_x, OFMDim1_x,
-                    SIMD1> (in0, out, numReps, {});""".format(
+                    Stride1_x, SIMD1> (in0, out, numReps, {});""".format(
                         hls_call, hls_ram_style
                     )
                 ]
