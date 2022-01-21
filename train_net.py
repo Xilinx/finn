@@ -1,10 +1,9 @@
 # general use libraries
 import os
 import sys
-from turtle import forward
 import numpy as np
 from skimage import io, transform
-from sklearn.model_selection import KFold
+# from sklearn.model_selection import KFold
 
 # Brevitas ad PyTorch libraries
 import torch
@@ -12,7 +11,7 @@ import torch.utils.tensorboard
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn import Module, Sequential, BatchNorm2d
-from brevitas.nn import QuantIdentity, QuantConv2d, QuantLinear, QuantReLU, QuantMaxPool2d
+from brevitas.nn import QuantIdentity, QuantConv2d, QuantReLU, QuantMaxPool2d
 from brevitas.inject.defaults import *
 from brevitas.core.restrict_val import RestrictValueType
 
@@ -95,7 +94,7 @@ class QTinyYOLOv2(Module):
             QuantReLU(bit_width=self.act_bit_width,
                       return_quant_tensor=quant_tensor)
         )
-        self.conv9 = QuantConv2d(512, 6, 3, 1, 0, bias=False, weight_bit_width=8, return_quant_tensor=quant_tensor
+        self.conv9 = QuantConv2d(512, 6, 1, 1, 0, bias=False, weight_bit_width=8, return_quant_tensor=quant_tensor
                                  )
 
     def forward(self, x):
@@ -113,7 +112,7 @@ class QTinyYOLOv2(Module):
 
 
 class YOLO_dataset(Dataset):
-    def __init__(self, img_dir, lbl_dir, transform=None, grid_size=(16, 9)):
+    def __init__(self, img_dir, lbl_dir, transform=None, grid_size=(9, 16)):
         self.img_dir = img_dir
         self.imgs = sorted(os.listdir(self.img_dir))
         self.lbl_dir = lbl_dir
@@ -133,16 +132,17 @@ class YOLO_dataset(Dataset):
         with open(os.path.join(self.lbl_dir, self.lbls[idx])) as f:
             dataline = f.readlines()[1]
             lbl_data = [data.strip() for data in dataline.split('\t')]
-            lbl_idx = eval(lbl_data[0])
             b_x = float(lbl_data[1])
             b_y = float(lbl_data[2])
             b_w = float(lbl_data[3])
             b_h = float(lbl_data[4])
-            lbl = np.zeros((self.grid_size[0], self.grid_size[1], 6))
-            lbl[lbl_idx[0], lbl_idx[1], :] = [1.0, b_x, b_y, b_w, b_h, 1.0]
+            lbl_idx = (int(np.floor(self.grid_size[0] * b_y)),
+                       int(np.floor(self.grid_size[1] * b_x)))
+            lbl = np.zeros((6, self.grid_size[0], self.grid_size[1]))
+            lbl[:, lbl_idx[0], lbl_idx[1]] = [1.0, b_x, b_y, b_w, b_h, 1.0]
             f.close()
 
-        sample = {'image': img, 'label': lbl}
+        sample = [img, lbl]
 
         if self.transform:
             sample = self.transform(sample)
@@ -152,19 +152,19 @@ class YOLO_dataset(Dataset):
 
 class ToTensor(object):
     def __call__(self, sample):
-        img, lbl = sample['image'], sample['label']
+        img, lbl = sample
 
-        img = img.transpose((2, 1, 0))
-        return {'image': torch.from_numpy(img), 'label': torch.from_numpy(lbl)}
+        img = img.transpose((2, 0, 1))
+        return [torch.from_numpy(img), torch.from_numpy(lbl)]
 
 
 class Normalize(object):
     def __call__(self, sample, mean=0.5, std=0.5):
-        img, lbl = sample['image'], sample['label']
+        img, lbl = sample
 
         img = ((img / 255) - mean) / std
 
-        return {'image': img, 'label': lbl}
+        return [img, lbl]
 
 
 class YOLOLoss(torch.nn.modules.loss._Loss):
@@ -178,12 +178,14 @@ class YOLOLoss(torch.nn.modules.loss._Loss):
         self.l_cls = l_cls
 
     def forward(self, y_pred, y_true):
-        bb_loc = y_true[:, :, :, 0] == 1.0
-        bb_nloc = y_true[:, :, :, 0] == 0.0
-        y_pred_bb = y_pred[bb_loc]
-        y_true_bb = y_true[bb_loc]
-        y_pred_nbb = y_pred[bb_nloc]
-        y_true_nbb = y_true[bb_nloc]
+        print(y_pred.shape, y_true.shape)
+        bb_loc = y_true[:, 0, :, :] == 1.0
+        bb_nloc = y_true[:, 0, :, :] == 0.0
+        print(bb_loc, bb_loc.shape)
+        y_pred_bb = y_pred.value[bb_loc]
+        y_true_bb = y_true.value[bb_loc]
+        y_pred_nbb = y_pred.value[bb_nloc]
+        y_true_nbb = y_true.value[bb_nloc]
 
         classification_loss = self.l_cls * ((y_true_bb[:, 5].squeeze() -
                                              y_pred_bb[:, 5].squeeze()) ** 2.0).sum()
@@ -196,20 +198,64 @@ class YOLOLoss(torch.nn.modules.loss._Loss):
 
         return (classification_loss + localization_loss + confidence_loss) / y_pred.size(0)
 
-    # ------------------------------------------------------------------------------------------------------------------------------------------------ #
+
+def IoU_calc(pred, label):
+    # localizing most probable bounding box
+    label_idx = label[:, :, :, 0].view(
+        label[:, :, :, 0].size(0), -1).max(dim=-1).indices
+    pred_idx = pred[:, :, :, 0].view(
+        pred[:, :, :, 0].size(0), -1).max(dim=-1).indices
+    label_y, label_x = torch.tensor(np.unravel_index(
+        label_idx, label[:, :, :, 0].shape))[1:3]
+    pred_y, pred_x = torch.tensor(np.unravel_index(
+        pred_idx, pred[:, :, :, 0].shape))[1:3]
+    # x, y, w, h
+    label_bb = torch.stack([bb[label_y[i], label_x[i], 1:5]
+                            for i, bb in enumerate(label)], 1)
+    pred_bb = torch.stack([bb[pred_y[i], pred_x[i], 1:5]
+                           for i, bb in enumerate(pred)], 1)
+    # xmin, ymin, xmax, ymax
+    true_bbm = torch.stack([torch.max(label_bb[0]-(label_bb[2]/2), torch.tensor(0.0)),
+                           torch.max(
+                               label_bb[1]-(label_bb[3]/2), torch.tensor(0.0)),
+                           torch.min(
+                               label_bb[0]+(label_bb[2]/2), torch.tensor(1.0)),
+                           torch.min(label_bb[1]+(label_bb[3]/2), torch.tensor(1.0))])
+    pred_bbm = torch.stack([torch.max(pred_bb[0]-(pred_bb[2]/2), torch.tensor(0.0)),
+                           torch.max(pred_bb[1]-(pred_bb[3]/2),
+                                     torch.tensor(0.0)),
+                           torch.min(pred_bb[0]+(pred_bb[2]/2),
+                                     torch.tensor(1.0)),
+                           torch.min(pred_bb[1]+(pred_bb[3]/2), torch.tensor(1.0))])
+    inter_bbm = torch.stack([torch.max(true_bbm[0], pred_bbm[0]),
+                            torch.max(true_bbm[1], pred_bbm[1]),
+                            torch.min(true_bbm[2], pred_bbm[2]),
+                            torch.min(true_bbm[3], pred_bbm[3])])
+    # calculate IoU
+    true_area = true_bbm[2]*true_bbm[3]
+    pred_area = pred_bbm[2]*pred_bbm[3]
+    inter_area = torch.max(inter_bbm[2]-inter_bbm[0], torch.tensor(
+        0.0)) * torch.max(inter_bbm[3]-inter_bbm[1], torch.tensor(0.0))
+    # return IoU
+    return inter_area / (true_area + pred_area - inter_area)
+
+# ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
 
 if __name__ == "__main__":
+    # asses input args
     img_dir = sys.argv[1]
     lbl_dir = sys.argv[2]
     weight_bit_width = int(sys.argv[3])
     act_bit_width = int(sys.argv[4])
     n_epochs = int(sys.argv[5])
 
+    # logger
+    logger = torch.utils.tensorboard.SummaryWriter()
+
+    # dataset
     transformers = transforms.Compose(
         [ToTensor(), Normalize()])
-
-    net = QTinyYOLOv2(weight_bit_width, act_bit_width)
     dataset = YOLO_dataset(img_dir, lbl_dir, transformers)
     data_len = len(dataset)
     train_len = int(data_len*0.8)
@@ -220,30 +266,75 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_set, batch_size=1,
                              shuffle=True, num_workers=2)
 
+    # network setup
+    net = QTinyYOLOv2(weight_bit_width, act_bit_width)
     loss_func = YOLOLoss()
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
 
+    # train network
     for epoch in range(n_epochs):
-
+        # train + train loss
         train_loss = 0.0
+        test_loss = 0.0
         for i, data in enumerate(train_loader, 0):
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data
-
             # zero the parameter gradients
             optimizer.zero_grad()
-
             # forward + backward + optimize
             outputs = net(inputs)
             loss = loss_func(outputs, labels)
             loss.backward()
             optimizer.step()
+            train_loss += loss.item()
+        # test loss
+        with torch.no_grad():
+            for i, data in enumerate(test_loader, 0):
+                test_images, test_labels = data
+                test_outputs = net(test_images)
+                t_loss = loss_func(test_outputs, test_labels)
+                test_loss += t_loss.item()
+        # log loss statistics
+        logger.add_scalar('Loss/train', train_loss/train_len, epoch)
+        logger.add_scalar('Loss/test', test_loss/test_len, epoch)
 
-            # print statistics
-            p_cycle = 1000
-            if (i % p_cycle == 0):
-                train_loss += loss.item()
-                train_loss /= p_cycle
-                print(
-                    f"[Epoch: {epoch+1}] training loss: {train_loss:.6f}")
-                train_loss = 0.0
+        # train accuracy
+        with torch.no_grad():
+            train_miou = 0.0
+            train_AP50 = 0.0
+            train_AP75 = 0.0
+            train_total = 0
+            for data in train_loader:
+                images, labels = data
+                outputs = net(images)
+                iou = IoU_calc(outputs, labels)
+                train_total += labels.size(0)
+                train_miou += iou.sum()
+                train_AP50 += (iou >= .5).sum()
+                train_AP75 += (iou >= .75).sum()
+            # log accuracy statistics
+            logger.add_scalar('meanIoU/train', train_miou/train_total, epoch)
+            logger.add_scalar('meanAP50/train', train_AP50/train_total, epoch)
+            logger.add_scalar('meanAP75/train', train_AP75/train_total, epoch)
+        # test accuracy
+        with torch.no_grad():
+            test_miou = 0.0
+            test_AP50 = 0.0
+            test_AP75 = 0.0
+            test_total = 0
+            for data in test_loader:
+                images, labels = data
+                outputs = net(images)
+                iou = IoU_calc(outputs, labels)
+                test_total += labels.size(0)
+                test_miou += iou.sum()
+                test_AP50 += (iou >= .5).sum()
+                test_AP75 += (iou >= .75).sum()
+            # log accuracy statistics
+            logger.add_scalar('meanIoU/train', test_miou/test_total, epoch)
+            logger.add_scalar('meanAP50/train', test_AP50/test_total, epoch)
+            logger.add_scalar('meanAP75/train', test_AP75/test_total, epoch)
+
+    # save network
+    path = f"./trained_net_W{weight_bit_width}A{act_bit_width}_e{n_epochs}.pth"
+    torch.save(net.state_dict(), path)
