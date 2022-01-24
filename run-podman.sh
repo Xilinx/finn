@@ -200,7 +200,7 @@ if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ];then
   DOCKER_EXEC+="-v /etc/shadow:/etc/shadow:ro "
   DOCKER_EXEC+="-v /etc/sudoers.d:/etc/sudoers.d:ro "
   DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:$HOME/.ssh "
-  DOCKER_EXEC+="--user $DOCKER_UID:$DOCKER_GID "
+  # DOCKER_EXEC+="--user $DOCKER_UID:$DOCKER_GID "
 else
   DOCKER_EXEC+="-v $FINN_SSH_KEY_DIR:/root/.ssh "
 fi

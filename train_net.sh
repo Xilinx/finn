@@ -1,25 +1,18 @@
 #!/bin/bash
 start_date=$(date)
 
-# move and set personal environment
-cd /srv/cdl-eml/User/atchelet
-python3 -m venv pipenv_at
-cd pipenv_at
-source bin/activate
+# set personal environment
+source /srv/cdl-eml/User/atchelet/pipenv_at/bin/activate
+echo "pip environment activated"
 
-# install needed packages
-pip3 install pip --upgrade
-pip3 install torch==1.10.1+cu113 torchvision==0.11.2+cu113 torchaudio==0.10.1+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
-pip3 install brevitas
-pip3 install tensorboard
-pip3 install -U scikit-image
-pip3 install -U scikit-learn
-
-export IMG_DIR=/srv/cdl-eml/User/atchelet/dataset/Dataset/images
-export LBL_DIR=/srv/cdl-eml/User/atchelet/dataset/Dataset/labels
+export IMG_DIR=/srv/cdl-eml/User/atchelet/Dataset/images
+export LBL_DIR=/srv/cdl-eml/User/atchelet/Dataset/labels
 
 # script
-time python3 train_net.py $IMG_DIR $LBL_DIR 1 3 150
+cd /home/atchelet/git/finn_at/finn_at/finn_at/
+echo "at $PWD ready to start"
+time python3 train_net.py $IMG_DIR $LBL_DIR 4 4 200 64
+echo "finished!"
 
 end_date=$(date)
 
@@ -27,3 +20,6 @@ echo "Start"
 echo $start_date
 echo "End"
 echo $end_date
+
+#Command for executing the task
+#ts -L qYOLO_train /home/atchelet/git/finn_at/finn_at/finn_at/train_net.sh

@@ -1,17 +1,21 @@
 import os
+from re import sub
 import shutil
 import xmltodict
 import numpy as np
+from tqdm import tqdm
 
 data_dir = "/home/atchelet/Downloads/data_training/"
 out_dir = "/home/atchelet/Dataset"
+os.makedirs(os.path.join(out_dir, "images"), exist_ok=True)
+os.makedirs(os.path.join(out_dir, "labels"), exist_ok=True)
 
 w_px = h_px = 40
 
 for path, subdirs, files in os.walk(data_dir):
     dir = os.path.basename(path)
     i = 0
-    for file in sorted(files):
+    for file in tqdm(sorted(files), desc=dir):
         if file.endswith('.jpg'):
             shutil.copyfile(os.path.join(path, file), os.path.join(
                 out_dir, "images", f"{dir}_{i:07d}.jpg"))
@@ -30,6 +34,6 @@ for path, subdirs, files in os.walk(data_dir):
                 b_h = (ymax - ymin) / height
                 f = open(os.path.join(out_dir, "labels",
                          f"{dir}_{i:07d}.txt"), "a")
-                f.write(f"{dir}_{i:07d}\n{b_x}\t{b_y}\t{b_w}\t{b_h}")
+                f.write(f"{dir}_{i:07d}\n{b_x}\t{b_y}\t{b_w}\t{b_h}\n")
                 f.close()
                 i += 1
