@@ -151,15 +151,15 @@ def prepare_inputs(input_tensor):
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["INT4"]])
 # kernel size
-@pytest.mark.parametrize("k", [[3, 3]])
+@pytest.mark.parametrize("k", [[3, 1]])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[6, 11]])
+@pytest.mark.parametrize("ifm_dim", [[8, 1]])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [2])
 # Stride
-@pytest.mark.parametrize("stride", [[1, 2]])
+@pytest.mark.parametrize("stride", [[1, 1]])
 # Dilation
-@pytest.mark.parametrize("dilation", [[1, 2]])
+@pytest.mark.parametrize("dilation", [[1, 1]])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["rtlsim"])
 # input channel parallelism ("SIMD")
@@ -210,17 +210,14 @@ def test_fpgadataflow_slidingwindow_rtl(
     )
 
     if exec_mode == "cppsim":
-        model = model.transform(SetExecMode("cppsim"))
-        model = model.transform(PrepareCppSim())
-        model = model.transform(CompileCppSim())
+        raise Exception("cppsim not supported in test_fpgadataflow_slidingwindow_rtl")
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xc7z020clg400-1", 5))
-        model = model.transform(HLSSynthIP())
+        model = model.transform(PrepareIP("xc7z020clg400-1", 4))
         model = model.transform(PrepareRTLSim())
     else:
-        raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow")
+        raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow_rtl")
 
     # prepare input data
     input_dict = prepare_inputs(x)

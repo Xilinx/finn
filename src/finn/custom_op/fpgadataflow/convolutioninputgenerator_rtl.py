@@ -96,6 +96,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 "distributed",
                 {"auto", "block", "distributed", "ultra"},
             ),
+            "gen_top_module": ("s", False, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -348,7 +349,12 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         # TODO ensure codegen dir exists
         if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+            #code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+            raise Exception(
+                """cppsim not possible for RTL SWG""".format(
+                    mode
+                )
+            )
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
@@ -377,44 +383,27 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         reshaped_input = inp.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            assert (
-                context[node.output[0]].shape == folded_oshape
-            ), "cppsim \
-            did not produce expected ofolded utput shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
-        elif mode == "rtlsim":
-            sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
-            rtlsim_inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
-            super().reset_rtlsim(sim)
-            super().toggle_clk(sim)
-            rtlsim_output = self.rtlsim(sim, rtlsim_inp)
-            odt = export_idt
-            target_bits = odt.bitwidth()
-            packed_bits = self.get_outstream_width()
-            out_npy_path = "{}/output.npy".format(code_gen_dir)
-            out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
-            # load and reshape output
-            output = np.load(out_npy_path)
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-            context[node.output[0]] = output
-        else:
-            raise Exception(
-                """Invalid value for attribute exec_mode! Is currently set to: {}
-            has to be set to one of the following value ("cppsim", "rtlsim")""".format(
-                    mode
-                )
-            )
+        sim = self.get_rtlsim()
+        nbits = self.get_instream_width()
+        rtlsim_inp = npy_to_rtlsim_input(
+            "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+        )
+        super().reset_rtlsim(sim)
+        super().toggle_clk(sim)
+        rtlsim_output = self.rtlsim(sim, rtlsim_inp)
+        odt = export_idt
+        target_bits = odt.bitwidth()
+        packed_bits = self.get_outstream_width()
+        out_npy_path = "{}/output.npy".format(code_gen_dir)
+        out_shape = self.get_folded_output_shape()
+        rtlsim_output_to_npy(
+            rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
+        )
+        # load and reshape output
+        output = np.load(out_npy_path)
+        output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
+        context[node.output[0]] = output
+
         # binary -> bipolar if needed
         if self.get_output_datatype() == DataType["BIPOLAR"]:
             out = context[node.output[0]]
@@ -426,244 +415,37 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         shape doesn't match expected shape (1, ofm_dim_h, ofm_dim_w, k_h*k_w*ifm_ch)."""
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "slidingwindow.h"']
+        pass
 
     def defines(self, var):
-        numReps = 1
-        (
-            ifm_ch,
-            ifm_dim,
-            ofm_dim,
-            k,
-            stride,
-            dilation,
-        ) = self.get_1d_conv_attrs_normalized()
-        simd = self.get_nodeattr("SIMD")
-        ifm_precision = self.get_input_datatype().bitwidth()
-        ifm_dim_y, ifm_dim_x = ifm_dim
-        ofm_dim_y, ofm_dim_x = ofm_dim
-        k_y, k_x = k
-        dilation_y, dilation_x = dilation
-        # For a 1d convolution with stride=[S,1] or [1,S], the finn-hlslib function
-        # of ConvInpGen must be created with [stride_y, stride_x] = [S, S].
-        # TODO: changes in finn-hlslib (slidingwindow.h)
-        stride_y = np.prod(stride)
-        stride_x = np.prod(stride)
-
-        if dilation_x > 1:
-            assert (
-                dilation_y == 1
-            ), "Dilation value greater than 1 along y-axis is not yet supported"
-            self.code_gen_dict["$DEFINES$"] = [
-                """
-            #define ConvKernelDim1_x {}\n
-            #define ConvKernelDim1_y {}\n
-            #define IFMChannels1 {}\n
-            #define Input_precision1 {}\n
-            #define IFMDim1_x {}\n
-            #define IFMDim1_y {}\n
-            #define OFMDim1_x {}\n
-            #define OFMDim1_y {}\n
-            #define SIMD1 {}\n
-            #define Stride1_x {}\n
-            #define Stride1_y {}\n
-            #define Dilation1_x {}\n
-            #define Dilation1_y {}\n
-            #define numReps {}
-            """.format(
-                    k_x,
-                    k_y,
-                    ifm_ch,
-                    ifm_precision,
-                    ifm_dim_x,
-                    ifm_dim_y,
-                    ofm_dim_x,
-                    ofm_dim_y,
-                    simd,
-                    stride_x,
-                    stride_y,
-                    dilation_x,
-                    dilation_y,
-                    numReps,
-                )
-            ]
-        else:
-            ofm_dim = self.get_nodeattr("OFMDim")
-            self.code_gen_dict["$DEFINES$"] = [
-                """
-            #define ConvKernelDim1_x {}\n
-            #define ConvKernelDim1_y {}\n
-            #define IFMChannels1 {}\n
-            #define Input_precision1 {}\n
-            #define IFMDim1_x {}\n
-            #define IFMDim1_y {}\n
-            #define OFMDim1_x {}\n
-            #define OFMDim1_y {}\n
-            #define SIMD1 {}\n
-            #define Stride1_x {}\n
-            #define Stride1_y {}\n
-            #define numReps {}
-            """.format(
-                    k_x,
-                    k_y,
-                    ifm_ch,
-                    ifm_precision,
-                    ifm_dim_x,
-                    ifm_dim_y,
-                    ofm_dim_x,
-                    ofm_dim_y,
-                    simd,
-                    stride_x,
-                    stride_y,
-                    numReps,
-                )
-            ]
+        pass
 
     def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
-        )
+        pass
 
     def strm_decl(self):
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
-        )
+        pass
 
     def docompute(self):
-        ram_style = self.get_nodeattr("ram_style")
-        map_to_hls_ram_style = {
-            "auto": "ap_resource_dflt()",
-            "block": "ap_resource_bram()",
-            "distributed": "ap_resource_lutram()",
-            "ultra": "ap_resource_uram()",
-        }
-        hls_ram_style = map_to_hls_ram_style[ram_style]
-
-        # check which ConvolutionInputGenerator is needed
-        if self.use_parallel_window_output():
-            hls_call = "ConvolutionInputGenerator_1D_parallel"
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
-                IFMDim1_x, OFMDim1_x, SIMD1, Stride1_x>
-                (in0, out, numReps, {});""".format(
-                    hls_call, hls_ram_style
-                )
-            ]
-        else:
-            hls_call = "ConvolutionInputGenerator_NonSquare"
-            dilation_h, dilation_w = self.get_nodeattr("Dilation")
-            if dilation_h > 1 or dilation_w > 1:
-                hls_call += "_Dilated"
-                if self.get_nodeattr("depthwise") == 1:
-                    hls_call += "_dws"
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1,
-                    Input_precision1, IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y,
-                    SIMD1, Stride1_x, Stride1_y, Dilation1_x, Dilation1_y>
-                    (in0, out, numReps, {});""".format(
-                        hls_call, hls_ram_style
-                    )
-                ]
-            elif self.get_nodeattr("depthwise") == 1:
-                hls_call += "_dws"
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1,
-                    Input_precision1, IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y,
-                    SIMD1, Stride1_x, Stride1_y> (in0, out, numReps, {});""".format(
-                        hls_call, hls_ram_style
-                    )
-                ]
-            else:
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    """{}<ConvKernelDim1_x, ConvKernelDim1_y, IFMChannels1,
-                    Input_precision1, IFMDim1_x, IFMDim1_y, OFMDim1_x, OFMDim1_y,
-                    SIMD1, Stride1_x, Stride1_y> (in0, out, numReps, {});""".format(
-                        hls_call, hls_ram_style
-                    )
-                ]
+        pass
 
     def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        oshape = self.get_folded_output_shape()
-        oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
-        if self.use_parallel_window_output():
-            # pass the number of pixels in the folded output to apintstream2npy, needed
-            # to unpack the ouput correctly and reverse only the inner SIMD dimension
-            k_h, k_w = self.get_nodeattr("ConvKernelDim")
-            multi_pixel_out = k_h * k_w
-        else:
-            multi_pixel_out = 1
-
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", true, 1, %d);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                oshape_cpp_str,
-                npy_out,
-                multi_pixel_out,
-            )
-        ]
+        pass
 
     def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
+        pass
 
     def blackboxfunction(self):
-        if self.use_parallel_window_output():
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0,
-                    hls::stream<ap_uint<ConvKernelDim1_x*SIMD1*Input_precision1>>
-                    &out)""".format(
-                    self.onnx_node.name
-                )
-            ]
-        else:
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0,
-                    hls::stream<ap_uint<SIMD1*Input_precision1>> &out)""".format(
-                    self.onnx_node.name
-                )
-            ]
+        pass
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        pass
         
     def generate_hdl(self):
-        #todo: generate into some code gen dict
-        f_debug = open(os.path.join("/workspace/finn/finn-rtllib/swg/", "swg_hdl_debuginfo.log"), "w")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        f_debug = open(os.path.join(code_gen_dir, "swg_hdl_debuginfo.log"), "w")
+        #debug:
+        #f_debug = open(os.path.join("/workspace/finn/finn-rtllib/swg/", "swg_hdl_debuginfo.log"), "w")
         code_gen_dict = {}
 
         #--------------------
@@ -844,6 +626,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         assert schedule_read.count(1) == self.get_number_output_values(), "ERROR: Reading buffer in fewer cycles than expected"
 
         code_gen_dict["$TOP_MODULE_NAME$"] = [self.get_verilog_top_module_name()]
+        #save top module name so we can refer to it even after this node has been renamed (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
+        self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
         code_gen_dict["$BIT_WIDTH$"] = [str(self.get_input_datatype().bitwidth())]
         code_gen_dict["$SIMD$"] = [str(simd)]
         code_gen_dict["$MMV_IN$"] = [str(mmv_in)]
@@ -976,8 +760,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "localparam [0:{len}-1] WRITE_SCHEDULE = {{{str}}};".format(len=cycles_total, str=schedule_as_string)
         )
         code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
-            "assign write_state = WRITE_SCHEDULE[cycle];"
+            "assign write_state = WRITE_SCHEDULE[cycle_last];"
         )
+        #code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
+        #    "assign write_state_next = WRITE_SCHEDULE[cycle_next];"
+        #)
 
         with open("/workspace/finn/finn-rtllib/swg/swg_hdl_template.v", "r") as f:
             template = f.read()
@@ -986,10 +773,17 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(code_gen_dict[key])
             template = template.replace(key, code_gen_line)
-        f = open(os.path.join("/workspace/finn/finn-rtllib/swg/", "swg_hdl_generated.v"), "w")
+
+        f = open(os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_hdl_gen.v"), "w")
+        #debug:
+        #f = open(os.path.join("/workspace/finn/finn-rtllib/swg/", "swg_hdl_generated.v"), "w")
         f.write(template)
         f.close()
         f_debug.close()
+
+        #set ipgen_path and ip_path so that HLS-Synth transformation and stich_ip transformation do not complain
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
 
     def prepare_rtlsim(self):
         """Creates a Verilator emulation library for the RTL code generated
@@ -997,12 +791,15 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         a PyVerilator wrapper around it."""
         #modified to use generated verilog instead of HLS output products
 
-        self.generate_hdl()
-
         if PyVerilator is None:
             raise ImportError("Installation of PyVerilator is required.")
-        verilog_paths = ["/workspace/finn/finn-rtllib/swg/"]
-        verilog_files = ["swg_hdl_generated.v"]
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        verilog_paths = [code_gen_dir]    
+        verilog_files = [self.get_nodeattr("gen_top_module") + "_hdl_gen.v"]
+        #debug:
+        #verilog_paths = ["/workspace/finn/finn-rtllib/swg/"]
+        #verilog_files = ["swg_hdl_generated.v"]
         # build the Verilator emu library
         sim = PyVerilator.build(
             verilog_files,
@@ -1014,3 +811,37 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # save generated lib filename in attribute
         self.set_nodeattr("rtlsim_so", sim.lib._name)
         return sim
+
+
+    def code_generation_ipi(self):
+        """Constructs and returns the TCL for node instantiation in Vivado IPI."""
+        vlnv = self.get_nodeattr("ip_vlnv")
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        
+        #cmd = ["create_bd_cell -type ip -vlnv %s %s" % (vlnv, self.onnx_node.name)]
+
+        cmd = ["add_files -norecurse %s" % (os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_hdl_gen.v")),
+            "create_bd_cell -type module -reference %s %s" % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)]
+
+        #update_compile_order -fileset sources_1
+        #add_files -norecurse C:/Users/felix/Downloads/swg_hdl_generated.v
+        #update_compile_order -fileset sources_1
+        #create_bd_cell -type module -reference ConvolutionInputGenerator_rtl_0_ConvolutionInputGenerator_rtl_0 ConvolutionInputGene_0
+
+        return cmd
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        """Generates c++ code and tcl script for ip generation."""
+        self.generate_hdl()
+
+    def ipgen_singlenode_code(self):
+        """Builds the bash script for ip generation using the CallHLS from
+        finn.util.hls."""
+        pass
+
+    def code_generation_cppsim(self, model):
+        """Generates c++ code for simulation (cppsim)."""
+        pass
+
+    def compile_singlenode_code(self):
+        pass

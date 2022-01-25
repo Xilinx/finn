@@ -6,7 +6,7 @@
 // ===========================================================
 
 `timescale 1 ns / 1 ps 
-module window_buffer 
+module $TOP_MODULE_NAME$_wb
 #(
     parameter IN_WIDTH = 1, //c*bit-width
     parameter OUT_WIDTH = 1, //c*bit-width*MMV_out
@@ -76,9 +76,11 @@ parameter BUF_ELEM_TOTAL = $BUF_ELEM_TOTAL$;
 //IO ports
 input   ap_clk;
 input   ap_rst_n;
+(* X_INTERFACE_PARAMETER = "FREQ_HZ 250000000.000000" *)
 input  [BUF_IN_WIDTH-1:0] in0_V_V_TDATA;
 input   in0_V_V_TVALID;
 output   in0_V_V_TREADY;
+(* X_INTERFACE_PARAMETER = "FREQ_HZ 250000000.000000" *)
 output  [BUF_OUT_WIDTH-1:0] out_V_V_TDATA;
 output   out_V_V_TVALID;
 input   out_V_V_TREADY;
@@ -87,7 +89,7 @@ input   out_V_V_TREADY;
 wire [BUF_IN_WIDTH-1:0] window_buffer_in;
 wire [BUF_OUT_WIDTH-1:0] window_buffer_out;
 wire window_buffer_shift_enable;
-window_buffer
+$TOP_MODULE_NAME$_wb
 #(
     .IN_WIDTH(BUF_IN_WIDTH),
     .OUT_WIDTH(BUF_OUT_WIDTH),
@@ -102,28 +104,44 @@ window_buffer_inst
 );
 
 //FSM state
-reg [1:0] state;
-parameter STATE_RESET = 0, STATE_OPERATE = 1, S2 = 2;
+//reg [1:0] state;
+//parameter STATE_RESET = 0, STATE_OPERATE = 1, S2 = 2;
 
 //main cycle counter (where either read/write/both happen, resets for each image)
 integer cycle;
+integer cycle_last;
 
 //read/write loop state
 wire read_state;
 wire write_state;
+reg write_done; //keep track if W of current cycle was already completed, but we still wait on a R in the same cycle
 
-//output registers
-reg   out_V_V_TVALID_reg;
+wire write_blocked;
+assign write_blocked = write_state && !out_V_V_TREADY && !write_done;
+
+wire read_ok;
+// with transition to next cycle:
+//              want to read      can read       source is ready (waiting on VALID allowed)
+assign read_ok = read_state && !write_blocked && in0_V_V_TVALID;
+
+wire write_ok;
+// with transition to next cycle:
+//              output is VALID   sink is ready  sink has already read (we are waiting on source)
+assign write_ok = write_state && (out_V_V_TREADY || write_done);
+
+wire advance;
+//            includes waiting on W    if W-only cycle: wait only on W
+assign advance =      read_ok        ||   (!read_state && write_ok);
 
 //assign buffer control
 //todo: if mmv_out < k: might not shift and/or write for multiple read_state cycles
-assign window_buffer_shift_enable = (read_state && in0_V_V_TVALID) || write_state;
+assign window_buffer_shift_enable = advance;
 
 //assign I/O ports
 assign window_buffer_in = in0_V_V_TDATA;
-assign in0_V_V_TREADY = read_state; //accept data whenever read loop wants to read
-assign out_V_V_TDATA = window_buffer_out; //out_V_V_TDATA_reg;
-assign out_V_V_TVALID = out_V_V_TVALID_reg;
+assign out_V_V_TDATA = window_buffer_out;
+assign in0_V_V_TREADY = ap_rst_n && read_ok; //only asserted if data is available and we can store it (allowed)
+assign out_V_V_TVALID = ap_rst_n && write_state && !write_done; //only asserted if we have data available and it has not been read yet (don't wait for READY from sink)
 
 //read schedule
 //todo: generate differently
@@ -133,52 +151,29 @@ $GENERATE_READ_SCHEDULE$
 //todo: generate differently
 $GENERATE_WRITE_SCHEDULE$
 
-//read process (writing to buffer)
+//main process for advancing cycle count
 always @ (posedge ap_clk) begin
     if (ap_rst_n == 1'b0) begin
-        state <= STATE_RESET;
+        cycle <= 0;
+        cycle_last <= 0;
     end else begin
-        case (state)
-            STATE_RESET: begin
-                state <= STATE_OPERATE;
+        if (advance) begin
+            write_done <= 1'b0; //reset flag
+
+            //count cycle (completed R or W or both (depending on current cycle))
+            cycle_last <= cycle; //cycle last is used to generate write_state (due to how schedule is constructed)
+            if (cycle == CYCLES_TOTAL-1)
                 cycle <= 0;
+            else 
+                cycle <= cycle+1; 
+        
+        end else begin
+            if (write_ok) begin
+                // successful W in this cycle, but R still outstanding
+                write_done <= 1'b1; //write can happen even if read is blocked, but only for the current cycle!
             end
-            STATE_OPERATE: begin
-                if (read_state && in0_V_V_TVALID) begin
-                    //read into buffer
-                      //done in concurrent assignment
-                    //count cycle (R)
-                    cycle <= cycle+1;
-                    if (cycle == CYCLES_TOTAL-1)
-                        state <= STATE_RESET;
-                end else if (write_state && out_V_V_TREADY) begin
-                    cycle <= cycle+1; //count cycle (or W)
-                    if (cycle == CYCLES_TOTAL-1)
-                        state <= STATE_RESET;
-                end
-            end
-        endcase
+        end
     end
 end
-
-//write process (reading from buffer)
-always @ (posedge ap_clk) begin
-    if (ap_rst_n == 1'b0) begin
-    end else begin
-        case (state)
-            STATE_RESET: begin
-            end
-            STATE_OPERATE: begin
-                if (write_state && out_V_V_TREADY) begin
-                    //write from buffer
-                    //todo: VALID seems to be deasserted 1 cycle too late?!
-                    out_V_V_TVALID_reg <= 1'b1;
-                end else begin
-                    out_V_V_TVALID_reg <= 1'b0;
-                end
-            end
-        endcase 
-    end
-end      
 
 endmodule //ConvolutionInputGenerator1D_0_ConvolutionInputGenerator1D_0
