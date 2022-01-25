@@ -11,13 +11,14 @@ import torch
 import torch.utils.tensorboard
 from torchvision import transforms
 from torch.utils.data import Dataset, DataLoader, random_split
-from torch.nn import Module, Sequential, BatchNorm2d
-from brevitas.nn import QuantIdentity, QuantConv2d, QuantReLU, QuantMaxPool2d
+from torch.nn import Module, Sequential, BatchNorm2d, MSELoss
+from brevitas.nn import QuantIdentity, QuantConv2d, QuantReLU, QuantMaxPool2d, QuantSigmoid
 from brevitas.inject.defaults import *
 from brevitas.core.restrict_val import RestrictValueType
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
-O_SIZE = 6
+O_SIZE = 5
+GRID_SIZE = (9, 16)
 
 
 class QTinyYOLOv2(Module):
@@ -98,6 +99,8 @@ class QTinyYOLOv2(Module):
         )
         self.conv9 = QuantConv2d(512, O_SIZE, 1, 1, 0, bias=False, weight_bit_width=8, return_quant_tensor=quant_tensor
                                  )
+        self.sig = QuantSigmoid(bit_width=8, return_quant_tensor=quant_tensor
+                                )
 
     def forward(self, x):
         x = self.input(x)
@@ -110,11 +113,13 @@ class QTinyYOLOv2(Module):
         x = self.conv7(x)
         x = self.conv8(x)
         x = self.conv9(x)
+        x = self.sig(x.view(-1, np.prod(x.shape[-2:]), O_SIZE))
+
         return x
 
 
 class YOLO_dataset(Dataset):
-    def __init__(self, img_dir, lbl_dir, transform=None, grid_size=(9, 16)):
+    def __init__(self, img_dir, lbl_dir, transform=None, grid_size=GRID_SIZE):
         self.img_dir = img_dir
         self.imgs = sorted(os.listdir(self.img_dir))
         self.lbl_dir = lbl_dir
@@ -123,7 +128,8 @@ class YOLO_dataset(Dataset):
         self.grid_size = grid_size
 
     def __len__(self):
-        return len(os.listdir(self.img_dir))
+        # return len(os.listdir(self.img_dir))
+        return 10
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -134,14 +140,7 @@ class YOLO_dataset(Dataset):
         with open(os.path.join(self.lbl_dir, self.lbls[idx])) as f:
             dataline = f.readlines()[1]
             lbl_data = [data.strip() for data in dataline.split('\t')]
-            b_x = float(lbl_data[0])
-            b_y = float(lbl_data[1])
-            b_w = float(lbl_data[2])
-            b_h = float(lbl_data[3])
-            lbl_idx = (int(np.floor(self.grid_size[0] * b_y)),
-                       int(np.floor(self.grid_size[1] * b_x)))
-            lbl = np.zeros((O_SIZE, self.grid_size[0], self.grid_size[1]))
-            lbl[:, lbl_idx[0], lbl_idx[1]] = [1.0, b_x, b_y, b_w, b_h, 1.0]
+            lbl = np.array(lbl_data).astype(float)
             f.close()
 
         sample = [img, lbl]
@@ -169,73 +168,66 @@ class Normalize(object):
         return [img, lbl]
 
 
-class YOLOLoss(torch.nn.modules.loss._Loss):
-
-    def __init__(self, l_coord=5.0, l_noobj=0.5, l_obj=5.0, l_cls=1.0):
+class YOLOLoss(Module):
+    def __init__(self, l_coor_obj=1.0, l_coor_noobj=1.0, l_conf_obj=1.0, l_conf_noobj=1.0):
         super().__init__()
-
-        self.l_coord = l_coord
-        self.l_noobj = l_noobj
-        self.l_obj = l_obj
-        self.l_cls = l_cls
-
+        self.l_coor_obj=l_coor_obj
+        self.l_coor_noobj=l_coor_noobj 
+        self.l_conf_obj=l_conf_obj
+        self.l_conf_noobj=l_conf_noobj
+        self.mse = MSELoss()
+    
     def forward(self, pred, label):
-        bb_loc = (label[:, 0, :, :] == 1.0).unsqueeze(
-            1).repeat(1, O_SIZE, 1, 1)
-        bb_nloc = (label[:, 0, :, :] == 0.0).unsqueeze(
-            1).repeat(1, O_SIZE, 1, 1)
-        pred_bb = pred[bb_loc].reshape((-1, O_SIZE))
-        label_bb = label[bb_loc].reshape((-1, O_SIZE))
-        pred_nbb = pred[bb_nloc].reshape((-1, O_SIZE))
-        label_nbb = label[bb_nloc].reshape((-1, O_SIZE))
+        # mask of obj and noobj
+        idx = ((label[:, 0] * GRID_SIZE[0]).floor() * GRID_SIZE[0] +
+            (label[:, 1] * GRID_SIZE[1]).floor()).type(torch.int64)
+        obj_mask = (torch.zeros_like(pred)).type(torch.bool)
+        obj_mask[np.arange(3), idx, :] = True
+        noobj_mask = ~obj_mask
+        pred_obj = pred[obj_mask].view(pred.shape[0], -1, 5)
+        pred_noobj = pred[noobj_mask].view(pred.shape[0], -1, 5)
 
-        classification_loss = self.l_cls * ((label_bb[:, 5].squeeze() -
-                                             pred_bb[:, 5].squeeze()) ** 2.0).sum()
+        # coordination loss
+        # TODO calculate real average
+        average_vec = torch.tensor([0.5, 0.5, 0.01, 0.01])
+        coor_l_obj = self.mse(pred_obj[:, :, :4], label.view(-1, 1, 4))
+        coor_l_noobj = self.mse(pred_noobj[:, :, :4], average_vec*torch.oness_like(pred_noobj[:, :, :4]))
 
-        localization_loss = self.l_coord * ((((label_bb[:, 1].squeeze() - pred_bb[:, 1].squeeze()) ** 2.0) + ((label_bb[:, 2].squeeze() - pred_bb[:, 2].squeeze()) ** 2.0)).sum(
-        ) + (((label_bb[:, 3].sqrt().squeeze() - pred_bb[:, 3].sqrt().squeeze()) ** 2.0) + ((label_bb[:, 4].sqrt().squeeze() - pred_bb[:, 4].sqrt().squeeze()) ** 2.0)).sum())
+        # confidence loss
+        conf_l_obj = self.mse(pred_obj[:, :, 4], IoU_calc(pred_obj, label))
+        conf_l_noobj = self.mse(pred_noobj[:, :, 4], torch.zeros_like(pred_noobj[:, :, 4]))
 
-        confidence_loss = self.l_obj * (((label_bb[:, 0].squeeze() - pred_bb[:, 0].squeeze()) ** 2.0).sum()) + self.l_noobj * (
-            ((label_nbb[:, 0].squeeze() - pred_nbb[:, 0].squeeze()) ** 2.0).sum())
-
-        return (classification_loss + localization_loss + confidence_loss) / pred.size(0)
+        return coor_l_obj*self.l_coor_obj + coor_l_noobj*self.l_coor_noobj + conf_l_obj*self.l_conf_obj + conf_l_noobj*self.l_conf_noobj
 
 
-def IoU_calc(pred, label):
+def IoU_calc(pred_, label):
     # localizing most probable bounding box
-    label_idx = label[:, 0, :, :].view(
-        label[:, 0, :, :].size(0), -1).max(dim=-1).indices
-    pred_idx = pred[:, 0, :, :].view(
-        pred[:, 0, :, :].size(0), -1).max(dim=-1).indices
-    label_y, label_x = torch.tensor(np.array(np.unravel_index(label_idx, label[:, 0, :, :].shape)[1:3]))
-    pred_y, pred_x = torch.tensor(np.array(np.unravel_index(pred_idx, pred[:, 0, :, :].shape)[1:3]))
-    # x, y, w, h
-    label_bb = torch.stack([bb[1:5, label_y[i], label_x[i]] for i, bb in enumerate(label)], 1)
-    pred_bb = torch.stack([bb[1:5, pred_y[i], pred_x[i]] for i, bb in enumerate(pred)], 1)
+    _, bb_idx = pred_[:, :, 4].max(1)
+    pred = pred_[np.arange(pred_.shape[0]), bb_idx, :4]
     # xmin, ymin, xmax, ymax
-    true_bbm = torch.stack([torch.max(label_bb[0]-(label_bb[2]/2), torch.tensor(0.0)),
-                           torch.max(
-                               label_bb[1]-(label_bb[3]/2), torch.tensor(0.0)),
-                           torch.min(
-                               label_bb[0]+(label_bb[2]/2), torch.tensor(1.0)),
-                           torch.min(label_bb[1]+(label_bb[3]/2), torch.tensor(1.0))])
-    pred_bbm = torch.stack([torch.max(pred_bb[0]-(pred_bb[2]/2), torch.tensor(0.0)),
-                           torch.max(pred_bb[1]-(pred_bb[3]/2),
+    label_bb = torch.stack([torch.max(label[:, 0]-(label[:, 2]/2), torch.tensor(0.0)),
+                            torch.max(label[:, 1]-(label[:, 3]/2),
+                                      torch.tensor(0.0)),
+                            torch.min(label[:, 0]+(label[:, 2]/2),
+                                      torch.tensor(1.0)),
+                            torch.min(label[:, 1]+(label[:, 3]/2), torch.tensor(1.0))], 1)
+    pred_bb = torch.stack([torch.max(pred[:, 0]-(pred[:, 2]/2), torch.tensor(0.0)),
+                           torch.max(pred[:, 1]-(pred[:, 3]/2),
                                      torch.tensor(0.0)),
-                           torch.min(pred_bb[0]+(pred_bb[2]/2),
+                           torch.min(pred[:, 0]+(pred[:, 2]/2),
                                      torch.tensor(1.0)),
-                           torch.min(pred_bb[1]+(pred_bb[3]/2), torch.tensor(1.0))])
-    inter_bbm = torch.stack([torch.max(true_bbm[0], pred_bbm[0]),
-                            torch.max(true_bbm[1], pred_bbm[1]),
-                            torch.min(true_bbm[2], pred_bbm[2]),
-                            torch.min(true_bbm[3], pred_bbm[3])])
+                           torch.min(pred[:, 1]+(pred[:, 3]/2), torch.tensor(1.0))], 1)
+    inter_bb = torch.stack([torch.max(label_bb[:, 0], pred_bb[:, 0]),
+                            torch.max(label_bb[:, 1], pred_bb[:, 1]),
+                            torch.min(label_bb[:, 2], pred_bb[:, 2]),
+                            torch.min(label_bb[:, 3], pred_bb[:, 3])], 1)
     # calculate IoU
-    true_area = true_bbm[2]*true_bbm[3]
-    pred_area = pred_bbm[2]*pred_bbm[3]
-    inter_area = torch.max(inter_bbm[2]-inter_bbm[0], torch.tensor(
-        0.0)) * torch.max(inter_bbm[3]-inter_bbm[1], torch.tensor(0.0))
+    label_area = label_bb[:, 2]*label_bb[:, 3]
+    pred_area = pred_bb[:, 2]*pred_bb[:, 3]
+    inter_area = torch.max(inter_bb[:, 2]-inter_bb[:, 0], torch.tensor(0.0)) * \
+        torch.max(inter_bb[:, 3]-inter_bb[:, 1], torch.tensor(0.0))
     # return IoU
-    return inter_area / (true_area + pred_area - inter_area)
+    return inter_area / (label_area + pred_area - inter_area)
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 
@@ -293,7 +285,8 @@ if __name__ == "__main__":
         # test loss
         with torch.no_grad():
             for i, data in tqdm(enumerate(test_loader, 0), total=int(np.ceil(test_len/batch_size)), desc="test loss", unit="batch"):
-                test_images, test_labels = data[0].to(device), data[1].to(device)
+                test_images, test_labels = data[0].to(
+                    device), data[1].to(device)
                 test_outputs = net(test_images)
                 t_loss = loss_func(test_outputs.value, test_labels)
                 test_loss += t_loss.item()

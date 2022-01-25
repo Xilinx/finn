@@ -230,7 +230,7 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   fi
 fi
 DOCKER_EXEC+="-e XILINXD_LICENSE_FILE=$XILINXD_LICENSE_FILE "
-DOCKER_EXEC+="-v /etc/timezone:/etc/timezone "
+# DOCKER_EXEC+="-v /etc/timezone:/etc/timezone "
 DOCKER_EXEC+="-v /etc/localtime:/etc/localtime "
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
 DOCKER_EXEC+="$FINN_DOCKER_TAG $DOCKER_CMD "
