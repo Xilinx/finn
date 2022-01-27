@@ -264,7 +264,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         dilation_h, dilation_w = dilation
 
         # since mmv != 1 is not supported yet, we set mmv for now to 1
-        # mmv = 1
+        mmv = 1
         # see https://github.com/Xilinx/finn-hlslib/blob/master/slidingwindow.h
         if self.use_parallel_window_output():
             exp_cycles = k_w + ofm_dim_w
@@ -273,9 +273,18 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             cycles_write_block = ofm_dim_w * k_w * ifm_ch / simd
             exp_cycles = cycles_read_block + cycles_write_block
         elif self.get_nodeattr("depthwise") == 1:
-            cycles_read_block = ifm_ch / simd * (k_w - 1) - (k_w - 1)
-            cycles_write_block = ofm_dim_w * k_w * ifm_ch / simd
-            exp_cycles = cycles_read_block + cycles_write_block
+            if stride_h > 1 or stride_w > 1:
+                cycles_write_block = (ofm_dim_w * k_w * k_h * (ifm_ch / simd)) / mmv
+                cycles_read_block = stride_w * ifm_dim_w * (ifm_ch / simd)
+                max_cycles = max(cycles_write_block, cycles_read_block)
+                exp_cycles = (
+                    ifm_dim_w * k_h * dilation_h * (ifm_ch / simd)
+                    + ofm_dim_h * max_cycles
+                )
+            else:
+                cycles_read_block = ifm_ch / simd * (k_w - 1) - (k_w - 1)
+                cycles_write_block = ofm_dim_w * k_w * ifm_ch / simd
+                exp_cycles = cycles_read_block + cycles_write_block
         else:
             exp_cycles = 1 + ofm_dim_w * k_w * ifm_ch / simd
 
