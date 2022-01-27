@@ -563,6 +563,15 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             "ultra": "ap_resource_uram()",
         }
         hls_ram_style = map_to_hls_ram_style[ram_style]
+        (
+            ifm_ch,
+            ifm_dim,
+            ofm_dim,
+            k,
+            stride,
+            dilation,
+        ) = self.get_1d_conv_attrs_normalized()
+        stride_x = np.prod(stride)
 
         # check which ConvolutionInputGenerator is needed
         if self.use_parallel_window_output():
@@ -588,14 +597,28 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
                         )
                     ]
                 else:
-                    hls_call = "ConvolutionInputGenerator_1D_dws_lowbuffer"
-                    self.code_gen_dict["$DOCOMPUTE$"] = [
-                        """{}<ConvKernelDim1_x, IFMChannels1,
-                        Input_precision1, IFMDim1_x, OFMDim1_x,
-                        SIMD1> (in0, out, numReps, {});""".format(
-                            hls_call, hls_ram_style
-                        )
-                    ]
+                    if stride_x > 1:
+                        # temporarily use old ConvolutionInputGenerator_NonSquare_dws
+                        # for depthwise with stride > 1
+                        # note that both x and y stride are set to same (hlslib bug)
+                        hls_call = "ConvolutionInputGenerator_NonSquare_dws"
+                        self.code_gen_dict["$DOCOMPUTE$"] = [
+                            """{}<ConvKernelDim1_x, 1, IFMChannels1,
+                            Input_precision1, IFMDim1_x, 1, OFMDim1_x, 1,
+                            SIMD1, Stride1_x, Stride1_x
+                            > (in0, out, numReps, {});""".format(
+                                hls_call, hls_ram_style
+                            )
+                        ]
+                    else:
+                        hls_call = "ConvolutionInputGenerator_1D_dws_lowbuffer"
+                        self.code_gen_dict["$DOCOMPUTE$"] = [
+                            """{}<ConvKernelDim1_x, IFMChannels1,
+                            Input_precision1, IFMDim1_x, OFMDim1_x,
+                            SIMD1> (in0, out, numReps, {});""".format(
+                                hls_call, hls_ram_style
+                            )
+                        ]
             else:
                 hls_call = "ConvolutionInputGenerator_1D_lowbuffer"
                 self.code_gen_dict["$DOCOMPUTE$"] = [
