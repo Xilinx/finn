@@ -213,6 +213,10 @@ class InferConvInpGen(Transformation):
                                 1D depthwise separable convolutions"""
                                 % n.name
                             )
+                        if stride_h > 1 or stride_w > 1:
+                            assert (
+                                stride_h < k_h and stride_w < k_w
+                            ), """%s: Stride value must be smaller than kernel dim"""
                         ConvInpGen_node = helper.make_node(
                             "ConvolutionInputGenerator1D",
                             [ConvInpGen_input],

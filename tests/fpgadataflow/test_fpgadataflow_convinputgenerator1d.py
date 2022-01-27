@@ -156,8 +156,7 @@ def prepare_inputs(input_tensor):
 # input channels
 @pytest.mark.parametrize("ifm_ch", [1, 4])
 # Stride
-# @pytest.mark.parametrize("stride", [[1, 1], [2, 1]])
-@pytest.mark.parametrize("stride", [[1, 1]])
+@pytest.mark.parametrize("stride", [[1, 1], [2, 1]])
 # Dilation
 @pytest.mark.parametrize("dilation", [[1, 1], [2, 1]])
 # execution mode
