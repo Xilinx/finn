@@ -128,7 +128,8 @@ class YOLO_dataset(Dataset):
         self.grid_size = grid_size
 
     def __len__(self):
-        return len(os.listdir(self.img_dir))
+        # return len(os.listdir(self.img_dir))
+        return 10
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -175,11 +176,22 @@ class YOLOLoss(Module):
         self.l_conf_obj = l_conf_obj
         self.l_conf_noobj = l_conf_noobj
         self.mse = MSELoss()
+        self.gy = torch.arange(GRID_SIZE[0]).repeat(GRID_SIZE[1])
+        self.gx = torch.arange(GRID_SIZE[1]).repeat(GRID_SIZE[0])
 
     def forward(self, pred, label):
+        # locate bounding box location and
+        idx_y = (label[:, 0] * GRID_SIZE[0]).floor()
+        idx_x = (label[:, 1] * GRID_SIZE[1]).floor()
+        idx = (idx_y * GRID_SIZE[0] + idx_x).type(torch.int64)
+        # add grid offset to x and y values
+        pred[:, :, 0] += self.gx
+        pred[:, :, 1] += self.gy
+        label[:, 0] = idx_x + (label[:, 0]*GRID_SIZE[0] -
+                               torch.floor(label[:, 0]*GRID_SIZE[0]))
+        label[:, 1] = idx_y + (label[:, 1]*GRID_SIZE[1] -
+                               torch.floor(label[:, 1]*GRID_SIZE[1]))
         # mask of obj and noobj
-        idx = ((label[:, 0] * GRID_SIZE[0]).floor() * GRID_SIZE[0] +
-               (label[:, 1] * GRID_SIZE[1]).floor()).type(torch.int64)
         obj_mask = (torch.zeros_like(pred)).type(torch.bool)
         obj_mask[np.arange(label.shape[0]), idx, :] = True
         noobj_mask = ~obj_mask
