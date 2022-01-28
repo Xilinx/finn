@@ -169,33 +169,38 @@ class Normalize(object):
 
 
 class YOLOLoss(Module):
-    def __init__(self, l_coor_obj=1.0, l_coor_noobj=1.0, l_conf_obj=1.0, l_conf_noobj=1.0):
+    def __init__(self, device, l_coor_obj=1.0, l_coor_noobj=1.0, l_conf_obj=1.0, l_conf_noobj=1.0):
         super().__init__()
-        self.l_coor_obj=l_coor_obj
-        self.l_coor_noobj=l_coor_noobj 
-        self.l_conf_obj=l_conf_obj
-        self.l_conf_noobj=l_conf_noobj
+        self.l_coor_obj = l_coor_obj
+        self.l_coor_noobj = l_coor_noobj
+        self.l_conf_obj = l_conf_obj
+        self.l_conf_noobj = l_conf_noobj
         self.mse = MSELoss()
-    
+
     def forward(self, pred, label):
         # mask of obj and noobj
         idx = ((label[:, 0] * GRID_SIZE[0]).floor() * GRID_SIZE[0] +
-            (label[:, 1] * GRID_SIZE[1]).floor()).type(torch.int64)
+               (label[:, 1] * GRID_SIZE[1]).floor()).type(torch.int64)
         obj_mask = (torch.zeros_like(pred)).type(torch.bool)
-        obj_mask[np.arange(3), idx, :] = True
+        obj_mask[np.arange(label.shape[0]), idx, :] = True
         noobj_mask = ~obj_mask
-        pred_obj = pred[obj_mask].view(pred.shape[0], -1, 5)
+        pred_obj = pred[obj_mask].view(pred.shape[0], 5)
         pred_noobj = pred[noobj_mask].view(pred.shape[0], -1, 5)
+        pred_obj.to(device)
+        pred_noobj.to(device)
 
         # coordination loss
         # TODO calculate real average
         average_vec = torch.tensor([0.5, 0.5, 0.01, 0.01])
-        coor_l_obj = self.mse(pred_obj[:, :, :4], label.view(-1, 1, 4))
-        coor_l_noobj = self.mse(pred_noobj[:, :, :4], average_vec*torch.oness_like(pred_noobj[:, :, :4]))
+        coor_l_obj = self.mse(pred_obj[:, :4], label)
+        coor_l_noobj = self.mse(
+            pred_noobj[:, :, :4], average_vec*torch.ones_like(pred_noobj[:, :, :4], device=device))
 
         # confidence loss
-        conf_l_obj = self.mse(pred_obj[:, :, 4], IoU_calc(pred_obj, label))
-        conf_l_noobj = self.mse(pred_noobj[:, :, 4], torch.zeros_like(pred_noobj[:, :, 4]))
+        conf_l_obj = self.mse(pred_obj[:, 4], IoU_calc(
+            pred_obj.unsqueeze(1), label))
+        conf_l_noobj = self.mse(pred_noobj[:, :, 4], torch.zeros_like(
+            pred_noobj[:, :, 4], device=device))
 
         return coor_l_obj*self.l_coor_obj + coor_l_noobj*self.l_coor_noobj + conf_l_obj*self.l_conf_obj + conf_l_noobj*self.l_conf_noobj
 
@@ -263,7 +268,7 @@ if __name__ == "__main__":
     # network setup
     net = QTinyYOLOv2(weight_bit_width, act_bit_width)
     net.to(device)
-    loss_func = YOLOLoss()
+    loss_func = YOLOLoss(device)
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
 
     # train network
@@ -278,7 +283,7 @@ if __name__ == "__main__":
             optimizer.zero_grad()
             # forward + backward + optimize
             outputs = net(inputs)
-            loss = loss_func(outputs.value, labels)
+            loss = loss_func(outputs.value.float(), labels.float())
             loss.backward()
             optimizer.step()
             train_loss += loss.item()
@@ -288,7 +293,8 @@ if __name__ == "__main__":
                 test_images, test_labels = data[0].to(
                     device), data[1].to(device)
                 test_outputs = net(test_images)
-                t_loss = loss_func(test_outputs.value, test_labels)
+                t_loss = loss_func(
+                    test_outputs.value.float(), test_labels.float())
                 test_loss += t_loss.item()
         # log loss statistics
         logger.add_scalar('Loss/train', train_loss/train_len, epoch)
