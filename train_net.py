@@ -128,8 +128,7 @@ class YOLO_dataset(Dataset):
         self.grid_size = grid_size
 
     def __len__(self):
-        # return len(os.listdir(self.img_dir))
-        return 10
+        return len(os.listdir(self.img_dir))
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
