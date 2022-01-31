@@ -4,7 +4,7 @@ import sys
 from tqdm import tqdm, trange
 import numpy as np
 from skimage import io, transform
-# from sklearn.model_selection import KFold
+# import matplotlib.pyplot as plt
 
 # Brevitas ad PyTorch libraries
 import torch
@@ -167,6 +167,24 @@ class Normalize(object):
         return [img, lbl]
 
 
+# def getAnchors(dataset, n_anchors):
+#     datapoints = False
+#     anchors = np.empty((n_anchors, 4))
+#     # collect labels data
+#     for i in range(len(dataset)):
+#         data = (dataset[i][1]).view((1, 4))
+#         if torch.is_tensor(datapoints):
+#             datapoints = torch.vstack([datapoints, data])
+#         else:
+#             datapoints = data
+#     # k-means clustering
+#     data_clusters = torch.randint(n_anchors, (datapoints.size(0),))
+#     centroids = torch.randint(datapoints.size(0), (n_anchors,))
+#     centroids = datapoints[centroids][2:]
+
+#     return anchors
+
+
 class YOLOLoss(Module):
     def __init__(self, device, l_coor_obj=1.0, l_coor_noobj=1.0, l_conf_obj=1.0, l_conf_noobj=1.0):
         super().__init__()
@@ -274,6 +292,9 @@ if __name__ == "__main__":
                               shuffle=True, num_workers=4)
     test_loader = DataLoader(test_set, batch_size=batch_size,
                              shuffle=True, num_workers=4)
+
+    # # get anchors
+    # anchors = getAnchors(train_set, 5)
 
     # network setup
     net = QTinyYOLOv2(weight_bit_width, act_bit_width)
