@@ -4,7 +4,7 @@ import sys
 from tqdm import tqdm, trange
 import numpy as np
 from skimage import io, transform
-# import matplotlib.pyplot as plt
+from kmeans_pytorch import kmeans
 
 # Brevitas ad PyTorch libraries
 import torch
@@ -18,6 +18,7 @@ from brevitas.core.restrict_val import RestrictValueType
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 O_SIZE = 5
+ANCHORS = 6
 GRID_SIZE = (9, 16)
 
 
@@ -97,7 +98,7 @@ class QTinyYOLOv2(Module):
             QuantReLU(bit_width=self.act_bit_width,
                       return_quant_tensor=quant_tensor)
         )
-        self.conv9 = QuantConv2d(512, O_SIZE, 1, 1, 0, bias=False, weight_bit_width=8, return_quant_tensor=quant_tensor
+        self.conv9 = QuantConv2d(512, ANCHORS*O_SIZE, 1, 1, 0, bias=False, weight_bit_width=8, return_quant_tensor=quant_tensor
                                  )
         self.sig = QuantSigmoid(bit_width=8, return_quant_tensor=quant_tensor
                                 )
@@ -113,7 +114,8 @@ class QTinyYOLOv2(Module):
         x = self.conv7(x)
         x = self.conv8(x)
         x = self.conv9(x)
-        x = self.sig(x.view(-1, np.prod(x.shape[-2:]), O_SIZE))
+        x = x.view(-1, np.prod(GRID_SIZE), ANCHORS, O_SIZE)
+        # x = self.sig(x.view(-1, np.prod(GRID_SIZE), ANCHORS, O_SIZE))
 
         return x
 
@@ -128,7 +130,8 @@ class YOLO_dataset(Dataset):
         self.grid_size = grid_size
 
     def __len__(self):
-        return len(os.listdir(self.img_dir))
+        # return len(os.listdir(self.img_dir))
+        return 100
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -167,47 +170,52 @@ class Normalize(object):
         return [img, lbl]
 
 
-# def getAnchors(dataset, n_anchors):
-#     datapoints = False
-#     anchors = np.empty((n_anchors, 4))
-#     # collect labels data
-#     for i in range(len(dataset)):
-#         data = (dataset[i][1]).view((1, 4))
-#         if torch.is_tensor(datapoints):
-#             datapoints = torch.vstack([datapoints, data])
-#         else:
-#             datapoints = data
-#     # k-means clustering
-#     data_clusters = torch.randint(n_anchors, (datapoints.size(0),))
-#     centroids = torch.randint(datapoints.size(0), (n_anchors,))
-#     centroids = datapoints[centroids][2:]
+def getAnchors(dataset, n_anchors, device):
+    datapoints = False
+    anchors = np.empty((n_anchors, 2))
+    # collect labels data
+    for i in range(len(dataset)):
+        data = (dataset[i][1][2:]).view((1, 2))
+        if torch.is_tensor(datapoints):
+            datapoints = torch.vstack([datapoints, data])
+        else:
+            datapoints = data
+    # k-means clustering
+    kmean_idx, anchors = kmeans(
+        X=datapoints, num_clusters=n_anchors, distance='euclidean', iter_limit=16, device=device)
 
-#     return anchors
+    return anchors
+
+
+def YOLOout(output, anchors):
+    gx = (torch.arange(GRID_SIZE[1]).repeat_interleave(
+        GRID_SIZE[0])) / GRID_SIZE[1]
+    gy = (torch.arange(GRID_SIZE[0]).repeat(GRID_SIZE[1])) / GRID_SIZE[0]
+    output[:, :, :, 0] = torch.sigmoid(output[:, :, :, 0]) + gx
+    output[:, :, :, 1] = torch.sigmoid(output[:, :, :, 1]) + gy
+    output[:, :, :, 2] = torch.exp(output[:, :, :, 2]) * anchors[:, 0]
+    output[:, :, :, 3] = torch.exp(output[:, :, :, 3]) * anchors[:, 1]
+    output[:, :, :, 4] = torch.sigmoid(output[:, :, :, 4])
+    return output
 
 
 class YOLOLoss(Module):
-    def __init__(self, device, l_coor_obj=1.0, l_coor_noobj=1.0, l_conf_obj=1.0, l_conf_noobj=1.0):
+    def __init__(self, anchors, device, l_coor_obj=1.0, l_coor_noobj=1.0, l_conf_obj=1.0, l_conf_noobj=1.0):
         super().__init__()
+        self.anchors = anchors
         self.l_coor_obj = l_coor_obj
         self.l_coor_noobj = l_coor_noobj
         self.l_conf_obj = l_conf_obj
         self.l_conf_noobj = l_conf_noobj
         self.mse = MSELoss()
-        self.gy = torch.arange(GRID_SIZE[0]).repeat(GRID_SIZE[1])
-        self.gx = torch.arange(GRID_SIZE[1]).repeat(GRID_SIZE[0])
 
     def forward(self, pred, label):
         # locate bounding box location and
-        idx_y = (label[:, 0] * GRID_SIZE[0]).floor()
-        idx_x = (label[:, 1] * GRID_SIZE[1]).floor()
-        idx = (idx_y * GRID_SIZE[0] + idx_x).type(torch.int64)
-        # add grid offset to x and y values
-        pred[:, :, 0] += self.gx
-        pred[:, :, 1] += self.gy
-        label[:, 0] = idx_x + (label[:, 0]*GRID_SIZE[0] -
-                               torch.floor(label[:, 0]*GRID_SIZE[0]))
-        label[:, 1] = idx_y + (label[:, 1]*GRID_SIZE[1] -
-                               torch.floor(label[:, 1]*GRID_SIZE[1]))
+        idx_x = (label[:, 0] * GRID_SIZE[1]).floor()
+        idx_y = (label[:, 1] * GRID_SIZE[0]).floor()
+        idx = (idx_x * GRID_SIZE[1] + idx_y).type(torch.int64)
+        # convert predictions to label style
+        pred = YOLOout(pred, anchors)
         # mask of obj and noobj
         obj_mask = (torch.zeros_like(pred)).type(torch.bool)
         obj_mask[np.arange(label.shape[0]), idx, :] = True
@@ -293,13 +301,13 @@ if __name__ == "__main__":
     test_loader = DataLoader(test_set, batch_size=batch_size,
                              shuffle=True, num_workers=4)
 
-    # # get anchors
-    # anchors = getAnchors(train_set, 5)
+    # get anchors
+    anchors = getAnchors(train_set, 5)
 
     # network setup
     net = QTinyYOLOv2(weight_bit_width, act_bit_width)
     net.to(device)
-    loss_func = YOLOLoss(device)
+    loss_func = YOLOLoss(anchors, device)
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
 
     # train network
