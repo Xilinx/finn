@@ -8,8 +8,9 @@
 `timescale 1 ns / 1 ps 
 module $TOP_MODULE_NAME$_wb
 #(
-    parameter IN_WIDTH = 1, //c*bit-width
-    parameter OUT_WIDTH = 1, //c*bit-width*MMV_out
+    parameter IN_WIDTH = 1, //bit-width*C*MMV_in
+    parameter OUT_ELEM_WIDTH = 1, //bit-width*C
+    parameter OUT_WIDTH = 1, //bit-width*C*MMV_out
     parameter BUFFER_ELEM_TOTAL = 1
 )
 (
@@ -65,10 +66,11 @@ module $TOP_MODULE_NAME$ (
 //parameters
 parameter BIT_WIDTH = $BIT_WIDTH$;
 parameter SIMD = $SIMD$; //assuming SIMD=C for now
-parameter MMV_IN = $MMV_IN$; //assuming MMV_IN=1 for now
-parameter MMV_OUT = $MMV_OUT$; //assuming MMV_OUT=K for now
-parameter BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN; //c*bit-width
-parameter BUF_OUT_WIDTH = BUF_IN_WIDTH * MMV_OUT; //c*bit-width*MMV_out
+parameter MMV_IN = $MMV_IN$; //assuming MMV_IN=1*M for now
+parameter MMV_OUT = $MMV_OUT$; //assuming MMV_OUT=K*M for now
+parameter BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN; //bit-width*C*MMV_in
+parameter BUF_OUT_ELEM_WIDTH = BIT_WIDTH * SIMD; //bit-width*C
+parameter BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT; //bit-width*C*MMV_out
 
 parameter CYCLES_TOTAL = $CYCLES_TOTAL$;
 parameter BUF_ELEM_TOTAL = $BUF_ELEM_TOTAL$;
@@ -92,6 +94,7 @@ wire window_buffer_shift_enable;
 $TOP_MODULE_NAME$_wb
 #(
     .IN_WIDTH(BUF_IN_WIDTH),
+    .OUT_ELEM_WIDTH(BUF_OUT_ELEM_WIDTH),
     .OUT_WIDTH(BUF_OUT_WIDTH),
     .BUFFER_ELEM_TOTAL(BUF_ELEM_TOTAL)
 )

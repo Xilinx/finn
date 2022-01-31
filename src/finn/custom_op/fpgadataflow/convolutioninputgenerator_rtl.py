@@ -79,6 +79,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "IFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "OFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "SIMD": ("i", True, 0),
+            "M": ("i", True, 1),
             "Stride": ("ints", True, []),  # [H, W] = [Y, X]
             "Dilation": ("ints", True, []),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
@@ -111,9 +112,15 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         simd = self.get_nodeattr("SIMD")
+        M = self.get_nodeattr("M")
         assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
         wf = int(ifm_ch / simd)
-        folded_ishape = (1, ifm_dim_h, ifm_dim_w, wf, simd)
+        #folded_ishape = (1, ifm_dim_h, ifm_dim_w, wf, simd)
+        #round up to support ifm_dim % M != 0
+        if ifm_dim_w == 1:
+            folded_ishape = (1, math.ceil(ifm_dim_h/M), ifm_dim_w, wf, int(simd*M))
+        else:
+            folded_ishape = (1, ifm_dim_h, math.ceil(ifm_dim_w/M), wf, int(simd*M))
         return folded_ishape
 
     def get_normal_output_shape(self):
@@ -135,13 +142,18 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         stride_h, stride_w = self.get_nodeattr("Stride")
         dilation_h, dilation_w = self.get_nodeattr("Dilation")
         simd = self.get_nodeattr("SIMD")
+        M = self.get_nodeattr("M")
         pad = 0
         ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, pad, dilation_h)
         ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, pad, dilation_w)
         assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
         if self.use_parallel_window_output():
             wf = int((ifm_ch) // simd)
-            folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, k_h * k_w * simd)
+            #folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, k_h * k_w * simd)
+            if ofm_dim_w == 1:
+                folded_oshape = (1, int(ofm_dim_h/M), ofm_dim_w, wf, k_h * k_w * int(simd*M))
+            else:
+                folded_oshape = (1, ofm_dim_h, int(ofm_dim_w/M), wf, k_h * k_w * int(simd*M))
         else:
             wf = int((k_h * k_w * ifm_ch) // simd)
             folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, simd)
@@ -175,8 +187,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         ibits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
+        M = self.get_nodeattr("M")
         assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        in_width = simd * ibits
+        in_width = simd * ibits * M
         return in_width
 
     def get_outstream_width(self):
@@ -377,6 +390,15 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             export_idt = DataType["BINARY"]
         else:
             export_idt = self.get_input_datatype()
+
+        # pad test input stream to work when IFMdim % M != 0
+        # during normal operation, the AXI Stream should not care, in the last cycle garbage elements are read but not used
+        # ToDo: only works for 1D case
+        mmv_stream_padding_px = int((np.prod(folded_ishape) - np.prod(exp_ishape)) / exp_ishape[-1])
+        if exp_ishape [2] == 1:
+            inp = np.pad(inp, ((0,0),(0,mmv_stream_padding_px),(0,0),(0,0)), 'constant')
+        else:
+            inp = np.pad(inp, ((0,0),(0,0),(0,mmv_stream_padding_px),(0,0)), 'constant')
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
         # make copy before saving array
@@ -460,22 +482,23 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         n = 1
         h, w = ifm_dim
-        c = 1#ifm_ch not considered atm (always parallelize across c)
+        c = 1 # ifm_ch not considered atm (always parallelize across c)
         k_h, k_w = k
-        pad = [0,0,0,0]
+        pad = [0,0,0,0] # padding happens in separate padding node
         pad_val = 0
         stride_h, stride_w = stride
         dilation_h, dilation_w = dilation
         conv_c = 99
 
         # init folding config
+        M = self.get_nodeattr("M")
         simd = self.get_nodeattr("SIMD")
-        mmv_in = 1
-        mmv_out = k_h*k_w
+        mmv_in = 1*M
+        mmv_out = k_h*k_w*M
 
         assert simd==ifm_ch, "Constraint violated: SIMD = C"
-        assert mmv_in==1, "Constraint violated: MMV_IN = 1"
-        assert mmv_out==k_h*k_w, "Constraint violated: mmv_out = K"
+        assert mmv_in==1*M, "Constraint violated: MMV_IN = 1" # *M
+        assert mmv_out==k_h*k_w*M, "Constraint violated: mmv_out = K" # *M
 
         # how many "unused" registers are allowed between buffer positions that will be accessed in parallel
         # example:
@@ -552,7 +575,18 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         f_debug.write("\n"+str(idx_w))
 
         idx_px = idx_h*w+idx_w
-        f_debug.write("\n"+"sequential pixel indices")
+        f_debug.write("\n"+"sequential pixel indices (shape %s" % str(idx_px.shape))
+        f_debug.write("\n"+str(idx_px))
+
+        output_elem, output_cycles = idx_px.shape
+        # ToDo: what happens when output_cycles=OFMdim % M != 0
+        # ...try to support IFMdim % M != 0 first, so we can work with the usual k=3 where OFMdim = IFMdim - -2
+        # the additional garbage input elements that are read in the last cycle are not read by any window anyway
+        idx_px = idx_px.transpose()
+        idx_px = idx_px.reshape((int(output_cycles/M), int(output_elem*M)))
+        idx_px = idx_px.transpose()
+
+        f_debug.write("\n"+"sequential pixel indices, MMV_out grouping (shape %s" % str(idx_px.shape))
         f_debug.write("\n"+str(idx_px))
 
         buffer = []
@@ -565,23 +599,29 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         idx_px_relative = idx_px.copy()
 
         # compute schedule and buffer read pattern
-        Y, X = idx_px_relative.shape
-        for x in range(X):
+        output_elem, output_cycles = idx_px_relative.shape
+        for x in range(output_cycles):
             # load missing inputs into buffer
-            for y in range(Y):
+            for y in range(output_elem):
                 while int(idx_px_relative[y,x]) not in buffer:
-                    buffer.append(next_in_px)
-                    next_in_px += 1
+                    # load M inputs at once (keep "buffer" list 1D for now, handle actual 2D buffer generation later)
+                    for m in range(M):
+                        buffer.append(next_in_px)
+                        next_in_px += 1
                     schedule_write.append(1)
                     schedule_read.append(0)
             
             # discard unused buffer elements (assumes in-order access)
             oldest_px = min(idx_px_relative[:,x])
-            while buffer[0] < oldest_px:
-                buffer.pop(0)
+            #while buffer[0] < oldest_px:
+            #check whether M elements can be shifted out, not just the single oldest one
+            while all([buffer[i] < oldest_px for i in range(M)]):
+                # M buffer elements are shifted out at once
+                for m in range(M):
+                    buffer.pop(0)
                 
             # adjust relative buffer index
-            for y in range(Y):
+            for y in range(output_elem):
                 idx_px_relative[y,x] -= oldest_px
                 
             # record max needed buffer depth
@@ -595,14 +635,16 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             if next_in_px > (h_padded*w_padded-1):
                 schedule_write.append(0)
             else:
-                buffer.append(next_in_px)
-                next_in_px += 1
+                # load M inputs at once
+                for m in range(M):
+                    buffer.append(next_in_px)
+                    next_in_px += 1
                 schedule_write.append(1)
 
 
         # find buffer access patterns
         buffer_access_patterns = []
-        for x in range(X):
+        for x in range(output_cycles):
             if idx_px_relative[:,x].tolist() not in buffer_access_patterns:
                 buffer_access_patterns.append(idx_px_relative[:,x].tolist())
                 
@@ -636,10 +678,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_max_size)]
         
         # determine buffer partitioning into REG FIFOs (parallel access) and BRAM FIFOs (line buffers)
+        # ToDo: this part doesn't fully account for M (2D buffer) yet
         assert len(buffer_access_patterns) == 1, "ERROR: Buffer access pattern is not static"
         buf_static_access_pattern = buffer_access_patterns[0]
         reg_fifos = []
+        reg_fifos_depth = []
         bram_fifos = []
+        bram_fifos_depth = []
         current = []
         for i in range(len(buf_static_access_pattern)):
             access_idx = buf_static_access_pattern[i]
@@ -647,6 +692,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 current.append(access_idx)
             else:
                 # assume non-decreasing index order in access pattern
+                # ToDo: this assumption does not hold for M>1 case (2D buffer)
                 distance = access_idx - max(current)
                 if not (distance-1 > REG_BRAM_THRESHOLD):
                     for i in range(distance-1):
@@ -657,11 +703,14 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 else:
                     # assign skipped accesses to new BRAM FIFO
                     bram_fifos.append([-1]*(distance-1))
+                    bram_fifos_depth.append((distance-1)/M)
                     # start with new REG FIFO
                     reg_fifos.append(current)
+                    reg_fifos_depth.append(math.ceil((max(current)+1)/M))
                     current = []
                     current.append(access_idx)
         reg_fifos.append(current)
+        reg_fifos_depth.append(math.ceil((max(current)+1)/M))
 
         f_debug.write("\n"+"Buffer partitioning using REG_BRAM_THRESHOLD=%d" % REG_BRAM_THRESHOLD)
         f_debug.write("\n"+"%d REG FIFOs (parallel read access):" % len(reg_fifos))
@@ -674,7 +723,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             code_gen_dict["$GENERATE_REG_FIFOS$"].append(
                 """parameter reg_fifo_{id}_len = {len};
                 reg [IN_WIDTH-1:0] reg_fifo_{id} [reg_fifo_{id}_len-1:0];
-                """.format(id=i, len=len(reg_fifos[i])))
+                """.format(id=i, len=reg_fifos_depth[i]))
         
         #todo: generate actual bram shift buffers instead of regs
         code_gen_dict["$GENERATE_BRAM_FIFOS$"] = []
@@ -682,16 +731,23 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             code_gen_dict["$GENERATE_BRAM_FIFOS$"].append(
                 """parameter bram_fifo_{id}_len = {len};
                 reg [IN_WIDTH-1:0] bram_fifo_{id} [bram_fifo_{id}_len-1:0];
-                """.format(id=i, len=len(bram_fifos[i])))
+                """.format(id=i, len=bram_fifos_depth[i]))
 
         code_gen_dict["$GENERATE_OUTPUT_MAPPING$"] = []
         out_idx = mmv_out-1
         for fifo_id, reg_fifo in enumerate(reg_fifos):
             for fifo_idx, access_idx in enumerate(reg_fifo):
                 if(access_idx != -1):
+                    #code_gen_dict["$GENERATE_OUTPUT_MAPPING$"].append(
+                    #    "assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH] = reg_fifo_{fifo_id}[{fifo_idx}]; //{access_idx}".format(
+                    #        out_idx=out_idx, fifo_id=fifo_id, fifo_idx=fifo_idx, access_idx=access_idx
+                    #    )
+                    #)
                     code_gen_dict["$GENERATE_OUTPUT_MAPPING$"].append(
-                        "assign data_out[IN_WIDTH*{out_idx}+:IN_WIDTH] = reg_fifo_{fifo_id}[{fifo_idx}]; //{access_idx}".format(
-                            out_idx=out_idx, fifo_id=fifo_id, fifo_idx=fifo_idx, access_idx=access_idx
+                        "assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH] = reg_fifo_{fifo_id}[{access_idx}][OUT_ELEM_WIDTH*{mmv_idx}+:OUT_ELEM_WIDTH];".format(
+                            out_idx=out_idx, fifo_id=fifo_id, 
+                            access_idx=reg_fifos_depth[fifo_id]-1-int((max(reg_fifo)-access_idx)/M), 
+                            mmv_idx=(max(reg_fifo)-access_idx)%M
                         )
                     )
                     # reversal: out_idx=0 -> oldest buffer element -> highest access_idx
@@ -762,9 +818,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
             "assign write_state = WRITE_SCHEDULE[cycle_last];"
         )
-        #code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
-        #    "assign write_state_next = WRITE_SCHEDULE[cycle_next];"
-        #)
 
         with open("/workspace/finn/finn-rtllib/swg/swg_hdl_template.v", "r") as f:
             template = f.read()

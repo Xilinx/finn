@@ -90,7 +90,7 @@ def make_single_im2col_modelwrapper(
 
 
 def make_single_slidingwindow_modelwrapper(
-    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt, dw=0
+    k, ifm_ch, ifm_dim, ofm_dim, simd, m, stride, dilation, idt, dw=0
 ):
     k_h, k_w = k
     ifm_dim_h, ifm_dim_w = ifm_dim
@@ -117,6 +117,7 @@ def make_single_slidingwindow_modelwrapper(
         IFMDim=[ifm_dim_h, ifm_dim_w],
         OFMDim=[ofm_dim_h, ofm_dim_w],
         SIMD=simd,
+        M=m,
         Stride=[stride_h, stride_w],
         Dilation=[dilation_h, dilation_w],
         inputDataType=idt.name,
@@ -153,7 +154,7 @@ def prepare_inputs(input_tensor):
 # kernel size
 @pytest.mark.parametrize("k", [[3, 1]])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[8, 1]])
+@pytest.mark.parametrize("ifm_dim", [[10, 1]])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [2])
 # Stride
@@ -164,6 +165,8 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("exec_mode", ["rtlsim"])
 # input channel parallelism ("SIMD")
 @pytest.mark.parametrize("simd", [2])
+# in/out MMV ("M")
+@pytest.mark.parametrize("m", [1, 2, 4])
 # depthwise
 @pytest.mark.parametrize("dw", [0])
 # Flip dimensions
@@ -171,7 +174,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_slidingwindow_rtl(
-    idt, k, ifm_dim, ifm_ch, stride, dilation, exec_mode, simd, dw, flip
+    idt, k, ifm_dim, ifm_ch, stride, dilation, exec_mode, simd, m, dw, flip
 ):
     if flip:
         k = k[::-1]
@@ -203,6 +206,7 @@ def test_fpgadataflow_slidingwindow_rtl(
         ifm_dim=ifm_dim,
         ofm_dim=ofm_dim,
         simd=simd,
+        m=m,
         stride=stride,
         dilation=dilation,
         idt=idt,
