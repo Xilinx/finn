@@ -3,7 +3,7 @@ import os
 import sys
 from tqdm import tqdm, trange
 import numpy as np
-from skimage import io, transform
+from skimage import io
 from kmeans_pytorch import kmeans
 
 # Brevitas ad PyTorch libraries
@@ -18,16 +18,16 @@ from brevitas.core.restrict_val import RestrictValueType
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 O_SIZE = 5
-ANCHORS = 6
 GRID_SIZE = (9, 16)
 
 
 class QTinyYOLOv2(Module):
 
-    def __init__(self, weight_bit_width=8, act_bit_width=8, quant_tensor=True):
+    def __init__(self, n_anchors, weight_bit_width=8, act_bit_width=8, quant_tensor=True):
         super(QTinyYOLOv2, self).__init__()
         self.weight_bit_width = int(np.clip(weight_bit_width, 1, 8))
         self.act_bit_width = int(np.clip(act_bit_width, 1, 8))
+        self.n_anchors = n_anchors
 
         self.input = QuantIdentity(
             act_quant=Int8ActPerTensorFloatMinMaxInit,
@@ -98,7 +98,7 @@ class QTinyYOLOv2(Module):
             QuantReLU(bit_width=self.act_bit_width,
                       return_quant_tensor=quant_tensor)
         )
-        self.conv9 = QuantConv2d(512, ANCHORS*O_SIZE, 1, 1, 0, bias=False, weight_bit_width=8, return_quant_tensor=quant_tensor
+        self.conv9 = QuantConv2d(512, self.n_anchors*O_SIZE, 1, 1, 0, bias=False, weight_bit_width=8, return_quant_tensor=quant_tensor
                                  )
         self.sig = QuantSigmoid(bit_width=8, return_quant_tensor=quant_tensor
                                 )
@@ -114,8 +114,7 @@ class QTinyYOLOv2(Module):
         x = self.conv7(x)
         x = self.conv8(x)
         x = self.conv9(x)
-        x = x.view(-1, np.prod(GRID_SIZE), ANCHORS, O_SIZE)
-        # x = self.sig(x.view(-1, np.prod(GRID_SIZE), ANCHORS, O_SIZE))
+        x = x.view(-1, np.prod(GRID_SIZE), self.n_anchors, O_SIZE)
 
         return x
 
@@ -130,8 +129,7 @@ class YOLO_dataset(Dataset):
         self.grid_size = grid_size
 
     def __len__(self):
-        # return len(os.listdir(self.img_dir))
-        return 100
+        return len(os.listdir(self.img_dir))
 
     def __getitem__(self, idx):
         if torch.is_tensor(idx):
@@ -175,27 +173,28 @@ def getAnchors(dataset, n_anchors, device):
     anchors = np.empty((n_anchors, 2))
     # collect labels data
     for i in range(len(dataset)):
-        data = (dataset[i][1][2:]).view((1, 2))
+        data = (dataset[i][1][2:]).unsqueeze(0)
         if torch.is_tensor(datapoints):
             datapoints = torch.vstack([datapoints, data])
         else:
             datapoints = data
     # k-means clustering
     kmean_idx, anchors = kmeans(
-        X=datapoints, num_clusters=n_anchors, distance='euclidean', iter_limit=16, device=device)
+        X=datapoints, num_clusters=n_anchors, distance='euclidean', device=device)
 
     return anchors
 
 
 def YOLOout(output, anchors):
-    gx = (torch.arange(GRID_SIZE[1]).repeat_interleave(
-        GRID_SIZE[0])) / GRID_SIZE[1]
-    gy = (torch.arange(GRID_SIZE[0]).repeat(GRID_SIZE[1])) / GRID_SIZE[0]
-    output[:, :, :, 0] = torch.sigmoid(output[:, :, :, 0]) + gx
-    output[:, :, :, 1] = torch.sigmoid(output[:, :, :, 1]) + gy
-    output[:, :, :, 2] = torch.exp(output[:, :, :, 2]) * anchors[:, 0]
-    output[:, :, :, 3] = torch.exp(output[:, :, :, 3]) * anchors[:, 1]
-    output[:, :, :, 4] = torch.sigmoid(output[:, :, :, 4])
+    gx = ((torch.arange(GRID_SIZE[1]).repeat_interleave(
+        GRID_SIZE[0]*anchors.size(0))) / GRID_SIZE[1]).view(np.prod(GRID_SIZE), anchors.size(0))
+    gy = ((torch.arange(GRID_SIZE[0]).repeat(GRID_SIZE[1])).repeat_interleave(
+        anchors.size(0)) / GRID_SIZE[0]).view(np.prod(GRID_SIZE), anchors.size(0))
+    output[..., 0] = (torch.sigmoid(output[..., 0]) / GRID_SIZE[0]) + gx
+    output[..., 1] = (torch.sigmoid(output[..., 1]) / GRID_SIZE[1]) + gy
+    output[..., 2] = torch.exp(output[..., 2]) * anchors[:, 0]
+    output[..., 3] = torch.exp(output[..., 3]) * anchors[:, 1]
+    output[..., 4] = torch.sigmoid(output[..., 4])
     return output
 
 
@@ -215,36 +214,47 @@ class YOLOLoss(Module):
         idx_y = (label[:, 1] * GRID_SIZE[0]).floor()
         idx = (idx_x * GRID_SIZE[1] + idx_y).type(torch.int64)
         # convert predictions to label style
-        pred = YOLOout(pred, anchors)
+        pred = YOLOout(pred, self.anchors)
+        # find closest anchor
+        anchor_mask = (((label[:, 2:4].unsqueeze(1).repeat(
+            (1, self.anchors.size(0), 1))-self.anchors.unsqueeze(0).repeat((label.size(0), 1, 1))) ** 2.0).sum(2)).argmax(1)
+        # create anchors grid
+        anchors_grid = torch.ones_like(pred[..., :4])
+        anchors_grid[..., 0] = ((torch.arange(GRID_SIZE[1]).repeat_interleave(
+            GRID_SIZE[0]*self.anchors.size(0)) + 0.5) / GRID_SIZE[1]).view(np.prod(GRID_SIZE), self.anchors.size(0))
+        anchors_grid[..., 1] = (((torch.arange(GRID_SIZE[0]).repeat(GRID_SIZE[1])).repeat_interleave(
+            self.anchors.size(0)) + 0.5) / GRID_SIZE[0]).view(np.prod(GRID_SIZE), self.anchors.size(0))
+        anchors_grid[..., 2:4] = self.anchors
         # mask of obj and noobj
         obj_mask = (torch.zeros_like(pred)).type(torch.bool)
-        obj_mask[np.arange(label.shape[0]), idx, :] = True
+        obj_mask[np.arange(pred.shape[0]), idx, anchor_mask, :] = True
         noobj_mask = ~obj_mask
+        # prepare loss calculation parts
         pred_obj = pred[obj_mask].view(pred.shape[0], 5)
         pred_noobj = pred[noobj_mask].view(pred.shape[0], -1, 5)
+        anchors_grid = anchors_grid[noobj_mask[..., :4]].view(
+            pred.shape[0], -1, 4)
         pred_obj.to(device)
         pred_noobj.to(device)
+        anchors_grid.to(device)
 
         # coordination loss
-        # TODO calculate real average
-        average_vec = torch.tensor([0.5, 0.5, 0.01, 0.01])
         coor_l_obj = self.mse(pred_obj[:, :4], label)
-        coor_l_noobj = self.mse(
-            pred_noobj[:, :, :4], average_vec*torch.ones_like(pred_noobj[:, :, :4], device=device))
+        coor_l_noobj = self.mse(pred_noobj[..., :4], anchors_grid)
 
         # confidence loss
         conf_l_obj = self.mse(pred_obj[:, 4], IoU_calc(
             pred_obj.unsqueeze(1), label))
-        conf_l_noobj = self.mse(pred_noobj[:, :, 4], torch.zeros_like(
-            pred_noobj[:, :, 4], device=device))
-
+        conf_l_noobj = self.mse(pred_noobj[..., 4], torch.zeros_like(
+            pred_noobj[..., 4], device=device))
         return coor_l_obj*self.l_coor_obj + coor_l_noobj*self.l_coor_noobj + conf_l_obj*self.l_conf_obj + conf_l_noobj*self.l_conf_noobj
 
 
 def IoU_calc(pred_, label):
     # localizing most probable bounding box
-    _, bb_idx = pred_[:, :, 4].max(1)
-    pred = pred_[np.arange(pred_.shape[0]), bb_idx, :4]
+    bb_idx = torch.argmax(pred_[..., 4].view(pred_.size(0), -1), 1)
+    pred = (pred_.view(pred_.size(0), -1, 5)
+            )[torch.arange(pred_.size(0)), bb_idx]
     # xmin, ymin, xmax, ymax
     label_bb = torch.stack([torch.max(label[:, 0]-(label[:, 2]/2), torch.tensor(0.0)),
                             torch.max(label[:, 1]-(label[:, 3]/2),
@@ -279,8 +289,9 @@ if __name__ == "__main__":
     lbl_dir = sys.argv[2]
     weight_bit_width = int(sys.argv[3])
     act_bit_width = int(sys.argv[4])
-    n_epochs = int(sys.argv[5])
-    batch_size = int(sys.argv[6])
+    n_anchors = int(sys.argv[5])
+    n_epochs = int(sys.argv[6])
+    batch_size = int(sys.argv[7])
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Trainig on: {device}")
@@ -302,10 +313,10 @@ if __name__ == "__main__":
                              shuffle=True, num_workers=4)
 
     # get anchors
-    anchors = getAnchors(train_set, 5)
+    anchors = getAnchors(train_set, n_anchors, device)
 
     # network setup
-    net = QTinyYOLOv2(weight_bit_width, act_bit_width)
+    net = QTinyYOLOv2(n_anchors, weight_bit_width, act_bit_width)
     net.to(device)
     loss_func = YOLOLoss(anchors, device)
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
@@ -348,7 +359,8 @@ if __name__ == "__main__":
             for data in tqdm(train_loader, total=int(np.ceil(train_len/batch_size)), desc="train accuracy", unit="batch"):
                 images, labels = data[0].to(device), data[1].to(device)
                 outputs = net(images)
-                iou = IoU_calc(outputs.value.cpu(), labels.cpu())
+                iou = IoU_calc(
+                    YOLOout(outputs.value.cpu(), anchors), labels.cpu())
                 train_total += labels.size(0)
                 train_miou += iou.sum()
                 train_AP50 += (iou >= .5).sum()
@@ -366,7 +378,8 @@ if __name__ == "__main__":
             for data in tqdm(test_loader, total=int(np.ceil(test_len/batch_size)), desc="test accuracy", unit="batch"):
                 images, labels = data[0].to(device), data[1].to(device)
                 outputs = net(images)
-                iou = IoU_calc(outputs.value.cpu(), labels.cpu())
+                iou = IoU_calc(
+                    YOLOout(outputs.value.cpu(), anchors), labels.cpu())
                 test_total += labels.size(0)
                 test_miou += iou.sum()
                 test_AP50 += (iou >= .5).sum()
@@ -377,5 +390,5 @@ if __name__ == "__main__":
             logger.add_scalar('meanAP75/test', test_AP75/test_total, epoch)
 
     # save network
-    path = f"./trained_net_W{weight_bit_width}A{act_bit_width}_e{n_epochs}.pth"
+    path = f"./trained_net_W{weight_bit_width}A{act_bit_width}_a{n_anchors}_e{n_epochs}_b{batch_size}.pth"
     torch.save(net.state_dict(), path)
