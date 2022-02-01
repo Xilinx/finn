@@ -103,7 +103,7 @@ class FoldQuantWeights(Transformation):
                         model.set_initializer(node_out, q_node_output)
                     else:
                         # Check next operator type
-                        mul_like_nodes = ["Mul", "Div", "Conv", "MatMul"]
+                        mul_like_nodes = ["Mul", "Div", "Conv", "MatMul", "Gather"]
                         add_like_nodes = ["Add", "Sub"]
                         all_supported_ops = mul_like_nodes.copy()
                         all_supported_ops.extend(add_like_nodes)
