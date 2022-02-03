@@ -1,8 +1,6 @@
 import os
-from re import sub
 import shutil
 import xmltodict
-import numpy as np
 from tqdm import tqdm
 
 data_dir = "/home/atchelet/Downloads/data_training/"
