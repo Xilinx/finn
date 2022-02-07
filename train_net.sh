@@ -9,10 +9,10 @@ export IMG_DIR=/srv/cdl-eml/User/atchelet/Dataset/images
 export LBL_DIR=/srv/cdl-eml/User/atchelet/Dataset/labels
 
 # script
-cd /home/atchelet/git/finn_at/finn_at/finn_at/
-echo "at $PWD ready to start"
+cd /home/atchelet/git/finn_at/finn_at/finn_at
+echo "Start training"
 # train_net.py IMAGES_DIR LABELS_DIR WEIGHT_BIT ACTIVATION_BIT NUM_ANCHORS NUM_EPOCHS BATCH_SIZE
-time python3 train_net.py $IMG_DIR $LBL_DIR 8 8 6 100 32
+time python3 ./train_net.py $IMG_DIR $LBL_DIR 8 8 5 100 32
 echo "finished!"
 
 end_date=$(date)

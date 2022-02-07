@@ -18,7 +18,7 @@ from brevitas.core.restrict_val import RestrictValueType
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------ #
 O_SIZE = 5
-GRID_SIZE = (9, 16)
+GRID_SIZE = torch.tensor([9, 16])
 
 
 class QTinyYOLOv2(Module):
@@ -114,7 +114,7 @@ class QTinyYOLOv2(Module):
         x = self.conv7(x)
         x = self.conv8(x)
         x = self.conv9(x)
-        x = x.view(-1, np.prod(GRID_SIZE), self.n_anchors, O_SIZE)
+        x = x.view(-1, GRID_SIZE.prod(), self.n_anchors, O_SIZE)
 
         return x
 
@@ -170,10 +170,9 @@ class Normalize(object):
 
 def getAnchors(dataset, n_anchors, device):
     datapoints = False
-    anchors = np.empty((n_anchors, 2))
     # collect labels data
-    for i in range(len(dataset)):
-        data = (dataset[i][1][2:]).unsqueeze(0)
+    for (_, label) in tqdm(dataset, total=len(dataset), desc="kmeans - data read", unit="batch"):
+        data = label[:, 2:]
         if torch.is_tensor(datapoints):
             datapoints = torch.vstack([datapoints, data])
         else:
@@ -181,15 +180,16 @@ def getAnchors(dataset, n_anchors, device):
     # k-means clustering
     kmean_idx, anchors = kmeans(
         X=datapoints, num_clusters=n_anchors, distance='euclidean', device=device)
-
+    print(f"Anchors for k={n_anchors}:")
+    [print(anchor) for anchor in anchors]
     return anchors
 
 
-def YOLOout(output, anchors):
-    gx = ((torch.arange(GRID_SIZE[1]).repeat_interleave(
-        GRID_SIZE[0]*anchors.size(0))) / GRID_SIZE[1]).view(np.prod(GRID_SIZE), anchors.size(0))
-    gy = ((torch.arange(GRID_SIZE[0]).repeat(GRID_SIZE[1])).repeat_interleave(
-        anchors.size(0)) / GRID_SIZE[0]).view(np.prod(GRID_SIZE), anchors.size(0))
+def YOLOout(output, anchors, device):
+    gx = (((torch.arange(GRID_SIZE[1]).repeat_interleave(
+        GRID_SIZE[0]*anchors.size(0))) / GRID_SIZE[1]).view(GRID_SIZE.prod(), anchors.size(0))).to(device)
+    gy = (((torch.arange(GRID_SIZE[0]).repeat(GRID_SIZE[1])).repeat_interleave(
+        anchors.size(0)) / GRID_SIZE[0]).view(GRID_SIZE.prod(), anchors.size(0))).to(device)
     output[..., 0] = (torch.sigmoid(output[..., 0]) / GRID_SIZE[0]) + gx
     output[..., 1] = (torch.sigmoid(output[..., 1]) / GRID_SIZE[1]) + gy
     output[..., 2] = torch.exp(output[..., 2]) * anchors[:, 0]
@@ -201,7 +201,8 @@ def YOLOout(output, anchors):
 class YOLOLoss(Module):
     def __init__(self, anchors, device, l_coor_obj=1.0, l_coor_noobj=1.0, l_conf_obj=1.0, l_conf_noobj=1.0):
         super().__init__()
-        self.anchors = anchors
+        self.anchors = anchors.to(device)
+        self.device = device
         self.l_coor_obj = l_coor_obj
         self.l_coor_noobj = l_coor_noobj
         self.l_conf_obj = l_conf_obj
@@ -212,31 +213,32 @@ class YOLOLoss(Module):
         # locate bounding box location and
         idx_x = (label[:, 0] * GRID_SIZE[1]).floor()
         idx_y = (label[:, 1] * GRID_SIZE[0]).floor()
-        idx = (idx_x * GRID_SIZE[1] + idx_y).type(torch.int64)
+        idx = (idx_x * GRID_SIZE[0] + idx_y).type(torch.int64)
         # convert predictions to label style
-        pred = YOLOout(pred, self.anchors)
+        pred = YOLOout(pred, self.anchors, self.device)
         # find closest anchor
         anchor_mask = (((label[:, 2:4].unsqueeze(1).repeat(
             (1, self.anchors.size(0), 1))-self.anchors.unsqueeze(0).repeat((label.size(0), 1, 1))) ** 2.0).sum(2)).argmax(1)
         # create anchors grid
         anchors_grid = torch.ones_like(pred[..., :4])
         anchors_grid[..., 0] = ((torch.arange(GRID_SIZE[1]).repeat_interleave(
-            GRID_SIZE[0]*self.anchors.size(0)) + 0.5) / GRID_SIZE[1]).view(np.prod(GRID_SIZE), self.anchors.size(0))
+            GRID_SIZE[0]*self.anchors.size(0)) + 0.5) / GRID_SIZE[1]).view(GRID_SIZE.prod(), self.anchors.size(0))
         anchors_grid[..., 1] = (((torch.arange(GRID_SIZE[0]).repeat(GRID_SIZE[1])).repeat_interleave(
-            self.anchors.size(0)) + 0.5) / GRID_SIZE[0]).view(np.prod(GRID_SIZE), self.anchors.size(0))
+            self.anchors.size(0)) + 0.5) / GRID_SIZE[0]).view(GRID_SIZE.prod(), self.anchors.size(0))
         anchors_grid[..., 2:4] = self.anchors
         # mask of obj and noobj
         obj_mask = (torch.zeros_like(pred)).type(torch.bool)
-        obj_mask[np.arange(pred.shape[0]), idx, anchor_mask, :] = True
+        for i in range(obj_mask.size(0)):
+            obj_mask[i, idx[i], anchor_mask[i], :] = True
         noobj_mask = ~obj_mask
         # prepare loss calculation parts
         pred_obj = pred[obj_mask].view(pred.shape[0], 5)
         pred_noobj = pred[noobj_mask].view(pred.shape[0], -1, 5)
         anchors_grid = anchors_grid[noobj_mask[..., :4]].view(
             pred.shape[0], -1, 4)
-        pred_obj.to(device)
-        pred_noobj.to(device)
-        anchors_grid.to(device)
+        pred_obj = pred_obj.to(device)
+        pred_noobj = pred_noobj.to(device)
+        anchors_grid = anchors_grid.to(device)
 
         # coordination loss
         coor_l_obj = self.mse(pred_obj[:, :4], label)
@@ -292,6 +294,7 @@ if __name__ == "__main__":
     n_anchors = int(sys.argv[5])
     n_epochs = int(sys.argv[6])
     batch_size = int(sys.argv[7])
+    print(f"Trainig W{weight_bit_width}A{act_bit_width} with {n_anchors} anchors for {n_epochs} epochs with batch size {batch_size}")
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Trainig on: {device}")
@@ -313,20 +316,22 @@ if __name__ == "__main__":
                              shuffle=True, num_workers=4)
 
     # get anchors
-    anchors = getAnchors(train_set, n_anchors, device)
+    print("Calculating Anchors")
+    anchors = (getAnchors(train_loader, n_anchors, device)).to(device)
 
     # network setup
     net = QTinyYOLOv2(n_anchors, weight_bit_width, act_bit_width)
-    net.to(device)
+    net = net.to(device)
     loss_func = YOLOLoss(anchors, device)
     optimizer = torch.optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
 
     # train network
+    print("Training Start")
     for epoch in trange(n_epochs, desc="epoch", unit="epoch"):
         # train + train loss
         train_loss = 0.0
         test_loss = 0.0
-        for i, data in tqdm(enumerate(train_loader, 0), total=int(np.ceil(train_len/batch_size)), desc="train loss", unit="batch"):
+        for i, data in tqdm(enumerate(train_loader, 0), total=len(train_loader), desc="train loss", unit="batch"):
             # get the inputs; data is a list of [inputs, labels]
             inputs, labels = data[0].to(device), data[1].to(device)
             # zero the parameter gradients
@@ -339,7 +344,7 @@ if __name__ == "__main__":
             train_loss += loss.item()
         # test loss
         with torch.no_grad():
-            for i, data in tqdm(enumerate(test_loader, 0), total=int(np.ceil(test_len/batch_size)), desc="test loss", unit="batch"):
+            for i, data in tqdm(enumerate(test_loader, 0), total=len(test_loader), desc="test loss", unit="batch"):
                 test_images, test_labels = data[0].to(
                     device), data[1].to(device)
                 test_outputs = net(test_images)
@@ -356,11 +361,11 @@ if __name__ == "__main__":
             train_AP50 = 0.0
             train_AP75 = 0.0
             train_total = 0
-            for data in tqdm(train_loader, total=int(np.ceil(train_len/batch_size)), desc="train accuracy", unit="batch"):
+            for data in tqdm(train_loader, total=len(train_loader), desc="train accuracy", unit="batch"):
                 images, labels = data[0].to(device), data[1].to(device)
                 outputs = net(images)
                 iou = IoU_calc(
-                    YOLOout(outputs.value.cpu(), anchors), labels.cpu())
+                    YOLOout(outputs.value, anchors, device), labels)
                 train_total += labels.size(0)
                 train_miou += iou.sum()
                 train_AP50 += (iou >= .5).sum()
@@ -375,11 +380,11 @@ if __name__ == "__main__":
             test_AP50 = 0.0
             test_AP75 = 0.0
             test_total = 0
-            for data in tqdm(test_loader, total=int(np.ceil(test_len/batch_size)), desc="test accuracy", unit="batch"):
+            for data in tqdm(test_loader, total=len(test_loader), desc="test accuracy", unit="batch"):
                 images, labels = data[0].to(device), data[1].to(device)
                 outputs = net(images)
                 iou = IoU_calc(
-                    YOLOout(outputs.value.cpu(), anchors), labels.cpu())
+                    YOLOout(outputs.value, anchors, device), labels)
                 test_total += labels.size(0)
                 test_miou += iou.sum()
                 test_AP50 += (iou >= .5).sum()
