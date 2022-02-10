@@ -124,7 +124,7 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
         model = model.transform(SetExecMode("cppsim"))
     elif exec_mode == "rtlsim":
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xc7z020clg400-1", 10))
+        model = model.transform(PrepareIP("xczu3eg-sbva484-1-e", 10))
         model = model.transform(HLSSynthIP())
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(PrepareRTLSim())

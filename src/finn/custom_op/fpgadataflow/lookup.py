@@ -186,7 +186,7 @@ class Lookup(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", %s);'
             % (
                 packed_hls_type,
                 elem_hls_type,
@@ -194,6 +194,7 @@ class Lookup(HLSCustomOp):
                 npy_type,
                 oshape_cpp_str,
                 npy_out,
+                "false",
             )
         ]
 
@@ -245,8 +246,11 @@ class Lookup(HLSCustomOp):
         assert np.vectorize(edt.allowed)(
             embeddings
         ).all(), "Embeddings can't be expressed with type %s" % str(edt)
+        # reverse innertmost dim in embeddings to remain compatible with
+        # how we normally encode the data in FINN
+        embeddings_rev = np.flip(embeddings, -1)
         embeddings_hls_code = numpy_to_hls_code(
-            embeddings, edt, "embeddings", True, False
+            embeddings_rev, edt, "embeddings", True, False
         )
         f_thresh = open(weight_filename, "w")
         f_thresh.write(embeddings_hls_code)
@@ -310,7 +314,7 @@ class Lookup(HLSCustomOp):
                 out_shape,
                 packed_bits,
                 target_bits,
-                reverse_inner=False,
+                reverse_inner=True,
             )
             # load and reshape output
             output = np.load(out_npy_path)
