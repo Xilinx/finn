@@ -123,26 +123,19 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-#@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["INT4"]])
-@pytest.mark.parametrize("idt", [DataType["UINT4"]])
+@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["INT4"]])
 # 1d maxpool
-#@pytest.mark.parametrize("dim_1d", [False, True])
-@pytest.mark.parametrize("dim_1d", [True])
+@pytest.mark.parametrize("dim_1d", [False, True])
 # kernel size
-##@pytest.mark.parametrize("k", [2, 4])
-@pytest.mark.parametrize("k", [6])
+@pytest.mark.parametrize("k", [2, 4])
 # input dimension
-#@pytest.mark.parametrize("ifm_dim", [4, 8])
-@pytest.mark.parametrize("ifm_dim", [60])
+@pytest.mark.parametrize("ifm_dim", [4, 8])
 # input channels
-#@pytest.mark.parametrize("ifm_ch", [1, 3])  # 1,3
-@pytest.mark.parametrize("ifm_ch", [1024])  # 1,3
+@pytest.mark.parametrize("ifm_ch", [1, 3])  # 1,3
 # pe
-#@pytest.mark.parametrize("pe", [1, 3])
-@pytest.mark.parametrize("pe", [1])
+@pytest.mark.parametrize("pe", [1, 3])
 # execution mode
-#@pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
-@pytest.mark.parametrize("exec_mode", ["rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_streamingmaxpool(idt, dim_1d, k, ifm_dim, ifm_ch, pe, exec_mode):
@@ -176,7 +169,9 @@ def test_fpgadataflow_streamingmaxpool(idt, dim_1d, k, ifm_dim, ifm_ch, pe, exec
     golden = make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt)
     y_expected = oxe.execute_onnx(golden, input_dict)["outp"]
 
-    model = make_single_streamingmaxpool_modelwrapper(k, ifm_ch, pe, ifm_dim, ofm_dim, idt)
+    model = make_single_streamingmaxpool_modelwrapper(
+        k, ifm_ch, pe, ifm_dim, ofm_dim, idt
+    )
 
     if exec_mode == "cppsim":
         model = model.transform(SetExecMode("cppsim"))
@@ -185,7 +180,6 @@ def test_fpgadataflow_streamingmaxpool(idt, dim_1d, k, ifm_dim, ifm_ch, pe, exec
     elif exec_mode == "rtlsim":
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(GiveUniqueNodeNames())
-        #model = model.transform(PrepareIP("xc7z020clg400-1", 5))
         model = model.transform(PrepareIP("xczu3eg-sbva484-1-e", 5))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
