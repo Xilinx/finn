@@ -358,8 +358,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         if noact == 0:
             odt = self.get_output_datatype()
             B = odt.bitwidth()
-            thr_luts = (2 ** B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
-            comp_luts = (2 ** B - 1) * acc_bits
+            thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
+            comp_luts = (2**B - 1) * acc_bits
 
         return int(
             c0
