@@ -99,16 +99,21 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
         k_h, k_w = tuple(self.get_nodeattr("PoolDim"))
         ifm_ch = self.get_nodeattr("NumChannels")
-        #assert ifm_dim_h % k_h == 0, "StreamingMaxPool needs ImgDim_h % PoolDim_h == 0"
-        #assert ifm_dim_w % k_w == 0, "StreamingMaxPool needs ImgDim_w % PoolDim_w == 0"
-        if (ifm_dim_h % k_h == 0):
+        if not self.is_1d():
+            assert (
+                ifm_dim_h % k_h == 0
+            ), "StreamingMaxPool needs ImgDim_h % PoolDim_h == 0"
+            assert (
+                ifm_dim_w % k_w == 0
+            ), "StreamingMaxPool needs ImgDim_w % PoolDim_w == 0"
+        if ifm_dim_h % k_h == 0:
             ofm_dim_h = int(ifm_dim_h / k_h)
         else:
-            ofm_dim_h = int(np.floor(ifm_dim_h / k_h) + 1)
-        if (ifm_dim_w % k_w == 0):
+            ofm_dim_h = int(np.ceil(ifm_dim_h / k_h))
+        if ifm_dim_w % k_w == 0:
             ofm_dim_w = int(ifm_dim_w / k_w)
         else:
-            ofm_dim_w = int(np.floor(ifm_dim_w / k_w) + 1)
+            ofm_dim_w = int(np.ceil(ifm_dim_w / k_w))
         oshape = (1, ofm_dim_h, ofm_dim_w, ifm_ch)
         return oshape
 
@@ -139,7 +144,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         if self.is_1d():
             exp_cycles = ofm_dim_w * nf * (k[1] + 1)
             return int(exp_cycles)
-            #return int(ifm_dim[1] + k[1])
         else:
             # TODO: adjust inaccurate formula
             return int(ifm_dim[1] * (ifm_dim[1] + (ifm_dim[1] / k[1])))
@@ -258,26 +262,26 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             if self.is_1d():
                 raise Exception("Binary 1d MaxPool not implemented on HLS backend")
             else:
-                op = "StreamingMaxPool"
+                op = "StreamingMaxPool_Batch"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels>(in0, out);" % (op)
+                "%s<ImgDim, PoolDim, NumChannels>(in0, out, numReps);" % (op)
             ]
         else:
             dtype = self.get_input_datatype()
             dtype_hls = dtype.get_hls_datatype_str()
             minval_str = str(int(dtype.min()))
             if self.is_1d():
-                op = "StreamingMaxPool_Precision_1d"
+                op = "StreamingMaxPool_Precision_Batch_1d"
                 self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels, PE, %s, %s>(in0, out);"
-                % (op, dtype_hls, minval_str)
-            ]
+                    "%s<ImgDim, PoolDim, NumChannels, PE, %s, %s>(in0, out, numReps);"
+                    % (op, dtype_hls, minval_str)
+                ]
             else:
-                op = "StreamingMaxPool_Precision"
+                op = "StreamingMaxPool_Precision_Batch"
                 self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out);"
-                % (op, dtype_hls, minval_str)
-            ]
+                    "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out, numReps);"
+                    % (op, dtype_hls, minval_str)
+                ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -333,6 +337,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
+        folded_ishape = self.get_folded_input_shape()
         folded_oshape = self.get_folded_output_shape()
 
         # TODO ensure codegen dir exists
@@ -360,7 +365,8 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             export_idt = DataType["BINARY"]
         else:
             export_idt = self.get_input_datatype()
-        # no reshaping for input since assuming no folding on input
+        # reshape input into folded form
+        inp = inp.reshape(folded_ishape)
         # make copy before saving array
         reshaped_input = inp.copy()
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
@@ -373,7 +379,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             assert (
                 context[node.output[0]].shape == folded_oshape
             ), "cppsim \
-            did not produce expected ofolded utput shape"
+            did not produce expected folded output shape"
             context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
@@ -411,4 +417,4 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         assert (
             context[node.output[0]].shape == exp_oshape
         ), """Output
-        shape doesn't match expected shape (1, ofm_dim, ofm_dim, k*k*ifm_ch)."""
+        shape doesn't match expected shape (1, ofm_dim, ofm_dim, ifm_ch)."""
