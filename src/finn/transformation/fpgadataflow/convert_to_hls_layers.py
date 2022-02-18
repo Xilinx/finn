@@ -362,7 +362,10 @@ class InferStreamingMaxPool(Transformation):
                 ifm_ch = mp_in_shape[-1]
                 ifm_dim_h = mp_in_shape[1]
                 ifm_dim_w = mp_in_shape[2]
-                if ifm_dim_h % k_h == 0 and ifm_dim_w % k_w == 0:
+                pe = 1
+                is_1d = (ifm_dim_h == 1 and k_h == 1) or (ifm_dim_w == 1 and k_w == 1)
+                is_divisable = ifm_dim_h % k_h == 0 or ifm_dim_w % k_w == 0
+                if is_1d or is_divisable:
                     # create equivalent StreamingMaxPool_Batch node
                     new_node = helper.make_node(
                         "StreamingMaxPool_Batch",
@@ -374,6 +377,7 @@ class InferStreamingMaxPool(Transformation):
                         NumChannels=ifm_ch,
                         ImgDim=(ifm_dim_h, ifm_dim_w),
                         dataType=dt.name,
+                        PE=pe,
                         name="StreamingMaxPool_Batch_" + n.name,
                     )
                     graph.node.insert(node_ind, new_node)
