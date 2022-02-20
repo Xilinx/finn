@@ -670,7 +670,13 @@ class MakeMaxPoolNHWC(Transformation):
                 if consumer is not None and consumer.op_type == "Transpose":
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
-                        ceil_mode = get_by_name(n.attribute, "ceil_mode").i
+                        ceil_mode = get_by_name(n.attribute, "ceil_mode")
+                        if ceil_mode is not None:
+                            ceil_mode = ceil_mode.i
+                        else:
+                            ceil_mode = (
+                                0  # default to ceil_mode=0 (equivalent to np.floor)
+                            )
                         n.op_type = "MaxPoolNHWC"
                         n.domain = "finn.custom_op.general"
                         start_name = n.input[0]
@@ -691,7 +697,13 @@ class MakeMaxPoolNHWC(Transformation):
                 elif producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
-                        ceil_mode = get_by_name(n.attribute, "ceil_mode").i
+                        ceil_mode = get_by_name(n.attribute, "ceil_mode")
+                        if ceil_mode is not None:
+                            ceil_mode = ceil_mode.i
+                        else:
+                            ceil_mode = (
+                                0  # default to ceil_mode=0 (equivalent to np.floor)
+                            )
                         n.op_type = "MaxPoolNHWC"
                         n.domain = "finn.custom_op.general"
                         start_name = producer.input[0]
