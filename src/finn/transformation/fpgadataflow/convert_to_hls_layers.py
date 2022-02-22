@@ -363,6 +363,7 @@ class InferStreamingMaxPool(Transformation):
                 ifm_dim_h = mp_in_shape[1]
                 ifm_dim_w = mp_in_shape[2]
                 pe = 1
+                ceil_mode = mp_inst.get_nodeattr("ceil_mode")
                 is_1d = (ifm_dim_h == 1 and k_h == 1) or (ifm_dim_w == 1 and k_w == 1)
                 is_divisable = ifm_dim_h % k_h == 0 or ifm_dim_w % k_w == 0
                 if is_1d or is_divisable:
@@ -378,6 +379,7 @@ class InferStreamingMaxPool(Transformation):
                         ImgDim=(ifm_dim_h, ifm_dim_w),
                         dataType=dt.name,
                         PE=pe,
+                        CeilMode=ceil_mode,
                         name="StreamingMaxPool_Batch_" + n.name,
                     )
                     graph.node.insert(node_ind, new_node)
