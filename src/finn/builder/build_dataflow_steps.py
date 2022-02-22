@@ -397,7 +397,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         model = model.transform(AnnotateCycles())
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
-        n_clock_cycles_per_sec = (10 ** 9) / cfg.synth_clk_period_ns
+        n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
         est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
         estimate_network_performance["estimated_throughput_fps"] = est_fps
         est_latency_ns = (
@@ -599,7 +599,7 @@ def step_out_of_context_synthesis(model: ModelWrapper, cfg: DataflowBuildConfig)
 
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
-        n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
+        n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10**6)
         est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
         ooc_res_dict["estimated_throughput_fps"] = est_fps
         with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
