@@ -169,9 +169,11 @@ def test_fpgadataflow_streamingmaxpool(
     if idt == DataType["BIPOLAR"] and dim_1d:
         pytest.skip("Skipping binary StreamingMaxPool_1d (not implemented)")
     if (ifm_dim_h % k_h != 0 or ifm_dim_w % k_w != 0) and (not dim_1d):
-        pytest.skip("Skipping StreamingMaxPool test w/ ImgDim % PoolDim != 0")
+        pytest.skip("StreamingMaxPool_2d test w/ ImgDim % PoolDim != 0 not implemented")
     if pe > ifm_ch:
-        pytest.skip("SIMD cannot be larger than number of input channels")
+        pytest.skip("PE cannot be larger than number of input channels")
+    if pe > 1 and (not dim_1d):
+        pytest.skip("PE>1 only supported for StreamingMaxPool_1d")
 
     x = gen_finn_dt_tensor(idt, (1, ifm_dim_h, ifm_dim_w, ifm_ch))
     # prepare input data
@@ -184,6 +186,8 @@ def test_fpgadataflow_streamingmaxpool(
 
     model = golden.transform(InferStreamingMaxPool())
     model = model.transform(InferShapes())
+
+    assert model.graph.node[0].op_type == "StreamingMaxPool_Batch"
 
     if exec_mode == "cppsim":
         model = model.transform(SetExecMode("cppsim"))
