@@ -202,17 +202,21 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
         ceil_mode = self.get_nodeattr("CeilMode")
         output_size = compute_pool_output_dim(ifm_dim[1], k[1], k[1], 0, ceil_mode)
+        remainder_size = ifm_dim[1] - k[1] * output_size
+        if remainder_size < 0:
+            remainder_size = 0
 
         if self.is_1d():
             self.code_gen_dict["$DEFINES$"] = [
                 """#define ImgDim {}\n #define PoolDim {}\n
                 #define NumChannels {}\n #define PE {}\n #define OutputSize {}
-                \n #define numReps {}""".format(
+                \n #define RemainderSize {}\n #define numReps {}""".format(
                     ifm_dim[1],
                     k[1],
                     self.get_nodeattr("NumChannels"),
                     self.get_nodeattr("PE"),
                     output_size,
+                    remainder_size,
                     numReps,
                 )
             ]
@@ -272,7 +276,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 op = "StreamingMaxPool_Precision_1d"
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     """%s<ImgDim, PoolDim, NumChannels, PE,
-                     OutputSize, %s, %s>(in0, out);"""
+                     OutputSize, RemainderSize, %s, %s>(in0, out);"""
                     % (op, dtype_hls, minval_str)
                 ]
             else:
