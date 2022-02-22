@@ -765,7 +765,7 @@ class TestEnd2End:
         ret = dict()
         # try a range of batch sizes, some may fail due to insufficient DMA
         # buffers
-        bsize_range_in = [8 ** i for i in range(5)]
+        bsize_range_in = [8**i for i in range(5)]
         bsize_range = []
         for bsize in bsize_range_in:
             res = throughput_test_remote(model, bsize)
