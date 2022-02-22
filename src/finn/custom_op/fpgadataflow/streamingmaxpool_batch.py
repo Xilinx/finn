@@ -35,6 +35,9 @@ from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.custom_op.general.maxpoolnhwc import compute_pool_output_dim
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
+# TODO: consider splitting this into separate implementations for 1D and 2D
+# similar to what we do for ConvolutionInputGenerator
+
 
 class StreamingMaxPool_Batch(HLSCustomOp):
     """Class that corresponds to finn-hlslib StreamingMaxPool_batch function."""
@@ -44,7 +47,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             "ImgDim": ("ints", True, []),  # [H, W] = [Y, X]
             "PoolDim": ("ints", True, []),  # [H, W] = [Y, X]
             "NumChannels": ("i", True, 0),
-            "PE": ("i", True, 0),
+            # parallelism control - only supported for 1D maxpool
+            "PE": ("i", False, 0),
+            # round up (instead of down) output size - only supported for 1D maxpool
             "CeilMode": ("i", False, 0),
             # FINN DataTypes for inputs/outputs
             "dataType": ("s", True, ""),
