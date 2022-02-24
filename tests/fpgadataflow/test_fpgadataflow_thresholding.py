@@ -61,8 +61,12 @@ def make_single_thresholding_modelwrapper(
 ):
     NumChannels = T.shape[0]
 
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, NumChannels])
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, NumChannels])
+    inp = helper.make_tensor_value_info(
+        "inp", TensorProto.FLOAT, n_inp_vecs + [NumChannels]
+    )
+    outp = helper.make_tensor_value_info(
+        "outp", TensorProto.FLOAT, n_inp_vecs + [NumChannels]
+    )
 
     node_inp_list = ["inp", "thresh"]
 
@@ -80,7 +84,7 @@ def make_single_thresholding_modelwrapper(
         outputDataType=odt.name,
         ActVal=actval,
         mem_mode=mem_mode,
-        numInputVectors=[n_inp_vecs],
+        numInputVectors=n_inp_vecs,
     )
     graph = helper.make_graph(
         nodes=[Thresholding_node],
@@ -118,11 +122,11 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     if nf == -1:
         nf = ich
     pe = ich // nf
-    n_inp_vecs = 2
+    n_inp_vecs = [1, 2, 2]
     assert ich % pe == 0
 
     # generate input data
-    x = gen_finn_dt_tensor(idt, (n_inp_vecs, ich))
+    x = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ich]))
 
     odt = act
     n_steps = act.get_num_possible_values() - 1
@@ -159,7 +163,8 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     # package input data as dictionary
     input_dict = {"inp": x}
 
-    y = multithreshold(x, T)
+    # multithreshold util fxn wants NCHW input, not NHWC
+    y = multithreshold(np.transpose(x, (0, 3, 1, 2)), T)
     if act == DataType["BIPOLAR"]:
         # binary to bipolar
         y = 2 * y - 1
@@ -191,7 +196,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
 
 @pytest.mark.vivado
 def test_runtime_thresholds_single_layer():
-    n_inp_vecs = 2
+    n_inp_vecs = [1, 2, 2]
     mem_mode = "decoupled"
     act = DataType["INT4"]
     idt = DataType["INT16"]
@@ -201,7 +206,7 @@ def test_runtime_thresholds_single_layer():
     assert ich % pe == 0
 
     # generate input data
-    in_tensor = gen_finn_dt_tensor(idt, (n_inp_vecs, ich))
+    in_tensor = gen_finn_dt_tensor(idt, tuple(n_inp_vecs + [ich]))
 
     odt = act
     n_steps = act.get_num_possible_values() - 1
