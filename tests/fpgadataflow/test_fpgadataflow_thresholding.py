@@ -165,6 +165,8 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
 
     # multithreshold util fxn wants NCHW input, not NHWC
     y = multithreshold(np.transpose(x, (0, 3, 1, 2)), T)
+    # convert back to NHWC for comparison to hw outputs
+    y = np.transpose(y, (0, 2, 3, 1))
     if act == DataType["BIPOLAR"]:
         # binary to bipolar
         y = 2 * y - 1
@@ -258,7 +260,13 @@ def test_runtime_thresholds_single_layer():
     # only use second batch element in output; first will be invalid due to
     # old weights (see above)
     y = exec_ctx["outp"][1]
-    expected = multithreshold(in_tensor, T)[1]
+
+    # multithreshold util fxn wants NCHW input, not NHWC
+    expected = multithreshold(np.transpose(in_tensor, (0, 3, 1, 2)), T)
+    # convert back to NHWC for comparison to hw outputs
+    expected = np.transpose(expected, (0, 2, 3, 1))[1]
+
+    # expected = multithreshold(in_tensor, T)[1]
     if act == DataType["BIPOLAR"]:
         # binary to bipolar
         expected = 2 * expected - 1
