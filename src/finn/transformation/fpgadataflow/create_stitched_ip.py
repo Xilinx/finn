@@ -297,6 +297,8 @@ class CreateStitchedIP(Transformation):
         fclk_hz = fclk_mhz * 1000000
         model.set_metadata_prop("clk_ns", str(self.clk_ns))
         tcl.append("set_property CONFIG.FREQ_HZ %f [get_bd_ports /ap_clk]" % fclk_hz)
+        # assign addresses for AXI lite slaves (runtime-writable weights)
+        tcl.append("assign_bd_address")
         tcl.append("regenerate_bd_layout")
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
