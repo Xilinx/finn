@@ -43,7 +43,7 @@ from finn.util.basic import gen_finn_dt_tensor
 from finn.util.create import hls_random_mlp_maker
 from finn.util.pyverilator import axilite_read, axilite_write
 
-test_fpga_part = "xc7z020clg400-1"
+test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
