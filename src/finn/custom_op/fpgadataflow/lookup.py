@@ -234,6 +234,9 @@ class Lookup(HLSCustomOp):
             "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
         )
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        my_pragmas.append(
+            "#pragma HLS BIND_STORAGE variable=embeddings type=ROM_2P impl=BRAM"
+        )
         self.code_gen_dict["$PRAGMAS$"] = my_pragmas
 
     def generate_params(self, model, path):
