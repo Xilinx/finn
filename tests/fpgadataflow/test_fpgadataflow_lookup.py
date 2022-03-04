@@ -39,6 +39,7 @@ from finn.core.onnx_exec import execute_onnx
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hls_layers import InferLookupLayer
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -136,6 +137,7 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_lookup_external():
+    fpga_part = "xczu3eg-sbva484-1-e"
     edt = DataType["INT8"]
     embedding_cfg = (200000, DataType["UINT32"], 300)
     ishape = (1, 600)
@@ -168,5 +170,12 @@ def test_fpgadataflow_lookup_external():
     assert model.graph.node[0].output[0] == oname
     getCustomOp(model.graph.node[0]).set_nodeattr("mem_mode", "external")
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xczu3eg-sbva484-1-e", 10))
+    model = model.transform(PrepareIP(fpga_part, 10))
     model = model.transform(HLSSynthIP())
+    model = model.transform(CreateStitchedIP(fpga_part, 10.0))
+    ifnames = eval(model.get_metadata_prop("vivado_stitch_ifnames"))
+    # check some generated files/interfaces for the generated stitched IP
+    assert ifnames["aximm"] == [["m_axi_gmem0", 32]]
+    assert ifnames["s_axis"] == [["s_axis_0", 32]]
+    assert ifnames["m_axis"] == [["m_axis_0", 32]]
+    assert ifnames["axilite"] == ["s_axi_control_0"]
