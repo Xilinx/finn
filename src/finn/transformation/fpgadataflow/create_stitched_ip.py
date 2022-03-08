@@ -160,6 +160,7 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append(
                 "set_property name m_axi_gmem0 [get_bd_intf_ports m_axi_gmem_0]"
             )
+            self.connect_cmds.append("assign_bd_address")
             seg_name = "%s/Data_m_axi_gmem/SEG_m_axi_gmem0_Reg" % (inst_name)
             self.connect_cmds.append(
                 "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
