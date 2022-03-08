@@ -65,6 +65,9 @@ class Lookup(HLSCustomOp):
             # Width for AXI-MM interface
             # only relevant when mem_mode="external"
             "ext_mem_width": ("i", False, 32),
+            # allocated AXI-MM address range
+            # only relevant when mem_mode="external"
+            "ext_mem_addr_range": ("s", False, "16M"),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -443,3 +446,21 @@ class Lookup(HLSCustomOp):
         intf_names["axilite"] = ["s_axi_control"]
         intf_names["aximm"] = [("m_axi_gmem", self.get_nodeattr("ext_mem_width"))]
         return intf_names
+
+    def code_generation_ipi(self):
+        mem_mode = self.get_nodeattr("mem_mode")
+        ret = super().code_generation_ipi()
+        if mem_mode == "external":
+            node_name = self.onnx_node.name
+            # TODO does the base offset need customizability?
+            base_offset = 0
+            range_str = self.get_nodeattr("ext_mem_addr_range")
+            ifname = "%s/Data_m_axi_gmem/SEG_m_axi_gmem0_Reg" % (node_name)
+            ret.append("assign_bd_address")
+            ret.append(
+                "set_property offset %d [get_bd_addr_segs {%s}]" % (base_offset, ifname)
+            )
+            ret.append(
+                "set_property range %s [get_bd_addr_segs {%s}]" % (range_str, ifname)
+            )
+        return ret
