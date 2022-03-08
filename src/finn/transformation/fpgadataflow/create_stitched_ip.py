@@ -160,6 +160,15 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append(
                 "set_property name m_axi_gmem0 [get_bd_intf_ports m_axi_gmem_0]"
             )
+            seg_name = "%s/Data_m_axi_gmem/SEG_m_axi_gmem0_Reg" % (inst_name)
+            self.connect_cmds.append(
+                "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
+            )
+            # TODO should propagate this information from the node instead of 64M
+            self.connect_cmds.append(
+                "set_property range 64M [get_bd_addr_segs {%s}]" % (seg_name)
+            )
+
             self.intf_names["aximm"] = [("m_axi_gmem0", aximm_intf_name[0][1])]
             assert self.has_aximm is False, "Currently limited to one AXI-MM interface"
             self.has_aximm = True
