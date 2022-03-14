@@ -1,10 +1,6 @@
 # Community
 
-Connect with the FINN community and ask questions on GitHub Discussions here: ![GitHub Discussions](https://img.shields.io/github/discussions/Xilinx/finn)
-
-We also have a Gitter channel for all things FINN-related here:
-[![Gitter](https://badges.gitter.im/xilinx-finn/community.svg)](https://gitter.im/xilinx-finn/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
-
+Connect with the FINN community and ask questions on GitHub Discussions here: [![GitHub Discussions](https://img.shields.io/github/discussions/Xilinx/finn)](https://github.com/Xilinx/finn/discussions)
 
 ### External Collaborators
 * Paderborn University, Germany: Felix Paul Jentzsch, Marco Platzner
