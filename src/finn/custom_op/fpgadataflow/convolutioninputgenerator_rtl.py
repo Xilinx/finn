@@ -79,7 +79,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "IFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "OFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "SIMD": ("i", True, 0),
-            "M": ("i", True, 1),
+            "M": ("i", False, 1),
             "Stride": ("ints", True, []),  # [H, W] = [Y, X]
             "Dilation": ("ints", True, []),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
@@ -380,10 +380,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input shape doesn't
-        match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
+        # disable this check to allow for IFMdim % M != 0 case (see below) where input comes from MMV-output capable node
+        #assert (
+        #    inp.shape == exp_ishape
+        #), """Input shape doesn't
+        #match expected shape (1, ifm_dim, ifm_dim, ifm_ch)."""
         if self.get_input_datatype() == DataType["BIPOLAR"]:
             # store bipolar activations as binary
             inp = (inp + 1) / 2
@@ -394,7 +395,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # pad test input stream to work when IFMdim % M != 0
         # during normal operation, the AXI Stream should not care, in the last cycle garbage elements are read but not used
         # ToDo: only works for 1D case
-        mmv_stream_padding_px = int((np.prod(folded_ishape) - np.prod(exp_ishape)) / exp_ishape[-1])
+        mmv_stream_padding_px = int((np.prod(folded_ishape) - np.prod(inp.shape)) / exp_ishape[-1])
         if exp_ishape [2] == 1:
             inp = np.pad(inp, ((0,0),(0,mmv_stream_padding_px),(0,0),(0,0)), 'constant')
         else:
