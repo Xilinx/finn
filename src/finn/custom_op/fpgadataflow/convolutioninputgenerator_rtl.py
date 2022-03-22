@@ -505,7 +505,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # example:
         # 0: only consecutive access patterns will be implemented in regs, rest in BRAM line buffers
         # 2: [0, 3, 6] access pattern is still allowed and will be implemented with 1 7-position shift reg
-        REG_BRAM_THRESHOLD = 1
+        REG_BRAM_THRESHOLD = 9999
         #--------------------
 
         in_shape = (n,c,h,w) #NCHW
@@ -595,6 +595,10 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # buffer schedule (write from input, read to output)
         schedule_write = []
         schedule_read = []
+
+        schedule = []
+        schedule_prev = ''
+
         next_in_px = 0
 
         idx_px_relative = idx_px.copy()
@@ -611,6 +615,12 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                         next_in_px += 1
                     schedule_write.append(1)
                     schedule_read.append(0)
+                    if schedule_prev == 'w':
+                        count, cmd = schedule[-1]
+                        schedule[-1] = (count+1, cmd)
+                    else:
+                        schedule.append((1, 'w'))
+                        schedule_prev = 'w'
             
             # discard unused buffer elements (assumes in-order access)
             oldest_px = min(idx_px_relative[:,x])
@@ -635,12 +645,24 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             # simultaneously load next pixel(s) into buffer if there are any left
             if next_in_px > (h_padded*w_padded-1):
                 schedule_write.append(0)
+                if schedule_prev == 'r':
+                    count, cmd = schedule[-1]
+                    schedule[-1] = (count+1, cmd)
+                else:
+                    schedule.append((1, 'r'))
+                    schedule_prev = 'r'
             else:
                 # load M inputs at once
                 for m in range(M):
                     buffer.append(next_in_px)
                     next_in_px += 1
                 schedule_write.append(1)
+                if schedule_prev == 'wr':
+                    count, cmd = schedule[-1]
+                    schedule[-1] = (count+1, cmd)
+                else:
+                    schedule.append((1, 'wr'))
+                    schedule_prev = 'wr'
 
 
         # find buffer access patterns
@@ -649,7 +671,198 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             if idx_px_relative[:,x].tolist() not in buffer_access_patterns:
                 buffer_access_patterns.append(idx_px_relative[:,x].tolist())
                 
+        # from itertools import groupby
+        # schedule_write_compressed = ''.join('(' + str(k) + ',' + str(sum(1 for x in g)) + '),' for k, g in groupby(schedule_write))
+        # schedule_read_compressed = ''.join('(' + str(k) + ',' + str(sum(1 for x in g)) + '),' for k, g in groupby(schedule_read))
+
+        # analyse schedule
+        # class sched_gen:
+        #     start_counter = 0
+        #     start_val = 0
+
+        #     end_last_sequence_counter = 0
+        #     end_sequence = []
+
+        #     outer_counter = 0
+        #     outer_sequence_counter = 0
+        #     outer_sequence_val = 0
+
+        #     inner_counter = 0
+        #     inner_sequence = []
+
+        #     def __str__(self):
+        #         return "\nstart: %d x %d\n %d x\n   %d x %s + %d x %d\nend: %d x %s + %s\n" % (
+        #             self.start_counter,
+        #             self.start_val,
+        #             self.outer_counter,
+        #             self.inner_counter,
+        #             str(self.inner_sequence),
+        #             self.outer_sequence_counter,
+        #             self.outer_sequence_val,
+        #             self.end_last_sequence_counter,
+        #             str(self.inner_sequence),
+        #             self.end_sequence
+        #         )
+
         
+        # def analyse_schedule(schedule):
+        #     generator = sched_gen()
+            
+        #     #determine start sequence
+        #     for i, v in enumerate(schedule):
+        #         if i > 0 and v != schedule[i-1]:
+        #             generator.start_counter = i
+        #             generator.start_val = schedule[i-1]
+        #             break
+
+        #     #determine inner loop/sequence
+        #     sequence_MAX = 10
+        #     schedule = schedule[generator.start_counter:] # cut off processed entries
+        #     sequence = []
+        #     repititions = 0
+        #     i = 0
+        #     while i < len(schedule):
+        #         if not sequence:
+        #             sequence.append(schedule[i])
+        #             i = i+1
+        #         else:
+        #             # is this a beginning of a repitition of the current sequence?
+        #             if i + len(sequence) < len(schedule) and all([schedule[i+offset] == sequence[offset] for offset in range(len(sequence))]):  
+        #                 repititions = repititions + 1
+        #                 i = i+len(sequence)
+        #             else:
+        #                 # did we already count repitions of the sequence?
+        #                 sequence_candidate = sequence + sequence * repititions
+        #                 sequence_candidate.append(schedule[i])
+        #                 if len(sequence_candidate) < sequence_MAX:
+        #                     sequence = sequence_candidate.copy()
+        #                     repititions = 0
+        #                     i = i+1
+        #                 else:
+        #                     schedule = schedule[i:] # cut off processed entries
+        #                     break
+        #     generator.inner_counter = repititions + 1
+        #     generator.inner_sequence = sequence
+            
+        #     #determine outer sequence
+        #     for i, v in enumerate(schedule):
+        #         if i > 0 and v != schedule[i-1]:
+        #             generator.outer_sequence_counter = i
+        #             generator.outer_sequence_val = schedule[i-1]
+        #             break
+
+        #     schedule = schedule[generator.outer_sequence_counter:] # cut off processed entries
+
+        #     sequence_to_compare = generator.inner_sequence * generator.inner_counter + [generator.outer_sequence_val] * generator.outer_sequence_counter
+
+        #     generator.outer_counter = 1
+        #     i = 0
+        #     while i < len(schedule):
+        #         # is this a beginning of a repitition of the current sequence?
+        #         if i + len(sequence_to_compare) < len(schedule) and all([schedule[i+offset] == sequence_to_compare[offset] for offset in range(len(sequence_to_compare))]):
+        #             generator.outer_counter = generator.outer_counter + 1
+        #             i = i+len(sequence_to_compare)
+        #         else:
+        #             schedule = schedule[i:] # cut off processed entries
+        #             break
+
+        #     #determine end sequence
+        #     #for i, v in enumerate(schedule):
+        #     #    if i > 0 and v != schedule[i-1]:
+        #     #        generator.end_counter = i
+        #     #        generator.end_val = schedule[i-1]
+        #     #        break
+        
+        #     sequence = generator.inner_sequence
+        #     repititions = 0
+        #     i = 0
+        #     while i < len(schedule):
+        #         # is this a beginning of a repitition of the current sequence?
+        #         if i + len(sequence) < len(schedule) and all([schedule[i+offset] == sequence[offset] for offset in range(len(sequence))]):  
+        #             repititions = repititions + 1
+        #             i = i+len(sequence)
+        #         else:
+        #             schedule = schedule[i:] # cut off processed entries
+        #             break
+        #     generator.end_last_sequence_counter = repititions
+
+        #     #remainder
+        #     generator.end_sequence = schedule
+
+        #     return generator
+
+        def compact_schedule(schedule):
+
+            # leave first sequence (pre-load) as is
+            start_sequence = schedule[0]
+
+            loop_sequence_1_counter = 1
+            loop_sequence_1 = schedule[1]
+
+            loop_counter = 0
+            loop_sequence_2 = None
+            end_sequence = None
+
+            i = 2
+            if i < len(schedule):
+                loop_sequence_1 += schedule[i]
+                i += 1
+
+            while i+1 < len(schedule):
+                candidate = schedule[i] + schedule[i+1]
+                if candidate == loop_sequence_1:
+                    loop_sequence_1_counter += 1
+                    i += 2
+                else:
+                    break
+
+            if i < len(schedule):
+                loop_sequence_2 = schedule[i]
+                i += 1
+
+            if i+1 < len(schedule):
+                candidate = schedule[i] + schedule[i+1]
+                if candidate != loop_sequence_1:
+                    loop_sequence_2 += schedule[i]
+
+                i -= 1
+                loop_sequence_total_len = (int(len(loop_sequence_2)/2)) + loop_sequence_1_counter*(int(len(loop_sequence_1)/2))
+                loop_sequence_total = loop_sequence_2 + loop_sequence_1_counter*loop_sequence_1
+                while i+loop_sequence_total_len < len(schedule):
+                    candidate = schedule[i] 
+                    for x in range (i+1, i+loop_sequence_total_len):
+                        candidate += schedule[x]
+
+                    if candidate == loop_sequence_total:
+                        loop_counter += 1
+                        i += loop_sequence_total_len
+                    else:
+                        break
+
+            else:
+                if i < len(schedule):
+                    end_sequence = loop_sequence_2 + schedule[i]
+                    i += 1
+                    loop_sequence_2 = None
+                else:
+                    end_sequence = loop_sequence_2
+                    loop_sequence_2 = None
+
+            if i < len(schedule):
+                end_sequence = schedule[i]
+                i += 1
+
+            assert i == len(schedule), "ERROR: schedule could not be compacted %d / %d" %(i, len(schedule))
+
+            return (
+                   start_sequence,
+                   loop_counter,
+                   loop_sequence_1_counter,
+                   loop_sequence_1,
+                   loop_sequence_2,
+                   end_sequence
+                )
+
         f_debug.write("\n"+"max buffer size observed: %d" %(buffer_max_size))
         f_debug.write("\n"+"output vector elements: relative buffer indices")
         f_debug.write("\n"+str(idx_px_relative))
@@ -659,9 +872,21 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         f_debug.write("\n"+"buffer write schedule (%d cycles)" % len(schedule_write))
         f_debug.write("\n"+str(schedule_write))
         f_debug.write("\n"+"writing buffer in %d cycles" % schedule_write.count(1))
+        #f_debug.write("\n"+"buffer write schedule COMPRESSED")
+        #f_debug.write("\n"+str(schedule_write_compressed))
+        #f_debug.write("\n"+"buffer write schedule ANALYZED")
+        #f_debug.write("\n"+str(analyse_schedule(schedule_write)))
         f_debug.write("\n"+"buffer read schedule (%d cycles)" % len(schedule_read))
         f_debug.write("\n"+str(schedule_read))
         f_debug.write("\n"+"reading buffer in %d cycles" % schedule_read.count(1))
+        #f_debug.write("\n"+"buffer read schedule COMPRESSED")
+        #f_debug.write("\n"+str(schedule_read_compressed))
+        #f_debug.write("\n"+"buffer read schedule ANALYZED")
+        #f_debug.write("\n"+str(analyse_schedule(schedule_read)))
+        f_debug.write("\n"+"buffer rw schedule NEW")
+        f_debug.write("\n"+str(schedule))
+        f_debug.write("\n"+"buffer rw schedule NEW compacted")
+        f_debug.write("\n"+"\nstart_sequence: %s\nloop_counter: %s\nloop_sequence_1_counter: %s\nloop_sequence_1: %s\nloop_sequence_2: %s\nend_sequence: %s\n" % compact_schedule(schedule))
 
         assert len(schedule_write) == len(schedule_read), "ERROR: Schedules have different lenghts"
         cycles_total = len(schedule_write)
@@ -704,7 +929,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 else:
                     # assign skipped accesses to new BRAM FIFO
                     bram_fifos.append([-1]*(distance-1))
-                    bram_fifos_depth.append((distance-1)/M)
+                    bram_fifos_depth.append(math.ceil((distance-1)/M)) # really ceil?
                     # start with new REG FIFO
                     reg_fifos.append(current)
                     reg_fifos_depth.append(math.ceil((max(current)+1)/M))
@@ -787,38 +1012,76 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             )
 
         # Generate read schedule (when data is read from input, written to buffer)
-        code_gen_dict["$GENERATE_READ_SCHEDULE$"] = []
-        schedule_as_string = ""
-        #todo: change naming to swap write/read
-        for i in schedule_write:
-            if i == 1:
-                schedule_as_string += "1'b1,"
-            else:
-                schedule_as_string += "1'b0,"
-        schedule_as_string = schedule_as_string[:-1] # remove trailing ','
-        code_gen_dict["$GENERATE_READ_SCHEDULE$"].append(
-            "localparam [0:{len}-1] READ_SCHEDULE = {{{str}}};".format(len=cycles_total, str=schedule_as_string)
-        )
-        code_gen_dict["$GENERATE_READ_SCHEDULE$"].append(
-            "assign read_state = READ_SCHEDULE[cycle];"
-        )
+        # code_gen_dict["$GENERATE_READ_SCHEDULE$"] = []
+        # schedule_as_string = ""
+        # #todo: change naming to swap write/read
+        # for i in schedule_write:
+        #     if i == 1:
+        #         schedule_as_string += "1'b1,"
+        #     else:
+        #         schedule_as_string += "1'b0,"
+        # schedule_as_string = schedule_as_string[:-1] # remove trailing ','
+        # code_gen_dict["$GENERATE_READ_SCHEDULE$"].append(
+        #     "localparam [0:{len}-1] READ_SCHEDULE = {{{str}}};".format(len=cycles_total, str=schedule_as_string)
+        # )
+        # code_gen_dict["$GENERATE_READ_SCHEDULE$"].append(
+        #     "assign read_state = READ_SCHEDULE[cycle];"
+        # )
 
-        # Generate write schedule (when data is written to output, read from buffer)
-        code_gen_dict["$GENERATE_WRITE_SCHEDULE$"] = []
-        schedule_as_string = ""
-        #todo: change naming to swap write/read
-        for i in schedule_read:
-            if i == 1:
-                schedule_as_string += "1'b1,"
+        # # Generate write schedule (when data is written to output, read from buffer)
+        # code_gen_dict["$GENERATE_WRITE_SCHEDULE$"] = []
+        # schedule_as_string = ""
+        # #todo: change naming to swap write/read
+        # for i in schedule_read:
+        #     if i == 1:
+        #         schedule_as_string += "1'b1,"
+        #     else:
+        #         schedule_as_string += "1'b0,"
+        # schedule_as_string = schedule_as_string[:-1] # remove trailing ','
+        # code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
+        #     "localparam [0:{len}-1] WRITE_SCHEDULE = {{{str}}};".format(len=cycles_total, str=schedule_as_string)
+        # )
+        # code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
+        #     "assign write_state = WRITE_SCHEDULE[cycle_last];"
+        # )
+
+        def convert_tuple(seq):
+            mapping = {'w': ("1'b1", "1'b0"),
+                        'r': ("1'b0", "1'b1"),
+                        'wr':("1'b1", "1'b1"),
+                        'n': ("1'b0", "1'b0")}
+            if seq:
+                if len(seq) == 2:
+                    return (seq[0], mapping[seq[1]], 0, mapping['n'])
+                if len(seq) == 4:
+                    return (seq[0], mapping[seq[1]], seq[2], mapping[seq[3]])
             else:
-                schedule_as_string += "1'b0,"
-        schedule_as_string = schedule_as_string[:-1] # remove trailing ','
-        code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
-            "localparam [0:{len}-1] WRITE_SCHEDULE = {{{str}}};".format(len=cycles_total, str=schedule_as_string)
-        )
-        code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
-            "assign write_state = WRITE_SCHEDULE[cycle_last];"
-        )
+                return (0, mapping['n'], 0, mapping['n'])
+
+        start_sequence,loop_counter,loop_sequence_1_counter,loop_sequence_1,loop_sequence_2,end_sequence = compact_schedule(schedule)
+
+        start_sequence = convert_tuple(start_sequence)
+        loop_sequence_1 = convert_tuple(loop_sequence_1)
+        loop_sequence_2 = convert_tuple(loop_sequence_2)
+        end_sequence = convert_tuple(end_sequence)
+
+        code_gen_dict["$START_COUNTER$"]=[str(start_sequence[0])]
+        code_gen_dict["$LOOP_MAIN_COUNTER$"]=[str(loop_sequence_1_counter)]
+        code_gen_dict["$LOOP_INTER_COUNTER$"]=[str(loop_counter)]
+
+        code_gen_dict["$LOOP_MAIN_1_COUNTER$"]=[str(loop_sequence_1[0])]
+        code_gen_dict["$LOOP_MAIN_2_COUNTER$"]=[str(loop_sequence_1[2])]
+
+        code_gen_dict["$LOOP_INTER_1_COUNTER$"]=[str(loop_sequence_2[0])]
+        code_gen_dict["$LOOP_INTER_2_COUNTER$"]=[str(loop_sequence_2[2])]
+
+        code_gen_dict["$LOOP_END_1_COUNTER$"]=[str(end_sequence[0])]
+        code_gen_dict["$LOOP_END_2_COUNTER$"]=[str(end_sequence[2])]
+
+        code_gen_dict["$READ_CMD_MAP$"]=["{{ {}, {}, {}, {}, {}, {}, {} }}".format(
+            start_sequence[1][0],loop_sequence_1[1][0],loop_sequence_1[3][0],loop_sequence_2[1][0],loop_sequence_2[3][0],end_sequence[1][0],end_sequence[3][0])]
+        code_gen_dict["$WRITE_CMD_MAP$"]=["{{ {}, {}, {}, {}, {}, {}, {} }}".format(
+            start_sequence[1][1],loop_sequence_1[1][1],loop_sequence_1[3][1],loop_sequence_2[1][1],loop_sequence_2[3][1],end_sequence[1][1],end_sequence[3][1])]
 
         with open("/workspace/finn/finn-rtllib/swg/swg_hdl_template.v", "r") as f:
             template = f.read()
@@ -871,16 +1134,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         vlnv = self.get_nodeattr("ip_vlnv")
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        
-        #cmd = ["create_bd_cell -type ip -vlnv %s %s" % (vlnv, self.onnx_node.name)]
 
         cmd = ["add_files -norecurse %s" % (os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_hdl_gen.v")),
             "create_bd_cell -type module -reference %s %s" % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)]
-
-        #update_compile_order -fileset sources_1
-        #add_files -norecurse C:/Users/felix/Downloads/swg_hdl_generated.v
-        #update_compile_order -fileset sources_1
-        #create_bd_cell -type module -reference ConvolutionInputGenerator_rtl_0_ConvolutionInputGenerator_rtl_0 ConvolutionInputGene_0
 
         return cmd
 
