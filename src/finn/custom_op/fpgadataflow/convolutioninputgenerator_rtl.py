@@ -505,7 +505,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # example:
         # 0: only consecutive access patterns will be implemented in regs, rest in BRAM line buffers
         # 2: [0, 3, 6] access pattern is still allowed and will be implemented with 1 7-position shift reg
-        REG_BRAM_THRESHOLD = 9999
+        REG_BRAM_THRESHOLD = 8
         #--------------------
 
         in_shape = (n,c,h,w) #NCHW
@@ -932,11 +932,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     bram_fifos_depth.append(math.ceil((distance-1)/M)) # really ceil?
                     # start with new REG FIFO
                     reg_fifos.append(current)
-                    reg_fifos_depth.append(math.ceil((max(current)+1)/M))
+                    #reg_fifos_depth.append(math.ceil((max(current)+1)/M)) ToDo: fix for M again
+                    reg_fifos_depth.append(len(current))
                     current = []
                     current.append(access_idx)
         reg_fifos.append(current)
-        reg_fifos_depth.append(math.ceil((max(current)+1)/M))
+        #reg_fifos_depth.append(math.ceil((max(current)+1)/M)) ToDo fix for M again
+        reg_fifos_depth.append(len(current))
 
         f_debug.write("\n"+"Buffer partitioning using REG_BRAM_THRESHOLD=%d" % REG_BRAM_THRESHOLD)
         f_debug.write("\n"+"%d REG FIFOs (parallel read access):" % len(reg_fifos))
@@ -947,17 +949,43 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dict["$GENERATE_REG_FIFOS$"] = []
         for i in range(len(reg_fifos)):
             code_gen_dict["$GENERATE_REG_FIFOS$"].append(
-                """parameter reg_fifo_{id}_len = {len};
-                reg [IN_WIDTH-1:0] reg_fifo_{id} [reg_fifo_{id}_len-1:0];
-                """.format(id=i, len=reg_fifos_depth[i]))
-        
-        #todo: generate actual bram shift buffers instead of regs
+                """
+                wire [IN_WIDTH-1:0] reg_fifo_{id}_in;
+                wire [IN_WIDTH-1:0] reg_fifo_{id}_out;
+                wire [IN_WIDTH*{len}-1:0] reg_fifo_{id};
+                {name}_reg_buffer
+                #(
+                .WIDTH(IN_WIDTH),
+                .DEPTH({len})
+                )
+                reg_buffer_inst_{id}
+                (
+                    .CLK(CLK),
+                    .shift_enable(shift_enable),
+                    .shift_in(reg_fifo_{id}_in),
+                    .shift_out(reg_fifo_{id}_out),
+                    .data_out(reg_fifo_{id})
+                );""".format(name=self.get_verilog_top_module_name(), id=i, len=reg_fifos_depth[i]))
+
         code_gen_dict["$GENERATE_BRAM_FIFOS$"] = []
         for i in range(len(bram_fifos)):
             code_gen_dict["$GENERATE_BRAM_FIFOS$"].append(
-                """parameter bram_fifo_{id}_len = {len};
-                reg [IN_WIDTH-1:0] bram_fifo_{id} [bram_fifo_{id}_len-1:0];
-                """.format(id=i, len=bram_fifos_depth[i]))
+                """
+                wire [IN_WIDTH-1:0] bram_fifo_{id}_in;
+                wire [IN_WIDTH-1:0] bram_fifo_{id}_out;
+                {name}_ram_buffer
+                #(
+                .WIDTH(IN_WIDTH),
+                .DEPTH({len})
+                )
+                ram_buffer_inst_{id}
+                (
+                    .CLK(CLK),
+                    .RST(RST),
+                    .shift_enable(shift_enable),
+                    .shift_in(bram_fifo_{id}_in),
+                    .shift_out(bram_fifo_{id}_out)
+                );""".format(name=self.get_verilog_top_module_name(), id=i, len=bram_fifos_depth[i]))
 
         code_gen_dict["$GENERATE_OUTPUT_MAPPING$"] = []
         out_idx = mmv_out-1
@@ -970,46 +998,32 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     #    )
                     #)
                     code_gen_dict["$GENERATE_OUTPUT_MAPPING$"].append(
-                        "assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH] = reg_fifo_{fifo_id}[{access_idx}][OUT_ELEM_WIDTH*{mmv_idx}+:OUT_ELEM_WIDTH];".format(
+                        "assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH] = reg_fifo_{fifo_id}[{access_idx}*{mmv}*OUT_ELEM_WIDTH+OUT_ELEM_WIDTH*{mmv_idx}+:OUT_ELEM_WIDTH];".format(
                             out_idx=out_idx, fifo_id=fifo_id, 
                             access_idx=reg_fifos_depth[fifo_id]-1-int((max(reg_fifo)-access_idx)/M), 
-                            mmv_idx=(max(reg_fifo)-access_idx)%M
+                            mmv_idx=(max(reg_fifo)-access_idx)%M,
+                            mmv = M
                         )
                     )
                     # reversal: out_idx=0 -> oldest buffer element -> highest access_idx
                     out_idx = out_idx-1
         assert out_idx==-1, "ERROR: Not all output vector elements connected"
 
-        code_gen_dict["$GENERATE_SHIFT_LOGIC$"] = []
+        code_gen_dict["$GENERATE_BUFFER_CONNECTION$"] = []
         for i in range(len(reg_fifos)):
             if i == 0:
                 # first FIFO containing newest elements -> input comes from input reg
-                code_gen_dict["$GENERATE_SHIFT_LOGIC$"].append(
-                    """for (i=reg_fifo_{fifo_id}_len-1; i>0; i=i-1)
-                        reg_fifo_{fifo_id}[i] <= reg_fifo_{fifo_id}[i-1];
-                    reg_fifo_{fifo_id}[0] <= reg_input;""".format(
-                        fifo_id=i,
-                    )
-                )
+                code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                    """assign reg_fifo_{fifo_id}_in = reg_input;""".format(fifo_id=i,))
             else:
                 # other REG FIFOs -> input comes from connected BRAM FIFO (line buffer)
                 input_fifo_id = i-1
-                code_gen_dict["$GENERATE_SHIFT_LOGIC$"].append(
-                    """for (i=reg_fifo_{fifo_id}_len-1; i>0; i=i-1)
-                        reg_fifo_{fifo_id}[i] <= reg_fifo_{fifo_id}[i-1];
-                    reg_fifo_{fifo_id}[0] <= bram_fifo_{input_fifo_id} [bram_fifo_{input_fifo_id}_len-1];""".format(
-                        fifo_id=i, input_fifo_id=input_fifo_id
-                    )
-                )
+                code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                    """assign reg_fifo_{fifo_id}_in = bram_fifo_{input_fifo_id}_out;""".format(fifo_id=i, input_fifo_id=input_fifo_id))
         for i in range(len(bram_fifos)):
             input_fifo_id = i
-            code_gen_dict["$GENERATE_SHIFT_LOGIC$"].append(
-                """for (i=bram_fifo_{fifo_id}_len-1; i>0; i=i-1)
-                    bram_fifo_{fifo_id}[i] <= bram_fifo_{fifo_id}[i-1];
-                bram_fifo_{fifo_id}[0] <= reg_fifo_{input_fifo_id} [reg_fifo_{input_fifo_id}_len-1];""".format(
-                    fifo_id=i, input_fifo_id=input_fifo_id
-                )
-            )
+            code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                """assign bram_fifo_{fifo_id}_in = reg_fifo_{input_fifo_id}_out;""".format(fifo_id=i, input_fifo_id=input_fifo_id))
 
         # Generate read schedule (when data is read from input, written to buffer)
         # code_gen_dict["$GENERATE_READ_SCHEDULE$"] = []

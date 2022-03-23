@@ -1,4 +1,4 @@
-`timescale 1 ns / 1 ps 
+`timescale 1 ns / 1 ps
 
 module $TOP_MODULE_NAME$_controller
 (
@@ -14,7 +14,7 @@ output cmd_read;
 output cmd_write;
 
 ////code generation part:
-//mapping of R/W command values to each state (START, MAIN_1, MAIN_2, INTER_1, INTER_2, END_1, END_2)            
+//mapping of R/W command values to each state (START, MAIN_1, MAIN_2, INTER_1, INTER_2, END_1, END_2)
 localparam [0:6] READ_CMD_MAP = $READ_CMD_MAP$;
 localparam [0:6] WRITE_CMD_MAP = $WRITE_CMD_MAP$;
 
@@ -37,7 +37,7 @@ integer counter_loop_main;
 integer counter_loop_inter;
 
 assign cmd_read = READ_CMD_MAP[state_next]; //read command indicates read in *upcoming* cycle, due to how schedule is constructed
-assign cmd_write = WRITE_CMD_MAP[state]; 
+assign cmd_write = WRITE_CMD_MAP[state];
 
 reg cycle_last;
 wire cycle_advance;
@@ -66,7 +66,7 @@ always @ (state, counter_current, counter_loop_main, counter_loop_inter) begin
                         //there might not be an end sequence -> restart immediately
                         if (LOOP_END_1_COUNTER != 0)
                             state_next = STATE_END_1;
-                        else 
+                        else
                             state_next = STATE_START;
                     end
                 end
@@ -77,7 +77,7 @@ always @ (state, counter_current, counter_loop_main, counter_loop_inter) begin
             if (counter_current == LOOP_INTER_1_COUNTER-1) begin
                 if (LOOP_INTER_2_COUNTER != 0)
                     state_next = STATE_LOOP_INTER_2;
-                else 
+                else
                     state_next = STATE_LOOP_MAIN_1;
             end
         end
@@ -141,6 +141,113 @@ always @ (posedge CLK) begin
 end
 endmodule //controller
 
+module $TOP_MODULE_NAME$_reg_buffer
+#(
+    parameter WIDTH = 1,
+    parameter DEPTH = 1
+)
+(
+    CLK,
+    shift_enable,
+    shift_in,
+    shift_out,
+    data_out
+);
+
+input CLK, shift_enable;
+input [WIDTH-1:0] shift_in;
+output [WIDTH-1:0] shift_out;
+output [WIDTH*DEPTH-1:0] data_out;
+
+//UG901 template for SRL inference:
+// 32-bit Shift Register
+// Rising edge clock
+// Active high clock enable
+// For-loop based template
+// File: shift_registers_1.v
+//
+//module shift_registers_1 (clk, clken, SI, SO);
+//parameter WIDTH = 32; 
+//input clk, clken, SI; 
+//output SO;
+//reg [WIDTH-1:0] shreg;
+//
+//integer i;
+//always @(posedge clk)
+//begin
+//  if (clken)
+//    begin
+//    for (i = 0; i < WIDTH-1; i = i+1)
+//        shreg[i+1] <= shreg[i];
+//      shreg[0] <= SI; 
+//    end
+//end
+//assign SO = shreg[WIDTH-1];
+//endmodule
+
+reg [WIDTH-1:0] data [DEPTH-1:0];
+
+assign shift_out = data[DEPTH-1];
+
+for (genvar e=0; e<DEPTH; e=e+1)
+    assign data_out[e*WIDTH +: WIDTH] = data[e];
+
+always @ (posedge CLK) begin
+    if (shift_enable) begin
+        for (integer i=DEPTH-1; i>0; i=i-1)
+            data[i] <= data[i-1];
+        data[0] <= shift_in;
+    end
+end
+endmodule //reg_buffer
+
+module $TOP_MODULE_NAME$_ram_buffer
+#(
+    parameter WIDTH = 1,
+    parameter DEPTH = 1
+)
+(
+    CLK,
+    RST,
+    shift_enable,
+    shift_in,
+    shift_out
+);
+
+input CLK, RST, shift_enable;
+input [WIDTH-1:0] shift_in;
+output [WIDTH-1:0] shift_out;
+
+reg [WIDTH-1:0] out_reg;
+assign shift_out = out_reg;
+
+integer addr_w, addr_r; //todo: minimize width (as reg), make r addr depend on w
+
+(* ram_style = "block" *) reg [WIDTH-1:0] ram [DEPTH-1:0];
+
+always @(posedge CLK) begin 
+    if (RST == 1'b0) begin
+        addr_w <= 0;
+        addr_r <= 1;
+    end else begin
+        if (shift_enable) begin
+            ram[addr_w] <= shift_in;
+            out_reg <= ram[addr_r];
+
+            if (addr_w == DEPTH-1)
+                addr_w <= 0;
+            else
+                addr_w <= addr_w + 1;
+
+            if (addr_r == DEPTH-1)
+                addr_r <= 0;
+            else
+                addr_r <= addr_r + 1;
+        end
+    end
+end
+endmodule //ram_buffer
+
 module $TOP_MODULE_NAME$_wb
 #(
     parameter IN_WIDTH = 1, //bit-width*C*MMV_in
@@ -150,12 +257,13 @@ module $TOP_MODULE_NAME$_wb
 )
 (
     CLK,
+    RST,
     data_in,
     shift_enable,
     data_out
 );
 
-input CLK;
+input CLK, RST;
 input [IN_WIDTH-1:0] data_in;
 input shift_enable;
 output [OUT_WIDTH-1:0] data_out;
@@ -163,24 +271,20 @@ output [OUT_WIDTH-1:0] data_out;
 //Input REG to enable simultaneous R/W
 reg [IN_WIDTH-1:0] reg_input;
 
-//REG FIFOs
 $GENERATE_REG_FIFOS$
 
-//BRAM FIFOs
-//todo: generate real BRAM shift buffers if these get too large
 $GENERATE_BRAM_FIFOS$
+
+//Fixed interconnect between linear buffers
+$GENERATE_BUFFER_CONNECTION$
 
 //Fixed REG FIFO <-> output mapping
 $GENERATE_OUTPUT_MAPPING$
 
-//main process
+//input register logic
 integer i;
 always @ (posedge CLK) begin
     if (shift_enable) begin
-        //shift logic
-        $GENERATE_SHIFT_LOGIC$
-
-        //shift in new data
         reg_input <= data_in;
     end
 end
@@ -234,6 +338,7 @@ $TOP_MODULE_NAME$_wb
 window_buffer_inst
 (
     .CLK(ap_clk),
+    .RST(ap_rst_n),
     .data_in(window_buffer_in),
     .shift_enable(window_buffer_shift_enable),
     .data_out(window_buffer_out)
@@ -291,9 +396,9 @@ always @ (posedge ap_clk) begin
             //count cycle (completed R or W or both (depending on current cycle))
             if (cycle == CYCLES_TOTAL-1)
                 cycle <= 0;
-            else 
-                cycle <= cycle+1; 
-        
+            else
+                cycle <= cycle+1;
+
         end else if (write_ok) // successful W in this cycle, but R still outstanding
             write_done <= 1'b1; //write can happen even if read is blocked, but only for the current cycle!
     end
