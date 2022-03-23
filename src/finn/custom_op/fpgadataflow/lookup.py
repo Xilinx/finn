@@ -258,7 +258,7 @@ class Lookup(HLSCustomOp):
             ]
         elif mem_mode == "external":
             hls_impl = """
-    for(unsigned  i = 0; i < NumInputs; i++) {
+    if(!in0.empty()) {
         ap_uint<T_SRC::width+EmbeddingAlign> const  base =
             (in0.read(), ap_uint<EmbeddingAlign>(0));
         for(unsigned  j = 0; j < EmbeddingSize; j++) {
