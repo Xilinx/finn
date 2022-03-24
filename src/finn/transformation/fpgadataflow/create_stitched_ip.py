@@ -165,9 +165,9 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append(
                 "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
             )
-            # TODO should propagate this information from the node instead of 64M
+            # TODO should propagate this information from the node instead of 4G
             self.connect_cmds.append(
-                "set_property range 64M [get_bd_addr_segs {%s}]" % (seg_name)
+                "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
             )
 
             self.intf_names["aximm"] = [("m_axi_gmem0", aximm_intf_name[0][1])]
