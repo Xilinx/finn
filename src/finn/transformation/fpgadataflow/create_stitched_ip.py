@@ -26,11 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pkg_resources as pk
+
 import json
 import multiprocessing as mp
 import os
 import subprocess
 import warnings
+from shutil import copytree
 
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
@@ -442,6 +445,21 @@ class CreateStitchedIP(Transformation):
                 "ipx::add_file dcp/%s.dcp "
                 "[ipx::get_file_groups xilinx_simulationcheckpoint]" % block_name
             )
+        # add a rudimentary driver mdd to get correct ranges in xparameters.h later on
+        example_data_dir = pk.resource_filename("finn.qnn-data", "mdd-data/")
+        copytree(example_data_dir, vivado_stitch_proj_dir + "/mdd-data")
+        tcl.append("file copy -force mdd-data ip/")
+        tcl.append("ipx::add_file_group -type software_driver {} [ipx::current_core]")
+        tcl.append(
+            "set_property type mdd [ipx::add_file mdd-data/finn_design.mdd"
+            "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
+            "[ipx::current_core]]]"
+        )
+        tcl.append(
+            "set_property type tclSource [ipx::add_file mdd-data/finn_design.tcl "
+            "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
+            "[ipx::current_core]]]"
+        )
         tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
         # export list of used Verilog files (for rtlsim later on)
