@@ -447,16 +447,16 @@ class CreateStitchedIP(Transformation):
             )
         # add a rudimentary driver mdd to get correct ranges in xparameters.h later on
         example_data_dir = pk.resource_filename("finn.qnn-data", "mdd-data/")
-        copytree(example_data_dir, vivado_stitch_proj_dir + "/mdd-data")
-        tcl.append("file copy -force mdd-data ip/")
+        copytree(example_data_dir, vivado_stitch_proj_dir + "/data")
+        tcl.append("file copy -force data ip/")
         tcl.append("ipx::add_file_group -type software_driver {} [ipx::current_core]")
         tcl.append(
-            "set_property type mdd [ipx::add_file mdd-data/finn_design.mdd"
+            "set_property type mdd [ipx::add_file data/finn_design.mdd "
             "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
             "[ipx::current_core]]]"
         )
         tcl.append(
-            "set_property type tclSource [ipx::add_file mdd-data/finn_design.tcl "
+            "set_property type tclSource [ipx::add_file data/finn_design.tcl "
             "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
             "[ipx::current_core]]]"
         )
