@@ -397,7 +397,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         model = model.transform(AnnotateCycles())
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
-        n_clock_cycles_per_sec = (10 ** 9) / cfg.synth_clk_period_ns
+        n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
         est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
         estimate_network_performance["estimated_throughput_fps"] = est_fps
         est_latency_ns = (
@@ -451,7 +451,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             InsertAndSetFIFODepths(
                 cfg._resolve_fpga_part(),
                 cfg._resolve_hls_clk_period(),
-                vivado_ram_style=cfg.large_fifo_mem_style.value,
+                vivado_ram_style=cfg.large_fifo_mem_style,
             )
         )
     else:
@@ -599,7 +599,7 @@ def step_out_of_context_synthesis(model: ModelWrapper, cfg: DataflowBuildConfig)
 
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
-        n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
+        n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10**6)
         est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
         ooc_res_dict["estimated_throughput_fps"] = est_fps
         with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:
@@ -644,7 +644,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 VitisBuild(
                     cfg._resolve_fpga_part(),
                     cfg.synth_clk_period_ns,
-                    cfg.vitis_platform,
+                    cfg._resolve_vitis_platform(),
                     strategy=cfg._resolve_vitis_opt_strategy(),
                     enable_debug=cfg.enable_hw_debug,
                     floorplan_file=cfg.vitis_floorplan_file,

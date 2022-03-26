@@ -34,7 +34,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import alveo_part_map, pynq_part_map
+from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 
 
 class ShellFlowType(str, Enum):
@@ -257,6 +257,8 @@ class DataflowBuildConfig:
     #: Which Vitis platform will be used.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
     #: e.g. "xilinx_u250_xdma_201830_2"
+    #: If not specified but "board" is specified, will use the FINN
+    #: default (if any) for that Alveo board
     vitis_platform: Optional[str] = None
 
     #: Path to JSON config file assigning each layer to an SLR.
@@ -340,7 +342,7 @@ class DataflowBuildConfig:
         if self.target_fps is None:
             return None
         else:
-            n_clock_cycles_per_sec = 10 ** 9 / self.synth_clk_period_ns
+            n_clock_cycles_per_sec = 10**9 / self.synth_clk_period_ns
             n_cycles_per_frame = n_clock_cycles_per_sec / self.target_fps
             return int(n_cycles_per_frame)
 
@@ -355,6 +357,17 @@ class DataflowBuildConfig:
             VitisOptStrategyCfg.BUILD_SPEED: VitisOptStrategy.BUILD_SPEED,
         }
         return name_to_strategy[self.vitis_opt_strategy]
+
+    def _resolve_vitis_platform(self):
+        if self.vitis_platform is not None:
+            return self.vitis_platform
+        elif (self.vitis_platform is None) and (self.board is not None):
+            return alveo_default_platform[self.board]
+        else:
+            raise Exception(
+                "Could not resolve Vitis platform:"
+                " need either board or vitis_platform specified"
+            )
 
     def _resolve_verification_steps(self):
         if self.verify_steps is None:

@@ -32,7 +32,7 @@ default_language_version:
     python: python3
 
 repos:
-- repo: git://github.com/pre-commit/pre-commit-hooks
+- repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v3.2.0
   hooks:
   - id: trailing-whitespace
@@ -50,12 +50,12 @@ repos:
   - id: mixed-line-ending
     args: ['--fix=no']
 
-- repo: git://github.com/PyCQA/isort
+- repo: https://github.com/PyCQA/isort
   rev: 5.5.3
   hooks:
   - id: isort
 
-- repo: git://github.com/psf/black
+- repo: https://github.com/psf/black
   rev: stable
   hooks:
   - id: black
