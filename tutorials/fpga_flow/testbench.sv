@@ -60,16 +60,16 @@ logic din_tvalid;
 
 
 finn_design_wrapper finn_design_wrapper (
-  .ap_clk                (ap_clk               ),//i 
-  .ap_rst_n              (ap_rst_n             ),//i 
+  .ap_clk                (ap_clk               ),//i
+  .ap_rst_n              (ap_rst_n             ),//i
 
   .m_axis_0_tdata        (dout_tdata           ),//o
-  .m_axis_0_tready       (dout_tready          ),//i 
-  .m_axis_0_tvalid       (dout_tvalid          ),//o 
+  .m_axis_0_tready       (dout_tready          ),//i
+  .m_axis_0_tvalid       (dout_tvalid          ),//o
 
   .s_axis_0_tdata        (din_tdata           ),//i
-  .s_axis_0_tready       (din_tready          ),//o 
-  .s_axis_0_tvalid       (din_tvalid          ) //i 
+  .s_axis_0_tready       (din_tready          ),//o
+  .s_axis_0_tvalid       (din_tvalid          ) //i
 );
 
 initial begin: AP_CLK
@@ -81,7 +81,7 @@ end
 
 initial begin
   // Hex file formated for Upper N bits as input data, and lower N bits as expected output data
-  
+
   $readmemh(`HEXFILE, data);
   // Determine how large file actuall is
   for (i=0; i<MAX_FL; i+=1)  if (data[i][0] !== 1'bx) file_lines = i;
@@ -89,7 +89,7 @@ initial begin
     $display("ERROR:  Unable to read hex file: %s",`HEXFILE);
     $finish;
   end
-  
+
 
   din_tvalid = 0;
   din_tdata = 0;
@@ -107,7 +107,7 @@ initial begin
 
   // The hex file is formated in 29 row blocks
   //    The first 28 rows are the image data
-  //    The 29th row is the goundtruth expected result stored in the lowest byte.
+  //    The 29th row is the ground truth expected result stored in the lowest byte.
   // Note that each row's byte-order is saved such that the high-byte is in the upper
   // most bits, and the first byte in the lower-most bits.
   for (j=0; j<=file_lines; j+=1) begin
@@ -119,8 +119,8 @@ initial begin
       //$display("wr_ptr %h, data:%h,  j=%d",wr_ptr,data[j],j);
       fifo[wr_ptr] = data_row[7:0];
       wr_ptr++;
-       
-      // Due to folding factors, the 784 bytes of each image gets fed 49-bytes at a time 
+
+      // Due to folding factors, the 784 bytes of each image gets fed 49-bytes at a time
       // over 16 cycles
       for (i=0; i<16; i+=1) begin
         din_tvalid = 1;
@@ -141,7 +141,7 @@ initial begin
     $display("ERR: End-sim check: rd_ptr %h != %h wr_ptr",rd_ptr, wr_ptr);
     err_count++;
   end
-    
+
   $display("\n************************************************************ ");
   $display("  SIM COMPLETE");
   $display("  Validated %0d data points ",data_count);
@@ -165,7 +165,3 @@ always @(posedge ap_clk) begin
 end
 
 endmodule
-
-
-
-

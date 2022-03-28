@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-
 # This file is intended to serve as an example showing how to set up custom builds
 # using FINN. The custom build can be launched like this:
 # ./run-docker.sh build_custom /path/to/folder
@@ -42,19 +41,18 @@ platform_name = "fpga"
 cfg = build.DataflowBuildConfig(
     board=platform_name,
     output_dir="output_%s_%s" % (model_name, platform_name),
-    target_fps=100000,
-    mvau_wwidth_max=10000,
     synth_clk_period_ns=10.0,
     folding_config_file="folding_config.json",
-    fpga_part="xqrku060-cna1509-1M-m",
+    fpga_part="xczu3eg-sbva484-1-e",
     shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+    stitched_ip_gen_dcp=False,
     generate_outputs=[
         build_cfg.DataflowOutputType.STITCHED_IP,
-        #build_cfg.DataflowOutputType.PYNQ_DRIVER,
-        #build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
-        #build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-        #build_cfg.DataflowOutputType.OOC_SYNTH,
-        #build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
+        # build_cfg.DataflowOutputType.PYNQ_DRIVER,
+        # build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
+        # build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+        # build_cfg.DataflowOutputType.OOC_SYNTH,
+        # build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
     ],
     verify_steps=[
         build_cfg.VerificationStepType.TIDY_UP_PYTHON,

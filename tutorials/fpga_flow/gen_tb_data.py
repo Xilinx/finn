@@ -28,16 +28,29 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-
+import sys
 from keras.datasets import mnist
+
 (train_x, train_y), (test_x, test_y) = mnist.load_data()
-#print('X_test:  '  + str(test_x.shape))
+print("Loaded MNIST test data successfully")
+# print('X_test:  '  + str(test_x.shape))
 
+if len(sys.argv) != 2:
+    print("Expected: gen_tb_data.py <path_to_hex_file>")
+    sys.exit(-1)
 
-for i in range(20):
-  for j in range(28):
-    for k in range(27,-1,-1):
-      print('{:02X}'.format(test_x[i][j][k]),end='');
-    print('')
+file_name = sys.argv[1]
 
-  print('ffffffffffffffffffffffffffffffffffffffffffffffffffffff{:02X}'.format(test_y[i]));
+with open(file_name, "w") as tb_data:
+    for i in range(20):
+        for j in range(28):
+            for k in range(27, -1, -1):
+                tb_data.write("{:02X}".format(test_x[i][j][k]))
+            tb_data.write("\n")
+        tb_data.write(
+            "ffffffffffffffffffffffffffffffffffffffffffffffffffffff{:02X}\n".format(
+                test_y[i]
+            )
+        )
+
+print("Testbench data generated at " + file_name)
