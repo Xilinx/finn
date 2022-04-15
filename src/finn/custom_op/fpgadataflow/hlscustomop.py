@@ -342,7 +342,11 @@ class HLSCustomOp(CustomOp):
 
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
-        return []
+        ap_int_max_w = self.get_ap_int_max_w()
+        extra_directives = [
+            "set_param hls.reflow_aggregate_bitwidth_threshold %s" % (ap_int_max_w)
+        ]
+        return extra_directives
 
     def ipgen_singlenode_code(self):
         """Builds the bash script for IP generation using the CallHLS utility."""
@@ -731,7 +735,7 @@ compilation transformations?
         instream = self.get_instream_width()
         outstream = self.get_outstream_width()
         ret = max([instream, outstream])
-        assert ret <= 32768, (
-            "AP_INT_MAX_W=%d is larger than allowed maximum of 32768" % ret
+        assert ret <= 8191, (
+            "AP_INT_MAX_W=%d is larger than allowed maximum of 8191" % ret
         )
         return ret
