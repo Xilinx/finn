@@ -125,11 +125,12 @@ elif [ "$1" = "build_dataflow" ]; then
   DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
 elif [ "$1" = "build_custom" ]; then
   BUILD_CUSTOM_DIR=$(readlink -f "$2")
+  FLOW_NAME=${3:-build}
   FINN_DOCKER_EXTRA+="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR "
   DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
-  gecho "Running build_custom: $BUILD_CUSTOM_DIR/build.py"
-  DOCKER_CMD="python -mpdb -cc -cq build.py"
+  gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
+  DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py"
 else
   gecho "Running container only"
   DOCKER_CMD="bash"
