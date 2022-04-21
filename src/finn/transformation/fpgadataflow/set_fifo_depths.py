@@ -99,7 +99,7 @@ class RemoveShallowFIFOs(Transformation):
                 # bypass shallow fifos
                 shallow_fifos.append(node)
                 consumers = model.find_consumers(node.output[0])
-                if consumers is None:
+                if consumers == []:
                     producer = model.find_producer(node.input[0])
                     for idx, inp in enumerate(producer.output):
                         if inp == node.input[0]:

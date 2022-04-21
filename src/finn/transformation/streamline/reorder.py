@@ -755,6 +755,7 @@ class MoveOpPastFork(Transformation):
                 # Check case when branches are empty and go
                 # to the same node
                 consumers = model.find_consumers(n.output[0])
+                assert len(consumers) > 1, "Must have >1 consumer"
                 unique_consumer = True
                 for consum_node in consumers[1:]:
                     if consumers[0] != consum_node:

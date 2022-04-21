@@ -64,7 +64,9 @@ def is_external_output(model, node, i):
     # indicate whether output i of node should be made external
     # True only if output is unconnected
     consumers = model.find_consumers(node.output[i])
-    if consumers is None:
+    if consumers == []:
+        # TODO should ideally check if tensor is in top-level
+        # outputs
         return True
     return False
 
@@ -270,7 +272,7 @@ class CreateStitchedIP(Transformation):
         for input in model.graph.input:
             inp_name = input.name
             inp_cons = model.find_consumers(inp_name)
-            assert inp_cons is not None, "No consumer for input " + inp_name
+            assert inp_cons != [], "No consumer for input " + inp_name
             assert len(inp_cons) == 1, "Multiple consumers for input " + inp_name
             node = inp_cons[0]
             node_inst = getCustomOp(node)
