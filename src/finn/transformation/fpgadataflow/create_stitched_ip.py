@@ -230,7 +230,7 @@ class CreateStitchedIP(Transformation):
         model = model.transform(ReplaceVerilogRelPaths())
         ip_dirs = ["list"]
         # add RTL streamer IP
-        ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
+        ip_dirs.append("$::env(FINN_ROOT)/finn/finn-rtllib/memstream")
         if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
