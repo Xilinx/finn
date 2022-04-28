@@ -328,7 +328,8 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         code_gen_dir = path
 
         """Saves weights into params.h"""
-        weight_hls_code = numpy_to_hls_code(weight_tensor, wdt, "weights", True, True)
+        weight_tensor = np.reshape(weight_tensor, weight_tensor.shape[:-1])
+        weight_hls_code = numpy_to_hls_code(weight_tensor, wdt, "weights", False, True)
         # write weights into params.h
         f_weights = open("{}/params.h".format(code_gen_dir), "w")
 
