@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Advanced Micro Devices
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
