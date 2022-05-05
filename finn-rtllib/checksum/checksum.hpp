@@ -112,3 +112,20 @@ void checksum(
 #pragma HLS reset variable=cnt
 	chk = (cnt++, s);
 }
+
+#define CHECKSUM_TOP_(WORDS_PER_FRAME, WORD_SIZE, ITEMS_PER_WORD) \
+	using  T = ap_uint<WORD_SIZE>; \
+	void checksum_ ## WORDS_PER_FRAME ## _ ## WORD_SIZE ## _ ## ITEMS_PER_WORD ( \
+		hls::stream<T> &src, \
+		hls::stream<T> &dst, \
+		ap_uint<32>    &chk \
+	) { \
+	_Pragma("HLS interface port=src axis") \
+	_Pragma("HLS interface port=dst axis") \
+	_Pragma("HLS interface port=chk s_axilite") \
+	_Pragma("HLS interface port=return ap_ctrl_none") \
+	_Pragma("HLS dataflow") \
+		checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(src, dst, chk); \
+	}
+#define CHECKSUM_TOP(WORDS_PER_FRAME, WORD_SIZE, ITEMS_PER_WORD) \
+	CHECKSUM_TOP_(WORDS_PER_FRAME, WORD_SIZE, ITEMS_PER_WORD)
