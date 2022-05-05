@@ -7,6 +7,7 @@ node {
     withEnv([
         "FINN_XILINX_PATH=/proj/xbuilds/2022.1_released/installs/lin64",
         "FINN_XILINX_VERSION=2022.1"
+        "FINN_DOCKER_TAG=xilinx/finn:jenkins"
     ]){
         parallel firstBranch: {
             stage('Run brevitas export tests') {
