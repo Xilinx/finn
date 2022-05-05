@@ -52,7 +52,7 @@ from finn.util.basic import make_build_dir
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import crop_center, get_test_model_trained, resize_smaller_side
 
-
+@pytest.mark.brevitas_export
 @pytest.mark.xfail
 def test_brevitas_mobilenet():
     # get single image as input and prepare image

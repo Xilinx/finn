@@ -49,7 +49,7 @@ from finn.util.basic import gen_finn_dt_tensor
 
 export_onnx_path = "test_brevitas_conv.onnx"
 
-
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("dw", [False, True])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("in_channels", [32])

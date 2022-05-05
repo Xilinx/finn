@@ -12,7 +12,7 @@ node {
         parallel firstBranch: {
             stage('Run brevitas export tests') {
                 dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh python setup.py test --addopts -kbrevitas")
+                sh("bash run-docker.sh python setup.py test --addopts -mbrevitas_export")
                 }
             }
         }
