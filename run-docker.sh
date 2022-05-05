@@ -131,11 +131,15 @@ elif [ "$1" = "build_custom" ]; then
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
   DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py"
+elif [ -z "$1" ]; then
+   gecho "Running container only"
+   DOCKER_CMD="bash"
+   DOCKER_INTERACTIVE="-it"
 else
-  gecho "Running container only"
-  DOCKER_CMD="bash"
-  DOCKER_INTERACTIVE="-it"
+  gecho "Running container with passed arguments"
+  DOCKER_CMD="$@"
 fi
+
 
 if [ "$FINN_DOCKER_GPU" != 0 ];then
   gecho "nvidia-docker detected, enabling GPUs"
