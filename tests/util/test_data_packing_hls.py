@@ -38,6 +38,7 @@ from finn.core.datatype import DataType
 from finn.util.data_packing import numpy_to_hls_code
 
 
+@pytest.mark.util
 @pytest.mark.parametrize(
     "dtype",
     [
@@ -123,6 +124,7 @@ g++ -o test_npy2apintstream test.cpp /workspace/cnpy/cnpy.cpp \
     assert success
 
 
+@pytest.mark.util
 def test_numpy_to_hls_code():
     def remove_all_whitespace(s):
         return "".join(s.split())

@@ -21,6 +21,12 @@ node {
                 sh("bash run-docker.sh python setup.py test --addopts -mstreamline")
                 }
             } 
+        }, thirdBranch: {
+            stage('Util functions') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh python setup.py test --addopts -mutil")
+                }
+            }
         }        
     }
 }
