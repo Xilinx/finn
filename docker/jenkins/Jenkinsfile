@@ -27,6 +27,12 @@ node {
                 sh("bash run-docker.sh python setup.py test --addopts -mutil")
                 }
             }
+        }, fourthBranch: {
+            stage('General transformations') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh python setup.py test --addopts -mtransform")
+                }
+            }
         }        
     }
 }

@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 import pkg_resources as pk
 
 import brevitas.onnx as bo
@@ -44,7 +46,7 @@ from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_bn2affine.onnx"
 
-
+@pytest.mark.transform
 def test_batchnorm_to_affine_cnv_w1a1():
     lfc = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(lfc, (1, 3, 32, 32), export_onnx_path)
@@ -69,6 +71,7 @@ def test_batchnorm_to_affine_cnv_w1a1():
     os.remove(export_onnx_path)
 
 
+@pytest.mark.transform
 def test_batchnorm_to_affine_lfc_w1a1():
     lfc = get_test_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)

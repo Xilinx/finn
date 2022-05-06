@@ -88,6 +88,7 @@ def analysis_testing_for_no_quant_nodes(model):
     return dict()
 
 
+@pytest.mark.transform
 # This test currently takes about 4 min and 20 seconds
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("wbits", [1, 2])
