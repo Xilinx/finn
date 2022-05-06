@@ -10,11 +10,17 @@ node {
         "FINN_DOCKER_TAG=xilinx/finn:jenkins"
     ]){
         parallel firstBranch: {
-            stage('Run brevitas export tests') {
+            stage('Brevitas export') {
                 dir("${env.WORKSPACE}") {
                 sh("bash run-docker.sh python setup.py test --addopts -mbrevitas_export")
                 }
             }
-        }
+        }, secondBranch: {
+            stage('Streamlining transformations') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh python setup.py test --addopts -mstreamline")
+                }
+            } 
+        }        
     }
 }

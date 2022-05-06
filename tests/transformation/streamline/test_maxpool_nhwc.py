@@ -66,6 +66,7 @@ def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
     return model
 
 
+@pytest.mark.streamline
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [[8, 8], [9, 9]])
 # input channels

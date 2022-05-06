@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 import numpy as np
 import onnx.helper as oh
 from onnx import TensorProto
@@ -36,6 +38,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.absorb import AbsorbConsecutiveTransposes
 
 
+@pytest.mark.streamline
 def test_absorb_opposite_transposes():
     np.random.seed(0)
     input_shape = [1, 3, 4, 2]

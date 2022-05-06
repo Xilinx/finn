@@ -38,6 +38,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.reorder import MoveAddPastConv
 
 
+@pytest.mark.streamline
 # input dimension
 @pytest.mark.parametrize("idim", [4, 7])
 # kernel size
