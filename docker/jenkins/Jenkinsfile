@@ -5,7 +5,7 @@ node {
         checkout scm
     }
     withEnv([
-        "FINN_XILINX_PATH=/proj/xbuilds/2022.1_released/installs/lin64",
+        "FINN_XILINX_PATH=/proj/xbuilds/SWIP/2022.1_0420_0327/installs/lin64",
         "FINN_XILINX_VERSION=2022.1",
         "FINN_DOCKER_TAG=xilinx/finn:jenkins",
         "PLATFORM_REPO_PATHS=/opt/xilinx/dsa"
