@@ -47,6 +47,7 @@ test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_runtime_weights_single_layer():
     idt = DataType["UINT32"]

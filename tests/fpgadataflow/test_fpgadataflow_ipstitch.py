@@ -201,6 +201,7 @@ def create_two_fc_model(mem_mode="decoupled"):
 
 
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = create_one_fc_model(mem_mode)
@@ -222,6 +223,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
 
 
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
     model = load_test_checkpoint_or_skip(
@@ -239,6 +241,7 @@ def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
 
 
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
     model = load_test_checkpoint_or_skip(
@@ -287,6 +290,7 @@ def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
 
 
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_ipstitch_synth_ooc(mem_mode):
@@ -307,7 +311,7 @@ def test_fpgadataflow_ipstitch_synth_ooc(mem_mode):
     assert ret["BRAM"] == 0
     assert ret["fmax_mhz"] > 100
 
-
+@pytest.mark.fpgadataflow
 def test_fpgadataflow_ipstitch_iodma_floorplan():
     model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
@@ -330,6 +334,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.parametrize("period_ns", [5])
 # override mem_mode to external
 @pytest.mark.parametrize("extw", [True, False])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.vitis
@@ -353,6 +358,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
 
 # board
 @pytest.mark.parametrize("board", ["Pynq-Z1"])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):

@@ -116,6 +116,7 @@ def make_single_thresholding_modelwrapper(
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 # memory mode
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
@@ -196,6 +197,7 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
         assert exp_cycles != 0
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_runtime_thresholds_single_layer():
     n_inp_vecs = [1, 2, 2]

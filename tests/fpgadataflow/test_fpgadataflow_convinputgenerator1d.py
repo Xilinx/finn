@@ -169,6 +169,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("flip", [False, True])
 # Use parallel window output variant
 @pytest.mark.parametrize("parallel_window", [False, True])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_slidingwindow_1d(

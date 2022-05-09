@@ -89,6 +89,7 @@ def make_lookup_model(embeddings, ishape, idt, edt):
 )
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
@@ -134,6 +135,7 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
     assert (exp_out == ret_sim[oname]).all()
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_lookup_external():

@@ -145,6 +145,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("ceil_mode", [1])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["rtlsim", "cppsim"])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_streamingmaxpool(
