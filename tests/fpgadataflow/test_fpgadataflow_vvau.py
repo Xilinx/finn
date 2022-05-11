@@ -62,8 +62,8 @@ def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
 def _calculate_dot_prod_range(dt_a, dt_b, len):
     """Returns the (min,max) values a dot product between two (un)signed vectors of
     types dt_a and dt_b of len elements can take."""
-    min_prod = 2 ** 30
-    max_prod = -(2 ** 30)
+    min_prod = 2**30
+    max_prod = -(2**30)
     for a_val in [dt_a.min(), dt_a.max()]:
         for b_val in [dt_b.min(), dt_b.max()]:
             prod = a_val * b_val * len
@@ -158,6 +158,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("channels", [3, 4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_vvau(

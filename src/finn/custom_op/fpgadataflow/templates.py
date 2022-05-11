@@ -86,10 +86,10 @@ puts "HLS project: $config_proj_name"
 set config_hwsrcdir "$HWSRCDIR$"
 puts "HW source dir: $config_hwsrcdir"
 set config_proj_part "$FPGAPART$"
-
-set config_bnnlibdir "$FINNHLSLIBDIR$"
-set config_customhlsdir "$FINNHLSCUSTOMDIR$"
-
+set config_bnnlibdir "$::env(FINN_ROOT)/finn-hlslib"
+puts "finn-hlslib dir: $config_bnnlibdir"
+set config_customhlsdir "$::env(FINN_ROOT)/finn/custom_hls"
+puts "custom HLS dir: $config_customhlsdir"
 set config_toplevelfxn "$TOPFXN$"
 set config_clkperiod $CLKPERIOD$
 

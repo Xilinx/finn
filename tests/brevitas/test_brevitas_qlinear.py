@@ -46,7 +46,7 @@ from finn.util.basic import gen_finn_dt_tensor
 
 export_onnx_path = "test_brevitas_qlinear.onnx"
 
-
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("bias", [False, True])
 @pytest.mark.parametrize("out_features", [4])
 @pytest.mark.parametrize("in_features", [3])

@@ -68,7 +68,7 @@ def collect_ip_dirs(model, ipstitch_path):
     ip_dirs += [ipstitch_path + "/ip"]
     if need_memstreamer:
         # add RTL streamer IP
-        ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
+        ip_dirs.append("$::env(FINN_ROOT)/finn/finn-rtllib/memstream")
     return ip_dirs
 
 
@@ -152,11 +152,13 @@ class MakeZYNQProject(Transformation):
             # define kernel instances
             # name kernels connected to graph inputs as idmaxx
             # name kernels connected to graph outputs as odmaxx
-            if producer is None or consumer is None:
+            if (producer is None) or (consumer == []):
+                # TODO not a good way of checking for external inp&out
+                # should look at the list of top-level in/out instead
                 if producer is None:
                     instance_names[node.name] = "idma" + str(idma_idx)
                     idma_idx += 1
-                elif consumer is None:
+                elif consumer == []:
                     instance_names[node.name] = "odma" + str(odma_idx)
                     odma_idx += 1
                 config.append(

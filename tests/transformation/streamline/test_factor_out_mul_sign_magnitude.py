@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 import numpy as np
 import onnx.helper as oh
 from onnx import TensorProto
@@ -36,6 +38,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import FactorOutMulSignMagnitude
 
 
+@pytest.mark.streamline
 def test_factor_out_mul_sign_magnitude():
     top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, [1, 2])
     mul_param = oh.make_tensor_value_info("mul_param", TensorProto.FLOAT, [1, 2])

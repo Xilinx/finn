@@ -58,6 +58,7 @@ from finn.util.basic import gen_finn_dt_tensor
 )
 @pytest.mark.parametrize("depthwise", [False, True])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):

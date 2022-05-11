@@ -37,6 +37,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_code_gen_trafo():
     idt = wdt = odt = DataType["BIPOLAR"]

@@ -10,6 +10,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import MoveAddPastConv, MoveScalarMulPastConv
 
 
+@pytest.mark.streamline
 @pytest.mark.parametrize("padding", [False, True])
 @pytest.mark.parametrize(
     "test_args",
@@ -90,6 +91,7 @@ def test_move_scalar_past_conv(test_args, padding):
         assert new_model.graph.node[2].op_type == scalar_op
 
 
+@pytest.mark.streamline
 @pytest.mark.parametrize(
     "test_args",
     [("Add", MoveAddPastConv()), ("Mul", MoveScalarMulPastConv())],

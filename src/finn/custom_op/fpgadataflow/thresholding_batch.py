@@ -589,7 +589,7 @@ class Thresholding_Batch(HLSCustomOp):
     # TODO check and add whatever missing
     def defines(self, var):
         numInputVectors = list(self.get_nodeattr("numInputVectors"))
-        numReps = numInputVectors[0]
+        numReps = int(np.prod(numInputVectors))
         self.code_gen_dict["$DEFINES$"] = [
             """#define NumChannels1 {}\n #define PE1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("NumChannels"),
@@ -937,3 +937,8 @@ class Thresholding_Batch(HLSCustomOp):
         thres_count = out_features * num_steps
         ret_dict[thres_param_type] = thres_count
         return ret_dict
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+
+        return ["config_compile -pipeline_style frp"]

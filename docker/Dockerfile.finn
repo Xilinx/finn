@@ -91,14 +91,14 @@ RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg
 
 # git-based Python repo dependencies
 # these are installed in editable mode for easier co-development
-ARG FINN_BASE_COMMIT="7cd7e00ba6709a85073ba22beeb5827e684fe085"
+ARG FINN_BASE_COMMIT="585bccad29ba6416511256c732a2c1da21d00bdf"
 ARG QONNX_COMMIT="9f9eff95227cc57aadc6eafcbd44b7acda89f067"
 ARG FINN_EXP_COMMIT="af6102769226b82b639f243dc36f065340991513"
 ARG BREVITAS_COMMIT="a5b71d6de1389d3e7db898fef72e014842670f03"
 ARG PYVERILATOR_COMMIT="0c3eb9343500fc1352a02c020a736c8c2db47e8e"
 ARG CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
-ARG HLSLIB_COMMIT="da7b47cd65a967b76554a0dda74c097803c5e550"
-ARG OMX_COMMIT="1dfc4aa2f2895632742cd5751520c6b472feb74e"
+ARG HLSLIB_COMMIT="269410aa217389fc02e69bd7de210cd026f10971"
+ARG OMX_COMMIT="a97f0bf145a2f7e57ca416ea76c9e45df4e9aa37"
 ARG AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 
 # finn-base
@@ -129,7 +129,7 @@ RUN git -C /workspace/cnpy checkout $CNPY_COMMIT
 RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
 RUN git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT
 # oh-my-xilinx
-RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
+RUN git clone https://github.com/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
 RUN git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT
 # board files
 RUN cd /tmp; \

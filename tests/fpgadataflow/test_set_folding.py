@@ -109,9 +109,10 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
 
 
 # desired frames per second
-@pytest.mark.parametrize("target_fps", [30, 10 ** 5, 10 ** 7])
+@pytest.mark.parametrize("target_fps", [30, 10**5, 10**7])
 # target chip or board
 @pytest.mark.parametrize("platform", ["Pynq-Z1", "Ultra96", "U200"])
+@pytest.mark.fpgadataflow
 def test_set_folding(target_fps, platform):
 
     model = make_multi_fclayer_model(
@@ -126,7 +127,7 @@ def test_set_folding(target_fps, platform):
     dataflow_model = load_test_checkpoint_or_skip(dataflow_model_filename)
 
     clk_ns = 5
-    target_cycles_per_frame = int((10 ** 9 / clk_ns) / target_fps)
+    target_cycles_per_frame = int((10**9 / clk_ns) / target_fps)
     dataflow_model = dataflow_model.transform(SetFolding(target_cycles_per_frame))
 
     exp_cycles_dict = dataflow_model.analysis(exp_cycles_per_layer)

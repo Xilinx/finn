@@ -146,11 +146,14 @@ class FoldQuantWeights(Transformation):
                         model.set_initializer(mul_tensor.name, scale)
 
                         successor = model.find_consumers(node_out)
-                        if successor is None:
+                        if successor == []:
                             raise RuntimeError(
                                 "Can only constant fold scaled Quant weights "
                                 "if a successor exists."
                             )
+                        assert (
+                            len(successor) == 1
+                        ), "Only implemented for a single consumer"
                         successor = successor[0]
                         succ_output_name = successor.output[0]
 

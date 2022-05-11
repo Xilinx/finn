@@ -55,6 +55,7 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
+from finn.core.rtlsim_exec import rtlsim_exec
 from finn.core.throughput_test import throughput_test_rtlsim
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
@@ -108,7 +109,11 @@ from finn.util.test import execute_parent
 
 
 def verify_step(
-    model: ModelWrapper, cfg: DataflowBuildConfig, step_name: str, need_parent: bool
+    model: ModelWrapper,
+    cfg: DataflowBuildConfig,
+    step_name: str,
+    need_parent: bool,
+    rtlsim_pre_hook=None,
 ):
     print("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
@@ -131,7 +136,10 @@ def verify_step(
         inp_tensor_name = model.graph.input[0].name
         out_tensor_name = model.graph.output[0].name
         inp_dict = {inp_tensor_name: in_npy}
-        out_dict = execute_onnx(model, inp_dict, True)
+        if rtlsim_pre_hook is not None:
+            out_dict = rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
+        else:
+            out_dict = execute_onnx(model, inp_dict, True)
         out_npy = out_dict[out_tensor_name]
     res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
     res_to_str = {True: "SUCCESS", False: "FAIL"}
@@ -397,7 +405,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         model = model.transform(AnnotateCycles())
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
-        n_clock_cycles_per_sec = (10 ** 9) / cfg.synth_clk_period_ns
+        n_clock_cycles_per_sec = (10**9) / cfg.synth_clk_period_ns
         est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
         estimate_network_performance["estimated_throughput_fps"] = est_fps
         est_latency_ns = (
@@ -599,7 +607,7 @@ def step_out_of_context_synthesis(model: ModelWrapper, cfg: DataflowBuildConfig)
 
         estimate_network_performance = model.analysis(dataflow_performance)
         # add some more metrics to estimated performance
-        n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10 ** 6)
+        n_clock_cycles_per_sec = float(ooc_res_dict["fmax_mhz"]) * (10**6)
         est_fps = n_clock_cycles_per_sec / estimate_network_performance["max_cycles"]
         ooc_res_dict["estimated_throughput_fps"] = est_fps
         with open(report_dir + "/ooc_synth_and_timing.json", "w") as f:

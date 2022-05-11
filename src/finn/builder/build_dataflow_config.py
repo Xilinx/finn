@@ -342,7 +342,7 @@ class DataflowBuildConfig:
         if self.target_fps is None:
             return None
         else:
-            n_clock_cycles_per_sec = 10 ** 9 / self.synth_clk_period_ns
+            n_clock_cycles_per_sec = 10**9 / self.synth_clk_period_ns
             n_cycles_per_frame = n_clock_cycles_per_sec / self.target_fps
             return int(n_cycles_per_frame)
 

@@ -213,11 +213,13 @@ class VitisLink(Transformation):
             # define kernel instances
             # name kernels connected to graph inputs as idmaxx
             # name kernels connected to graph inputs as odmaxx
+            # TODO not a good way of checking for external in/out
+            # check top-level in/out list instead
             if producer is None:
                 instance_names[node.name] = "idma" + str(idma_idx)
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 idma_idx += 1
-            elif consumer is None:
+            elif consumer == []:
                 instance_names[node.name] = "odma" + str(odma_idx)
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 odma_idx += 1

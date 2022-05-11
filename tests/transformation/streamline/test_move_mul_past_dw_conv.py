@@ -12,6 +12,7 @@ from finn.transformation.streamline.reorder import MoveMulPastDWConv
 from finn.util.basic import gen_finn_dt_tensor
 
 
+@pytest.mark.streamline
 # input dimension
 @pytest.mark.parametrize("ifm_dim", [4, 7])
 # input channels

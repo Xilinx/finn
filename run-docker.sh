@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Advanced Micro Devices
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -125,16 +125,21 @@ elif [ "$1" = "build_dataflow" ]; then
   DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
 elif [ "$1" = "build_custom" ]; then
   BUILD_CUSTOM_DIR=$(readlink -f "$2")
+  FLOW_NAME=${3:-build}
   FINN_DOCKER_EXTRA+="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR "
   DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
-  gecho "Running build_custom: $BUILD_CUSTOM_DIR/build.py"
-  DOCKER_CMD="python -mpdb -cc -cq build.py"
+  gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
+  DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py"
+elif [ -z "$1" ]; then
+   gecho "Running container only"
+   DOCKER_CMD="bash"
+   DOCKER_INTERACTIVE="-it"
 else
-  gecho "Running container only"
-  DOCKER_CMD="bash"
-  DOCKER_INTERACTIVE="-it"
+  gecho "Running container with passed arguments"
+  DOCKER_CMD="$@"
 fi
+
 
 if [ "$FINN_DOCKER_GPU" != 0 ];then
   gecho "nvidia-docker detected, enabling GPUs"
@@ -178,7 +183,7 @@ DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
-DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
+DOCKER_EXEC+="-e FINN_ROOT="/workspace" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
 DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
 DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "

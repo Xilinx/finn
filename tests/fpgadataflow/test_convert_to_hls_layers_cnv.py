@@ -55,6 +55,7 @@ from finn.util.test import get_test_model_trained
 export_onnx_path_cnv = "test_convert_to_hls_layers_cnv.onnx"
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 # Standalone or fused thresholding-based activation
 @pytest.mark.parametrize("fused_activation", [True, False])
