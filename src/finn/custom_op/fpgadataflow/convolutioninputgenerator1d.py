@@ -183,18 +183,36 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         num_output_elems = np.prod(folded_oshape[:-1])
         return num_output_elems
 
+    def get_swu_variant(self):
+        # checks which variant of the 1D ConvolutionInputGenerator (SWU) can be used
+        # We have 5 variants: ConvolutionInputGenerator_1D_parallel,
+        # ConvolutionInputGenerator_1D_dws_naive, ConvolutionInputGenerator_1D,
+        # ConvolutioninputGenerator_1D_dws, ConvolutionInputGenerator_1D_dws_stride
+        is_dws = self.get_nodeattr("depthwise")
+        is_strided = np.prod(self.get_nodeattr("Stride")) > 1
+        is_stride_2 = np.prod(self.get_nodeattr("Stride")) == 2
+        is_dilated = np.prod(self.get_nodeattr("Dilation")) > 1
+        if self.use_parallel_window_output():
+            return "ConvolutionInputGenerator_1D_parallel"
+        if not is_dws:
+            return "ConvolutionInputGenerator_1D"
+        if is_dws:
+            if (is_strided and not is_stride_2) or (is_dilated):
+                return "ConvolutionInputGenerator_1D_dws_naive"
+            elif is_stride_2:
+                return "ConvolutionInputGenerator_1D_dws_stride"
+            else:
+                return "ConvolutionInputGenerator_1D_dws"
+
     def get_1d_conv_attrs_normalized(self):
         # support both (1, D) and (D, 1) cases transparently:
         # For the kernel, presenting the input data of size D as
         # [H, W] = [Y, X] = [1, D] or [D, 1]
-        # effectively gives the same result. Because the
-        # ConvolutionInputGenerator_NonSquare_Dilated(_dws) kernel currently only
-        # supports dilation>1 along the X-axis and the
-        # ConvolutionInputGenerator_NonSquare only works for stride>1 along the
-        # X-axis, we are working with the following assumption:
-        # the dummy ('1') dimension is the Y-dimension, i.e.
-        # images and kernels (and their attributes) of dimension
-        # [H, W] = [Y, X] = [D, 1] or [1, D] are always mapped to [1, D]
+        # effectively gives the same result.
+        # For consistency and ease of programming, this function
+        # returns the attributes of the layer as follows:
+        # [H, W] = [Y, X] = [1, D] or [D, 1] are always mapped to [1, D].
+        # The dummy ('1') dimension is the Y-dimension.
         ifm_ch = self.get_nodeattr("IFMChannels")
         k = self.get_nodeattr("ConvKernelDim")
         ifm_dim = self.get_nodeattr("IFMDim")
@@ -251,57 +269,62 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         simd = self.get_nodeattr("SIMD")
         (
             ifm_ch,
-            ifm_dim,
-            ofm_dim,
-            k,
-            stride,
-            dilation,
+            [ifm_dim_h, ifm_dim_w],
+            [ofm_dim_h, ofm_dim_w],
+            [k_h, k_w],
+            [stride_h, stride_w],
+            [dilation_h, dilation_w],
         ) = self.get_1d_conv_attrs_normalized()
-        ifm_dim_h, ifm_dim_w = ifm_dim
-        ofm_dim_h, ofm_dim_w = ofm_dim
-        k_h, k_w = k
-        stride_h, stride_w = stride
-        dilation_h, dilation_w = dilation
 
         # since mmv != 1 is not supported yet, we set mmv for now to 1
-        mmv = 1
+        # mmv = 1
         # see https://github.com/Xilinx/finn-hlslib/blob/master/slidingwindow.h
-        if self.use_parallel_window_output():
+        swu_variant = self.get_swu_variant()
+        if swu_variant == "ConvolutionInputGenerator_1D_parallel":
             exp_cycles = k_w + ofm_dim_w
-        elif dilation_h > 1 or dilation_w > 1:
+        elif swu_variant == "ConvolutionInputGenerator_1D":
+            exp_cycles = 1 + ofm_dim_w * k_w * ifm_ch / simd
+        elif swu_variant in [
+            "ConvolutionInputGenerator_1D_dws",
+            "ConvolutionInputGenerator_1D_dws_stride",
+        ]:
+            exp_cycles = (
+                1
+                + ofm_dim_w * k_w * ifm_ch / simd
+                + (ifm_ch / simd) * (k_w - 1)
+                - (k_w - 1)
+            )
+        elif swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
             cycles_read_block = ifm_dim_w * ifm_ch / simd
             cycles_write_block = ofm_dim_w * k_w * ifm_ch / simd
             exp_cycles = cycles_read_block + cycles_write_block
-        elif self.get_nodeattr("depthwise") == 1:
-            if stride_h > 1 or stride_w > 1:
-                cycles_write_block = (ofm_dim_w * k_w * k_h * (ifm_ch / simd)) / mmv
-                cycles_read_block = stride_w * ifm_dim_w * (ifm_ch / simd)
-                max_cycles = max(cycles_write_block, cycles_read_block)
-                exp_cycles = (
-                    ifm_dim_w * k_h * dilation_h * (ifm_ch / simd)
-                    + ofm_dim_h * max_cycles
-                )
-            else:
-                cycles_read_block = ifm_ch / simd * (k_w - 1) - (k_w - 1)
-                cycles_write_block = ofm_dim_w * k_w * ifm_ch / simd
-                exp_cycles = cycles_read_block + cycles_write_block
-        else:
-            exp_cycles = 1 + ofm_dim_w * k_w * ifm_ch / simd
 
         return int(exp_cycles)
 
     def bram_estimation(self):
-        # NOTE: not tested for correctness
         simd = self.get_nodeattr("SIMD")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ifm_dim = np.prod(self.get_nodeattr("IFMDim"))
-        k = np.prod(self.get_nodeattr("ConvKernelDim"))
-        stride = np.prod(self.get_nodeattr("Stride"))
+        (
+            ifm_ch,
+            [ifm_dim_h, ifm_dim_w],
+            [ofm_dim_h, ofm_dim_w],
+            [k_h, k_w],
+            [stride_h, stride_w],
+            [dilation_h, dilation_w],
+        ) = self.get_1d_conv_attrs_normalized()
         ram_style = self.get_nodeattr("ram_style")
-        if self.use_parallel_window_output():
+        swu_variant = self.get_swu_variant()
+        if swu_variant == "ConvolutionInputGenerator_1D_parallel":
             return 0
         if ram_style == "block" or ram_style == "auto":
-            ram_depth = ifm_dim * ifm_ch / simd
+            if swu_variant == "ConvolutionInputGenerator_1D":
+                ram_depth = (k_w - 1) * ifm_ch / simd
+            elif swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
+                ram_depth = ifm_dim_w * ifm_ch / simd
+            elif swu_variant in [
+                "ConvolutionInputGenerator_1D_dws",
+                "ConvolutionInputGenerator_1D_dws_stride",
+            ]:
+                ram_depth = k_w * ifm_ch / simd
             if ram_depth <= 512:
                 ram_width = 36
             elif ram_depth <= 1024:
@@ -314,63 +337,80 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
                 ram_width = 2
             else:
                 ram_width = 1
-            return int(
-                (k + stride)
-                * (
-                    math.ceil(simd * self.get_input_datatype().bitwidth() / ram_width)
-                    * math.ceil(ifm_dim * ifm_ch / simd / ram_depth)
-                )
+            width_mul = math.ceil(
+                simd * self.get_input_datatype().bitwidth() / ram_width
             )
+            depth_mul = math.ceil(ram_depth / 18432)
+            return width_mul * depth_mul
         else:
             return 0
 
     def lut_estimation(self):
-        # NOTE: not tested for correctness
         simd = self.get_nodeattr("SIMD")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        ifm_dim = np.prod(self.get_nodeattr("IFMDim"))
-        k = np.prod(self.get_nodeattr("ConvKernelDim"))
-        stride = np.prod(self.get_nodeattr("Stride"))
+        (
+            ifm_ch,
+            [ifm_dim_h, ifm_dim_w],
+            [ofm_dim_h, ofm_dim_w],
+            [k_h, k_w],
+            [stride_h, stride_w],
+            [dilation_h, dilation_w],
+        ) = self.get_1d_conv_attrs_normalized()
         ram_style = self.get_nodeattr("ram_style")
-        if self.use_parallel_window_output():
+        swu_variant = self.get_swu_variant()
+        if swu_variant == "ConvolutionInputGenerator_1D_parallel":
             ram_luts = math.ceil(
-                (simd * self.get_input_datatype().bitwidth() * (k + 1)) / 64
+                simd * self.get_input_datatype().bitwidth() * (k_w + 1) / 64
             )
         elif ram_style == "distributed":
-            ram_luts = int(
-                (k + stride)
-                * (
-                    simd
-                    * self.get_input_datatype().bitwidth()
-                    * math.ceil(ifm_dim * ifm_ch / simd / 64)
+            if swu_variant == "ConvolutionInputGenerator_1D":
+                ram_luts = math.ceil(
+                    self.get_input_datatype().bitwidth() * (k_w - 1) * ifm_ch / 64
                 )
-            )
+            elif swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
+                ram_luts = math.ceil(
+                    self.get_input_datatype().bitwidth() * ifm_dim_w * ifm_ch / 64
+                )
+            elif swu_variant in [
+                "ConvolutionInputGenerator_1D_dws",
+                "ConvolutionInputGenerator_1D_dws_stride",
+            ]:
+                ram_luts = math.ceil(
+                    self.get_input_datatype().bitwidth() * k_w * ifm_ch / 64
+                )
         else:
             ram_luts = 0
         return 300 + ram_luts
 
     def uram_estimation(self):
-        # NOTE: not tested for correctness
+        simd = self.get_nodeattr("SIMD")
         (
             ifm_ch,
-            ifm_dim,
-            ofm_dim,
-            k,
-            stride,
-            dilation,
+            [ifm_dim_h, ifm_dim_w],
+            [ofm_dim_h, ofm_dim_w],
+            [k_h, k_w],
+            [stride_h, stride_w],
+            [dilation_h, dilation_w],
         ) = self.get_1d_conv_attrs_normalized()
-        ifm_dim_y, ifm_dim_x = ifm_dim
-        k_y, k_x = k
-        stride_y, stride_x = stride
         ram_style = self.get_nodeattr("ram_style")
-        simd = self.get_nodeattr("SIMD")
-        if self.use_parallel_window_output():
+        swu_variant = self.get_swu_variant()
+        if swu_variant == "ConvolutionInputGenerator_1D_parallel":
             return 0
         elif ram_style == "ultra":
-            block_mul = 2
-            width_mul = math.ceil(simd * self.get_input_datatype().bitwidth() / 64)
-            depth_mul = math.ceil(stride_x * ifm_dim_x * (ifm_ch // simd) / 4096)
-            return block_mul * width_mul * depth_mul
+            if swu_variant == "ConvolutionInputGenerator_1D":
+                width_mul = math.ceil(simd * self.get_input_datatype().bitwidth() / 72)
+                depth_mul = math.ceil((k_w - 1) * ifm_ch / simd / 4096)
+                return width_mul * depth_mul
+            elif swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
+                width_mul = math.ceil(simd * self.get_input_datatype().bitwidth() / 72)
+                depth_mul = math.ceil(ifm_dim_w * ifm_ch / simd / 4096)
+                return width_mul * depth_mul
+            elif swu_variant in [
+                "ConvolutionInputGenerator_1D_dws",
+                "ConvolutionInputGenerator_1D_dws_stride",
+            ]:
+                width_mul = math.ceil(simd * self.get_input_datatype().bitwidth() / 72)
+                depth_mul = math.ceil(k_w * ifm_ch / simd / 4096)
+                return width_mul * depth_mul
         else:
             return 0
 
@@ -468,27 +508,21 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         numReps = 1
         (
             ifm_ch,
-            ifm_dim,
-            ofm_dim,
-            k,
-            stride,
-            dilation,
+            [ifm_dim_h, ifm_dim_w],
+            [ofm_dim_h, ofm_dim_w],
+            [k_h, k_w],
+            [stride_h, stride_w],
+            [dilation_h, dilation_w],
         ) = self.get_1d_conv_attrs_normalized()
         simd = self.get_nodeattr("SIMD")
         ifm_precision = self.get_input_datatype().bitwidth()
-        ifm_dim_y, ifm_dim_x = ifm_dim
-        ofm_dim_y, ofm_dim_x = ofm_dim
-        k_y, k_x = k
-        dilation_y, dilation_x = dilation
-        # For a 1d convolution with stride=[S,1] or [1,S], the finn-hlslib function
-        # of ConvInpGen must be created with [stride_y, stride_x] = [S, S].
-        # TODO: changes in finn-hlslib (slidingwindow.h)
-        stride_x = np.prod(stride)
+        swu_variant = self.get_swu_variant()
 
-        if dilation_x > 1:
-            assert (
-                dilation_y == 1
-            ), "Dilation value greater than 1 along y-axis is not yet supported"
+        if swu_variant in [
+            "ConvolutionInputGenerator_1D_parallel",
+            "ConvolutionInputGenerator_1D",
+            "ConvolutionInputGenerator_1D_dws_stride",
+        ]:
             self.code_gen_dict["$DEFINES$"] = [
                 """
             #define ConvKernelDim1_x {}\n
@@ -496,24 +530,21 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             #define Input_precision1 {}\n
             #define IFMDim1_x {}\n
             #define OFMDim1_x {}\n
-            #define SIMD1 {}\n
             #define Stride1_x {}\n
-            #define Dilation1_x {}\n
+            #define SIMD1 {}\n
             #define numReps {}
             """.format(
-                    k_x,
+                    k_w,
                     ifm_ch,
                     ifm_precision,
-                    ifm_dim_x,
-                    ofm_dim_x,
+                    ifm_dim_w,
+                    ofm_dim_w,
+                    stride_w,
                     simd,
-                    stride_x,
-                    dilation_x,
                     numReps,
                 )
             ]
-        else:
-            ofm_dim = self.get_nodeattr("OFMDim")
+        if swu_variant == "ConvolutionInputGenerator_1D_dws":
             self.code_gen_dict["$DEFINES$"] = [
                 """
             #define ConvKernelDim1_x {}\n
@@ -522,16 +553,38 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             #define IFMDim1_x {}\n
             #define OFMDim1_x {}\n
             #define SIMD1 {}\n
-            #define Stride1_x {}\n
             #define numReps {}
             """.format(
-                    k_x,
+                    k_w,
                     ifm_ch,
                     ifm_precision,
-                    ifm_dim_x,
-                    ofm_dim_x,
+                    ifm_dim_w,
+                    ofm_dim_w,
                     simd,
-                    stride_x,
+                    numReps,
+                )
+            ]
+        if swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
+            self.code_gen_dict["$DEFINES$"] = [
+                """
+            #define ConvKernelDim1_x {}\n
+            #define IFMChannels1 {}\n
+            #define Input_precision1 {}\n
+            #define IFMDim1_x {}\n
+            #define OFMDim1_x {}\n
+            #define Stride1_x {}\n
+            #define Dilation1_x {}\n
+            #define SIMD1 {}\n
+            #define numReps {}
+            """.format(
+                    k_w,
+                    ifm_ch,
+                    ifm_precision,
+                    ifm_dim_w,
+                    ofm_dim_w,
+                    stride_w,
+                    dilation_w,
+                    simd,
                     numReps,
                 )
             ]
@@ -572,71 +625,49 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             "ultra": "ap_resource_uram()",
         }
         hls_ram_style = map_to_hls_ram_style[ram_style]
-        (
-            ifm_ch,
-            ifm_dim,
-            ofm_dim,
-            k,
-            stride,
-            dilation,
-        ) = self.get_1d_conv_attrs_normalized()
-        stride_x = np.prod(stride)
+        swu_variant = self.get_swu_variant()
 
         # check which ConvolutionInputGenerator is needed
-        if self.use_parallel_window_output():
-            hls_call = "ConvolutionInputGenerator_1D_parallel"
+        if swu_variant == "ConvolutionInputGenerator_1D_parallel":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
-                IFMDim1_x, OFMDim1_x, SIMD1, Stride1_x>
+                IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
                 (in0, out, numReps, {});""".format(
-                    hls_call, hls_ram_style
+                    swu_variant, hls_ram_style
                 )
             ]
-        else:
-            dilation_h, dilation_w = self.get_nodeattr("Dilation")
-            if self.get_nodeattr("depthwise") == 1:
-                if dilation_h > 1 or dilation_w > 1:
-                    hls_call = "ConvolutionInputGenerator_1D_dilated_dws"
-                    self.code_gen_dict["$DOCOMPUTE$"] = [
-                        """{}<ConvKernelDim1_x, IFMChannels1,
-                        Input_precision1, IFMDim1_x, OFMDim1_x,
-                        SIMD1, Stride1_x, Dilation1_x>
-                        (in0, out, numReps, {});""".format(
-                            hls_call, hls_ram_style
-                        )
-                    ]
-                else:
-                    if stride_x > 1:
-                        # temporarily use old ConvolutionInputGenerator_NonSquare_dws
-                        # for depthwise with stride > 1
-                        # note that both x and y stride are set to same (hlslib bug)
-                        hls_call = "ConvolutionInputGenerator_NonSquare_dws"
-                        self.code_gen_dict["$DOCOMPUTE$"] = [
-                            """{}<ConvKernelDim1_x, 1, IFMChannels1,
-                            Input_precision1, IFMDim1_x, 1, OFMDim1_x, 1,
-                            SIMD1, Stride1_x, Stride1_x
-                            > (in0, out, numReps, {});""".format(
-                                hls_call, hls_ram_style
-                            )
-                        ]
-                    else:
-                        hls_call = "ConvolutionInputGenerator_1D_dws_lowbuffer"
-                        self.code_gen_dict["$DOCOMPUTE$"] = [
-                            """{}<ConvKernelDim1_x, IFMChannels1,
-                            Input_precision1, IFMDim1_x, OFMDim1_x,
-                            SIMD1> (in0, out, numReps, {});""".format(
-                                hls_call, hls_ram_style
-                            )
-                        ]
-            else:
-                hls_call = "ConvolutionInputGenerator_1D_lowbuffer"
-                self.code_gen_dict["$DOCOMPUTE$"] = [
-                    """{}<ConvKernelDim1_x, IFMChannels1,
-                    Input_precision1, IFMDim1_x, OFMDim1_x,
-                    Stride1_x, SIMD1> (in0, out, numReps, {});""".format(
-                        hls_call, hls_ram_style
-                    )
-                ]
+        if swu_variant == "ConvolutionInputGenerator_1D":
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
+                IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
+                (in0, out, numReps, {});""".format(
+                    swu_variant, hls_ram_style
+                )
+            ]
+        if swu_variant == "ConvolutionInputGenerator_1D_dws":
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
+                IFMDim1_x, OFMDim1_x, SIMD1>
+                (in0, out, numReps, {});""".format(
+                    swu_variant, hls_ram_style
+                )
+            ]
+        if swu_variant == "ConvolutionInputGenerator_1D_dws_stride":
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
+                IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
+                (in0, out, numReps, {});""".format(
+                    swu_variant, hls_ram_style
+                )
+            ]
+        if swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
+                IFMDim1_x, OFMDim1_x, Stride1_x, Dilation1_x, SIMD1>
+                (in0, out, numReps, {});""".format(
+                    swu_variant, hls_ram_style
+                )
+            ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")

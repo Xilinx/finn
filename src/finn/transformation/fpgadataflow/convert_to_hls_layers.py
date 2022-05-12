@@ -203,21 +203,11 @@ class InferConvInpGen(Transformation):
                             % n.name
                         )
                         if dilation_h > 1 or dilation_w > 1:
-                            assert stride_h == 1 and stride_w == 1, (
-                                """%s: Stride value of greater than 1 is not supported for convolutions
-                                with dilation value greater than 1"""
-                                % n.name
-                            )
                             assert depthwise == 1, (
                                 """%s: Dilation value > 1 is only supported for
                                 1D depthwise separable convolutions"""
                                 % n.name
                             )
-                        if (stride_h > 1 or stride_w > 1) and (not depthwise):
-                            assert (
-                                stride_h < k_h and stride_w < k_w
-                            ), """%s: Stride value must be smaller than kernel dim
-                            for non-depthwise (dense) convolutions"""
                         ConvInpGen_node = helper.make_node(
                             "ConvolutionInputGenerator1D",
                             [ConvInpGen_input],
