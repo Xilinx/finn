@@ -87,7 +87,7 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("imdim", [7])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.fpgadataflow
+@pytest.mark.custom_op
 @pytest.mark.vivado
 def test_fpgadataflow_globalaccpool(idt, ch, fold, imdim, exec_mode):
     if fold == -1:

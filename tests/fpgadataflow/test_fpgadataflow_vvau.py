@@ -158,7 +158,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("channels", [3, 4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.fpgadataflow
+@pytest.mark.custom_op
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_vvau(

@@ -149,7 +149,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("simd", [1, 2])
 # depthwise
 @pytest.mark.parametrize("dw", [0, 1])
-@pytest.mark.fpgadataflow
+@pytest.mark.custom_op
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_slidingwindow(

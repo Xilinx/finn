@@ -92,7 +92,7 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("k", [1, 5])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.fpgadataflow
+@pytest.mark.custom_op
 @pytest.mark.vivado
 def test_fpgadataflow_labelselect(idt, labels, fold, k, exec_mode):
     np.random.seed(0)

@@ -140,7 +140,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("op_type", ["QuantAvgPool2d", "MaxPool", "MaxPool1D"])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.fpgadataflow
+@pytest.mark.convert_to_hls
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_convert_to_hls_pool_batch(
