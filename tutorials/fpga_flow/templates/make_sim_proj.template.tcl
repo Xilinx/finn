@@ -29,17 +29,17 @@
 
 # generate structural sim model from dcp if not found
 if { [file exists finn_design_funcsim.v] == 0} {
-    open_checkpoint $DCP_ROOT$/finn_design.dcp
+    open_checkpoint @DCP_ROOT@/finn_design.dcp
     write_verilog -mode funcsim finn_design_funcsim.v
     close_design
 }
 
 read_verilog finn_design_funcsim.v
+read_verilog axi_ram.v
 read_verilog -sv finn_testbench.sv
 
 save_project_as sim -force
-add_files -fileset sim_1 input.hex
-add_files -fileset sim_1 expected_output.hex
+add_files -fileset sim_1 [glob *.dat]
 set_property top tb [get_fileset sim_1]
 launch_simulation -simset sim_1 -mode behavioral
 run all

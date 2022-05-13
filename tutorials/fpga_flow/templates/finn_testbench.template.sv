@@ -26,16 +26,17 @@
 // OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-`timescale 1 ns / 1 ps
-`define INPUT_HEXFILE "input.hex"
-`define EXPECTED_OUTPUT_HEXFILE "expected_output.hex"
+// `timescale 1 ns / 1 ps
+`define INPUT_HEXFILE "input.dat"
+`define EXPECTED_OUTPUT_HEXFILE "expected_output.dat"
 
-parameter N_SAMPLES = $N_SAMPLES$;
-parameter IN_STREAM_BITWIDTH = $IN_STREAM_BITWIDTH$;
-parameter OUT_STREAM_BITWIDTH = $OUT_STREAM_BITWIDTH$;
-parameter IN_BEATS_PER_SAMPLE = $IN_BEATS_PER_SAMPLE$;
-parameter OUT_BEATS_PER_SAMPLE = $OUT_BEATS_PER_SAMPLE$;
-parameter TIMEOUT_CYCLES = $TIMEOUT_CYCLES$;
+// general FINN testbench parameters
+parameter N_SAMPLES = @N_SAMPLES@;
+parameter IN_STREAM_BITWIDTH = @IN_STREAM_BITWIDTH@;
+parameter OUT_STREAM_BITWIDTH = @OUT_STREAM_BITWIDTH@;
+parameter IN_BEATS_PER_SAMPLE = @IN_BEATS_PER_SAMPLE@;
+parameter OUT_BEATS_PER_SAMPLE = @OUT_BEATS_PER_SAMPLE@;
+parameter TIMEOUT_CYCLES = @TIMEOUT_CYCLES@;
 
 parameter IN_SAMPLE_BITWIDTH = IN_STREAM_BITWIDTH * IN_BEATS_PER_SAMPLE;
 parameter OUT_SAMPLE_BITWIDTH = OUT_STREAM_BITWIDTH * OUT_BEATS_PER_SAMPLE;
@@ -73,36 +74,31 @@ logic din_tvalid;
 finn_design_wrapper finn_design_wrapper (
   .ap_clk                (ap_clk               ),
   .ap_rst_n              (ap_rst_n             ),
-
+  // output stream
   .m_axis_0_tdata        (dout_tdata           ),
   .m_axis_0_tready       (dout_tready          ),
   .m_axis_0_tvalid       (dout_tvalid          ),
-
+  // input stream
   .s_axis_0_tdata        (din_tdata           ),
   .s_axis_0_tready       (din_tready          ),
   .s_axis_0_tvalid       (din_tvalid          )
 );
 
-initial begin: AP_CLK
-  forever begin
-    ap_clk = #5 ~ap_clk;
-  end
-end
-
+always #5ns ap_clk = !ap_clk;
 
 initial begin
     // read input hexfile
     $readmemh(`INPUT_HEXFILE, input_data);
     for (i=0; i<N_SAMPLES*IN_BEATS_PER_SAMPLE; i+=1)  if (input_data[i][0] !== 1'bx) input_file_lines = i;
     if (input_file_lines[0] === {1'bx}) begin
-        $display("ERROR:  Unable to read hex file: %s",`INPUT_HEXFILE);
+        $display("ERROR:  Unable to read dat file: %s",`INPUT_HEXFILE);
         $finish;
     end
     // read expected output hexfile
     $readmemh(`EXPECTED_OUTPUT_HEXFILE, exp_output_data);
     for (i=0; i<N_SAMPLES*OUT_BEATS_PER_SAMPLE; i+=1)  if (exp_output_data[i][0] !== 1'bx) exp_output_file_lines = i;
     if (exp_output_file_lines[0] === {1'bx}) begin
-        $display("ERROR:  Unable to read hex file: %s",`EXPECTED_OUTPUT_HEXFILE);
+        $display("ERROR:  Unable to read dat file: %s",`EXPECTED_OUTPUT_HEXFILE);
         $finish;
     end
 

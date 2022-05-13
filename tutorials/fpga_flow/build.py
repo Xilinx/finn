@@ -73,7 +73,7 @@ def custom_step_gen_tb_and_io(model, cfg):
     inp_data_packed = dpk.pack_innermost_dim_as_hex_string(
         inp_data, inp_dtype, inp_stream_width, prefix="", reverse_inner=True
     )
-    np.savetxt(sim_output_dir + "/input.hex", inp_data_packed, fmt="%s", delimiter="\n")
+    np.savetxt(sim_output_dir + "/input.dat", inp_data_packed, fmt="%s", delimiter="\n")
     # load expected output and calculate folded shape
     exp_out = np.load("expected_output.npy")
     out_name = model.graph.output[0].name
@@ -88,7 +88,7 @@ def custom_step_gen_tb_and_io(model, cfg):
         exp_out, out_dtype, out_stream_width, prefix="", reverse_inner=True
     )
     np.savetxt(
-        sim_output_dir + "/expected_output.hex",
+        sim_output_dir + "/expected_output.dat",
         out_data_packed,
         fmt="%s",
         delimiter="\n",
@@ -96,22 +96,22 @@ def custom_step_gen_tb_and_io(model, cfg):
     # fill in testbench template
     with open("templates/finn_testbench.template.sv", "r") as f:
         testbench_sv = f.read()
-    testbench_sv = testbench_sv.replace("$N_SAMPLES$", str(batchsize))
-    testbench_sv = testbench_sv.replace("$IN_STREAM_BITWIDTH$", str(inp_stream_width))
-    testbench_sv = testbench_sv.replace("$OUT_STREAM_BITWIDTH$", str(out_stream_width))
+    testbench_sv = testbench_sv.replace("@N_SAMPLES@", str(batchsize))
+    testbench_sv = testbench_sv.replace("@IN_STREAM_BITWIDTH@", str(inp_stream_width))
+    testbench_sv = testbench_sv.replace("@OUT_STREAM_BITWIDTH@", str(out_stream_width))
     testbench_sv = testbench_sv.replace(
-        "$IN_BEATS_PER_SAMPLE$", str(np.prod(inp_shape_folded[:-1]))
+        "$IN_BEATS_PER_SAMPLE@", str(np.prod(inp_shape_folded[:-1]))
     )
     testbench_sv = testbench_sv.replace(
-        "$OUT_BEATS_PER_SAMPLE$", str(np.prod(out_shape_folded[:-1]))
+        "$OUT_BEATS_PER_SAMPLE@", str(np.prod(out_shape_folded[:-1]))
     )
-    testbench_sv = testbench_sv.replace("$TIMEOUT_CYCLES$", "1000")
+    testbench_sv = testbench_sv.replace("@TIMEOUT_CYCLES@", "1000")
     with open(sim_output_dir + "/finn_testbench.sv", "w") as f:
         f.write(testbench_sv)
     # fill in testbench project creator template
     with open("templates/make_sim_proj.template.tcl", "r") as f:
         testbench_tcl = f.read()
-    testbench_tcl = testbench_tcl.replace("$DCP_ROOT$", "../stitched_ip")
+    testbench_tcl = testbench_tcl.replace("@DCP_ROOT@", "../stitched_ip")
     with open(sim_output_dir + "/make_sim_proj.tcl", "w") as f:
         f.write(testbench_tcl)
 
