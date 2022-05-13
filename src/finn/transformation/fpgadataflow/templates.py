@@ -114,6 +114,9 @@ if {$BOARD == "ZCU104"} {
 } elseif {$BOARD == "ZCU102"} {
     set_property board_part xilinx.com:zcu102:part0:3.3 [current_project]
     set ZYNQ_TYPE "zynq_us+"
+} elseif {$BOARD == "RFSoC2x2"} {
+    set_property board_part xilinx.com:rfsoc2x2:part0:1.1 [current_project]
+    set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Ultra96"} {
     set_property board_part avnet.com:ultra96v1:part0:1.2 [current_project]
     set ZYNQ_TYPE "zynq_us+"

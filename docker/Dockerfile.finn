@@ -100,6 +100,7 @@ ARG CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
 ARG HLSLIB_COMMIT="269410aa217389fc02e69bd7de210cd026f10971"
 ARG OMX_COMMIT="a97f0bf145a2f7e57ca416ea76c9e45df4e9aa37"
 ARG AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
+ARG XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
 
 # finn-base
 RUN git clone https://github.com/Xilinx/finn-base.git /workspace/finn-base
@@ -144,8 +145,10 @@ RUN cd /tmp; \
     rm pynq-z2.zip; \
     git clone https://github.com/Avnet/bdf.git /workspace/avnet-bdf; \
     git -C /workspace/avnet-bdf checkout  $AVNET_BDF_COMMIT; \
-    mv /workspace/avnet-bdf/* /workspace/board_files/;
-
+    mv /workspace/avnet-bdf/* /workspace/board_files/; \
+    git clone https://github.com/Xilinx/XilinxBoardStore.git /workspace/xilinx_boardstore_repo; \
+    git -C /workspace/xilinx_boardstore_repo checkout $XIL_BDF_COMMIT; \
+    mv /workspace/xilinx_boardstore_repo/boards/Xilinx/rfsoc2x2 /workspace/board_files/;
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
