@@ -165,7 +165,7 @@ gecho "Using default PYNQ board $PYNQ_BOARD"
 # Build the FINN Docker image
 if [ "$FINN_DOCKER_PREBUILT" = "0" ]; then
   # ensure git-based deps are checked out at correct commit
-  #./fetch-repos.sh
+  ./fetch-repos.sh
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
