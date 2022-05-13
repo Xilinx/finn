@@ -123,7 +123,6 @@ build_steps = build_cfg.default_build_dataflow_steps + [custom_step_gen_tb_and_i
 
 cfg = build.DataflowBuildConfig(
     steps=build_steps,
-    start_step="custom_step_gen_tb_and_io",
     board=platform_name,
     output_dir="output_%s_%s" % (model_name, platform_name),
     synth_clk_period_ns=10.0,
