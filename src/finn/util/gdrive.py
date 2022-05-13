@@ -31,9 +31,11 @@ import os
 import warnings
 from datetime import datetime
 
+from finn.util.basic import get_finn_root
+
 
 def upload_to_end2end_dashboard(data_dict):
-    gdrive_key = "/workspace/finn/gdrive-key/service_account.json"
+    gdrive_key = get_finn_root() + "/gdrive-key/service_account.json"
     if not os.path.isfile(gdrive_key):
         warnings.warn("Google Drive key not found, skipping dashboard upload")
         return

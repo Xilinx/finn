@@ -90,6 +90,7 @@ from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
+from finn.util.basic import get_finn_root
 from finn.util.gdrive import upload_to_end2end_dashboard
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
@@ -259,11 +260,11 @@ def get_golden_io_pair(topology, wbits, abits, preproc=ToTensor(), return_topk=N
 def measure_top1_accuracy(model_chkpt, dataset, parent_chkpt=None):
     if dataset == "cifar10":
         trainx, trainy, testx, testy, valx, valy = cifar.load_cifar_data(
-            "/workspace/finn/dataset", download=True, one_hot=False
+            get_finn_root() + "/dataset", download=True, one_hot=False
         )
     elif dataset == "mnist":
         trainx, trainy, testx, testy, valx, valy = mnist.load_mnist_data(
-            "/workspace/finn/dataset", download=True, one_hot=False
+            get_finn_root() + "/dataset", download=True, one_hot=False
         )
     else:
         raise Exception("Unrecognized dataset")
@@ -334,7 +335,7 @@ class TestEnd2End:
         dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         update_dashboard_data(topology, wbits, abits, "datetime", dtstr)
         finn_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd="/workspace/finn"
+            ["git", "rev-parse", "HEAD"], cwd=get_finn_root()
         )
         finn_commit = finn_commit.decode("utf-8").strip()
         update_dashboard_data(topology, wbits, abits, "finn-commit", finn_commit)

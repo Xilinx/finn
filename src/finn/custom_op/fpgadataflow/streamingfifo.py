@@ -34,6 +34,7 @@ from shutil import copy
 
 from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.util.basic import get_finn_root
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 from . import templates
@@ -110,7 +111,7 @@ class StreamingFIFO(HLSCustomOp):
         )
         os.makedirs(verilog_dir)
         # copy Q_srl.v from finn-rtllib to verilog directory
-        memstream_dir = "/workspace/finn/finn-rtllib/memstream/hdl/"
+        memstream_dir = get_finn_root() + "/finn-rtllib/memstream/hdl/"
         Q_file = os.path.join(memstream_dir, "Q_srl.v")
         copy(Q_file, verilog_dir)
 
