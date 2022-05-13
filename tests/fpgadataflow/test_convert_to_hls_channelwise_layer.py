@@ -89,7 +89,7 @@ def make_single_maxpool_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
 @pytest.mark.parametrize("scalar_param", [True, False])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.convert_to_hls
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_convert_to_hls_channelwise_layer(

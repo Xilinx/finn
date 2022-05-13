@@ -55,7 +55,7 @@ from finn.util.test import get_test_model_trained
 export_onnx_path = "test_convert_to_hls_layers_fc.onnx"
 
 
-@pytest.mark.convert_to_hls
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a1():
     tfc = get_test_model_trained("TFC", 1, 1)
@@ -126,7 +126,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
     os.remove(export_onnx_path)
 
 
-@pytest.mark.convert_to_hls
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a2():
     tfc = get_test_model_trained("TFC", 1, 2)

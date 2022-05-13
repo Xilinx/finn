@@ -334,8 +334,7 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.parametrize("period_ns", [5])
 # override mem_mode to external
 @pytest.mark.parametrize("extw", [True, False])
-# temporary marked as xfail
-@pytest.mark.xfail
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.vitis
@@ -359,8 +358,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
 
 # board
 @pytest.mark.parametrize("board", ["Pynq-Z1"])
-# temporary marked as xfail
-@pytest.mark.xfail
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):

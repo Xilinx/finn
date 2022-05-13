@@ -100,7 +100,7 @@ def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
 @pytest.mark.parametrize("func", ["add", "mul"])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.custom_op
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_channelwise_ops(idt, act, pdt, nf, ich, func, vecs, exec_mode):

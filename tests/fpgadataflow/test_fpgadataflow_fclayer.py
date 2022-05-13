@@ -146,7 +146,7 @@ def prepare_inputs(input_tensor, idt, wdt):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
-@pytest.mark.custom_op
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
@@ -234,7 +234,7 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
-@pytest.mark.custom_op
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
@@ -334,7 +334,7 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
-@pytest.mark.custom_op
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh

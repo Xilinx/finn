@@ -143,7 +143,7 @@ def make_model(ch, ifmdim):
 @pytest.mark.parametrize("ch", [16])
 # ifmdim
 @pytest.mark.parametrize("ifmdim", [5])
-@pytest.mark.convert_to_hls
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):

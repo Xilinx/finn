@@ -36,23 +36,11 @@ node {
                 }
             }
         }, fifthBranch: {
-            stage('General fpgadataflow transformations and simulations') {
+            stage('Fpgadataflow transformations and simulations') {
                 dir("${env.WORKSPACE}") {
                 sh("bash run-docker.sh python setup.py test --addopts -mfpgadataflow")
                 }
             }
-        }, sixthBranch: {
-            stage('Convert to HLS layers') {
-                dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh python setup.py test --addopts -mconvert_to_hls")
-                }
-            }
-        }, seventhBranch: {
-            stage('Custom Op testing and simulation') {
-                dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh python setup.py test --addopts -mcustom_op")
-                }
-            }
-        }
+        }        
     }
 }

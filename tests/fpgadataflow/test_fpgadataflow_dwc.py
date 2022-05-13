@@ -83,7 +83,7 @@ def prepare_inputs(input_tensor, dt):
 @pytest.mark.parametrize("OUTWidth", [2, 4])
 # finn_dtype
 @pytest.mark.parametrize("finn_dtype", [DataType["BIPOLAR"], DataType["INT2"]])
-@pytest.mark.custom_op
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_dwc_rtlsim(Shape, INWidth, OUTWidth, finn_dtype):

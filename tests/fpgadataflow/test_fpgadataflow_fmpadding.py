@@ -111,7 +111,7 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt, pad_sty
 @pytest.mark.parametrize("idt", [DataType["INT2"], DataType["INT4"]])
 # execution mode
 @pytest.mark.parametrize("mode", ["cppsim", "rtlsim"])
-@pytest.mark.custom_op
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, pad_style, idt, mode):
