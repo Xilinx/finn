@@ -164,6 +164,8 @@ gecho "Using default PYNQ board $PYNQ_BOARD"
 
 # Build the FINN Docker image
 if [ "$FINN_DOCKER_PREBUILT" = "0" ]; then
+  # ensure git-based deps are checked out at correct commit
+  ./fetch-repos.sh
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
@@ -176,10 +178,11 @@ fi
 DOCKER_EXEC="docker run -t --rm $DOCKER_INTERACTIVE --tty --init "
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
-DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
+DOCKER_EXEC+="-w $SCRIPTPATH "
+DOCKER_EXEC+="-v $SCRIPTPATH:$SCRIPTPATH "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
-DOCKER_EXEC+="-e FINN_ROOT="/workspace" "
+DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
 DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
 DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "

@@ -28,7 +28,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-export FINN_ROOT=/workspace
 export HOME=/tmp/home_dir
 export SHELL=/bin/bash
 export LANG="en_US.UTF-8"
@@ -54,12 +53,23 @@ recho () {
   echo -e "${RED}ERROR: $1${NC}"
 }
 
-if [ -f "$FINN_ROOT/finn/setup.py" ];then
+# finn-base
+pip install --user -e ${FINN_ROOT}/deps/finn-base
+# Install qonnx without dependencies, currently its only dependency is finn-base
+pip install --user --no-dependencies -e ${FINN_ROOT}/deps/qonnx
+# finn-experimental
+pip install --user -e ${FINN_ROOT}/deps/finn-experimental
+# brevitas
+pip install --user -e ${FINN_ROOT}/deps/brevitas
+# pyverilator
+pip install --user -e ${FINN_ROOT}/deps/pyverilator
+
+if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
-  pip install --user -e $FINN_ROOT/finn
+  pip install --user -e ${FINN_ROOT}
 else
-  recho "Unable to find FINN source code in $FINN_ROOT/finn"
-  recho "Ensure you have passed -v <path-to-finn-repo>:/workspace/finn to the docker run command"
+  recho "Unable to find FINN source code in ${FINN_ROOT}"
+  recho "Ensure you have passed -v <path-to-finn-repo>:<path-to-finn-repo> to the docker run command"
   exit -1
 fi
 
