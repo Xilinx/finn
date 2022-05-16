@@ -102,17 +102,14 @@ fetch_repo $HLSLIB_URL $HLSLIB_COMMIT $HLSLIB_DIR
 fetch_repo $OMX_URL $OMX_COMMIT $OMX_DIR
 fetch_repo $AVNET_BDF_URL $AVNET_BDF_COMMIT $AVNET_BDF_DIR
 
-# TODO download extra Pynq board files and extract if needed
-# cd /tmp; \
-# wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip; \
-# wget -q https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip; \
-# unzip -q pynq-z1.zip; \
-# unzip -q pynq-z2.zip; \
-# mkdir ${FINN_ROOT}/deps/board_files; \
-# mv pynq-z1/ ${FINN_ROOT}/deps/board_files/; \
-# mv pynq-z2/ ${FINN_ROOT}/deps/board_files/; \
-# rm pynq-z1.zip; \
-# rm pynq-z2.zip; \
-# git clone https://github.com/Avnet/bdf.git ${FINN_ROOT}/deps/avnet-bdf; \
-# git -C ${FINN_ROOT}/deps/avnet-bdf checkout  $AVNET_BDF_COMMIT; \
-# mv ${FINN_ROOT}/deps/avnet-bdf/* ${FINN_ROOT}/deps/board_files/;
+# download extra Pynq board files and extract if needed
+if [ ! -d "$SCRIPTPATH/deps/board_files" ]; then
+    echo "Downloading and extracting board files..."
+    mkdir -p "$SCRIPTPATH/deps/board_files"
+    cd "$SCRIPTPATH/deps/board_files"
+    wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip
+    wget -q https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip
+    unzip -q pynq-z1.zip
+    unzip -q pynq-z2.zip
+    cp -r $SCRIPTPATH/deps/avnet-bdf/* $SCRIPTPATH/deps/board_files/
+fi
