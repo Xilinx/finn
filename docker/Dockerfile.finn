@@ -109,50 +109,24 @@ RUN pip install -e /workspace/finn-base
 RUN git clone https://github.com/fastmachinelearning/qonnx.git /workspace/qonnx
 RUN git -C /workspace/qonnx checkout $QONNX_COMMIT
 RUN pip install --no-dependencies -e /workspace/qonnx
-# finn-experimental
-RUN git clone https://github.com/Xilinx/finn-experimental.git /workspace/finn-experimental
-RUN git -C /workspace/finn-experimental checkout $FINN_EXP_COMMIT
-RUN pip install -e /workspace/finn-experimental
-# brevitas
-RUN git clone https://github.com/Xilinx/brevitas.git /workspace/brevitas
-RUN git -C /workspace/brevitas checkout $BREVITAS_COMMIT
-RUN pip install -e /workspace/brevitas
-# pyverilator
-RUN git clone https://github.com/maltanar/pyverilator.git /workspace/pyverilator
-RUN git -C /workspace/pyverilator checkout $PYVERILATOR_COMMIT
-RUN pip install -e /workspace/pyverilator
-# other git-based dependencies (non-Python)
-# cnpy
-RUN git clone https://github.com/rogersce/cnpy.git /workspace/cnpy
-RUN git -C /workspace/cnpy checkout $CNPY_COMMIT
-# finn-hlslib
-RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
-RUN git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT
-# oh-my-xilinx
-RUN git clone https://github.com/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
-RUN git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT
-# board files
-RUN cd /tmp; \
-    wget -q https://github.com/cathalmccabe/pynq-z1_board_files/raw/master/pynq-z1.zip; \
-    wget -q https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip; \
-    unzip -q pynq-z1.zip; \
-    unzip -q pynq-z2.zip; \
-    mkdir /workspace/board_files; \
-    mv pynq-z1/ /workspace/board_files/; \
-    mv pynq-z2/ /workspace/board_files/; \
-    rm pynq-z1.zip; \
-    rm pynq-z2.zip; \
-    git clone https://github.com/Avnet/bdf.git /workspace/avnet-bdf; \
-    git -C /workspace/avnet-bdf checkout  $AVNET_BDF_COMMIT; \
-    mv /workspace/avnet-bdf/* /workspace/board_files/;
 
+# extra dependencies from other FINN deps
+# installed in Docker image to make entrypoint script go faster
+# finn-experimental
+RUN pip install deap==1.3.1
+RUN pip install mip==1.13.0
+RUN pip install networkx==2.8
+# brevitas
+RUN pip install future-annotations==1.0.0
+RUN pip install dependencies==2.0.1
+RUN pip install tokenize-rt==4.2.1
+# pyverilator
+RUN pip install tclwrapper==0.0.1
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
-ENV PATH "${PATH}:/workspace/oh-my-xilinx"
-ENV OHMYXILINX "/workspace/oh-my-xilinx"
-
-WORKDIR /workspace/finn
+ENV PATH "${PATH}:${FINN_ROOT}/deps/oh-my-xilinx"
+ENV OHMYXILINX "${FINN_ROOT}/deps/oh-my-xilinx"
 
 COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
