@@ -113,6 +113,7 @@ These are summarized below:
 * (optional) ``FINN_DOCKER_RUN_AS_ROOT`` (default 0) if set to 1 then run Docker container as root, default is the current user.
 * (optional) ``FINN_DOCKER_GPU`` (autodetected) if not 0 then expose all Nvidia GPUs or those selected by ``NVIDIA_VISIBLE_DEVICES`` to Docker container for accelerated DNN training. Requires `Nvidia Container Toolkit <https://github.com/NVIDIA/nvidia-docker>`_
 * (optional) ``FINN_DOCKER_EXTRA`` (default "") pass extra arguments to the ``docker run`` command when executing ``./run-docker.sh``
+* (optional) ``FINN_SKIP_DEP_REPOS`` (default "0") skips the download of FINN dependency repos (uses the ones already downloaded under deps/.
 * (optional) ``NVIDIA_VISIBLE_DEVICES`` (default "") specifies specific Nvidia GPUs to use in Docker container. Possible values are a comma-separated list of GPU UUID(s) or index(es) e.g. ``0,1,2``, ``all``, ``none``, or void/empty/unset.
 * (optional) ``DOCKER_BUILDKIT`` (default "1") enables `Docker BuildKit <https://docs.docker.com/develop/develop-images/build_enhancements/>`_ for faster Docker image rebuilding (recommended).
 
@@ -121,7 +122,7 @@ General FINN Docker tips
 * Several folders including the root directory of the FINN compiler and the ``FINN_HOST_BUILD_DIR`` will be mounted into the Docker container and can be used to exchange files.
 * Do not use ``sudo`` to launch the FINN Docker. Instead, setup Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_.
 * If you want a new terminal on an already-running container, you can do this with `docker exec -it <name_of_container> bash`.
-* The container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the /workspace/finn folder (which is mounted from the host computer) or otherwise backed up.
+* The container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the finn compiler folder (which is mounted from the host computer) or otherwise backed up.
 
 Using a prebuilt image
 **********************
@@ -154,7 +155,7 @@ Start on the target side:
 Continue on the host side (replace the ``<PYNQ_IP>`` and ``<PYNQ_USERNAME>`` with the IP address and username of your board from the first step):
 
 1. Launch the Docker container from where you cloned finn with ``./run-docker.sh``
-2. Go into the `ssh_keys` directory  (e.g. ``cd /workspace/finn/ssh_keys``)
+2. Go into the `ssh_keys` directory  (e.g. ``cd /path/to/finn/ssh_keys``)
 3. Run ``ssh-keygen`` to create a key pair e.g. ``id_rsa`` private and ``id_rsa.pub`` public key
 4. Run ``ssh-copy-id -i id_rsa.pub <PYNQ_USERNAME>@<PYNQ_IP>`` to install the keys on the remote system
 5. Test that you can ``ssh <PYNQ_USERNAME>@<PYNQ_IP>`` without having to enter the password. Pass the ``-v`` flag to the ssh command if it doesn't work to help you debug.
