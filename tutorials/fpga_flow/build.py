@@ -100,10 +100,10 @@ def custom_step_gen_tb_and_io(model, cfg):
     testbench_sv = testbench_sv.replace("@IN_STREAM_BITWIDTH@", str(inp_stream_width))
     testbench_sv = testbench_sv.replace("@OUT_STREAM_BITWIDTH@", str(out_stream_width))
     testbench_sv = testbench_sv.replace(
-        "$IN_BEATS_PER_SAMPLE@", str(np.prod(inp_shape_folded[:-1]))
+        "@IN_BEATS_PER_SAMPLE@", str(np.prod(inp_shape_folded[:-1]))
     )
     testbench_sv = testbench_sv.replace(
-        "$OUT_BEATS_PER_SAMPLE@", str(np.prod(out_shape_folded[:-1]))
+        "@OUT_BEATS_PER_SAMPLE@", str(np.prod(out_shape_folded[:-1]))
     )
     testbench_sv = testbench_sv.replace("@TIMEOUT_CYCLES@", "1000")
     with open(sim_output_dir + "/finn_testbench.sv", "w") as f:
@@ -111,7 +111,7 @@ def custom_step_gen_tb_and_io(model, cfg):
     # fill in testbench project creator template
     with open("templates/make_sim_proj.template.tcl", "r") as f:
         testbench_tcl = f.read()
-    testbench_tcl = testbench_tcl.replace("@DCP_ROOT@", "../stitched_ip")
+    testbench_tcl = testbench_tcl.replace("@STITCHED_IP_ROOT@", "../stitched_ip")
     with open(sim_output_dir + "/make_sim_proj.tcl", "w") as f:
         f.write(testbench_tcl)
 
@@ -129,7 +129,7 @@ cfg = build.DataflowBuildConfig(
     folding_config_file="folding_config.json",
     fpga_part="xczu3eg-sbva484-1-e",
     shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-    stitched_ip_gen_dcp=True,
+    stitched_ip_gen_dcp=False,
     generate_outputs=[
         build_cfg.DataflowOutputType.STITCHED_IP,
     ],

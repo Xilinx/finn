@@ -26,17 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+# open the stitched IP project to get all the sources
+open_project @STITCHED_IP_ROOT@/finn_vivado_stitch_proj.xpr
 
-# generate structural sim model from dcp if not found
-if { [file exists finn_design_funcsim.v] == 0} {
-    open_checkpoint @DCP_ROOT@/finn_design.dcp
-    write_verilog -mode funcsim finn_design_funcsim.v
-    close_design
-}
-
-read_verilog finn_design_funcsim.v
-read_verilog axi_ram.v
-read_verilog -sv finn_testbench.sv
+read_verilog -quiet [glob -nocomplain *.v]
+read_verilog -quiet -sv [glob -nocomplain *.sv]
 
 save_project_as sim -force
 add_files -fileset sim_1 [glob *.dat]

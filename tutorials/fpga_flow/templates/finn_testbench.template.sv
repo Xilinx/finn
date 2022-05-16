@@ -47,10 +47,8 @@ module tb ();
 logic [IN_STREAM_BITWIDTH-1:0] input_data [N_SAMPLES*IN_BEATS_PER_SAMPLE];
 logic [OUT_STREAM_BITWIDTH-1:0] exp_output_data [N_SAMPLES*OUT_BEATS_PER_SAMPLE];
 logic [IN_STREAM_BITWIDTH-1:0] current_input [IN_BEATS_PER_SAMPLE];
-logic [OUT_STREAM_BITWIDTH-1:0] current_exp_output [OUT_BEATS_PER_SAMPLE];
-logic [OUT_SAMPLE_BITWIDTH-1:0] exp_output_queue [N_SAMPLES];
-logic [$clog2(N_SAMPLES):0] rd_ptr=0;
-logic [$clog2(N_SAMPLES):0] wr_ptr=0;
+logic [$clog2(N_SAMPLES*OUT_BEATS_PER_SAMPLE):0] rd_ptr=0;
+logic [$clog2(N_SAMPLES*OUT_BEATS_PER_SAMPLE):0] wr_ptr=0;
 int err_count=0;
 int data_count=0;
 int i,j;
@@ -124,8 +122,8 @@ initial begin
             current_input[i] = input_data[j*IN_BEATS_PER_SAMPLE+i];
         end
         // put corresponding expected output into queue
+        // data is already in exp_output_data
         for (i=0; i<OUT_BEATS_PER_SAMPLE; i+=1) begin
-            exp_output_queue[wr_ptr] = exp_output_data[j*OUT_BEATS_PER_SAMPLE+i];
             wr_ptr++;
         end
         // feed current input
@@ -161,11 +159,11 @@ end
 always @(posedge ap_clk) begin
   if (dout_tvalid && ap_rst_n) begin
     // TODO implement output folding - current code assumes OUT_BEATS_PER_SAMPLE=1
-    if (dout_tdata !== exp_output_queue[rd_ptr]) begin
-      $display("ERR: Data mismatch %h != %h ",dout_tdata, exp_output_queue[rd_ptr]);
+    if (dout_tdata !== exp_output_data[rd_ptr]) begin
+      $display("ERR: Data mismatch %h != %h ",dout_tdata, exp_output_data[rd_ptr]);
       err_count++;
     end else begin
-      $display("CHK: Data    match %h == %h   --> %0d",dout_tdata, exp_output_queue[rd_ptr], data_count);
+      $display("CHK: Data    match %h == %h   --> %0d",dout_tdata, exp_output_data[rd_ptr], data_count);
     end
     rd_ptr++;
     data_count++;
