@@ -93,6 +93,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
 : ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
 : ${FINN_DOCKER_EXTRA=""}
+: ${FINN_SKIP_DEP_REPOS="0"}
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
 
@@ -162,10 +163,13 @@ gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
 
+# Ensure git-based deps are checked out at correct commit
+if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
+  ./fetch-repos.sh
+fi
+
 # Build the FINN Docker image
 if [ "$FINN_DOCKER_PREBUILT" = "0" ]; then
-  # ensure git-based deps are checked out at correct commit
-  ./fetch-repos.sh
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
