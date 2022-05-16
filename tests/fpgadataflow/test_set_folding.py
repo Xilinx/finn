@@ -112,6 +112,7 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
 @pytest.mark.parametrize("target_fps", [30, 10**5, 10**7])
 # target chip or board
 @pytest.mark.parametrize("platform", ["Pynq-Z1", "Ultra96", "U200"])
+@pytest.mark.fpgadataflow
 def test_set_folding(target_fps, platform):
 
     model = make_multi_fclayer_model(

@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 import numpy as np
 from onnx import TensorProto, helper
 
@@ -35,6 +37,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.streamline import RoundAndClipThresholds
 
 
+@pytest.mark.streamline
 def test_round_thresholds():
     v = helper.make_tensor_value_info("v", TensorProto.FLOAT, [1, 4])
     thresholds = helper.make_tensor_value_info("thresholds", TensorProto.FLOAT, [4, 1])

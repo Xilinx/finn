@@ -28,9 +28,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-export FINN_ROOT=/workspace/finn
+export FINN_ROOT=/workspace
 export HOME=/tmp/home_dir
 export SHELL=/bin/bash
+export LANG="en_US.UTF-8"
+export LC_ALL="en_US.UTF-8"
+export LANGUAGE="en_US:en"
 # colorful terminal output
 export PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '
 
@@ -51,11 +54,11 @@ recho () {
   echo -e "${RED}ERROR: $1${NC}"
 }
 
-if [ -f "$FINN_ROOT/setup.py" ];then
+if [ -f "$FINN_ROOT/finn/setup.py" ];then
   # run pip install for finn
-  pip install --user -e $FINN_ROOT
+  pip install --user -e $FINN_ROOT/finn
 else
-  recho "Unable to find FINN source code in /workspace/finn"
+  recho "Unable to find FINN source code in $FINN_ROOT/finn"
   recho "Ensure you have passed -v <path-to-finn-repo>:/workspace/finn to the docker run command"
   exit -1
 fi
@@ -88,6 +91,17 @@ else
     yecho "Functionality dependent on Vivado will not be available."
     yecho "If you need Vivado, ensure VIVADO_PATH is set correctly and mounted into the Docker container."
   fi
+fi
+
+if [ -f "$HLS_PATH/settings64.sh" ];then
+  # source Vitis HLS env.vars
+  source $HLS_PATH/settings64.sh
+  gecho "Found Vitis HLS at $HLS_PATH"
+else
+  yecho "Unable to find $HLS_PATH/settings64.sh"
+  yecho "Functionality dependent on Vitis HLS will not be available."
+  yecho "Please note that FINN needs at least version 2020.2 for Vitis HLS support."
+  yecho "If you need Vitis HLS, ensure HLS_PATH is set correctly and mounted into the Docker container."
 fi
 
 # execute the provided command(s) as root

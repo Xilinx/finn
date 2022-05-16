@@ -128,6 +128,7 @@ class StreamingFIFO(HLSCustomOp):
         self.code_gen_dict["$OUT_RANGE$"] = ["[{}:0]".format(in_width - 1)]
         self.code_gen_dict["$WIDTH$"] = [str(in_width)]
         self.code_gen_dict["$DEPTH$"] = [str(self.get_nodeattr("depth"))]
+        self.code_gen_dict["$HLS_SNAME$"] = [self.hls_sname()]
 
         template = self.strm_fifo_wrapper
 
@@ -152,6 +153,7 @@ class StreamingFIFO(HLSCustomOp):
         # note: setting the root dir as absolute can cause path problems
         # the ipgen script will be invoked from the sources dir so root_dir=. is OK
         self.code_gen_dict["$VERILOG_DIR$"] = ["."]
+        self.code_gen_dict["$HLS_SNAME$"] = [self.hls_sname()]
         for key in self.code_gen_dict:
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(self.code_gen_dict[key])

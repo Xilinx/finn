@@ -55,6 +55,7 @@ from finn.builder.build_dataflow_config import (
 )
 from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
+from finn.core.rtlsim_exec import rtlsim_exec
 from finn.core.throughput_test import throughput_test_rtlsim
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
@@ -108,7 +109,11 @@ from finn.util.test import execute_parent
 
 
 def verify_step(
-    model: ModelWrapper, cfg: DataflowBuildConfig, step_name: str, need_parent: bool
+    model: ModelWrapper,
+    cfg: DataflowBuildConfig,
+    step_name: str,
+    need_parent: bool,
+    rtlsim_pre_hook=None,
 ):
     print("Running verification for " + step_name)
     verify_out_dir = cfg.output_dir + "/verification_output"
@@ -131,7 +136,10 @@ def verify_step(
         inp_tensor_name = model.graph.input[0].name
         out_tensor_name = model.graph.output[0].name
         inp_dict = {inp_tensor_name: in_npy}
-        out_dict = execute_onnx(model, inp_dict, True)
+        if rtlsim_pre_hook is not None:
+            out_dict = rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
+        else:
+            out_dict = execute_onnx(model, inp_dict, True)
         out_npy = out_dict[out_tensor_name]
     res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
     res_to_str = {True: "SUCCESS", False: "FAIL"}

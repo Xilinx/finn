@@ -39,24 +39,29 @@ WORKDIR /workspace
 ENV TZ="Europe/Dublin"
 RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
 
-RUN apt-get update
-RUN apt-get -y upgrade
-RUN apt-get install -y build-essential
-RUN apt-get install -y libglib2.0-0
-RUN apt-get install -y libsm6
-RUN apt-get install -y libxext6
-RUN apt-get install -y libxrender-dev
-RUN apt-get install -y verilator
-RUN apt-get install -y nano
-RUN apt-get install -y zsh
-RUN apt-get install -y rsync
-RUN apt-get install -y git
-RUN apt-get install -y sshpass
-RUN apt-get install -y wget
-RUN apt-get install -y sudo
-RUN apt-get install -y unzip
-RUN apt-get install -y zip
+RUN apt-get update && \
+    apt-get install -y \
+    build-essential \
+    libc6-dev-i386 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    verilator \
+    nano \
+    zsh \
+    rsync \
+    git \
+    openssh-client \
+    sshpass \
+    wget \
+    sudo \
+    unzip \
+    zip \
+    locales \
+    lsb-core
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
+RUN locale-gen "en_US.UTF-8"
 
 # install XRT
 RUN wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb
@@ -76,7 +81,7 @@ RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1
 RUN pip install sphinx==3.1.2
 RUN pip install sphinx_rtd_theme==0.5.0
-RUN pip install pytest-xdist==2.0.0
+RUN pip install pytest-xdist[setproctitle]==2.4.0
 RUN pip install pytest-parallel==0.1.0
 RUN pip install "netron>=5.0.0"
 RUN pip install pandas==1.1.5
@@ -86,14 +91,14 @@ RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg
 
 # git-based Python repo dependencies
 # these are installed in editable mode for easier co-development
-ARG FINN_BASE_COMMIT="7cd7e00ba6709a85073ba22beeb5827e684fe085"
-ARG QONNX_COMMIT="76c165fe7656d9bb3b826e98ac452085f1544f54"
+ARG FINN_BASE_COMMIT="585bccad29ba6416511256c732a2c1da21d00bdf"
+ARG QONNX_COMMIT="9f9eff95227cc57aadc6eafcbd44b7acda89f067"
 ARG FINN_EXP_COMMIT="af6102769226b82b639f243dc36f065340991513"
 ARG BREVITAS_COMMIT="a5b71d6de1389d3e7db898fef72e014842670f03"
 ARG PYVERILATOR_COMMIT="0c3eb9343500fc1352a02c020a736c8c2db47e8e"
 ARG CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
-ARG HLSLIB_COMMIT="bcca5d2b69c88e9ad7a86581ec062a9756966367"
-ARG OMX_COMMIT="1dfc4aa2f2895632742cd5751520c6b472feb74e"
+ARG HLSLIB_COMMIT="269410aa217389fc02e69bd7de210cd026f10971"
+ARG OMX_COMMIT="a97f0bf145a2f7e57ca416ea76c9e45df4e9aa37"
 ARG AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 
 # finn-base
@@ -124,7 +129,7 @@ RUN git -C /workspace/cnpy checkout $CNPY_COMMIT
 RUN git clone https://github.com/Xilinx/finn-hlslib.git /workspace/finn-hlslib
 RUN git -C /workspace/finn-hlslib checkout $HLSLIB_COMMIT
 # oh-my-xilinx
-RUN git clone https://bitbucket.org/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
+RUN git clone https://github.com/maltanar/oh-my-xilinx.git /workspace/oh-my-xilinx
 RUN git -C /workspace/oh-my-xilinx checkout $OMX_COMMIT
 # board files
 RUN cd /tmp; \

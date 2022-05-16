@@ -103,6 +103,7 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("n_dupl", [2, 3])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode):
     if fold == -1:

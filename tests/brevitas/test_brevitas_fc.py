@@ -49,6 +49,7 @@ from finn.util.test import get_test_model_trained
 export_onnx_path = make_build_dir("test_brevitas_fc_")
 
 
+@pytest.mark.brevitas_export
 # act bits
 @pytest.mark.parametrize("abits", [1, 2])
 # weight bits

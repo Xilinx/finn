@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 from onnx import TensorProto, helper
 
 from finn.analysis.fpgadataflow.res_estimation import (
@@ -49,7 +51,7 @@ def check_two_dict_for_equality(dict1, dict2):
 
     return True
 
-
+@pytest.mark.fpgadataflow
 def test_res_estimate():
     mw = mh = 4
     simd = 1

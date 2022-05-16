@@ -47,7 +47,7 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 
 export_onnx_path = "test_brevitas_relu_act_export.onnx"
 
-
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
 @pytest.mark.parametrize("max_val", [1.0, 1.5, 1 - 2 ** (-7)])
 @pytest.mark.parametrize(
@@ -110,7 +110,7 @@ scaling_impl.learned_value": torch.tensor(
     assert np.isclose(produced, expected, atol=1e-3).all()
     os.remove(export_onnx_path)
 
-
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
 @pytest.mark.parametrize("max_val", [1.0, 1.5, 1 - 2 ** (-7)])
 @pytest.mark.parametrize("scaling_per_channel", [True, False])

@@ -197,15 +197,15 @@ class InferConvInpGen(Transformation):
                             depthwise=depthwise,
                             name="ConvolutionInputGenerator_" + n.name,
                         )
-                    else:  # non-square images and/or kernels
+                    else:  # 1D images and/or kernels
                         assert is_1d_convolution, (
                             "%s: ConvolutionInputGenerator1D works only for 1D convs"
                             % n.name
                         )
                         if dilation_h > 1 or dilation_w > 1:
-                            assert stride_h == 1 and stride_w == 1, (
-                                """%s: Stride value of greater than 1 is not supported for convolutions
-                                with dilation value greater than 1"""
+                            assert depthwise == 1, (
+                                """%s: Dilation value > 1 is only supported for
+                                1D depthwise separable convolutions"""
                                 % n.name
                             )
                         ConvInpGen_node = helper.make_node(
@@ -339,20 +339,27 @@ class InferStreamingMaxPool(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
-        for n in graph.node:
+        for node in graph.node:
             node_ind += 1
-            if n.op_type == "MaxPoolNHWC":
-                mp_input = n.input[0]
-                mp_output = n.output[0]
+            if node.op_type == "MaxPoolNHWC":
+                mp_input = node.input[0]
+                mp_output = node.output[0]
                 mp_in_shape = model.get_tensor_shape(mp_input)
                 # mp_out_shape = model.get_tensor_shape(mp_output)
                 dt = model.get_tensor_datatype(mp_input)
-                mp_inst = getCustomOp(n)
+                mp_inst = getCustomOp(node)
                 k_h, k_w = mp_inst.get_nodeattr("kernel_shape")
                 ifm_ch = mp_in_shape[-1]
                 ifm_dim_h = mp_in_shape[1]
                 ifm_dim_w = mp_in_shape[2]
-                if ifm_dim_h % k_h == 0 and ifm_dim_w % k_w == 0:
+                pe = 1
+                ceil_mode = mp_inst.get_nodeattr("ceil_mode")
+                is_1d = (ifm_dim_h == 1 and k_h == 1) or (ifm_dim_w == 1 and k_w == 1)
+                is_divisable = (ifm_dim_h % k_h == 0) or (ifm_dim_w % k_w == 0)
+                is_bipolar = dt == DataType["BIPOLAR"]
+                pass_1d = is_1d and (not is_bipolar)
+                pass_2d = (not is_1d) and is_divisable
+                if pass_1d or pass_2d:
                     # create equivalent StreamingMaxPool_Batch node
                     new_node = helper.make_node(
                         "StreamingMaxPool_Batch",
@@ -364,12 +371,16 @@ class InferStreamingMaxPool(Transformation):
                         NumChannels=ifm_ch,
                         ImgDim=(ifm_dim_h, ifm_dim_w),
                         dataType=dt.name,
-                        name="StreamingMaxPool_Batch_" + n.name,
+                        PE=pe,
+                        CeilMode=ceil_mode,
+                        name="StreamingMaxPool_Batch_" + node.name,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
-                    graph.node.remove(n)
+                    graph.node.remove(node)
                     graph_modified = True
+                else:
+                    warnings.warn(node.name + ": could not convert to HLS")
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())

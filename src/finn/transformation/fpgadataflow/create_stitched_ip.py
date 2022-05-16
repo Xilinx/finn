@@ -26,11 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pkg_resources as pk
+
 import json
 import multiprocessing as mp
 import os
 import subprocess
 import warnings
+from shutil import copytree
 
 from finn.custom_op.registry import getCustomOp
 from finn.transformation.base import Transformation
@@ -61,7 +64,9 @@ def is_external_output(model, node, i):
     # indicate whether output i of node should be made external
     # True only if output is unconnected
     consumers = model.find_consumers(node.output[i])
-    if consumers is None:
+    if consumers == []:
+        # TODO should ideally check if tensor is in top-level
+        # outputs
         return True
     return False
 
@@ -160,6 +165,16 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append(
                 "set_property name m_axi_gmem0 [get_bd_intf_ports m_axi_gmem_0]"
             )
+            self.connect_cmds.append("assign_bd_address")
+            seg_name = "%s/Data_m_axi_gmem/SEG_m_axi_gmem0_Reg" % (inst_name)
+            self.connect_cmds.append(
+                "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
+            )
+            # TODO should propagate this information from the node instead of 4G
+            self.connect_cmds.append(
+                "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
+            )
+
             self.intf_names["aximm"] = [("m_axi_gmem0", aximm_intf_name[0][1])]
             assert self.has_aximm is False, "Currently limited to one AXI-MM interface"
             self.has_aximm = True
@@ -215,7 +230,7 @@ class CreateStitchedIP(Transformation):
         model = model.transform(ReplaceVerilogRelPaths())
         ip_dirs = ["list"]
         # add RTL streamer IP
-        ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
+        ip_dirs.append("$::env(FINN_ROOT)/finn/finn-rtllib/memstream")
         if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
@@ -257,7 +272,7 @@ class CreateStitchedIP(Transformation):
         for input in model.graph.input:
             inp_name = input.name
             inp_cons = model.find_consumers(inp_name)
-            assert inp_cons is not None, "No consumer for input " + inp_name
+            assert inp_cons != [], "No consumer for input " + inp_name
             assert len(inp_cons) == 1, "Multiple consumers for input " + inp_name
             node = inp_cons[0]
             node_inst = getCustomOp(node)
@@ -432,6 +447,21 @@ class CreateStitchedIP(Transformation):
                 "ipx::add_file dcp/%s.dcp "
                 "[ipx::get_file_groups xilinx_simulationcheckpoint]" % block_name
             )
+        # add a rudimentary driver mdd to get correct ranges in xparameters.h later on
+        example_data_dir = pk.resource_filename("finn.qnn-data", "mdd-data/")
+        copytree(example_data_dir, vivado_stitch_proj_dir + "/data")
+        tcl.append("file copy -force data ip/")
+        tcl.append("ipx::add_file_group -type software_driver {} [ipx::current_core]")
+        tcl.append(
+            "set_property type mdd [ipx::add_file data/finn_design.mdd "
+            "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
+            "[ipx::current_core]]]"
+        )
+        tcl.append(
+            "set_property type tclSource [ipx::add_file data/finn_design.tcl "
+            "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
+            "[ipx::current_core]]]"
+        )
         tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
         # export list of used Verilog files (for rtlsim later on)
@@ -459,4 +489,13 @@ class CreateStitchedIP(Transformation):
         bash_command = ["bash", make_project_sh]
         process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
+        # wrapper may be created in different location depending on Vivado version
+        if not os.path.isfile(wrapper_filename):
+            # check in alternative location (.gen instead of .srcs)
+            wrapper_filename_alt = wrapper_filename.replace(".srcs", ".gen")
+            if os.path.isfile(wrapper_filename_alt):
+                model.set_metadata_prop("wrapper_filename", wrapper_filename_alt)
+            else:
+                raise Exception("CreateStitchedIP failed, no wrapper HDL found.")
+
         return (model, False)
