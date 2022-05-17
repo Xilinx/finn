@@ -48,7 +48,7 @@ from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.insert_topk import InsertTopK
 from finn.transformation.merge_onnx_models import MergeONNXModels
-from finn.util.basic import make_build_dir
+from finn.util.basic import get_finn_root, make_build_dir
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import crop_center, get_test_model_trained, resize_smaller_side
 
@@ -56,7 +56,7 @@ from finn.util.test import crop_center, get_test_model_trained, resize_smaller_s
 @pytest.mark.xfail
 def test_brevitas_mobilenet():
     # get single image as input and prepare image
-    img = Image.open("/workspace/finn/tests/brevitas/king_charles.jpg")
+    img = Image.open(get_finn_root() + "/tests/brevitas/king_charles.jpg")
     # resize smallest side of the image to 256 pixels and resize larger side
     # with same ratio
     img = resize_smaller_side(256, img)

@@ -89,27 +89,6 @@ RUN pip install scikit-learn==0.24.1
 RUN pip install tqdm==4.31.1
 RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 
-# git-based Python repo dependencies
-# these are installed in editable mode for easier co-development
-ARG FINN_BASE_COMMIT="585bccad29ba6416511256c732a2c1da21d00bdf"
-ARG QONNX_COMMIT="9f9eff95227cc57aadc6eafcbd44b7acda89f067"
-ARG FINN_EXP_COMMIT="af6102769226b82b639f243dc36f065340991513"
-ARG BREVITAS_COMMIT="a5b71d6de1389d3e7db898fef72e014842670f03"
-ARG PYVERILATOR_COMMIT="0c3eb9343500fc1352a02c020a736c8c2db47e8e"
-ARG CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
-ARG HLSLIB_COMMIT="269410aa217389fc02e69bd7de210cd026f10971"
-ARG OMX_COMMIT="a97f0bf145a2f7e57ca416ea76c9e45df4e9aa37"
-ARG AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
-
-# finn-base
-RUN git clone https://github.com/Xilinx/finn-base.git /workspace/finn-base
-RUN git -C /workspace/finn-base checkout $FINN_BASE_COMMIT
-RUN pip install -e /workspace/finn-base
-# Install qonnx without dependencies, currently its only dependency is finn-base
-RUN git clone https://github.com/fastmachinelearning/qonnx.git /workspace/qonnx
-RUN git -C /workspace/qonnx checkout $QONNX_COMMIT
-RUN pip install --no-dependencies -e /workspace/qonnx
-
 # extra dependencies from other FINN deps
 # installed in Docker image to make entrypoint script go faster
 # finn-experimental
