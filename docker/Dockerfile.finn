@@ -77,6 +77,7 @@ RUN rm requirements.txt
 RUN pip install pygments==2.4.1
 RUN pip install ipykernel==5.5.5
 RUN pip install jupyter==1.0.0
+RUN pip install markupsafe==2.0.1
 RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1
 RUN pip install sphinx==3.1.2
