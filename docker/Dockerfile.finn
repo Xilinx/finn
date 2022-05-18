@@ -105,8 +105,6 @@ RUN pip install tclwrapper==0.0.1
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
-ENV PATH "${PATH}:${FINN_ROOT}/deps/oh-my-xilinx"
-ENV OHMYXILINX "${FINN_ROOT}/deps/oh-my-xilinx"
 
 COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
