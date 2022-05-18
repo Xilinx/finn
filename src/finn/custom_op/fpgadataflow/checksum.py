@@ -206,14 +206,13 @@ class checksum(HLSCustomOp):
         self.code_gen_dict["$GLOBALS$"] = ['#include "checksum.hpp"']
 
     def defines(self, var):
+        items_per_word = self.get_nodeattr("items_per_word")
+        words_per_frame = self.get_nodeattr("words_per_frame")
+        word_size = self.get_instream_width()
         my_defines = []
-        my_defines.append(
-            "#define WORDS_PER_FRAME {}".format(self.get_nodeattr("words_per_frame"))
-        )
-        my_defines.append(
-            "#define ITEMS_PER_WORD {}".format(self.get_nodeattr("items_per_word"))
-        )
-        my_defines.append("#define WORD_SIZE {}".format(self.get_instream_width()))
+        my_defines.append("#define WORDS_PER_FRAME {}".format(words_per_frame))
+        my_defines.append("#define ITEMS_PER_WORD {}".format(items_per_word))
+        my_defines.append("#define WORD_SIZE {}".format(word_size))
         self.code_gen_dict["$DEFINES$"] = my_defines
 
     def read_npy_data(self):

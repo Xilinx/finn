@@ -112,6 +112,7 @@ class HLSCustomOp(CustomOp):
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
+            "output_hook": ("s", False, ""),
             # HLS version to be used for IP synthesis
             "hls_version": ("s", False, "vitis_hls", {"vivado_hls", "vitis_hls"}),
         }
