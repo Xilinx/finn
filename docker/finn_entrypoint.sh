@@ -35,6 +35,7 @@ export LC_ALL="en_US.UTF-8"
 export LANGUAGE="en_US:en"
 # colorful terminal output
 export PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '
+export PATH=$PATH:$OHMYXILINX
 
 YELLOW='\033[0;33m'
 GREEN='\033[0;32m'
