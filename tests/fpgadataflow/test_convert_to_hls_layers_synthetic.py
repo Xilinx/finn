@@ -127,12 +127,12 @@ def make_model(ch, ifmdim):
     model = ModelWrapper(model)
 
     # set initializers for scalar add/mul nodes
-    model.set_initializer(add0_node.input[1], np.array([0.0]))
-    model.set_initializer(add1_node.input[1], np.array([7.0]))
-    model.set_initializer(add2_node.input[1], np.array([8.0]))
-    model.set_initializer(mul1_node.input[1], np.array([2.0]))
-    model.set_initializer(mul2_node.input[1], np.array([2.0]))
-    model.set_initializer(reshape_node.input[1], np.array([1, -1]))
+    model.set_initializer(add0_node.input[1], np.array([0.0], dtype=np.float32))
+    model.set_initializer(add1_node.input[1], np.array([7.0], dtype=np.float32))
+    model.set_initializer(add2_node.input[1], np.array([8.0], dtype=np.float32))
+    model.set_initializer(mul1_node.input[1], np.array([2.0], dtype=np.float32))
+    model.set_initializer(mul2_node.input[1], np.array([2.0], dtype=np.float32))
+    model.set_initializer(reshape_node.input[1], np.array([1, -1], dtype=np.int64))
 
     return model
 

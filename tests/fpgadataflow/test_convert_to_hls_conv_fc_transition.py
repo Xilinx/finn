@@ -201,7 +201,7 @@ def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
     model.set_initializer(
         "matmul_param", gen_finn_dt_tensor(fc_weight_dt, fc_param_shape)
     )
-    model.set_initializer("reshape_shape", np.array([1, -1]))
+    model.set_initializer("reshape_shape", np.array([1, -1], dtype=np.int64))
 
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())

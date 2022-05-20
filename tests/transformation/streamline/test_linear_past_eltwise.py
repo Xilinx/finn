@@ -40,6 +40,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.reorder import MoveLinearPastEltwiseAdd
 
 export_onnx_path = "test_linear_past_eltwise.onnx"
+np_default_dtype = np.float32
 
 # construct a synthetic graph to test:
 # topk insertion, topk conversion to hls, add conversion to hls
@@ -81,10 +82,10 @@ def make_model(shape):
     model = ModelWrapper(model)
 
     # set initializers for scalar add/mul nodes
-    model.set_initializer(add1_node.input[1], np.array([7.0]))
-    model.set_initializer(add2_node.input[1], np.array([8.0]))
-    model.set_initializer(mul1_node.input[1], np.array([3.0]))
-    model.set_initializer(mul2_node.input[1], np.array([3.0]))
+    model.set_initializer(add1_node.input[1], np.array([7.0], dtype=np_default_dtype))
+    model.set_initializer(add2_node.input[1], np.array([8.0], dtype=np_default_dtype))
+    model.set_initializer(mul1_node.input[1], np.array([3.0], dtype=np_default_dtype))
+    model.set_initializer(mul2_node.input[1], np.array([3.0], dtype=np_default_dtype))
 
     return model
 

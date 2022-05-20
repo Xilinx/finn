@@ -51,7 +51,7 @@ from . import templates
 def get_smallest_possible(vals):
     """Returns smallest (fewest bits) possible DataType that can represent
     value. Prefers unsigned integers where possible."""
-    vals = np.array(vals)
+    vals = np.array(vals, dtype=np.float64)
     for v in vals:
         assert int(v) == v, "Error float value"
 

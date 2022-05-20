@@ -1269,7 +1269,7 @@ class InferChannelwiseLinearLayer(Transformation):
     def get_smallest_possible(self, vals):
         """Returns smallest (fewest bits) possible DataType that can represent
         value. Prefers unsigned integers where possible."""
-        vals = np.array(vals)
+        vals = np.array(vals, dtype=np.float64)
         for v in vals:
             assert int(v) == v, "Error float value"
 
@@ -1545,7 +1545,9 @@ class InferGlobalAccPoolLayer(Transformation):
                     model.make_new_valueinfo_name(), TensorProto.FLOAT, [1]
                 )
                 model.graph.value_info.append(mul_value)
-                model.set_initializer(mul_value.name, np.array(1 / (vecs[1] * vecs[2])))
+                model.set_initializer(
+                    mul_value.name, np.array(1 / (vecs[1] * vecs[2]), dtype=np.float32)
+                )
                 new_mul = helper.make_node(
                     "Mul",
                     [pool_out, mul_value.name],
