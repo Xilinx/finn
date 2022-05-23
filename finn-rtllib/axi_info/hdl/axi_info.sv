@@ -45,7 +45,7 @@ module axi_info #(
 	// Writing
 	input	logic                  s_axi_AWVALID,
 	output	logic                  s_axi_AWREADY,
-	input	logic [$clog2(N)-1:0]  s_axi_AWADDR,
+	input	logic [$clog2(N)+1:0]  s_axi_AWADDR,
 
 	input	logic                           s_axi_WVALID,
 	output	logic                           s_axi_WREADY,
@@ -59,7 +59,7 @@ module axi_info #(
 	// Reading
 	input	logic                  s_axi_ARVALID,
 	output	logic                  s_axi_ARREADY,
-	input	logic [$clog2(N)-1:0]  s_axi_ARADDR,
+	input	logic [$clog2(N)+1:0]  s_axi_ARADDR,
 
 	output	logic                         s_axi_RVALID,
 	input	logic                         s_axi_RREADY,
@@ -108,7 +108,7 @@ module axi_info #(
 			else if(s_axi_ARREADY) begin
 				RValid <= s_axi_ARVALID;
 				if(s_axi_ARADDR < N) begin
-					RData  <= DATA[s_axi_ARADDR];
+					RData  <= DATA[s_axi_ARADDR[$left(s_axi_ARADDR):2]];
 					RResp  <= '0; // OKAY
 				end
 				else begin
