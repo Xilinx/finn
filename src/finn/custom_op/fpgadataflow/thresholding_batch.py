@@ -465,9 +465,26 @@ class Thresholding_Batch(HLSCustomOp):
             weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
             self.make_weight_file(thresholds, "decoupled_npy", weight_filename_sim)
             # also save weights as Verilog .dat file
-            weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+            # note that we provide two different .dat files, one for synth
+            # and one for synthesis. this is because URAM-based weights always
+            # need zero weights for synthesis, otherwise they get inferred
+            # as BRAM
+            weight_filename_rtl_synth = "{}/memblock_synth_0.dat".format(code_gen_dir)
+            weight_filename_rtl_sim = "{}/memblock_sim_0.dat".format(code_gen_dir)
+            # sim weights are always the true weights
             self.make_weight_file(
-                thresholds, "decoupled_verilog_dat", weight_filename_rtl
+                thresholds, "decoupled_verilog_dat", weight_filename_rtl_sim
+            )
+            ram_style = self.get_nodeattr("ram_style")
+            if ram_style == "ultra":
+                # UltraRAM must have no memory initializer, or only zeroes
+                # otherwise BRAM will be inferred instead of URAM
+                # as a workaround we provide a zero-weight init here
+                synth_thresholds = np.zeros_like(thresholds)
+            else:
+                synth_thresholds = thresholds
+            self.make_weight_file(
+                synth_thresholds, "decoupled_verilog_dat", weight_filename_rtl_synth
             )
         else:
             raise Exception("Unrecognized mem_mode")
