@@ -179,7 +179,12 @@ class checksum(HLSCustomOp):
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            output = self.rtlsim(sim, inp)
+            io_dict = {
+                "inputs": {"in0": inp},
+                "outputs": {"out": []},
+            }
+            self.rtlsim_multi_io(sim, io_dict)
+            output = io_dict["outputs"]["out"]
             odt = self.get_output_datatype()
             target_bits = odt.bitwidth()
             packed_bits = self.get_outstream_width()
@@ -241,18 +246,22 @@ class checksum(HLSCustomOp):
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS interface port=in0 axis"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS interface port=out axis")
+        self.code_gen_dict["$PRAGMAS$"] = [
+            "#pragma HLS interface axis port=in0 name=in0_" + self.hls_sname()
+        ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS interface port=chk s_axilite"
+            "#pragma HLS interface axis port=out name=out_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS interface port=return ap_ctrl_none"
+            "#pragma HLS interface s_axilite port=chk"
+        )
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS interface ap_ctrl_none port=return"
         )
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         # expose axilite interface
-        intf_names["axilite"] = ["s_axilite"]
+        intf_names["axilite"] = ["s_axi_control"]
         return intf_names
