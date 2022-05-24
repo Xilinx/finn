@@ -89,6 +89,7 @@ def make_model(shape):
     return model
 
 
+@pytest.mark.streamline
 # channels
 @pytest.mark.parametrize("ch", [64])
 # ifmdim
@@ -133,6 +134,7 @@ def test_linear_past_eltwise_add(ch, ifmdim):
     os.remove(export_onnx_path)
 
 
+@pytest.mark.streamline
 @pytest.mark.parametrize("ch", [64, 1])
 # ifmdim
 @pytest.mark.parametrize("ifmdim", [-1, 7])

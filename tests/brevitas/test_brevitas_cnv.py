@@ -47,7 +47,7 @@ from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_brevitas_cnv.onnx"
 
-
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("QONNX_export", [False, True])

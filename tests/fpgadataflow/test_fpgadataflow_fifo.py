@@ -87,6 +87,7 @@ def prepare_inputs(input_tensor, dt):
 @pytest.mark.parametrize("depth", [16])
 # finn_dtype
 @pytest.mark.parametrize("finn_dtype", [DataType["BIPOLAR"]])  # , DataType["INT2"]])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):

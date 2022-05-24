@@ -1,108 +1,46 @@
-pipeline {
-    agent any
-    parameters {
-        string(name: 'FINN_CI_BRANCH', defaultValue: '', description: 'FINN branch to build')
-        string(name: 'FINN_XILINX_PATH', defaultValue: '', description: 'Path to Xilinx tool installation')
-        string(name: 'FINN_XILINX_VERSION', defaultValue: '2020.1', description: 'Xilinx tool version')
-        string(name: 'PYNQ_BOARD', defaultValue: 'Pynq-Z1', description: 'PYNQ board type')
-        string(name: 'PYNQ_IP', defaultValue: '', description: 'PYNQ board IP address')
-        string(name: 'PYNQ_USERNAME', defaultValue: 'xilinx', description: 'PYNQ board username')
-        string(name: 'PYNQ_PASSWORD', defaultValue: 'xilinx', description: 'PYNQ board password')
-        string(name: 'PYNQ_TARGET_DIR', defaultValue: '/home/xilinx/finn', description: 'PYNQ board target deployment directory')
-        string(name: 'NUM_DEFAULT_WORKERS', defaultValue: '1', description: 'Number of cores for parallel transformations')
-        // main test: everything except rtlsim and end2end tests, parallel run with xdist, no parallel transformations to save on memory
-        string(name: 'DOCKER_CMD_MAIN', defaultValue: """python setup.py test --addopts "-k 'not (rtlsim or end2end)' --dist=loadfile -n auto" """, description: 'Main test command')
-        // rtlsim tests: parallel run with pytest-parallel, no parallel transformations to save on memory
-        string(name: 'DOCKER_CMD_RTLSIM', defaultValue: """python setup.py test --addopts "-k rtlsim --workers auto" """, description: 'rtlsim test command')
-        // end2end tests: no parallel testing, use NUM_DEFAULT_WORKERS for parallel transformations
-        string(name: 'DOCKER_CMD_END2END', defaultValue: """python setup.py test --addopts "-k end2end" """, description: 'end2end test command')
-        // allow specifying where to mount the cloned folder from, since Jenkins and FINN may be running in separate containers
-        string(name: 'WORKSPACE_MOUNT', defaultValue: '/var/jenkins_home/workspace/finn', description: 'Path to Jenkins workspace mount')
+node {
+    def app
+    stage('Clone repository') {
+        /* Let's make sure we have the repository cloned to our workspace */
+        checkout scm
     }
-    environment {
-        DOCKER_TAG='finn_ci:$BUILD_ID'
-        DOCKER_INST_NAME='finn_ci'
-        BUILD_PATH='/tmp/finn_ci'
-        VIVADO_PATH=${params.FINN_XILINX_PATH}/Vivado/${params.FINN_XILINX_VERSION}
-        VITIS_PATH=${params.FINN_XILINX_PATH}/Vitis/${params.FINN_XILINX_VERSION}
-    }
-    stages {
-        stage("Clone") {
-            steps {
-                git branch: "${params.FINN_CI_BRANCH}", url: 'https://github.com/Xilinx/finn.git'
+    withEnv([
+        "FINN_XILINX_PATH=/proj/xbuilds/SWIP/2022.1_0420_0327/installs/lin64",
+        "FINN_XILINX_VERSION=2022.1",
+        "FINN_DOCKER_TAG=xilinx/finn:jenkins",
+        "FINN_HOST_BUILD_DIR=/scratch/users/finn_ci",
+        "PLATFORM_REPO_PATHS=/opt/xilinx/dsa"
+    ]){
+        parallel firstBranch: {
+            stage('Brevitas export') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh python setup.py test --addopts -mbrevitas_export")
+                }
             }
-        }
-      stage('Build') {
-            steps {
-                sh """
-                docker build -t $DOCKER_TAG -f docker/Dockerfile.finn_ci \
-                --build-arg BUILD_PATH=$BUILD_PATH \
-                .
-                """
+        }, secondBranch: {
+            stage('Streamlining transformations') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh python setup.py test --addopts -mstreamline")
+                }
+            } 
+        }, thirdBranch: {
+            stage('Util functions') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh python setup.py test --addopts -mutil")
+                }
             }
-        }
-        stage('test-main') {
-            steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                sh """
-                docker run --init \
-                --hostname $DOCKER_INST_NAME \
-                -v ${params.WORKSPACE_MOUNT}:/workspace/finn \
-                -v ${params.FINN_XILINX_PATH}:${params.FINN_XILINX_PATH}:ro \
-                -e NUM_DEFAULT_WORKERS=1 \
-                -e FINN_INST_NAME=$DOCKER_INST_NAME \
-                -e VIVADO_PATH=$VIVADO_PATH \
-                -e VITIS_PATH=$VITIS_PATH \
-                -e PYNQ_BOARD=${params.PYNQ_BOARD} \
-                -e PYNQ_IP=${params.PYNQ_IP} \
-                -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
-                -e PYNQ_PASSWORD=${params.PYNQ_PASSWORD} \
-                -e PYNQ_TARGET_DIR=${params.PYNQ_TARGET_DIR} \
-                $DOCKER_TAG ${params.DOCKER_CMD_MAIN}
-                """}
+        }, fourthBranch: {
+            stage('General transformations') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh python setup.py test --addopts -mtransform")
+                }
             }
-        }
-        stage('test-rtlsim') {
-            steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                sh """
-                docker run --init \
-                --hostname $DOCKER_INST_NAME \
-                -v ${params.WORKSPACE_MOUNT}:/workspace/finn \
-                -v $VIVADO_PATH:$VIVADO_PATH:ro \
-                -e NUM_DEFAULT_WORKERS=1 \
-                -e FINN_INST_NAME=$DOCKER_INST_NAME \
-                -e VIVADO_PATH=$VIVADO_PATH \
-                -e VITIS_PATH=$VITIS_PATH \
-                -e PYNQ_BOARD=${params.PYNQ_BOARD} \
-                -e PYNQ_IP=${params.PYNQ_IP} \
-                -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
-                -e PYNQ_PASSWORD=${params.PYNQ_PASSWORD} \
-                -e PYNQ_TARGET_DIR=${params.PYNQ_TARGET_DIR} \
-                $DOCKER_TAG ${params.DOCKER_CMD_RTLSIM}
-                """}
+        }, fifthBranch: {
+            stage('Fpgadataflow transformations and simulations') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh python setup.py test --addopts -mfpgadataflow")
+                }
             }
-        }
-        stage('test-end2end') {
-            steps {
-                catchError(buildResult: 'SUCCESS', stageResult: 'FAILURE') {
-                sh """
-                docker run --init \
-                --hostname $DOCKER_INST_NAME \
-                -v ${params.WORKSPACE_MOUNT}:/workspace/finn \
-                -v $VIVADO_PATH:$VIVADO_PATH:ro \
-                -e NUM_DEFAULT_WORKERS=${params.NUM_DEFAULT_WORKERS} \
-                -e FINN_INST_NAME=$DOCKER_INST_NAME \
-                -e VIVADO_PATH=$VIVADO_PATH \
-                -e VITIS_PATH=$VITIS_PATH \
-                -e PYNQ_BOARD=${params.PYNQ_BOARD} \
-                -e PYNQ_IP=${params.PYNQ_IP} \
-                -e PYNQ_USERNAME=${params.PYNQ_USERNAME} \
-                -e PYNQ_PASSWORD=${params.PYNQ_PASSWORD} \
-                -e PYNQ_TARGET_DIR=${params.PYNQ_TARGET_DIR} \
-                $DOCKER_TAG ${params.DOCKER_CMD_END2END}
-                """ }
-            }
-        }
+        }        
     }
 }

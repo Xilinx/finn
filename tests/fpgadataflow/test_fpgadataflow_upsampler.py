@@ -125,6 +125,7 @@ class PyTorchTestModel(nn.Module):
 @pytest.mark.parametrize("NumChannels", [4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode):

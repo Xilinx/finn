@@ -348,9 +348,14 @@ class StreamingConcat(HLSCustomOp):
         n_inputs = self.get_n_inputs()
         pragmas = []
         for i in range(n_inputs):
-            pragmas.append("#pragma HLS INTERFACE axis port=in%d" % i)
+            pragmas.append(
+                "#pragma HLS INTERFACE axis port=in%d name=in%d_%s"
+                % (i, i, self.hls_sname())
+            )
         self.code_gen_dict["$PRAGMAS$"] = pragmas
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+        )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
@@ -362,9 +367,10 @@ class StreamingConcat(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         n_inputs = self.get_n_inputs()
+        sname = self.hls_sname()
         intf_names["s_axis"] = []
         for i in range(n_inputs):
             intf_names["s_axis"].append(
-                ("in%d_V_V" % i, self.get_instream_width_padded(i))
+                ("in%d_%s" % (i, sname), self.get_instream_width_padded(i))
             )
         return intf_names

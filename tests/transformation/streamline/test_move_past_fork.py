@@ -9,6 +9,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.reorder import MoveLinearPastFork
 
 
+@pytest.mark.streamline
 @pytest.mark.parametrize("ch", [64, 1])
 # ifmdim
 @pytest.mark.parametrize("ifmdim", [-1, 7])

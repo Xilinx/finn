@@ -42,6 +42,7 @@ from finn.transformation.streamline.reorder import MoveFlattenPastAffine
 from finn.util.basic import gen_finn_dt_tensor
 
 
+@pytest.mark.streamline
 # data layout
 @pytest.mark.parametrize("data_layout", [DataLayout.NHWC, DataLayout.NCHW])
 # batch size

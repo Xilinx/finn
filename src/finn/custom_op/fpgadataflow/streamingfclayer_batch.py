@@ -393,9 +393,16 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
+        # when performing FIFO insertion on an FC layer with ext weights, the ind
+        # parameter can be > 0 (referring to the weights) so handle that here
+        if ind == 0:
+            return DataType[self.get_nodeattr("inputDataType")]
+        elif ind == 1:
+            return DataType[self.get_nodeattr("weightDataType")]
+        else:
+            raise Exception("Undefined input ind for this layer type")
 
     def get_weight_datatype(self):
         """Returns FINN DataType of weights."""
@@ -811,16 +818,28 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
-                weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+                # note that we provide two different .dat files, one for synth
+                # and one for synthesis. this is because URAM-based weights always
+                # need zero weights for synthesis, otherwise they get inferred
+                # as BRAM
+                weight_filename_rtl_synth = "{}/memblock_synth_0.dat".format(
+                    code_gen_dir
+                )
+                weight_filename_rtl_sim = "{}/memblock_sim_0.dat".format(code_gen_dir)
+                # sim weights are always the true weights
+                self.make_weight_file(
+                    weights, "decoupled_verilog_dat", weight_filename_rtl_sim
+                )
                 ram_style = self.get_nodeattr("ram_style")
                 if ram_style == "ultra":
                     # UltraRAM must have no memory initializer, or only zeroes
                     # otherwise BRAM will be inferred instead of URAM
                     # as a workaround we provide a zero-weight init here
-                    # TODO handle this in Verilog with an if statement
-                    weights = np.zeros_like(weights)
+                    synth_weights = np.zeros_like(weights)
+                else:
+                    synth_weights = weights
                 self.make_weight_file(
-                    weights, "decoupled_verilog_dat", weight_filename_rtl
+                    synth_weights, "decoupled_verilog_dat", weight_filename_rtl_synth
                 )
         else:
             raise Exception(
@@ -871,7 +890,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                         tdt_hls,
                         odt_hls,
                         self.get_nodeattr("ActVal"),
-                        "comp::less_equal<%s>" % tdt_hls,
+                        "comp::less_equal<%s, %s>" % (tdt_hls, tdt_hls),
                     )
                 )
                 f_thresh.write(thresholds_hls_code)
@@ -1210,8 +1229,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def pragmas(self):
         mem_mode = self.get_nodeattr("mem_mode")
         ram_style_thresholds = self.get_nodeattr("ram_style_thresholds")
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"] = [
+            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+        ]
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+        )
         in_fifo_depth = self.get_nodeattr("inFIFODepth")
         out_fifo_depth = self.get_nodeattr("outFIFODepth")
         # insert depth pragmas only if specified
@@ -1239,7 +1262,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
         elif mem_mode == "decoupled" or mem_mode == "external":
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=weights"
+                "#pragma HLS INTERFACE axis port=weights name=weights_"
+                + self.hls_sname()
             )
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS stream depth=8 variable=weights"
@@ -1302,6 +1326,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     runtime_writable == 1
                 ), "Layer with URAM weights must have runtime_writeable_weights=1"
             node_name = self.onnx_node.name
+            sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
@@ -1355,8 +1380,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-                "[get_bd_intf_pins %s/%s/weights_V_V]"
-                % (node_name, strm_inst, node_name, node_name)
+                "[get_bd_intf_pins %s/%s/weights_%s]"
+                % (node_name, strm_inst, node_name, node_name, sname)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aresetn]"
@@ -1410,9 +1435,10 @@ class StreamingFCLayer_Batch(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
+        sname = self.hls_sname()
         if mem_mode == "external":
             intf_names["s_axis"].append(
-                ("weights_V_V", self.get_weightstream_width_padded())
+                ("weights_" + sname, self.get_weightstream_width_padded())
             )
         if mem_mode == "decoupled":
             # only expose axilite interface if attribute is set

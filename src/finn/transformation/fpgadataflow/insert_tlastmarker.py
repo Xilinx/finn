@@ -97,7 +97,7 @@ class InsertTLastMarker(Transformation):
                 first_node = model.find_consumers(graph_in_name)
                 # skip if no consumers (this may be the case for unused initializers)
                 # TODO: fix this with a cleanup transform
-                if first_node is None:
+                if first_node == []:
                     continue
                 assert len(first_node) == 1, "Input fans out to multiple nodes"
                 first_node = first_node[0]

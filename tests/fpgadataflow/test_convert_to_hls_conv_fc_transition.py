@@ -75,6 +75,7 @@ def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
 )
 @pytest.mark.parametrize("depthwise", [False, True])
 @pytest.mark.parametrize("use_reshape", [False, True])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):

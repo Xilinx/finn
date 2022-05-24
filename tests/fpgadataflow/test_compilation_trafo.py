@@ -38,6 +38,7 @@ from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_compilation_trafo():
     idt = wdt = odt = DataType["BIPOLAR"]

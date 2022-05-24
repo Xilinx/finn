@@ -168,6 +168,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 @pytest.mark.parametrize("stride", [1, 2])
 # padding
 @pytest.mark.parametrize("padding", [0, 1])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
@@ -210,6 +211,7 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
 @pytest.mark.parametrize("stride", [1, 2])
 # padding
 @pytest.mark.parametrize("padding", [0, 1])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
