@@ -85,12 +85,13 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False):
+    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=False):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
         self.ip_name = ip_name
         self.vitis = vitis
+        self.signature = signature
         self.has_aximm = False
         self.has_m_axis = False
         self.m_axis_idx = 0
@@ -225,12 +226,37 @@ class CreateStitchedIP(Transformation):
             )
             self.s_axis_idx += 1
 
+    def insert_signature(self):
+        signature_vlnv = "AMD:user:axi_info_top:1.0"
+        signature_name = "axi_info_top0"
+        self.create_cmds.append(
+            "create_bd_cell -type ip -vlnv %s %s" % (signature_vlnv, signature_name)
+        )
+        # set clk and reset
+        self.connect_cmds.append(
+            "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/ap_clk]"
+            % signature_name
+        )
+        self.connect_cmds.append(
+            "connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins %s/ap_rst_n]"
+            % signature_name
+        )
+        # make axilite interface external
+        self.connect_cmds.append(
+            "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi]" % signature_name
+        )
+        self.connect_cmds.append(
+            "set_property name s_axis_info [get_bd_intf_ports s_axi_0]"
+        )
+
     def apply(self, model):
         # ensure non-relative readmemh .dat files
         model = model.transform(ReplaceVerilogRelPaths())
         ip_dirs = ["list"]
         # add RTL streamer IP
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
+        if self.signature == True:
+            ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
         if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
@@ -287,6 +313,10 @@ class CreateStitchedIP(Transformation):
             for i in range(len(node.output)):
                 if node.output[i] == out_name:
                     self.connect_m_axis_external(node, idx=i)
+
+        if self.signature == True:
+            self.insert_signature()
+
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
