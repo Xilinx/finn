@@ -32,6 +32,7 @@ import os
 import subprocess
 from abc import abstractmethod
 
+from finn.core.datatype import DataType
 from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
@@ -433,10 +434,22 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
         # assuming dynamic inputs start from 0
         for in_ind in range(count):
             current_input_name = node.input[in_ind]
-            # make copy before saving array
-            input_array = context[current_input_name].copy()
+            input_array = context[current_input_name]
+            if in_ind == 0:
+                expected_inp_shape = self.get_folded_input_shape()
+                idt = self.get_input_datatype()
+            else:
+                expected_inp_shape = self.get_folded_input_shape(in_ind)
+                idt = self.get_input_datatype(in_ind)
+            reshaped_input = input_array.reshape(expected_inp_shape)
+            if idt == DataType["BIPOLAR"]:
+                # store bipolar activations as binary
+                reshaped_input = (reshaped_input + 1) / 2
+            # make copy before saving the array
+            reshaped_input = reshaped_input.copy()
             np.save(
-                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)), input_array
+                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                reshaped_input,
             )
 
     def npy_to_dynamic_output(self, context):
@@ -445,7 +458,8 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         output = np.load("{}/output.npy".format(code_gen_dir))
-        context[node.output[0]] = output
+        exp_shape = self.get_normal_output_shape()
+        context[node.output[0]] = output.reshape(exp_shape)
 
     def npy_to_dynamic_outputs(self, context, npy_list):
         """Reads the output from .npy files generated from cppsim and places
@@ -456,7 +470,11 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         for i in range(len(npy_list)):
             output = np.load("{}/{}".format(code_gen_dir, npy_list[i]))
-            context[node.output[i]] = output
+            if i == 0:
+                exp_shape = self.get_normal_output_shape()
+            else:
+                exp_shape = self.get_normal_output_shape(i)
+            context[node.output[i]] = output.reshape(exp_shape)
 
     def exec_precompiled_singlenode_model(self):
         """Executes precompiled executable."""

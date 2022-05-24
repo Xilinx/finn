@@ -124,6 +124,9 @@ class checksum(HLSCustomOp):
 
         return normal_ishape
 
+    def get_ap_int_max_w(self):
+        return max(super().get_ap_int_max_w(), 32)
+
     def get_normal_output_shape(self):
         # same shape as input
         return self.get_normal_input_shape()
@@ -132,11 +135,17 @@ class checksum(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
+    def npy_to_dynamic_output(self, context):
+        super().npy_to_dynamic_output(context)
+        node = self.onnx_node
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        output_checksum = np.load("{}/output_checksum.npy".format(code_gen_dir))
+        context[node.output[1]] = output_checksum
+
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
         inp = context[node.input[0]]
-        exp_shape = self.get_normal_input_shape()
 
         # TODO ensure codegen dir exists
         if mode == "cppsim":
@@ -152,9 +161,9 @@ class checksum(HLSCustomOp):
             )
 
         if mode == "cppsim":
-            output = inp
-            output = np.asarray([output], dtype=np.float32).reshape(*exp_shape)
-            context[node.output[0]] = output
+            self.dynamic_input_to_npy(context, 1)
+            self.exec_precompiled_singlenode_model()
+            self.npy_to_dynamic_output(context)
         elif mode == "rtlsim":
             # create a npy file for the input of the node
             assert (
@@ -221,10 +230,30 @@ class checksum(HLSCustomOp):
         self.code_gen_dict["$DEFINES$"] = my_defines
 
     def read_npy_data(self):
-        pass
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        dtype = self.get_input_datatype()
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_instream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_in = "%s/input_0.npy" % code_gen_dir
+        self.code_gen_dict["$READNPYDATA$"] = []
+        # note: the innermost dim is reversed for the input
+        self.code_gen_dict["$READNPYDATA$"].append(
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
+            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+        )
 
     def strm_decl(self):
-        pass
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+        )
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append("ap_uint<32> chk;")
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
@@ -232,10 +261,39 @@ class checksum(HLSCustomOp):
         ]
 
     def dataoutstrm(self):
-        pass
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        dtype = self.get_output_datatype()
+        if dtype == DataType["BIPOLAR"]:
+            # use binary for bipolar storage
+            dtype = DataType["BINARY"]
+        elem_bits = dtype.bitwidth()
+        packed_bits = self.get_outstream_width()
+        packed_hls_type = "ap_uint<%d>" % packed_bits
+        elem_hls_type = dtype.get_hls_datatype_str()
+        npy_type = "float"
+        npy_out = "%s/output.npy" % code_gen_dir
+        shape = tuple(self.get_folded_output_shape())
+        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
+
+        # note: the innermost dim is not reversed for the output
+        self.code_gen_dict["$DATAOUTSTREAM$"] = [
+            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", false);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                shape_cpp_str,
+                npy_out,
+            ),
+            "std::vector<unsigned int> checksum(1);",
+            "checksum[0] = chk;",
+            'cnpy::npy_save("%s/output_checksum.npy",&checksum[0],{1},"w");'
+            % code_gen_dir,
+        ]
 
     def save_as_npy(self):
-        pass
+        self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
