@@ -511,6 +511,7 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
                 cfg._resolve_fpga_part(),
                 cfg.synth_clk_period_ns,
                 vitis=cfg.stitched_ip_gen_dcp,
+                signature=cfg.signature,
             )
         )
         # TODO copy all ip sources into output dir? as zip?
