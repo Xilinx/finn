@@ -43,7 +43,7 @@
  *	  The provided DefaultSubwordSlicer assumes an `ap_(u)int`-like word
  *	  type with a member `width` and a range-based slicing operator. It
  *	  further assumes a little-endian arrangement of subwords within words
- *	  for the canonical subword stream order. 
+ *	  for the canonical subword stream order.
  *	- Subwords wider than 23 bits are folded using bitwise XOR across
  *	  slices of 23 bits starting from the LSB.
  *	- The folded subword values are weighted according to their position
