@@ -311,7 +311,7 @@ class checksum(HLSCustomOp):
             "#pragma HLS interface axis port=out name=out_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS interface s_axilite port=chk"
+            "#pragma HLS interface s_axilite port=chk bundle=checksum"
         )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS interface ap_ctrl_none port=return"
@@ -321,5 +321,5 @@ class checksum(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         # expose axilite interface
-        intf_names["axilite"] = ["s_axi_control"]
+        intf_names["axilite"] = ["s_axi_checksum"]
         return intf_names
