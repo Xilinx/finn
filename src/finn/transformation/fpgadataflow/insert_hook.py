@@ -84,6 +84,9 @@ class InsertHook(Transformation):
                             )
                             # insert checksum node
                             graph.node.insert(node_ind + 1, chk_node)
+                            # insert newly-created tensors
+                            graph.value_info.append(chk_otensor)
+                            graph.value_info.append(chk_result)
 
                             # set chk output tensor as new input tensor of second node
                             if len(consumers) == 1:
