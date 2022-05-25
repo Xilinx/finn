@@ -256,6 +256,18 @@ class CreateStitchedIP(Transformation):
             "connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins %s/ap_rst_n]"
             % signature_name
         )
+        fclk_mhz = 1 / (self.clk_ns * 0.001)
+        fclk_hz = fclk_mhz * 1000000
+        self.connect_cmds.append(
+            "set_property -dict [list "
+            "CONFIG.FREQ_HZ {%f} "
+            "CONFIG.CLK_DOMAIN {ap_clk} "
+            "] [get_bd_intf_pins %s/s_axi]"
+            % (
+                fclk_hz,
+                signature_name,
+            )
+        )
         # make axilite interface external
         self.connect_cmds.append(
             "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi]" % signature_name
