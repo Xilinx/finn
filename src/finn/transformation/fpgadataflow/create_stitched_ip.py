@@ -226,7 +226,7 @@ class CreateStitchedIP(Transformation):
             )
             self.s_axis_idx += 1
 
-    def insert_signature(self):
+    def insert_signature(self, checksum_count):
         signature_vlnv = "AMD:user:axi_info_top:1.0"
         signature_name = "axi_info_top0"
         self.create_cmds.append(
@@ -243,7 +243,7 @@ class CreateStitchedIP(Transformation):
                 self.signature[0],
                 self.signature[1],
                 self.signature[2],
-                self.signature[3],
+                checksum_count,
                 signature_name,
             )
         )
@@ -331,7 +331,9 @@ class CreateStitchedIP(Transformation):
                     self.connect_m_axis_external(node, idx=i)
 
         if self.signature:
-            self.insert_signature()
+            # extract number of checksum layer from graph
+            checksum_layers = model.get_nodes_by_op_type("checksum")
+            self.insert_signature(len(checksum_layers))
 
 
         # create a temporary folder for the project
