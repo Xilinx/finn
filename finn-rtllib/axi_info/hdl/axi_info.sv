@@ -98,29 +98,21 @@ module axi_info #(
 	if(1) begin : blkRead
 		logic                         RValid =  0;
 		logic [S_AXI_DATA_WIDTH-1:0]  RData;//  = 'x;
-		logic [                 1:0]  RResp;//  = 'x;
 		always_ff @(posedge clk) begin
 			if(rst) begin
 				RValid <=  0;
 				RData  <= 'x;
-				RResp  <= 'x;
 			end
 			else if(s_axi_ARREADY) begin
+				automatic logic [$left(s_axi_ARADDR):2]  addr_eff = s_axi_ARADDR[$left(s_axi_ARADDR):2];
 				RValid <= s_axi_ARVALID;
-				if(s_axi_ARADDR < N) begin
-					RData  <= DATA[s_axi_ARADDR[$left(s_axi_ARADDR):2]];
-					RResp  <= '0; // OKAY
-				end
-				else begin
-					RData  <= 'x;
-					RResp  <= '1; // DECERR
-				end
+				RData  <= (addr_eff < N)? DATA[addr_eff] : 32'hDEADDEAD;
 			end
 		end
 		assign	s_axi_ARREADY = !RValid || s_axi_RREADY;
 		assign	s_axi_RVALID  = RValid;
 		assign	s_axi_RDATA   = RData;
-		assign	s_axi_RRESP   = RResp;
+		assign	s_axi_RRESP   = '0; // OKAY
 
 	end : blkRead
 
