@@ -209,9 +209,9 @@ class DataflowBuildConfig:
     #: the full list of layer IP build directories. By default, synthesis will not run.
     stitched_ip_gen_dcp: Optional[bool] = False
 
-    #: (Optional) Insert a signature node to the stitched-IP to read/write information
+    #: Insert a signature node to the stitched-IP to read/write information
     #: to the design: e.g. Customer signature, application signature, version
-    signature: Optional[bool] = False
+    signature: Optional[tuple] = ()
 
     #: (Optional) Control the maximum width of the per-PE MVAU stream while
     #: exploring the parallelization attributes to reach target_fps
