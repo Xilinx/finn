@@ -85,7 +85,7 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=False):
+    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -232,6 +232,21 @@ class CreateStitchedIP(Transformation):
         self.create_cmds.append(
             "create_bd_cell -type ip -vlnv %s %s" % (signature_vlnv, signature_name)
         )
+        self.create_cmds.append(
+            "set_property -dict [list "
+            "CONFIG.SIG_CUSTOMER {%s} "
+            "CONFIG.SIG_APPLICATION {%s} "
+            "CONFIG.VERSION {%s} "
+            "CONFIG.CHECKSUM_COUNT {%s} "
+            "] [get_bd_cells %s]"
+            % (
+                self.signature[0],
+                self.signature[1],
+                self.signature[2],
+                self.signature[3],
+                signature_name,
+            )
+        )
         # set clk and reset
         self.connect_cmds.append(
             "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/ap_clk]"
@@ -248,6 +263,7 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append(
             "set_property name s_axis_info [get_bd_intf_ports s_axi_0]"
         )
+        self.connect_cmds.append("assign_bd_address")
 
     def apply(self, model):
         # ensure non-relative readmemh .dat files
@@ -255,7 +271,7 @@ class CreateStitchedIP(Transformation):
         ip_dirs = ["list"]
         # add RTL streamer IP
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
-        if self.signature == True:
+        if self.signature:
             ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
         if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
             warnings.warn(
@@ -314,7 +330,7 @@ class CreateStitchedIP(Transformation):
                 if node.output[i] == out_name:
                     self.connect_m_axis_external(node, idx=i)
 
-        if self.signature == True:
+        if self.signature:
             self.insert_signature()
 
 
