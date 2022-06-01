@@ -54,10 +54,8 @@ recho () {
   echo -e "${RED}ERROR: $1${NC}"
 }
 
-# finn-base
-pip install --user -e ${FINN_ROOT}/deps/finn-base
-# Install qonnx without dependencies, currently its only dependency is finn-base
-pip install --user --no-dependencies -e ${FINN_ROOT}/deps/qonnx
+# qonnx
+pip install --user -e ${FINN_ROOT}/deps/qonnx
 # finn-experimental
 pip install --user -e ${FINN_ROOT}/deps/finn-experimental
 # brevitas

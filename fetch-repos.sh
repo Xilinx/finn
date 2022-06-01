@@ -27,8 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-FINN_BASE_COMMIT="585bccad29ba6416511256c732a2c1da21d00bdf"
-QONNX_COMMIT="9f9eff95227cc57aadc6eafcbd44b7acda89f067"
+QONNX_COMMIT="3cfd24136905174f39f7ee1b6fc380cc213ab467"
 FINN_EXP_COMMIT="af6102769226b82b639f243dc36f065340991513"
 BREVITAS_COMMIT="a5b71d6de1389d3e7db898fef72e014842670f03"
 PYVERILATOR_COMMIT="0c3eb9343500fc1352a02c020a736c8c2db47e8e"
@@ -38,7 +37,6 @@ OMX_COMMIT="a97f0bf145a2f7e57ca416ea76c9e45df4e9aa37"
 AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 EXP_BOARD_FILES_MD5="ac1811ae93b03f5f09a505283ff989a3"
 
-FINN_BASE_URL="https://github.com/Xilinx/finn-base.git"
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
 BREVITAS_URL="https://github.com/Xilinx/brevitas.git"
@@ -48,7 +46,6 @@ HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
 OMX_URL="https://github.com/maltanar/oh-my-xilinx.git"
 AVNET_BDF_URL="https://github.com/Avnet/bdf.git"
 
-FINN_BASE_DIR="finn-base"
 QONNX_DIR="qonnx"
 FINN_EXP_DIR="finn-experimental"
 BREVITAS_DIR="brevitas"
@@ -106,7 +103,6 @@ fetch_board_files() {
     cd $OLD_PWD
 }
 
-fetch_repo $FINN_BASE_URL $FINN_BASE_COMMIT $FINN_BASE_DIR
 fetch_repo $QONNX_URL $QONNX_COMMIT $QONNX_DIR
 fetch_repo $FINN_EXP_URL $FINN_EXP_COMMIT $FINN_EXP_DIR
 fetch_repo $BREVITAS_URL $BREVITAS_COMMIT $BREVITAS_DIR
