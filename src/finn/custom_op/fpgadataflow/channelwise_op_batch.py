@@ -431,11 +431,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
                 out = 2 * out - 1
                 context[node.output[0]] = out
             assert (
-                context[node.output[0]].shape == self.get_folded_output_shape()
+                context[node.output[0]].shape == self.get_normal_output_shape()
             ), """Output shape is not as expected"""
-            # reshape output to have expected shape
-            oshape = self.get_normal_output_shape()
-            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()

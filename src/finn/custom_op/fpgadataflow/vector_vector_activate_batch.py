@@ -433,11 +433,8 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             assert (
-                context[node.output[0]].shape == self.get_folded_output_shape()
-            ), """Output shape is not as expected"""
-            # reshape output to have expected shape
-            oshape = self.get_normal_output_shape()
-            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
+                context[node.output[0]].shape == self.get_normal_output_shape()
+            ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
