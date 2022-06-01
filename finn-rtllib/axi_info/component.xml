@@ -169,7 +169,7 @@
       <spirit:parameters>
         <spirit:parameter>
           <spirit:name>POLARITY</spirit:name>
-          <spirit:value spirit:id="BUSIFPARAM_VALUE.AP_RST_N.POLARITY" spirit:choiceRef="choice_list_74b5137e">ACTIVE_LOW</spirit:value>
+          <spirit:value spirit:id="BUSIFPARAM_VALUE.AP_RST_N.POLARITY" spirit:choiceRef="choice_list_9d8b0d81">ACTIVE_LOW</spirit:value>
         </spirit:parameter>
       </spirit:parameters>
     </spirit:busInterface>
@@ -192,6 +192,10 @@
         <spirit:parameter>
           <spirit:name>ASSOCIATED_RESET</spirit:name>
           <spirit:value spirit:id="BUSIFPARAM_VALUE.AP_CLK.ASSOCIATED_RESET">ap_rst_n</spirit:value>
+        </spirit:parameter>
+        <spirit:parameter>
+          <spirit:name>ASSOCIATED_BUSIF</spirit:name>
+          <spirit:value spirit:id="BUSIFPARAM_VALUE.AP_CLK.ASSOCIATED_BUSIF">s_axi</spirit:value>
         </spirit:parameter>
       </spirit:parameters>
     </spirit:busInterface>
@@ -567,28 +571,28 @@
       <spirit:modelParameter xsi:type="spirit:nameValueTypeType" spirit:dataType="bit(31 0)">
         <spirit:name>SIG_CUSTOMER</spirit:name>
         <spirit:displayName>Sig Customer</spirit:displayName>
-        <spirit:value spirit:resolve="generated" spirit:id="MODELPARAM_VALUE.SIG_CUSTOMER">0</spirit:value>
+        <spirit:value spirit:format="long" spirit:resolve="generated" spirit:id="MODELPARAM_VALUE.SIG_CUSTOMER">0</spirit:value>
       </spirit:modelParameter>
       <spirit:modelParameter spirit:dataType="bit(31 0)">
         <spirit:name>SIG_APPLICATION</spirit:name>
         <spirit:displayName>Sig Application</spirit:displayName>
-        <spirit:value spirit:resolve="generated" spirit:id="MODELPARAM_VALUE.SIG_APPLICATION">0</spirit:value>
+        <spirit:value spirit:format="long" spirit:resolve="generated" spirit:id="MODELPARAM_VALUE.SIG_APPLICATION">0</spirit:value>
       </spirit:modelParameter>
       <spirit:modelParameter spirit:dataType="bit(31 0)">
         <spirit:name>VERSION</spirit:name>
         <spirit:displayName>Version</spirit:displayName>
-        <spirit:value spirit:resolve="generated" spirit:id="MODELPARAM_VALUE.VERSION">0</spirit:value>
+        <spirit:value spirit:format="long" spirit:resolve="generated" spirit:id="MODELPARAM_VALUE.VERSION">0</spirit:value>
       </spirit:modelParameter>
       <spirit:modelParameter spirit:dataType="bit(31 0)">
         <spirit:name>CHECKSUM_COUNT</spirit:name>
         <spirit:displayName>Checksum Count</spirit:displayName>
-        <spirit:value spirit:resolve="generated" spirit:id="MODELPARAM_VALUE.CHECKSUM_COUNT">0</spirit:value>
+        <spirit:value spirit:format="long" spirit:resolve="generated" spirit:id="MODELPARAM_VALUE.CHECKSUM_COUNT">0</spirit:value>
       </spirit:modelParameter>
     </spirit:modelParameters>
   </spirit:model>
   <spirit:choices>
     <spirit:choice>
-      <spirit:name>choice_list_74b5137e</spirit:name>
+      <spirit:name>choice_list_9d8b0d81</spirit:name>
       <spirit:enumeration>ACTIVE_HIGH</spirit:enumeration>
       <spirit:enumeration>ACTIVE_LOW</spirit:enumeration>
     </spirit:choice>
@@ -632,22 +636,22 @@
     <spirit:parameter>
       <spirit:name>SIG_CUSTOMER</spirit:name>
       <spirit:displayName>Sig Customer</spirit:displayName>
-      <spirit:value spirit:resolve="user" spirit:id="PARAM_VALUE.SIG_CUSTOMER">0</spirit:value>
+      <spirit:value spirit:format="long" spirit:resolve="user" spirit:id="PARAM_VALUE.SIG_CUSTOMER">0</spirit:value>
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>SIG_APPLICATION</spirit:name>
       <spirit:displayName>Sig Application</spirit:displayName>
-      <spirit:value spirit:resolve="user" spirit:id="PARAM_VALUE.SIG_APPLICATION">0</spirit:value>
+      <spirit:value spirit:format="long" spirit:resolve="user" spirit:id="PARAM_VALUE.SIG_APPLICATION">0</spirit:value>
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>VERSION</spirit:name>
       <spirit:displayName>Version</spirit:displayName>
-      <spirit:value spirit:resolve="user" spirit:id="PARAM_VALUE.VERSION">0</spirit:value>
+      <spirit:value spirit:format="long" spirit:resolve="user" spirit:id="PARAM_VALUE.VERSION">0</spirit:value>
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>CHECKSUM_COUNT</spirit:name>
       <spirit:displayName>Checksum Count</spirit:displayName>
-      <spirit:value spirit:resolve="user" spirit:id="PARAM_VALUE.CHECKSUM_COUNT">0</spirit:value>
+      <spirit:value spirit:format="long" spirit:resolve="user" spirit:id="PARAM_VALUE.CHECKSUM_COUNT">0</spirit:value>
     </spirit:parameter>
     <spirit:parameter>
       <spirit:name>Component_Name</spirit:name>
@@ -688,17 +692,17 @@
       </xilinx:taxonomies>
       <xilinx:displayName>axi_info_top_v1_0</xilinx:displayName>
       <xilinx:definitionSource>package_project</xilinx:definitionSource>
-      <xilinx:coreRevision>2</xilinx:coreRevision>
-      <xilinx:coreCreationDateTime>2022-05-25T13:36:02Z</xilinx:coreCreationDateTime>
+      <xilinx:coreRevision>5</xilinx:coreRevision>
+      <xilinx:coreCreationDateTime>2022-05-30T14:16:13Z</xilinx:coreCreationDateTime>
     </xilinx:coreExtensions>
     <xilinx:packagingInfo>
       <xilinx:xilinxVersion>2022.1</xilinx:xilinxVersion>
-      <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="48ddfa6c"/>
+      <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="919b2cd5"/>
       <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="c930e363"/>
       <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="5ec5459d"/>
       <xilinx:checksum xilinx:scope="ports" xilinx:value="bd3646cb"/>
-      <xilinx:checksum xilinx:scope="hdlParameters" xilinx:value="cf9020e6"/>
-      <xilinx:checksum xilinx:scope="parameters" xilinx:value="5da1960f"/>
+      <xilinx:checksum xilinx:scope="hdlParameters" xilinx:value="eab94b69"/>
+      <xilinx:checksum xilinx:scope="parameters" xilinx:value="ba692e87"/>
     </xilinx:packagingInfo>
   </spirit:vendorExtensions>
 </spirit:component>

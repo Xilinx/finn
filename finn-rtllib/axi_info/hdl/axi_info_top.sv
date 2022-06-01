@@ -73,7 +73,7 @@ module axi_info_top #(
 		.DATA('{
 			32'h4649_4E4E,
 			SIG_CUSTOMER,
-			SIG_CUSTOMER,
+			SIG_APPLICATION,
 			VERSION,
 			32'h0,
 			CHECKSUM_COUNT
