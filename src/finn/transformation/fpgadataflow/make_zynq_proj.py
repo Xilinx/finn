@@ -28,11 +28,13 @@
 
 import os
 import subprocess
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from shutil import copy
 
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -43,8 +45,6 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from finn.transformation.infer_data_layouts import InferDataLayouts
 from finn.util.basic import make_build_dir, pynq_part_map
 
 from . import templates

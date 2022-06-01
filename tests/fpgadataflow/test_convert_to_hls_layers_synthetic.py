@@ -31,24 +31,25 @@ import pytest
 import numpy as np
 import os
 from onnx import TensorProto, helper
-
-import finn.core.onnx_exec as oxe
-import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.general import (
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     SortGraph,
 )
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.insert_topk import InsertTopK
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.insert_topk import InsertTopK
+from qonnx.util.basic import gen_finn_dt_tensor
+
+import finn.core.onnx_exec as oxe
+import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.streamline.absorb import (
     AbsorbConsecutiveTransposes,
     AbsorbScalarMulAddIntoTopK,
@@ -61,7 +62,6 @@ from finn.transformation.streamline.reorder import (
     MoveAddPastMul,
     MoveScalarLinearPastInvariants,
 )
-from finn.util.basic import gen_finn_dt_tensor
 from finn.util.test import soft_verify_topk
 
 export_onnx_path = "test_output_synthetic.onnx"

@@ -33,11 +33,11 @@ import onnx
 import onnx.numpy_helper as nph
 import os
 from pkgutil import get_data
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import ConvertSignToThres
 from finn.util.test import get_test_model_trained
 

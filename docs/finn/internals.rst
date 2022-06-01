@@ -14,10 +14,10 @@ FINN uses `ONNX <https://github.com/onnx/onnx>`_ as an intermediate representati
 Custom Quantization Annotations
 ===============================
 
-ONNX does not support datatypes smaller than 8-bit integers, whereas in FINN we are interested in smaller integers down to ternary and bipolar. To make this work, FINN uses the quantization_annotation field in ONNX to annotate tensors with their FINN DataType (:py:mod:`finn.core.datatype.DataType`) information. However, all tensors are expected to use single-precision floating point (float32) storage in FINN. This means we store even a 1-bit value as floating point for the purposes of representation. The FINN compiler flow is responsible for eventually producing a packed representation for the target hardware, where the 1-bit is actually stored as 1-bit.
+ONNX does not support datatypes smaller than 8-bit integers, whereas in FINN we are interested in smaller integers down to ternary and bipolar. To make this work, FINN uses the quantization_annotation field in ONNX to annotate tensors with their FINN DataType (:py:mod:`qonnx.core.datatype.DataType`) information. However, all tensors are expected to use single-precision floating point (float32) storage in FINN. This means we store even a 1-bit value as floating point for the purposes of representation. The FINN compiler flow is responsible for eventually producing a packed representation for the target hardware, where the 1-bit is actually stored as 1-bit.
 
 Note that FINN uses floating point tensors as a carrier data type to represent integers. Floating point arithmetic can introduce rounding errors, e.g. (int_num * float_scale) / float_scale is not always equal to int_num.
-When using the custom ONNX execution flow, FINN will attempt to sanitize any rounding errors for integer tensors. See (:py:mod:`finn.util.basic.sanitize_quant_values`) for more information.
+When using the custom ONNX execution flow, FINN will attempt to sanitize any rounding errors for integer tensors. See (:py:mod:`qonnx.util.basic.sanitize_quant_values`) for more information.
 This behavior can be disabled (not recommended!) by setting the environment variable SANITIZE_QUANT_TENSORS=0.
 
 Custom Operations/Nodes
@@ -39,7 +39,7 @@ To verify correct operation of FINN-ONNX graphs, FINN provides its own ONNX exec
 ModelWrapper
 ============
 
-FINN provides a ModelWrapper class (:py:mod:`finn.core.modelwrapper.ModelWrapper`) as a thin wrapper around ONNX to make it easier to analyze and manipulate ONNX graphs. This wrapper provides many helper functions, while still giving full access to the ONNX protobuf representation.
+FINN provides a ModelWrapper class (:py:mod:`qonnx.core.modelwrapper.ModelWrapper`) as a thin wrapper around ONNX to make it easier to analyze and manipulate ONNX graphs. This wrapper provides many helper functions, while still giving full access to the ONNX protobuf representation.
 
 Some of the helper functions are described in more detail below.
 
@@ -48,7 +48,7 @@ Create a ModelWrapper instance
 The ModelWrapper instance can be created using a model in .onnx format or by directly passing a ModelProto instance to the wrapper. The code block below gives an example of how to use the wrapper on a model in .onnx format.
 ::
 
-  from finn.core.modelwrapper import ModelWrapper
+  from qonnx.core.modelwrapper import ModelWrapper
   model = ModelWrapper("model.onnx")
 
 Access the ONNX GraphProto through ModelWrapper
@@ -116,7 +116,7 @@ As mentioned above there are FINN DataTypes additional to the container datatype
   model.get_tensor_datatype(tensor_list[2])
 
   # set tensor datatype of third tensor in model tensor list
-  from finn.core.datatype import DataType
+  from qonnx.core.datatype import DataType
 
   finn_dtype = DataType.BIPOLAR
   model.set_tensor_datatype(tensor_list[2], finn_dtype)
@@ -127,7 +127,7 @@ ModelWrapper contains two helper functions for tensor initializers, one to deter
   # get tensor initializer of third tensor in model tensor list
   model.get_initializer(tensor_list[2])
 
-ModelWrapper contains more useful functions, if you are interested please have a look at the ModelWrapper module (:py:mod:`finn.core.modelwrapper.ModelWrapper`) directly.
+ModelWrapper contains more useful functions, if you are interested please have a look at the ModelWrapper module (:py:mod:`qonnx.core.modelwrapper.ModelWrapper`) directly.
 
 
 .. _analysis_pass:

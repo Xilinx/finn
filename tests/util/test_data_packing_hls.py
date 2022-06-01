@@ -32,9 +32,9 @@ import numpy as np
 import os
 import shutil
 import subprocess
+from qonnx.core.datatype import DataType
 
 import finn.util.basic as cutil
-from finn.core.datatype import DataType
 from finn.util.data_packing import numpy_to_hls_code
 
 

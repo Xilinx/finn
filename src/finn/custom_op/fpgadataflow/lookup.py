@@ -30,8 +30,8 @@ import numpy as np
 import os
 import warnings
 from math import ceil, log2
+from qonnx.core.datatype import DataType
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,

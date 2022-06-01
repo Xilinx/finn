@@ -29,14 +29,14 @@
 import pytest
 
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.general import GiveUniqueNodeNames
 
 from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
     res_estimation_complete,
 )
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.general import GiveUniqueNodeNames
 
 
 def check_two_dict_for_equality(dict1, dict2):
@@ -50,6 +50,7 @@ def check_two_dict_for_equality(dict1, dict2):
         )
 
     return True
+
 
 @pytest.mark.fpgadataflow
 def test_res_estimate():

@@ -25,7 +25,7 @@ Base Class
 finn.custom\_op.registry
 -------------------------
 
-.. automodule:: finn.custom_op.registry
+.. automodule:: qonnx.custom_op.registry
   :members:
   :undoc-members:
   :show-inheritance:

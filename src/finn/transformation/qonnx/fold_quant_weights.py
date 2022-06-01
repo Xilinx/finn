@@ -28,12 +28,12 @@
 
 import numpy as np
 from onnx import TensorProto, helper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 
 import finn.core.onnx_exec as oxe
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.remove import remove_node_and_rewire
 
 

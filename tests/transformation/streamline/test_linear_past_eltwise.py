@@ -31,12 +31,12 @@ import pytest
 import numpy as np
 import os
 from onnx import TensorProto, helper
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.reorder import MoveLinearPastEltwiseAdd
 
 export_onnx_path = "test_linear_past_eltwise.onnx"

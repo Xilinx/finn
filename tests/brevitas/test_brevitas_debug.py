@@ -36,13 +36,13 @@ import os
 import torch
 from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from pkgutil import get_data
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import RemoveStaticGraphInputs
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import RemoveStaticGraphInputs
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.test import get_test_model_trained
 

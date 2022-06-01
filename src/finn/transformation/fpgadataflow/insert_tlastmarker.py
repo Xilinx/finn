@@ -29,10 +29,9 @@
 import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
-
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.util.basic import get_by_name
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.util.basic import get_by_name
 
 
 class InsertTLastMarker(Transformation):

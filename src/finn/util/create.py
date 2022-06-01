@@ -28,10 +28,9 @@
 
 import numpy as np
 from onnx import TensorProto, helper
-
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 
 def hls_random_mlp_maker(layer_spec):

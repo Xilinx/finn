@@ -31,9 +31,9 @@ import os
 import time
 from pynq import Overlay, allocate
 from pynq.ps import Clocks
+from qonnx.core.datatype import DataType
+from qonnx.util.basic import gen_finn_dt_tensor
 
-from finn.core.datatype import DataType
-from finn.util.basic import gen_finn_dt_tensor
 from finn.util.data_packing import (
     finnpy_to_packed_bytearray,
     packed_bytearray_to_finnpy,

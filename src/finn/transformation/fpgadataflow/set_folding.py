@@ -28,12 +28,12 @@
 
 import numpy as np
 import warnings
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import GiveUniqueNodeNames
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
-from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 

@@ -34,11 +34,11 @@
 
 import numpy as np
 import os
+from qonnx.custom_op.registry import getCustomOp
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.util.data_packing as dpk
-from finn.custom_op.registry import getCustomOp
 
 model_name = "tfc_w1a1"
 platform_name = "fpga"

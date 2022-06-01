@@ -31,13 +31,13 @@ import os
 import textwrap
 import warnings
 from math import ceil, log2
-
-from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import (
+from qonnx.core.datatype import DataType
+from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
+
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,

@@ -8,15 +8,15 @@ Modules
 finn.core.data\_layout
 -------------------------
 
-.. automodule:: finn.core.data_layout
+.. automodule:: qonnx.core.data_layout
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.core.datatype
+qonnx.core.datatype
 -------------------------
 
-.. automodule:: finn.core.datatype
+.. automodule:: qonnx.core.datatype
    :members:
    :undoc-members:
    :show-inheritance:
@@ -29,10 +29,10 @@ finn.core.execute\_custom\_node
    :undoc-members:
    :show-inheritance:
 
-finn.core.modelwrapper
+qonnx.core.modelwrapper
 -----------------------------
 
-.. automodule:: finn.core.modelwrapper
+.. automodule:: qonnx.core.modelwrapper
    :members:
    :undoc-members:
    :show-inheritance:

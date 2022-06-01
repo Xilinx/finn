@@ -43,12 +43,12 @@ from brevitas.core.quant import QuantType
 from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from brevitas.nn import QuantIdentity, QuantLinear, QuantReLU
 from brevitas.quant_tensor import QuantTensor
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir
 from finn.util.test import get_build_env, load_test_checkpoint_or_skip

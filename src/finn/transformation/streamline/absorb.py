@@ -27,16 +27,15 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import helper as oh
-
-import finn.core.data_layout as DataLayout
-from finn.core.datatype import DataType
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import get_by_name
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import get_by_name
 
 
 class AbsorbSignBiasIntoMultiThreshold(Transformation):

@@ -33,14 +33,15 @@ import multiprocessing as mp
 import os
 import subprocess
 import warnings
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.util.basic import get_num_default_workers
 from shutil import copytree
 
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.basic import get_num_default_workers, make_build_dir
+from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -85,7 +86,9 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
+    def __init__(
+        self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]
+    ):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -346,7 +349,6 @@ class CreateStitchedIP(Transformation):
             # extract number of checksum layer from graph
             checksum_layers = model.get_nodes_by_op_type("checksum")
             self.insert_signature(len(checksum_layers))
-
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"

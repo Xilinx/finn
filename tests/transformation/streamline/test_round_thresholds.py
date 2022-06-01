@@ -30,10 +30,10 @@ import pytest
 
 import numpy as np
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 
 import finn.core.onnx_exec as oxe
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.streamline import RoundAndClipThresholds
 
 

@@ -166,7 +166,7 @@ class DataflowBuildConfig:
     #: If the parallelization attributes (PE, SIMD) are part of the config,
     #: this will override the automatically generated parallelization
     #: attributes inferred from target_fps (if any)
-    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
     folding_config_file: Optional[str] = None
 
     #: (Optional) Target inference performance in frames per second.
@@ -267,7 +267,7 @@ class DataflowBuildConfig:
 
     #: Path to JSON config file assigning each layer to an SLR.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
-    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
 
     #: Vitis optimization strategy

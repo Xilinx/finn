@@ -27,20 +27,20 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import TensorProto
 from onnx import helper as oh
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import SortGraph
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import get_by_name
 
-import finn.core.data_layout as DataLayout
-from finn.core.datatype import DataType
 from finn.core.onnx_exec import execute_node
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.transformation.general import SortGraph
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import get_by_name
 
 
 class MoveAddPastMul(Transformation):

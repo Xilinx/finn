@@ -31,20 +31,13 @@ import numpy as np
 import os
 import subprocess
 from abc import abstractmethod
+from pyverilator.util.axi_utils import rtlsim_multi_io
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.base import CustomOp
+from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.core.datatype import DataType
-from finn.custom_op.base import CustomOp
-from finn.util.basic import (
-    CppBuilder,
-    get_rtlsim_trace_depth,
-    make_build_dir,
-    roundup_to_integer_multiple,
-)
+from finn.util.basic import CppBuilder, get_rtlsim_trace_depth, make_build_dir
 from finn.util.hls import CallHLS
-from finn.util.pyverilator import (
-    pyverilate_get_liveness_threshold_cycles,
-    rtlsim_multi_io,
-)
 
 from . import templates
 
@@ -549,7 +542,9 @@ compilation transformations?
         # output values after 100 cycles
         no_change_count = 0
         old_outputs = outputs
-        liveness_threshold = pyverilate_get_liveness_threshold_cycles()
+        liveness_threshold = (
+            10000  # TODO fixme pyverilate_get_liveness_threshold_cycles()
+        )
 
         while not (output_observed):
             sim.io[in0_valid] = 1 if len(inputs) > 0 else 0

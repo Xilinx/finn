@@ -35,23 +35,23 @@ import os
 import torch
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-
-import finn.core.onnx_exec as oxe
-import finn.transformation.streamline.absorb as absorb
-import finn.util.imagenet as imagenet_util
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import (
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     GiveUniqueParameterTensors,
     RemoveStaticGraphInputs,
 )
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.insert_topk import InsertTopK
-from finn.transformation.merge_onnx_models import MergeONNXModels
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.insert_topk import InsertTopK
+from qonnx.transformation.merge_onnx_models import MergeONNXModels
+
+import finn.core.onnx_exec as oxe
+import finn.transformation.streamline.absorb as absorb
+import finn.util.imagenet as imagenet_util
 from finn.util.basic import make_build_dir
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import get_test_model_trained
@@ -60,6 +60,7 @@ from finn.util.test import get_test_model_trained
 mean = [0.485, 0.456, 0.406]
 std = 0.226
 ch = 3
+
 
 @pytest.mark.brevitas_export
 def test_brevitas_mobilenet_preproc():

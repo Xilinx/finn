@@ -26,9 +26,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pytest
-
 import pkg_resources as pk
+
+import pytest
 
 import brevitas.onnx as bo
 import numpy as np
@@ -36,15 +36,16 @@ import onnx
 import onnx.numpy_helper as nph
 import os
 from pkgutil import get_data
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.batchnorm_to_affine import BatchNormToAffine
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.batchnorm_to_affine import BatchNormToAffine
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_bn2affine.onnx"
+
 
 @pytest.mark.transform
 def test_batchnorm_to_affine_cnv_w1a1():

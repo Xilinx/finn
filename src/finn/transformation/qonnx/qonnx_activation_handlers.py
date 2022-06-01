@@ -29,16 +29,15 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from onnx import TensorProto, helper
-
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.registry import getCustomOp
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 
 
 class QuantActBaseHandler(ABC):
     """Base class for converting quantized activation expressed in the QONNX dialect
     to the FINN ONNX dialect.
     :param model: The model on which this handler should operate.
-    :type model: class: `finn.core.modelwrapper.ModelWrapper`
+    :type model: class: `qonnx.core.modelwrapper.ModelWrapper`
     :param quant_node: The Quant node which a given handler should replace.
     :param quant_node_index: The index of the Quant node in the given model.
     :type quant_node_index: `int`

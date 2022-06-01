@@ -30,22 +30,23 @@ import pytest
 
 import brevitas.onnx as bo
 import os
+import qonnx.core.data_layout as DataLayout
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 
-import finn.core.data_layout as DataLayout
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.util.test import get_test_model_trained
 
 export_onnx_path_cnv = "test_infer_data_layouts.onnx"
+
 
 @pytest.mark.transform
 def test_infer_data_layouts_cnv():

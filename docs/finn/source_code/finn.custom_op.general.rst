@@ -40,7 +40,7 @@ finn.custom\_op.general.im2col
 finn.custom\_op.general.maxpoolnhwc
 ------------------------------------
 
-.. automodule:: finn.custom_op.general.maxpoolnhwc
+.. automodule:: qonnx.custom_op.general.maxpoolnhwc
    :members:
    :undoc-members:
    :show-inheritance:
@@ -48,7 +48,7 @@ finn.custom\_op.general.maxpoolnhwc
 finn.custom\_op.general.multithreshold
 ---------------------------------------
 
-.. automodule:: finn.custom_op.general.multithreshold
+.. automodule:: qonnx.custom_op.general.multithreshold
    :members:
    :undoc-members:
    :show-inheritance:

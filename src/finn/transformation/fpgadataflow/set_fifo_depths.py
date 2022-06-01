@@ -29,19 +29,19 @@
 import math
 import numpy as np
 import warnings
+from pyverilator.util.axi_utils import pyverilate_stitched_ip, reset_rtlsim, toggle_clk
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.util.pyverilator import pyverilate_stitched_ip, reset_rtlsim, toggle_clk
 
 
 def reset_implementation(node):

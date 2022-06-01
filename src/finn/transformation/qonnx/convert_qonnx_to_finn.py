@@ -26,12 +26,12 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
 
-from finn.transformation.base import Transformation
 from finn.transformation.extract_conv_bias import ExtractBiasFromConv
 from finn.transformation.gemm_to_matmul import GemmToMatMul
-from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.qonnx.fold_quant_weights import FoldQuantWeights
 from finn.transformation.qonnx.infer_quant_avg_pool_2d import (
     AvgPoolAndTruncToQuantAvgPool,

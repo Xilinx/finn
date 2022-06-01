@@ -28,21 +28,21 @@
 
 
 import numpy as np
+import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import SortGraph
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import get_by_name
+from qonnx.util.onnx import nchw_to_nhwc
 
-import finn.core.data_layout as DataLayout
-from finn.core.datatype import DataType
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
-from finn.transformation.general import SortGraph
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import get_by_name
-from finn.util.onnx import nchw_to_nhwc
 
 
 class InferConvInpGen(Transformation):

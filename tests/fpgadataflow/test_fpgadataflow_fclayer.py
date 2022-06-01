@@ -29,24 +29,24 @@
 import pytest
 
 import numpy as np
+import qonnx.custom_op.general.xnorpopcount as xp
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.multithreshold import multithreshold
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
-import finn.custom_op.general.xnorpopcount as xp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.general.multithreshold import multithreshold
-from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):

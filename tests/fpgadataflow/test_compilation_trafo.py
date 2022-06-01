@@ -30,10 +30,10 @@ import pytest
 
 import os
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 
 import finn.util.basic as util
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 

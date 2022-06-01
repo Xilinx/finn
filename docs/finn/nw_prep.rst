@@ -19,11 +19,11 @@ Tidy-up transformations
 
 These transformations do not appear in the diagram above, but are applied in many steps in the FINN flow to postprocess the model after a transformation and/or prepare it for the next transformation. They ensure that all information is set and behave like a "tidy-up". These transformations are the following:
 
-* :py:mod:`finn.transformation.general.GiveReadableTensorNames` and :py:mod:`finn.transformation.general.GiveUniqueNodeNames`
+* :py:mod:`qonnx.transformation.general.GiveReadableTensorNames` and :py:mod:`qonnx.transformation.general.GiveUniqueNodeNames`
 
-* :py:mod:`finn.transformation.infer_datatypes.InferDataTypes` and :py:mod:`finn.transformation.infer_shapes.InferShapes`
+* :py:mod:`qonnx.transformation.infer_datatypes.InferDataTypes` and :py:mod:`qonnx.transformation.infer_shapes.InferShapes`
 
-* :py:mod:`finn.transformation.fold_constants.FoldConstants`
+* :py:mod:`qonnx.transformation.fold_constants.FoldConstants`
 
 Streamlining Transformations
 ============================
