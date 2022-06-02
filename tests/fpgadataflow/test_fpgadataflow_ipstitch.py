@@ -311,6 +311,7 @@ def test_fpgadataflow_ipstitch_synth_ooc(mem_mode):
     assert ret["BRAM"] == 0
     assert ret["fmax_mhz"] > 100
 
+
 @pytest.mark.fpgadataflow
 def test_fpgadataflow_ipstitch_iodma_floorplan():
     model = create_one_fc_model()
@@ -338,6 +339,8 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.vitis
+# temporarily marked as xfail
+@pytest.mark.xfail
 def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")
@@ -361,6 +364,8 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
+# temporarily marked as xfail
+@pytest.mark.xfail
 def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
     model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
