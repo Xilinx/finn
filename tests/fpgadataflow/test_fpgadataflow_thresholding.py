@@ -245,7 +245,7 @@ def test_runtime_thresholds_single_layer():
     # add two copies of the input tensor as the first one is just used to
     # "flush out" the pipeline (as mvau already starts receiving old weights while
     # we read/write new ones and reads seem to cause a disturbance too)
-    in_tensor = np.tile(in_tensor, (2, 1))
+    in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
     exec_ctx = {"inp": in_tensor}
     extracted_weight_stream = []
 
@@ -297,7 +297,10 @@ def test_runtime_thresholds_single_layer():
 
     rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
     y = exec_ctx["outp"][1]
-    expected = multithreshold(in_tensor, new_weights)[1]
+    # multithreshold util fxn wants NCHW input, not NHWC
+    expected = multithreshold(np.transpose(in_tensor, (0, 3, 1, 2)), new_weights)
+    # convert back to NHWC for comparison to hw outputs
+    expected = np.transpose(expected, (0, 2, 3, 1))[1]
     if act == DataType["BIPOLAR"]:
         # binary to bipolar
         expected = 2 * expected - 1
