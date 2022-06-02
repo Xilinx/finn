@@ -32,6 +32,7 @@ import warnings
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.datatype import DataType
+from qonnx.core.onnx_exec import execute_node
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
@@ -39,8 +40,6 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
-
-from finn.core.onnx_exec import execute_node
 
 
 class MoveAddPastMul(Transformation):
@@ -678,7 +677,7 @@ class MakeMaxPoolNHWC(Transformation):
                                 0  # default to ceil_mode=0 (equivalent to np.floor)
                             )
                         n.op_type = "MaxPoolNHWC"
-                        n.domain = "finn.custom_op.general"
+                        n.domain = "qonnx.custom_op.general"
                         start_name = n.input[0]
                         mid_name = consumer.input[0]
                         end_name = consumer.output[0]
@@ -705,7 +704,7 @@ class MakeMaxPoolNHWC(Transformation):
                                 0  # default to ceil_mode=0 (equivalent to np.floor)
                             )
                         n.op_type = "MaxPoolNHWC"
-                        n.domain = "finn.custom_op.general"
+                        n.domain = "qonnx.custom_op.general"
                         start_name = producer.input[0]
                         mid_name = n.input[0]
                         end_name = n.output[0]

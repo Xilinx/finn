@@ -63,7 +63,7 @@ def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
         model = ModelWrapper(finn_onnx)
         dbg_nodes = model.get_nodes_by_op_type("DebugMarker")
         for dbg_node in dbg_nodes:
-            dbg_node.domain = "finn.custom_op.general"
+            dbg_node.domain = "qonnx.custom_op.general"
         model.save(finn_onnx)
         qonnx_cleanup(finn_onnx, out_file=finn_onnx)
         if QONNX_FINN_conversion:
@@ -79,7 +79,7 @@ def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
         #  domain conversion for us?
         dbg_nodes = model.get_nodes_by_op_type("DebugMarker")
         for dbg_node in dbg_nodes:
-            dbg_node.domain = "finn.custom_op.general"
+            dbg_node.domain = "qonnx.custom_op.general"
         model = model.transform(InferShapes())
         model = model.transform(FoldConstants())
         model = model.transform(RemoveStaticGraphInputs())
@@ -88,7 +88,7 @@ def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
     assert len(model.graph.input) == 1
     assert len(model.graph.output) == 1
     # load one of the test vectors
-    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {model.graph.input[0].name: nph.to_array(input_tensor)}

@@ -27,14 +27,13 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import qonnx.core.onnx_exec as oxe
 from onnx import TensorProto, helper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
-
-import finn.core.onnx_exec as oxe
-from finn.transformation.remove import remove_node_and_rewire
+from qonnx.transformation.remove import remove_node_and_rewire
 
 
 class FoldQuantWeights(Transformation):

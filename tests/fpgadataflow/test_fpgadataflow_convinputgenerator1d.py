@@ -70,7 +70,7 @@ def make_single_im2col_modelwrapper(
         "Im2Col",
         ["inp"],
         ["outp"],
-        domain="finn.custom_op.general",
+        domain="qonnx.custom_op.general",
         stride=[stride_h, stride_w],
         kernel_size=[k_h, k_w],
         input_shape=str((1, ifm_dim_h, ifm_dim_w, ifm_ch)),

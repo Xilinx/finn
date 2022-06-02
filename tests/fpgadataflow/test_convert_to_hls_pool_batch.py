@@ -100,7 +100,7 @@ def make_single_quantavpool_modelwrapper(k, stride, ifm_ch, ifm_dim, ofm_dim, id
         "QuantAvgPool2d",
         ["inp"],
         ["outp"],
-        domain="finn.custom_op.general",
+        domain="qonnx.custom_op.general",
         stride=stride,
         kernel=k,
         ibits=idt.bitwidth(),

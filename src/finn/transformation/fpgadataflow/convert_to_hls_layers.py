@@ -520,7 +520,7 @@ class InferPool_Batch(Transformation):
                     "Im2Col",
                     [im2col_in],
                     [im2col_out],
-                    domain="finn.custom_op.general",
+                    domain="qonnx.custom_op.general",
                     stride=[sh, sw],
                     kernel_size=[kh, kw],
                     pad_amount=pad,

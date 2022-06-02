@@ -273,7 +273,7 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
                             "QuantAvgPool2d",
                             [act_scale_div_tensor.name],
                             [act_scale_mul_tensor.name],
-                            domain="finn.custom_op.general",
+                            domain="qonnx.custom_op.general",
                             stride=stride,
                             kernel=k_s,
                             ibits=ibits,

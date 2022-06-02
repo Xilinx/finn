@@ -27,14 +27,12 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
-from pyverilator.util.axi_utils import (
-    pyverilate_stitched_ip,
-    reset_rtlsim,
-    rtlsim_multi_io,
-)
+from pyverilator.util.axi_utils import reset_rtlsim, rtlsim_multi_io
 from qonnx.custom_op.registry import getCustomOp
 
+from finn.util.basic import pyverilate_get_liveness_threshold_cycles
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+from finn.util.pyverilator import pyverilate_stitched_ip
 
 try:
     from pyverilator import PyVerilator
@@ -138,7 +136,14 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     reset_rtlsim(sim)
     if pre_hook is not None:
         pre_hook(sim)
-    n_cycles = rtlsim_multi_io(sim, io_dict, num_out_values, trace_file, sname="_")
+    n_cycles = rtlsim_multi_io(
+        sim,
+        io_dict,
+        num_out_values,
+        trace_file=trace_file,
+        sname="_",
+        liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
+    )
     if post_hook is not None:
         post_hook(sim)
 

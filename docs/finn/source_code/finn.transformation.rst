@@ -28,7 +28,7 @@ Base Class
 finn.transformation.batchnorm\_to\_affine
 ------------------------------------------------
 
-.. automodule:: finn.transformation.batchnorm_to_affine
+.. automodule:: qonnx.transformation.batchnorm_to_affine
    :members:
    :undoc-members:
    :show-inheritance:
@@ -84,7 +84,7 @@ finn.transformation.extend\_partition
 finn.transformation.extract\_conv\_bias
 ------------------------------------------
 
-.. automodule:: finn.transformation.extract_conv_bias
+.. automodule:: qonnx.transformation.extract_conv_bias
    :members:
    :undoc-members:
    :show-inheritance:
@@ -101,7 +101,7 @@ finn.transformation.fold\_constants
 finn.transformation.gemm\_to\_matmul
 ------------------------------------------
 
-.. automodule:: finn.transformation.gemm_to_matmul
+.. automodule:: qonnx.transformation.gemm_to_matmul
    :members:
    :undoc-members:
    :show-inheritance:
@@ -179,10 +179,10 @@ finn.transformation.move\_reshape
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.remove
+qonnx.transformation.remove
 -------------------------------------
 
-.. automodule:: finn.transformation.remove
+.. automodule:: qonnx.transformation.remove
   :members:
   :undoc-members:
   :show-inheritance:

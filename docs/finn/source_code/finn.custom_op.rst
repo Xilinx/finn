@@ -9,7 +9,7 @@ Submodules
    :maxdepth: 2
 
    finn.custom_op.fpgadataflow
-   finn.custom_op.general
+   qonnx.custom_op.general
 
 Custom Op Nodes
 ===============

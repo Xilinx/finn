@@ -66,7 +66,7 @@ def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_
         "MaxPoolNHWC",
         ["inp"],
         ["outp"],
-        domain="finn.custom_op.general",
+        domain="qonnx.custom_op.general",
         kernel_shape=[k_h, k_w],
         strides=[k_h, k_w],
         ceil_mode=ceil_mode,

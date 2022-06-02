@@ -31,7 +31,6 @@ import pytest
 import numpy as np
 import os
 from onnx import TensorProto, helper
-from pyverilator.util.axi_utils import pyverilate_stitched_ip
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -53,6 +52,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.pyverilator import pyverilate_stitched_ip
 from finn.util.test import load_test_checkpoint_or_skip
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")

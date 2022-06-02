@@ -47,6 +47,7 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.cleanup import cleanup_model
+from qonnx.util.config import extract_model_config_to_json
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -102,9 +103,10 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 )
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
-from finn.util.basic import get_rtlsim_trace_depth
-from finn.util.config import extract_model_config_to_json
-from finn.util.pyverilator import pyverilate_get_liveness_threshold_cycles
+from finn.util.basic import (
+    get_rtlsim_trace_depth,
+    pyverilate_get_liveness_threshold_cycles,
+)
 from finn.util.test import execute_parent
 
 

@@ -29,7 +29,7 @@
 import math
 import numpy as np
 import warnings
-from pyverilator.util.axi_utils import pyverilate_stitched_ip, reset_rtlsim, toggle_clk
+from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
@@ -42,6 +42,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.util.fpgadataflow import is_fpgadataflow_node
+from finn.util.pyverilator import pyverilate_stitched_ip
 
 
 def reset_implementation(node):

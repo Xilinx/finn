@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import copy
+import numpy as np
 import qonnx.analysis.topology as ta
 from qonnx.core.onnx_exec import execute_onnx as execute_onnx_base
 
@@ -118,3 +120,36 @@ def execute_onnx(
             out_name = out_tensor.name
             output_dict[out_name] = execution_context[out_name]
         return output_dict
+
+
+def execute_onnx_and_make_model(model, input_dict):
+    """Executes given ONNX ModelWrapper with given named inputs and return a new
+    ModelWrapper where an initializer is provided for each tensor as taken from
+    the execution. This new model is useful for debugging, since it contains
+    all the intermediate activation values."""
+
+    # retrieve the full execution context
+    execution_context = execute_onnx(model, input_dict, True)
+    new_model = copy.deepcopy(model)
+    # create value_info entries and initializers for everything
+    for i in execution_context.keys():
+        new_model.set_initializer(i, execution_context[i])
+    for vi in new_model.graph.value_info:
+        new_model.graph.output.append(vi)
+    # import pdb; pdb.set_trace()
+    return new_model
+
+
+def compare_execution(
+    model_a,
+    model_b,
+    input_dict,
+    compare_fxn=lambda x, y: np.isclose(x, y, atol=1e-3).all(),
+):
+    """Executes two ONNX models and compare their outputs using given function.
+
+    compare_fxn should take in two tensors and return a Boolean"""
+    # compare values from first output tensors produced
+    res_a = list(execute_onnx(model_a, input_dict).items())[0][1]
+    res_b = list(execute_onnx(model_b, input_dict).items())[0][1]
+    return compare_fxn(res_a, res_b)

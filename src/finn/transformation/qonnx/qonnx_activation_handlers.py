@@ -145,7 +145,7 @@ class QuantActBaseHandler(ABC):
             [n.input[0], thresh_tensor.name],
             [n.output[0]],
             out_dtype="FLOAT32",
-            domain="finn.custom_op.general",
+            domain="qonnx.custom_op.general",
         )
         graph.node.insert(running_node_index, outp_trans_node)
         running_node_index += 1

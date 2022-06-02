@@ -33,8 +33,9 @@ import os
 import shutil
 import subprocess
 from qonnx.core.datatype import DataType
+from qonnx.util.basic import gen_finn_dt_tensor
 
-import finn.util.basic as cutil
+from finn.util.basic import make_build_dir
 from finn.util.data_packing import numpy_to_hls_code
 
 
@@ -52,8 +53,8 @@ from finn.util.data_packing import numpy_to_hls_code
 @pytest.mark.parametrize("test_shape", [(1, 2, 4), (1, 1, 64), (2, 64)])
 @pytest.mark.vivado
 def test_npy2apintstream(test_shape, dtype):
-    ndarray = cutil.gen_finn_dt_tensor(dtype, test_shape)
-    test_dir = cutil.make_build_dir(prefix="test_npy2apintstream_")
+    ndarray = gen_finn_dt_tensor(dtype, test_shape)
+    test_dir = make_build_dir(prefix="test_npy2apintstream_")
     shape = ndarray.shape
     elem_bits = dtype.bitwidth()
     packed_bits = shape[-1] * elem_bits
