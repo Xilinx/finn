@@ -54,7 +54,7 @@ def is_external_input(model, node, i):
         if model.get_initializer(node.input[i]) is None:
             return True
         else:
-            if node.op_type == "StreamingFCLayer_Batch":
+            if node.op_type == "MatrixVectorActivation":
                 if node_inst.get_nodeattr("mem_mode") == "external":
                     return True
     return False
@@ -85,7 +85,9 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
+    def __init__(
+        self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]
+    ):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -346,7 +348,6 @@ class CreateStitchedIP(Transformation):
             # extract number of checksum layer from graph
             checksum_layers = model.get_nodes_by_op_type("checksum")
             self.insert_signature(len(checksum_layers))
-
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"

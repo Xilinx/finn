@@ -143,8 +143,8 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, exec_mode):
     if depthwise is True:
         new_model = new_model.transform(to_hls.InferVVAU())
     else:
-        new_model = new_model.transform(to_hls.InferQuantizedStreamingFCLayer())
-        fc_node = new_model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+        new_model = new_model.transform(to_hls.InferQuantizedMatrixVectorActivation())
+        fc_node = new_model.get_nodes_by_op_type("MatrixVectorActivation")[0]
         fc_inst = getCustomOp(fc_node)
         mw = fc_inst.get_nodeattr("MW")
         mh = fc_inst.get_nodeattr("MH")

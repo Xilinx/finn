@@ -213,7 +213,7 @@ def test_end2end_mobilenet_convert_to_hls_layers():
     model = model.transform(to_hls.InferPool_Batch())
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferVVAU())
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
+    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode))
     model = model.transform(to_hls.InferChannelwiseLinearLayer())
     model = model.transform(to_hls.InferLabelSelectLayer())
     model = model.transform(InferShapes())
@@ -231,7 +231,7 @@ def test_end2end_mobilenet_folding():
     assert extra_fold in [1, 2, 4]
     # set up folding for the depthwise conv layers impl'd by VVAUs
     # each value is PE for a layer
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # each tuple is (PE, SIMD, ram_style) for a layer
     folding = [
         (32, 3, "block"),

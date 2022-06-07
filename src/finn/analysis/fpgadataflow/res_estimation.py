@@ -62,7 +62,7 @@ def res_estimation_complete(model):
             op_type = node.op_type
             inst = registry.getCustomOp(node)
             if (
-                op_type == "StreamingFCLayer_Batch"
+                op_type == "MatrixVectorActivation"
                 or op_type == "Vector_Vector_Activate_Batch"
             ):
                 orig_restype = inst.get_nodeattr("resType")

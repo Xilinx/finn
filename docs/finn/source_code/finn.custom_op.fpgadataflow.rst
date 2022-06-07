@@ -127,10 +127,10 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_batch
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.streamingfclayer\_batch
+finn.custom\_op.fpgadataflow.matrixvectoractivation
 -----------------------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.streamingfclayer_batch
+.. automodule:: finn.custom_op.fpgadataflow.matrixvectoractivation
    :members:
    :undoc-members:
    :show-inheritance:

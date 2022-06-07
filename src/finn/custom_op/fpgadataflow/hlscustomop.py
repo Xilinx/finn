@@ -656,7 +656,7 @@ compilation transformations?
         be filled by every node.
 
         var: makes it possible to reuse the function for different c++ code generation.
-        I.e. if set to "ipgen" in StreamingFCLayer_Batch additional PRAGMA defines are
+        I.e. if set to "ipgen" in MatrixVectorActivation additional PRAGMA defines are
         added."""
         pass
 

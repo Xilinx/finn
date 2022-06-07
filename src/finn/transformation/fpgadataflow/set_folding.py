@@ -62,7 +62,7 @@ class SetFolding(Transformation):
 
     Notable exceptions and special behavior:
 
-    * When folding dense convolution/FC compute engines (StreamingFCLayer_Batch),
+    * When folding dense convolution/FC compute engines ("MVAU"/MatrixVectorActivation),
     which have two attributes (PE and SIMD):
         * first increases SIMD while weight stream width per PE is <= mvau_wwidth_max
           (configurable in the SetFolding initializer, defaults to 36)
@@ -118,7 +118,7 @@ class SetFolding(Transformation):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
-            if op_type == "StreamingFCLayer_Batch":
+            if op_type == "MatrixVectorActivation":
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)

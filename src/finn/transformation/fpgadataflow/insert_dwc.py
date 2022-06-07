@@ -61,7 +61,7 @@ class InsertDWC(Transformation):
                         # - if FC and external mem, it could be connected to input 1
                         # - if concat, could be connected to any input
                         if (
-                            consumer.op_type == "StreamingFCLayer_Batch"
+                            consumer.op_type == "MatrixVectorActivation"
                             and n1.get_nodeattr("mem_mode") == "external"
                         ) or (consumer.op_type == "StreamingConcat"):
                             # get input idx
