@@ -332,10 +332,10 @@ class HLSCustomOp(CustomOp):
             ],
             "vitis_hls": [
                 "set_param hls.enable_hidden_option_error false",
-                "config_compile -disable_unroll_code_size_check",
+                "config_compile -disable_unroll_code_size_check -pipeline_style flp",
                 "config_interface -m_axi_addr64",
-                "config_rtl -auto_prefix",
-                "config_export -disable_deadlock_detection",
+                "config_rtl -module_auto_prefix",
+                "config_rtl -deadlock_detection none",
             ],
         }
         return default_directives[hls_version]
