@@ -858,7 +858,7 @@ class InferQuantizedMatrixVectorActivation(Transformation):
 
 class InferVectorVectorActivation(Transformation):
     """Convert MatMul layers with quantized inputs and weights to
-    Vector_Vector_Activate_Batch layers, if the sparsity annotation
+    VectorVectorActivation layers, if the sparsity annotation
     of the weight matrix indicates that the MatMul layer belongs to
     a depthwise convolution. Any immediately following MultiThreshold
     layers will also be absorbed into the VVAU."""
@@ -945,9 +945,9 @@ class InferVectorVectorActivation(Transformation):
                         )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
-                        # create and insert new Vector_Vector_Activate_Batch node
+                        # create and insert new VectorVectorActivation node
                         new_node = helper.make_node(
-                            "Vector_Vector_Activate_Batch",
+                            "VectorVectorActivation",
                             [mm_input, mm_weight, mt_thres],
                             [mt_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -962,7 +962,7 @@ class InferVectorVectorActivation(Transformation):
                             outputDataType=odt.name,
                             ActVal=actval,
                             noActivation=0,
-                            name="Vector_Vector_Activate_Batch_" + n.name,
+                            name="VectorVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -976,7 +976,7 @@ class InferVectorVectorActivation(Transformation):
                         model.set_tensor_shape(mm_output, mm_out_shape)
                         # create and insert new VVAU node
                         new_node = helper.make_node(
-                            "Vector_Vector_Activate_Batch",
+                            "VectorVectorActivation",
                             [mm_input, mm_weight],
                             [mm_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -991,7 +991,7 @@ class InferVectorVectorActivation(Transformation):
                             outputDataType=odt.name,
                             ActVal=0,
                             noActivation=1,
-                            name="Vector_Vector_Activate_Batch_" + n.name,
+                            name="VectorVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node

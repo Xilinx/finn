@@ -68,7 +68,7 @@ class SetFolding(Transformation):
           (configurable in the SetFolding initializer, defaults to 36)
         * then increases PE until the target is met or max PE reached
 
-    * When folding depthwise convolutions ("VVAU"/Vector_Vector_Activate_Batch)
+    * When folding depthwise convolutions ("VVAU"/VectorVectorActivation)
     or spatial reduction ops (Pool_Batch):
         * the producer of the node is expected to be a ConvolutionInputGenerator
         with depthwise=1, whose SIMD value will be set equal to the PE value of
@@ -112,7 +112,7 @@ class SetFolding(Transformation):
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
-        depthwise_op_exceptions = ["Vector_Vector_Activate_Batch", "Pool_Batch"]
+        depthwise_op_exceptions = ["VectorVectorActivation", "Pool_Batch"]
         for node in graph.node:
             if not is_fpgadataflow_node(node):
                 continue
@@ -160,7 +160,7 @@ class SetFolding(Transformation):
                     pe = node_inst.get_nodeattr("PE")
                     swu_node_inst.set_nodeattr("SIMD", pe)
                 else:
-                    if op_type == "Vector_Vector_Activate_Batch":
+                    if op_type == "VectorVectorActivation":
                         ksize = np.prod(node_inst.get_nodeattr("Kernel"))
                     elif op_type == "Pool_Batch":
                         ksize = node_inst.get_nodeattr("KernelSize")

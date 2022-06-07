@@ -212,7 +212,7 @@ def test_end2end_mobilenet_convert_to_hls_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_lowered.onnx")
     model = model.transform(to_hls.InferPool_Batch())
     model = model.transform(to_hls.InferConvInpGen())
-    model = model.transform(to_hls.InferVVAU())
+    model = model.transform(to_hls.InferVectorVectorActivation())
     model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode))
     model = model.transform(to_hls.InferChannelwiseLinearLayer())
     model = model.transform(to_hls.InferLabelSelectLayer())
@@ -260,7 +260,7 @@ def test_end2end_mobilenet_folding():
     getCustomOp(fc_layers[0]).set_nodeattr("resType", first_layer_res_type)
     # set up folding for the depthwise conv layers impl'd by VVAUs
     # each value is PE for a layer
-    vvau_layers = model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")
+    vvau_layers = model.get_nodes_by_op_type("VectorVectorActivation")
     folding = [32, 32, 64, 16, 32, 8, 16, 16, 16, 16, 16, 4, 8]
     for vvau, pe in zip(vvau_layers, folding):
         vvau_inst = getCustomOp(vvau)

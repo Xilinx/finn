@@ -219,7 +219,7 @@ def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
 
     # convert_to_hls
     if depthwise is True:
-        new_model = new_model.transform(to_hls.InferVVAU())
+        new_model = new_model.transform(to_hls.InferVectorVectorActivation())
     new_model = new_model.transform(to_hls.InferQuantizedMatrixVectorActivation())
     new_model = new_model.transform(to_hls.InferThresholdingLayer())
     new_model = new_model.transform(to_hls.InferConvInpGen())

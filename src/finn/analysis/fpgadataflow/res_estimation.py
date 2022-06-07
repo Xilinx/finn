@@ -63,7 +63,7 @@ def res_estimation_complete(model):
             inst = registry.getCustomOp(node)
             if (
                 op_type == "MatrixVectorActivation"
-                or op_type == "Vector_Vector_Activate_Batch"
+                or op_type == "VectorVectorActivation"
             ):
                 orig_restype = inst.get_nodeattr("resType")
                 res_dict[node.name] = []

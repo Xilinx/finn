@@ -45,7 +45,7 @@ from finn.util.data_packing import (
 )
 
 
-class Vector_Vector_Activate_Batch(HLSCustomOp):
+class VectorVectorActivation(HLSCustomOp):
     """Class that corresponds to finn-hlslib Vector_Vector_Activate_Batch function"""
 
     def __init__(self, onnx_node):
@@ -422,9 +422,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                     reshaped_input,
                 )
             elif in_ind > 2:
-                raise Exception(
-                    "Unexpected input found for Vector_Vector_Activate_Unit"
-                )
+                raise Exception("Unexpected input found for VectorVectorActivation")
             in_ind += 1
 
         if mode == "cppsim":

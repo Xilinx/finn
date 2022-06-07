@@ -56,9 +56,7 @@ from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour_Batch
-from finn.custom_op.fpgadataflow.vector_vector_activate_batch import (
-    Vector_Vector_Activate_Batch,
-)
+from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 
 custom_op = dict()
 
@@ -79,7 +77,7 @@ custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["AddStreams_Batch"] = AddStreams_Batch
 custom_op["LabelSelect_Batch"] = LabelSelect_Batch
 custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
-custom_op["Vector_Vector_Activate_Batch"] = Vector_Vector_Activate_Batch
+custom_op["VectorVectorActivation"] = VectorVectorActivation
 custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
 custom_op["IODMA"] = IODMA
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition

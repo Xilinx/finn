@@ -184,10 +184,10 @@ finn.custom\_op.fpgadataflow.upsampler
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.vector\_vector\_activate\_batch
+finn.custom\_op.fpgadataflow.vectorvectoractivation
 -----------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.vector_vector_activate_batch
+.. automodule:: finn.custom_op.fpgadataflow.vectorvectoractivation
    :members:
    :undoc-members:
    :show-inheritance:
