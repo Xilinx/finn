@@ -48,7 +48,7 @@ from finn.transformation.general import GiveUniqueNodeNames
 from finn.transformation.infer_datatypes import InferDataTypes
 from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from finn.util.basic import gen_finn_dt_tensor, is_finn_op
+from finn.util.basic import gen_finn_dt_tensor
 
 # conv_config  kernel_size,stride, pad
 
@@ -152,17 +152,6 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
         new_model = new_model.transform(PrepareRTLSim())
     else:
         raise Exception("Unknown exec_mode")
-
-    for idx, n in enumerate(new_model.graph.node):
-        if is_finn_op(n.domain):
-            inst = getCustomOp(n)
-            if inst.get_nodeattr("backend") == "fpgadataflow":
-                inst.set_nodeattr(
-                    "rtlsim_trace",
-                    "/scratch/users/mirzam/build_files/trace_" + str(idx) + ".vcd",
-                )
-
-    new_model.save("/scratch/users/mirzam/build_files/model.onnx")
 
     x = gen_finn_dt_tensor(idt, input_shape)
     inp_dict = {model.graph.input[0].name: x}
