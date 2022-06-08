@@ -521,11 +521,9 @@ class VectorVectorActivation(HLSCustomOp):
             threshs = "PassThroughActivation<%s>()" % odtype_hls_str
         else:
             threshs = "threshs"
-        node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}>
+            """Vector_Vector_Activate_Batch<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}>
             (in0, out, weights, {}, numReps, {});""".format(
-                node.op_type,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
                 tmpl_args["TWeightI"],
