@@ -5,9 +5,9 @@ docrep==0.2.7
 future==0.18.2
 gspread==3.6.0
 numpy==1.18.0
-onnx==1.7.0
+onnx==1.11.0
 onnxoptimizer
-onnxruntime==1.4.0
+onnxruntime==1.11.1
 pre-commit==2.9.2
 pyscaffold==3.2.1
 scipy==1.5.2
