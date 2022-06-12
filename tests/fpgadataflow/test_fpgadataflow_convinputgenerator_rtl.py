@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2022, Xilinx
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,18 +37,14 @@ from finn.core.datatype import DataType
 from finn.core.modelwrapper import ModelWrapper
 from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.custom_op.registry import getCustomOp
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.basic import gen_finn_dt_tensor
 
-
 def make_single_im2col_modelwrapper(
-    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt
+    k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt
 ):
     k_h, k_w = k
     ifm_dim_h, ifm_dim_w = ifm_dim
@@ -90,7 +86,7 @@ def make_single_im2col_modelwrapper(
 
 
 def make_single_slidingwindow_modelwrapper(
-    k, ifm_ch, ifm_dim, ofm_dim, simd, m, stride, dilation, idt, dw=0
+    k, ifm_ch, ifm_dim, ofm_dim, simd, m, parallel_window, stride, dilation, idt, dw=0
 ):
     k_h, k_w = k
     ifm_dim_h, ifm_dim_w = ifm_dim
@@ -118,6 +114,7 @@ def make_single_slidingwindow_modelwrapper(
         OFMDim=[ofm_dim_h, ofm_dim_w],
         SIMD=simd,
         M=m,
+        parallel_window=parallel_window,
         Stride=[stride_h, stride_w],
         Dilation=[dilation_h, dilation_w],
         inputDataType=idt.name,
@@ -150,31 +147,33 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-@pytest.mark.parametrize("idt", [DataType["INT4"]])
+@pytest.mark.parametrize("idt", [DataType["UINT4"]])
 # kernel size
-@pytest.mark.parametrize("k", [[3, 1]])
+@pytest.mark.parametrize("k", [[3,3]])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[10, 1]])
+@pytest.mark.parametrize("ifm_dim", [[24,24]])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [2])
+@pytest.mark.parametrize("ifm_ch", [8])
 # Stride
-@pytest.mark.parametrize("stride", [[1, 1]])
+@pytest.mark.parametrize("stride", [[3,3],[6,6]])
 # Dilation
-@pytest.mark.parametrize("dilation", [[1, 1]])
-# execution mode
-@pytest.mark.parametrize("exec_mode", ["rtlsim"])
-# input channel parallelism ("SIMD")
-@pytest.mark.parametrize("simd", [2])
-# in/out MMV ("M")
-@pytest.mark.parametrize("m", [1, 2, 4])
+@pytest.mark.parametrize("dilation", [[1,1],[2,2]])
 # depthwise
-@pytest.mark.parametrize("dw", [0])
+@pytest.mark.parametrize("dw", [0,1])
+
+# input channel parallelism ("SIMD")
+@pytest.mark.parametrize("simd", [1,2,8])
+# in/out MMV ("M")
+@pytest.mark.parametrize("m", [1])
+# paralle_window enable (MMV_out = M*K)
+@pytest.mark.parametrize("parallel_window", [0])
+
 # Flip dimensions
-@pytest.mark.parametrize("flip", [False])
+@pytest.mark.parametrize("flip", [False,True])
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_slidingwindow_rtl(
-    idt, k, ifm_dim, ifm_ch, stride, dilation, exec_mode, simd, m, dw, flip
+    idt, k, ifm_dim, ifm_ch, stride, dilation, dw, simd, m, parallel_window, flip
 ):
     if flip:
         k = k[::-1]
@@ -187,11 +186,6 @@ def test_fpgadataflow_slidingwindow_rtl(
     stride_h, stride_w = stride
     dilation_h, dilation_w = dilation
 
-    #if (dilation_h > 1 or dilation_w > 1) and (stride_h > 1 or stride_w > 1):
-    #    pytest.skip(
-    #        """Dilation value greater than 1 and stride greater than 1
-    #        currently not supported for 1D convolutions"""
-    #    )
     if simd > ifm_ch:
         pytest.skip("SIMD cannot be larger than number of input channels")
 
@@ -207,21 +201,17 @@ def test_fpgadataflow_slidingwindow_rtl(
         ofm_dim=ofm_dim,
         simd=simd,
         m=m,
+        parallel_window=parallel_window,
         stride=stride,
         dilation=dilation,
         idt=idt,
         dw=dw,
     )
 
-    if exec_mode == "cppsim":
-        raise Exception("cppsim not supported in test_fpgadataflow_slidingwindow_rtl")
-    elif exec_mode == "rtlsim":
-        model = model.transform(SetExecMode("rtlsim"))
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xc7z020clg400-1", 4))
-        model = model.transform(PrepareRTLSim())
-    else:
-        raise Exception("Unknown exec_mode in test_fpgadataflow_slidingwindow_rtl")
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(PrepareRTLSim())
 
     # prepare input data
     input_dict = prepare_inputs(x)
@@ -232,7 +222,6 @@ def test_fpgadataflow_slidingwindow_rtl(
         ifm_ch=ifm_ch,
         ifm_dim=ifm_dim,
         ofm_dim=ofm_dim,
-        simd=simd,
         stride=stride,
         dilation=dilation,
         idt=idt,
@@ -245,6 +234,11 @@ def test_fpgadataflow_slidingwindow_rtl(
     print("--------produced:")
     print(y_produced)
 
+    node = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0]
+    inst = getCustomOp(node)
+    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    print("RTLSIM cycles: %d"%cycles_rtlsim)
+
     if dw == 0:
         assert (y_produced == y_expected).all()
     else:
@@ -255,12 +249,7 @@ def test_fpgadataflow_slidingwindow_rtl(
         y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, ifm_ch * k_h * k_w)
         assert (y_produced == y_expected).all()
 
-
-    # if exec_mode == "rtlsim":
-    #     node = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0]
-    #     inst = getCustomOp(node)
-    #     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
-    #     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-    #     exp_cycles = exp_cycles_dict[node.name]
-    #     assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
-    #     assert exp_cycles != 0
+#     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+#     exp_cycles = exp_cycles_dict[node.name]
+#     assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+#     assert exp_cycles != 0

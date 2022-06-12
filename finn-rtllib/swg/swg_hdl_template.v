@@ -223,7 +223,7 @@ assign shift_out = out_reg;
 
 integer addr_w, addr_r; //todo: minimize width (as reg), make r addr depend on w
 
-(* ram_style = "block" *) reg [WIDTH-1:0] ram [DEPTH-1:0];
+$RAM_STYLE$ reg [WIDTH-1:0] ram [DEPTH-1:0];
 
 always @(posedge CLK) begin 
     if (RST == 1'b0) begin
@@ -291,7 +291,7 @@ end
 
 endmodule //window_buffer
 
-module $TOP_MODULE_NAME$ (
+module $TOP_MODULE_NAME$_impl (
         ap_clk,
         ap_rst_n,
         in0_V_V_TDATA,
@@ -315,11 +315,9 @@ parameter BUF_ELEM_TOTAL = $BUF_ELEM_TOTAL$;
 //IO ports
 input   ap_clk;
 input   ap_rst_n;
-(* X_INTERFACE_PARAMETER = "FREQ_HZ 250000000.000000" *)
 input  [BUF_IN_WIDTH-1:0] in0_V_V_TDATA;
 input   in0_V_V_TVALID;
 output   in0_V_V_TREADY;
-(* X_INTERFACE_PARAMETER = "FREQ_HZ 250000000.000000" *)
 output  [BUF_OUT_WIDTH-1:0] out_V_V_TDATA;
 output   out_V_V_TVALID;
 input   out_V_V_TREADY;
@@ -404,4 +402,4 @@ always @ (posedge ap_clk) begin
     end
 end
 
-endmodule //ConvolutionInputGenerator1D_0_ConvolutionInputGenerator1D_0
+endmodule //TOP_MODULE_NAME_impl

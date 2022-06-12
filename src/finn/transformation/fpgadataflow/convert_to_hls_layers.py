@@ -48,6 +48,11 @@ from finn.util.onnx import nchw_to_nhwc
 class InferConvInpGen(Transformation):
     """Convert Im2Col layers to ConvolutionInputGenerator layers."""
 
+    def __init__(self, use_rtl_variant=False):
+        super().__init__()
+        self.use_rtl_variant = use_rtl_variant
+        self.use_rtl_variant = True #testing
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -128,105 +133,128 @@ class InferConvInpGen(Transformation):
                     )
                     graph.node.insert(node_ind, padding_node)
 
-                # Ensure that only supported HLS nodes are inserted
-                is_square_image = ConvInpGen_idim_h == ConvInpGen_idim_w
-                is_square_kernel = k_h == k_w
-                is_kernel_pointwise = k_h == 1 and k_w == 1
-                is_equal_stride = stride_h == stride_w
-                is_1d_convolution = (k_h == 1 and k_w > 1 and ifm_dim_h == 1) or (
-                    k_h > 1 and k_w == 1 and ifm_dim_w == 1
-                )
-
-                if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
-                    assert is_square_image, (
-                        "%s : DownSampler currently only supports square input images."
-                        % n.name
-                    )
-                    assert is_equal_stride, (
-                        """%s : DownSampler currently only supports equal stride value
-                        along different axes."""
-                        % n.name
-                    )
-                    ConvInpGen_idim = ConvInpGen_idim_h
-                    stride = stride_h
-                    # create DownSampler node
+                if (self.use_rtl_variant):
                     ConvInpGen_node = helper.make_node(
-                        "DownSampler",
+                        "ConvolutionInputGenerator_rtl",
                         [ConvInpGen_input],
                         [i2c_output],
                         domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
-                        ImgDim=ConvInpGen_idim,
-                        NumChannels=ifm_ch,
+                        ConvKernelDim=[k_h, k_w],
+                        IFMChannels=ifm_ch,
+                        IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                        OFMDim=[ofm_dim_h, ofm_dim_w],
                         SIMD=ifm_ch,
-                        Stride=stride,
+                        M=1,
+                        parallel_window=0,
+                        Stride=[stride_h, stride_w],
+                        Dilation=[dilation_h, dilation_w],
                         inputDataType=dt.name,
-                        name="DownSampler_" + n.name,
+                        outputDataType=dt.name,
+                        depthwise=depthwise,
+                        name="ConvolutionInputGenerator_rtl" + n.name,
                     )
                     graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 else:
-                    # create equivalent ConvolutionInputGenerator node
-                    if (
-                        is_square_image and is_square_kernel
-                    ):  # square images and square kernels
+                    # Ensure that only supported HLS nodes are inserted
+                    is_square_image = ConvInpGen_idim_h == ConvInpGen_idim_w
+                    is_square_kernel = k_h == k_w
+                    is_kernel_pointwise = k_h == 1 and k_w == 1
+                    is_equal_stride = stride_h == stride_w
+                    is_1d_convolution = (k_h == 1 and k_w > 1 and ifm_dim_h == 1) or (
+                        k_h > 1 and k_w == 1 and ifm_dim_w == 1
+                    )
+
+                    if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
+                        assert is_square_image, (
+                            "%s : DownSampler currently only supports square input images."
+                            % n.name
+                        )
                         assert is_equal_stride, (
-                            """%s: Non-equal strides along different axes is not supported
-                            for (non-)square convolutions"""
+                            """%s : DownSampler currently only supports equal stride value
+                            along different axes."""
                             % n.name
                         )
-                        assert dilation_h == 1 and dilation_w == 1, (
-                            """%s: Dilation value != 1 is not supported
-                            for square convolutions"""
-                            % n.name
-                        )
+                        ConvInpGen_idim = ConvInpGen_idim_h
+                        stride = stride_h
+                        # create DownSampler node
                         ConvInpGen_node = helper.make_node(
-                            "ConvolutionInputGenerator",
+                            "DownSampler",
                             [ConvInpGen_input],
                             [i2c_output],
                             domain="finn.custom_op.fpgadataflow",
                             backend="fpgadataflow",
-                            ConvKernelDim=[k_h, k_w],
-                            IFMChannels=ifm_ch,
-                            IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
-                            OFMDim=[ofm_dim_h, ofm_dim_w],
+                            ImgDim=ConvInpGen_idim,
+                            NumChannels=ifm_ch,
                             SIMD=ifm_ch,
-                            Stride=[stride_h, stride_w],
-                            Dilation=[dilation_h, dilation_w],
+                            Stride=stride,
                             inputDataType=dt.name,
-                            outputDataType=dt.name,
-                            depthwise=depthwise,
-                            name="ConvolutionInputGenerator_" + n.name,
+                            name="DownSampler_" + n.name,
                         )
-                    else:  # non-square images and/or kernels
-                        assert is_1d_convolution, (
-                            "%s: ConvolutionInputGenerator1D works only for 1D convs"
-                            % n.name
-                        )
-                        if dilation_h > 1 or dilation_w > 1:
-                            assert stride_h == 1 and stride_w == 1, (
-                                """%s: Stride value of greater than 1 is not supported for convolutions
-                                with dilation value greater than 1"""
+                        graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
+                    else:
+                        # create equivalent ConvolutionInputGenerator node
+                        if (
+                            is_square_image and is_square_kernel
+                        ):  # square images and square kernels
+                            assert is_equal_stride, (
+                                """%s: Non-equal strides along different axes is not supported
+                                for (non-)square convolutions"""
                                 % n.name
                             )
-                        ConvInpGen_node = helper.make_node(
-                            "ConvolutionInputGenerator1D",
-                            [ConvInpGen_input],
-                            [i2c_output],
-                            domain="finn.custom_op.fpgadataflow",
-                            backend="fpgadataflow",
-                            ConvKernelDim=[k_h, k_w],
-                            IFMChannels=ifm_ch,
-                            IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
-                            OFMDim=[ofm_dim_h, ofm_dim_w],
-                            SIMD=ifm_ch,
-                            Stride=[stride_h, stride_w],
-                            Dilation=[dilation_h, dilation_w],
-                            inputDataType=dt.name,
-                            outputDataType=dt.name,
-                            depthwise=depthwise,
-                            name="ConvolutionInputGenerator1D_" + n.name,
-                        )
-                    graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
+                            assert dilation_h == 1 and dilation_w == 1, (
+                                """%s: Dilation value != 1 is not supported
+                                for square convolutions"""
+                                % n.name
+                            )
+                            ConvInpGen_node = helper.make_node(
+                                "ConvolutionInputGenerator",
+                                [ConvInpGen_input],
+                                [i2c_output],
+                                domain="finn.custom_op.fpgadataflow",
+                                backend="fpgadataflow",
+                                ConvKernelDim=[k_h, k_w],
+                                IFMChannels=ifm_ch,
+                                IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                                OFMDim=[ofm_dim_h, ofm_dim_w],
+                                SIMD=ifm_ch,
+                                Stride=[stride_h, stride_w],
+                                Dilation=[dilation_h, dilation_w],
+                                inputDataType=dt.name,
+                                outputDataType=dt.name,
+                                depthwise=depthwise,
+                                name="ConvolutionInputGenerator_" + n.name,
+                            )
+                        else:  # non-square images and/or kernels
+                            assert is_1d_convolution, (
+                                "%s: ConvolutionInputGenerator1D works only for 1D convs"
+                                % n.name
+                            )
+                            if dilation_h > 1 or dilation_w > 1:
+                                assert stride_h == 1 and stride_w == 1, (
+                                    """%s: Stride value of greater than 1 is not supported for convolutions
+                                    with dilation value greater than 1"""
+                                    % n.name
+                                )
+                            ConvInpGen_node = helper.make_node(
+                                "ConvolutionInputGenerator1D",
+                                [ConvInpGen_input],
+                                [i2c_output],
+                                domain="finn.custom_op.fpgadataflow",
+                                backend="fpgadataflow",
+                                ConvKernelDim=[k_h, k_w],
+                                IFMChannels=ifm_ch,
+                                IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                                OFMDim=[ofm_dim_h, ofm_dim_w],
+                                SIMD=ifm_ch,
+                                Stride=[stride_h, stride_w],
+                                Dilation=[dilation_h, dilation_w],
+                                inputDataType=dt.name,
+                                outputDataType=dt.name,
+                                depthwise=depthwise,
+                                name="ConvolutionInputGenerator1D_" + n.name,
+                            )
+                        graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
                 graph.node.remove(n)
                 graph_modified = True

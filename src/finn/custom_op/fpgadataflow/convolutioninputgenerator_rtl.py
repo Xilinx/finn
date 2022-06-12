@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import math
+from math import copysign
 import numpy as np
 import os
 
@@ -46,15 +47,6 @@ try:
 except ModuleNotFoundError:
     PyVerilator = None
 
-# This operation should only be used for 1D convolutions. Either the
-# IFMDim_H or IFMDim_W should be '1', which represents the so-called
-# dummy-dimension
-
-# ONNX i/o tensor shape assumptions for ConvolutionInputGenerator1D:
-# input 0 is the input tensor, shape NHWC = (1, IFMDim_H, IFMDim_W, IFMChannels)
-# output 0 is the output tensor, shape NHWC:
-#     = (1, OFMDim_H, OFMDim_W, (ConvKernelDim_H*ConvKernelDim_W)*IFMChannels)
-
 # note: the actual data layout produced by the hlslib kernels is different
 # for depthwise and non-depthwise ops.
 # * non-depthwise SWG: (1, OFMDim_H, OFMDim_W, K_H, K_W, IFMChannels/SIMD, SIMD)
@@ -62,12 +54,9 @@ except ModuleNotFoundError:
 # see test_fpgadataflow_slidingwindow.py for an example of how to transform
 # between the two layouts
 
-
 class ConvolutionInputGenerator_rtl(HLSCustomOp):
-    """Class that corresponds to one of the 1D finn-hlslib ConvolutionInputGenerator
-    (sliding window) function variants. Depending on the combination of
-    attributes (e.g. depthwise or not, whether dilation is 0) a different
-    variant will be picked for the actual HLS implementation."""
+    """Class that does not correspond to one of the finn-hlslib ConvolutionInputGenerator
+    (sliding window) function variants! ... """
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
@@ -80,6 +69,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "OFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "SIMD": ("i", True, 0),
             "M": ("i", False, 1),
+            "parallel_window": ("i", False, 0, {0, 1}),
             "Stride": ("ints", True, []),  # [H, W] = [Y, X]
             "Dilation": ("ints", True, []),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
@@ -87,14 +77,14 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "outputDataType": ("s", True, ""),
             "depthwise": ("i", False, 0, {0, 1}),
             # FPGA resource type for ConvolutionInputGenerator input buffer
-            # auto -- let Vivado HLS decide
+            # auto -- let Vivado decide
             # block -- use BRAM
             # distributed -- use LUTRAM
             # ultra -- use URAM
             "ram_style": (
                 "s",
                 False,
-                "distributed",
+                "auto",
                 {"auto", "block", "distributed", "ultra"},
             ),
             "gen_top_module": ("s", False, ""),
@@ -147,7 +137,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, pad, dilation_h)
         ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, pad, dilation_w)
         assert ifm_ch % simd == 0, "SIMD must divide IFMChannels"
-        if self.use_parallel_window_output():
+        if (self.get_nodeattr("parallel_window")):
             wf = int((ifm_ch) // simd)
             #folded_oshape = (1, ofm_dim_h, ofm_dim_w, wf, k_h * k_w * simd)
             if ofm_dim_w == 1:
@@ -193,13 +183,18 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return in_width
 
     def get_outstream_width(self):
-        if self.use_parallel_window_output():
+        if (self.get_nodeattr("parallel_window")):
             # feed all window pixels in parallel
             k_h, k_w = self.get_nodeattr("ConvKernelDim")
             return self.get_instream_width() * k_h * k_w
         else:
             # if parallel variant not in use: same width for output and input stream
             return self.get_instream_width()
+
+    def get_number_input_values(self):
+        folded_ishape = self.get_folded_input_shape()
+        num_input_elems = np.prod(folded_ishape[:-1])
+        return num_input_elems
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
@@ -235,20 +230,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         return (ifm_ch, ifm_dim, ofm_dim, k, stride, dilation)
 
-    def use_parallel_window_output(self):
-        # Check if simple "ConvolutionInputGenerator_1D_parallel" variant can be used to
-        # feed window in parallel to the following layer, enabling full SIMD unfolding.
-        dilation = self.get_nodeattr("Dilation")
-        dilation_h, dilation_w = dilation
-
-        #todo: make this configurable via mmv_out instead of an automatic selection
-
-        if self.get_nodeattr("SIMD") == self.get_nodeattr("IFMChannels"):
-            if self.get_nodeattr("depthwise") == 0:
-                    return True
-
-        return False
-
     def get_exp_cycles(self):
         simd = self.get_nodeattr("SIMD")
         (
@@ -268,7 +249,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
         # see https://github.com/Xilinx/finn-hlslib/blob/master/slidingwindow.h
-        if self.use_parallel_window_output():
+        if (self.get_nodeattr("parallel_window")):
             exp_cycles = ifm_dim_w + 1
         else:
             cycles_write_block = (ofm_dim_w * k_w * k_h * (ifm_ch / simd)) / mmv
@@ -467,8 +448,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     def generate_hdl(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         f_debug = open(os.path.join(code_gen_dir, "swg_hdl_debuginfo.log"), "w")
-        #debug:
-        #f_debug = open(os.path.join("/workspace/finn/finn-rtllib/swg/", "swg_hdl_debuginfo.log"), "w")
         code_gen_dict = {}
 
         #--------------------
@@ -480,26 +459,38 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         ofm_dim = self.get_nodeattr("OFMDim")
         stride = self.get_nodeattr("Stride")
         dilation = self.get_nodeattr("Dilation")
+        depthwise = self.get_nodeattr("depthwise")
 
         n = 1
         h, w = ifm_dim
         c = 1 # ifm_ch not considered atm (always parallelize across c)
         k_h, k_w = k
-        pad = [0,0,0,0] # padding happens in separate padding node
+        pad = [0,0,0,0] # padding happens in separate padding node for now
         pad_val = 0
         stride_h, stride_w = stride
         dilation_h, dilation_w = dilation
         conv_c = 99
 
         # init folding config
-        M = self.get_nodeattr("M")
         simd = self.get_nodeattr("SIMD")
-        mmv_in = 1*M
-        mmv_out = k_h*k_w*M
+        M = self.get_nodeattr("M")
+        if (self.get_nodeattr("parallel_window")):
+            mmv_in = M*1
+            mmv_out = M*k_h*k_w
+            assert ifm_ch==simd, "Constraint violated: SIMD must be equal to C"
+        else:
+            mmv_in = 1
+            mmv_out = 1
+            assert ifm_ch%simd==0, "Constraint violated: SIMD must divide C"
 
-        assert simd==ifm_ch, "Constraint violated: SIMD = C"
-        assert mmv_in==1*M, "Constraint violated: MMV_IN = 1" # *M
-        assert mmv_out==k_h*k_w*M, "Constraint violated: mmv_out = K" # *M
+        # todo: check allowed hyperparams
+        # ToDo: move/duplicate these checks in corresponding convert_to_hls transformation
+
+        # choose implementation style
+        if (mmv_out > 1 or (k_h==1 and k_w==1)):
+            impl_style = "parallel"
+        else:
+            impl_style = "default"
 
         # how many "unused" registers are allowed between buffer positions that will be accessed in parallel
         # example:
@@ -579,39 +570,147 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         f_debug.write("\n"+"sequential pixel indices (shape %s" % str(idx_px.shape))
         f_debug.write("\n"+str(idx_px))
 
-        output_elem, output_cycles = idx_px.shape
+        k, cycles = idx_px.shape
+
+        output_elements = mmv_out
+        output_cycles = int(cycles/(mmv_out/k))
+
         # ToDo: what happens when output_cycles=OFMdim % M != 0
         # ...try to support IFMdim % M != 0 first, so we can work with the usual k=3 where OFMdim = IFMdim - -2
         # the additional garbage input elements that are read in the last cycle are not read by any window anyway
         idx_px = idx_px.transpose()
-        idx_px = idx_px.reshape((int(output_cycles/M), int(output_elem*M)))
+        idx_px = idx_px.reshape(output_cycles, output_elements)
         idx_px = idx_px.transpose()
 
+        # result: first dim is number of parallel output elements, second dim is the input element (pixel in case of SIMD=C) index that each output element outputs per cycle
         f_debug.write("\n"+"sequential pixel indices, MMV_out grouping (shape %s" % str(idx_px.shape))
         f_debug.write("\n"+str(idx_px))
+        #f_debug.close()
 
         buffer = []
         buffer_max_size = 0
         # buffer schedule (write from input, read to output)
         schedule_write = []
         schedule_read = []
+        schedule_shift = []
+
 
         schedule = []
         schedule_prev = ''
 
         next_in_px = 0
+        oldest_px = 0
+        buffer_space_freed = False
 
         idx_px_relative = idx_px.copy()
+        idx_px_addr = idx_px.copy()
+        idx_px_addr_incr = idx_px.copy()
+        idx_px_addr_rel = idx_px.copy()
 
-        # compute schedule and buffer read pattern
+        # compute schedule and buffer read pattern (output driven)
         output_elem, output_cycles = idx_px_relative.shape
-        for x in range(output_cycles):
-            # load missing inputs into buffer
-            for y in range(output_elem):
-                while int(idx_px_relative[y,x]) not in buffer:
-                    # load M inputs at once (keep "buffer" list 1D for now, handle actual 2D buffer generation later)
+
+        if (impl_style == "parallel"):
+            for x in range(output_cycles):
+                # load missing inputs into buffer
+                for y in range(output_elem):
+                    while int(idx_px_relative[y,x]) not in buffer:
+                        # load M inputs at once (keep "buffer" list 1D for now, handle actual 2D buffer generation later)
+                        for m in range(M):
+                            buffer.append(next_in_px)
+                            next_in_px += 1
+                        schedule_write.append(1)
+                        schedule_read.append(0)
+                        if schedule_prev == 'w':
+                            count, cmd = schedule[-1]
+                            schedule[-1] = (count+1, cmd)
+                        else:
+                            schedule.append((1, 'w'))
+                            schedule_prev = 'w'
+                
+                # discard unused buffer elements
+                oldest_px = np.min(idx_px_relative[:,x:])
+                #check whether M elements can be shifted out, not just the single oldest one
+                # must this be "while" for MMV to work?!? breaks mmvout = 1 case
+                #while all([buffer[i] < oldest_px for i in range(M)]):
+                if all([buffer[i] < oldest_px for i in range(M)]):
+                    # M buffer elements are shifted out at once
+                    for m in range(M):
+                        buffer.pop(0)
+        
+                # adjust relative buffer index of current x (according to last discarded buffer elements)
+                for y in range(output_elem):
+                    idx_px_relative[y,x] -= oldest_px
+
+                
+                # read from buffer    
+                # + simultaneously load next pixel(s) into buffer if there are any left
+                if (next_in_px > (h_padded*w_padded-1)):
+                    # read only (append above)
+                    schedule_read.append(1)
+                    schedule_write.append(0)
+                    if schedule_prev == 'r':
+                        count, cmd = schedule[-1]
+                        schedule[-1] = (count+1, cmd)
+                    else:
+                        schedule.append((1, 'r'))
+                        schedule_prev = 'r'
+                else:
+                    # load M inputs at once
                     for m in range(M):
                         buffer.append(next_in_px)
+                        next_in_px += 1
+                    schedule_read.append(1)
+                    schedule_write.append(1)
+                    if schedule_prev == 'wr':
+                        count, cmd = schedule[-1]
+                        schedule[-1] = (count+1, cmd)
+                    else:
+                        schedule.append((1, 'wr'))
+                        schedule_prev = 'wr'
+
+                # record max needed buffer depth
+                #f_debug.write("\n"+str(buffer))
+                if len(buffer) > buffer_max_size:
+                    buffer_max_size = len(buffer)
+
+            # insert dummy write operations for data at the input FM tail-end that is never read (e.g. in case of stride > 1)
+            while next_in_px <= (h_padded*w_padded-1):
+                next_in_px += 1
+                schedule_write.append(1)
+                schedule_read.append(0)
+                if schedule_prev == 'w':
+                    count, cmd = schedule[-1]
+                    schedule[-1] = (count+1, cmd)
+                else:
+                    schedule.append((1, 'w'))
+                    schedule_prev = 'w'
+
+            # find buffer access patterns
+            buffer_access_patterns = []
+            for x in range(output_cycles):
+                if idx_px_relative[:,x].tolist() not in buffer_access_patterns:
+                    buffer_access_patterns.append(idx_px_relative[:,x].tolist())
+
+
+        else:
+
+            #simulate cyclic buffer, which is advanced on every write (as opposed to on overy sheduled cycle)
+            #buffer_tail = 0
+            buffer_head = 0 #buffer_tail+1
+            # compute minimal buffer length (assuming it holds 1 complete window)
+            buffer_len = (k_h-1) * dilation_h * w + (k_w-1) * dilation_w + 1
+            buffer = [-1] * buffer_len
+            
+            # todo: remove this simulation, not needed and doesnt accout for SIMD anyways
+            for x in range(output_cycles):
+
+                # load missing inputs into buffer
+                while int(idx_px_relative[0,x]) not in buffer:
+                    # load M inputs at once (keep "buffer" list 1D for now, handle actual 2D buffer generation later)
+                    for m in range(M):
+                        #buffer.append(next_in_px)
+                        buffer[buffer_head] = next_in_px
                         next_in_px += 1
                     schedule_write.append(1)
                     schedule_read.append(0)
@@ -621,176 +720,95 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     else:
                         schedule.append((1, 'w'))
                         schedule_prev = 'w'
-            
-            # discard unused buffer elements (assumes in-order access)
-            oldest_px = min(idx_px_relative[:,x])
-            #while buffer[0] < oldest_px:
-            #check whether M elements can be shifted out, not just the single oldest one
-            while all([buffer[i] < oldest_px for i in range(M)]):
-                # M buffer elements are shifted out at once
-                for m in range(M):
-                    buffer.pop(0)
-                
-            # adjust relative buffer index
-            for y in range(output_elem):
-                idx_px_relative[y,x] -= oldest_px
-                
-            # record max needed buffer depth
-            if len(buffer) > buffer_max_size:
-                buffer_max_size = len(buffer)
-            
-            # read from buffer
-            schedule_read.append(1)
-            
-            # simultaneously load next pixel(s) into buffer if there are any left
-            if next_in_px > (h_padded*w_padded-1):
-                schedule_write.append(0)
-                if schedule_prev == 'r':
-                    count, cmd = schedule[-1]
-                    schedule[-1] = (count+1, cmd)
+
+                    #try to advance/shift the buffer by one, discarding the oldest element
+                    #discard_oldest_elem = buffer[0] < np.min(idx_px_relative[0,x:])
+                    #if discard_oldest_elem:
+                    #    buffer.pop(0)
+                    #    schedule_shift.append(1)
+                    #else:
+                    #    schedule_shift.append(0)
+                    buffer_head += 1
+                    if buffer_head > buffer_len-1:
+                        buffer_head = 0
+
+                ### perform read ###
+
+                #try to advance/shift the buffer by one, discarding the oldest element
+                #discard_oldest_elem = buffer[0] < np.min(idx_px_relative[0,x:])
+                #if discard_oldest_elem:
+                #    buffer.pop(0)
+                #    schedule_shift.append(1)
+                #else:
+                #    schedule_shift.append(0)
+
+                # note current relative addr in buffer
+                idx_px_addr[0,x] = buffer.index(idx_px_relative[0,x])
+                if x > 0:
+                    idx_px_addr_incr[0,x] = idx_px_addr[0,x] - idx_px_addr[0,x-1]
+                    if idx_px_addr_incr[0,x] < 0:
+                        idx_px_addr_incr[0,x] += buffer_len
                 else:
-                    schedule.append((1, 'r'))
-                    schedule_prev = 'r'
-            else:
-                # load M inputs at once
-                for m in range(M):
-                    buffer.append(next_in_px)
+                    idx_px_addr_incr[0,x] = idx_px_addr[0,x]
+
+                idx_px_addr_rel [0,x] = buffer.index(idx_px_relative[0,x]) - buffer_head
+                if idx_px_addr_rel [0,x] < 0:
+                    idx_px_addr_rel [0,x] += buffer_len
+
+
+                #try to write a new input into the buffer simultaneously (during this read as opposed to before the next read) 
+                # assume in-order write into the buffer (oldest element is always at head+1)
+                discard_oldest_elem = np.min(buffer) < np.min(idx_px_relative[0,x:])
+                read_only = True
+                if not (next_in_px > (h_padded*w_padded-1)):
+                    # input data available
+                    #if (x < k_h*k_w) or discard_oldest_elem:
+                    if discard_oldest_elem:
+                        # buffer is not complete, as the first window has not been fully output
+                        # or we can discard one element from the buffer after this read, so there is space for a new one
+                        read_only = False
+
+    
+                # read from buffer    
+                # + simultaneously load next pixel(s) into buffer if there are any left
+                # if mmv_out = 1: addressable BRAM implementation style -> do not shift in while outputting K kernel elements to keep addressing consistent
+                #if (next_in_px > (h_padded*w_padded-1)) or ((x+1) % (k_h*k_w) != 0):
+                #if (next_in_px > (h_padded*w_padded-1)) or (x > 1 and (not buffer_space_freed)):
+                if read_only:
+                    # read only
+                    schedule_read.append(1)
+                    schedule_write.append(0)
+                    if schedule_prev == 'r':
+                        count, cmd = schedule[-1]
+                        schedule[-1] = (count+1, cmd)
+                    else:
+                        schedule.append((1, 'r'))
+                        schedule_prev = 'r'
+                else:
+                    # read + write
+                    #buffer.append(next_in_px)
+                    buffer[buffer_head] = next_in_px
                     next_in_px += 1
-                schedule_write.append(1)
-                if schedule_prev == 'wr':
-                    count, cmd = schedule[-1]
-                    schedule[-1] = (count+1, cmd)
-                else:
-                    schedule.append((1, 'wr'))
-                    schedule_prev = 'wr'
+                    schedule_read.append(1)
+                    schedule_write.append(1)
+                    if schedule_prev == 'wr':
+                        count, cmd = schedule[-1]
+                        schedule[-1] = (count+1, cmd)
+                    else:
+                        schedule.append((1, 'wr'))
+                        schedule_prev = 'wr'
 
+                    # advance buffer
+                    buffer_head += 1
+                    if buffer_head > buffer_len-1:
+                        buffer_head = 0
 
-        # find buffer access patterns
-        buffer_access_patterns = []
-        for x in range(output_cycles):
-            if idx_px_relative[:,x].tolist() not in buffer_access_patterns:
-                buffer_access_patterns.append(idx_px_relative[:,x].tolist())
-                
-        # from itertools import groupby
-        # schedule_write_compressed = ''.join('(' + str(k) + ',' + str(sum(1 for x in g)) + '),' for k, g in groupby(schedule_write))
-        # schedule_read_compressed = ''.join('(' + str(k) + ',' + str(sum(1 for x in g)) + '),' for k, g in groupby(schedule_read))
+                # record max needed buffer depth
+                #f_debug.write("\n"+str(buffer))
+                if len(buffer) > buffer_max_size:
+                    buffer_max_size = len(buffer)
 
-        # analyse schedule
-        # class sched_gen:
-        #     start_counter = 0
-        #     start_val = 0
-
-        #     end_last_sequence_counter = 0
-        #     end_sequence = []
-
-        #     outer_counter = 0
-        #     outer_sequence_counter = 0
-        #     outer_sequence_val = 0
-
-        #     inner_counter = 0
-        #     inner_sequence = []
-
-        #     def __str__(self):
-        #         return "\nstart: %d x %d\n %d x\n   %d x %s + %d x %d\nend: %d x %s + %s\n" % (
-        #             self.start_counter,
-        #             self.start_val,
-        #             self.outer_counter,
-        #             self.inner_counter,
-        #             str(self.inner_sequence),
-        #             self.outer_sequence_counter,
-        #             self.outer_sequence_val,
-        #             self.end_last_sequence_counter,
-        #             str(self.inner_sequence),
-        #             self.end_sequence
-        #         )
-
-        
-        # def analyse_schedule(schedule):
-        #     generator = sched_gen()
-            
-        #     #determine start sequence
-        #     for i, v in enumerate(schedule):
-        #         if i > 0 and v != schedule[i-1]:
-        #             generator.start_counter = i
-        #             generator.start_val = schedule[i-1]
-        #             break
-
-        #     #determine inner loop/sequence
-        #     sequence_MAX = 10
-        #     schedule = schedule[generator.start_counter:] # cut off processed entries
-        #     sequence = []
-        #     repititions = 0
-        #     i = 0
-        #     while i < len(schedule):
-        #         if not sequence:
-        #             sequence.append(schedule[i])
-        #             i = i+1
-        #         else:
-        #             # is this a beginning of a repitition of the current sequence?
-        #             if i + len(sequence) < len(schedule) and all([schedule[i+offset] == sequence[offset] for offset in range(len(sequence))]):  
-        #                 repititions = repititions + 1
-        #                 i = i+len(sequence)
-        #             else:
-        #                 # did we already count repitions of the sequence?
-        #                 sequence_candidate = sequence + sequence * repititions
-        #                 sequence_candidate.append(schedule[i])
-        #                 if len(sequence_candidate) < sequence_MAX:
-        #                     sequence = sequence_candidate.copy()
-        #                     repititions = 0
-        #                     i = i+1
-        #                 else:
-        #                     schedule = schedule[i:] # cut off processed entries
-        #                     break
-        #     generator.inner_counter = repititions + 1
-        #     generator.inner_sequence = sequence
-            
-        #     #determine outer sequence
-        #     for i, v in enumerate(schedule):
-        #         if i > 0 and v != schedule[i-1]:
-        #             generator.outer_sequence_counter = i
-        #             generator.outer_sequence_val = schedule[i-1]
-        #             break
-
-        #     schedule = schedule[generator.outer_sequence_counter:] # cut off processed entries
-
-        #     sequence_to_compare = generator.inner_sequence * generator.inner_counter + [generator.outer_sequence_val] * generator.outer_sequence_counter
-
-        #     generator.outer_counter = 1
-        #     i = 0
-        #     while i < len(schedule):
-        #         # is this a beginning of a repitition of the current sequence?
-        #         if i + len(sequence_to_compare) < len(schedule) and all([schedule[i+offset] == sequence_to_compare[offset] for offset in range(len(sequence_to_compare))]):
-        #             generator.outer_counter = generator.outer_counter + 1
-        #             i = i+len(sequence_to_compare)
-        #         else:
-        #             schedule = schedule[i:] # cut off processed entries
-        #             break
-
-        #     #determine end sequence
-        #     #for i, v in enumerate(schedule):
-        #     #    if i > 0 and v != schedule[i-1]:
-        #     #        generator.end_counter = i
-        #     #        generator.end_val = schedule[i-1]
-        #     #        break
-        
-        #     sequence = generator.inner_sequence
-        #     repititions = 0
-        #     i = 0
-        #     while i < len(schedule):
-        #         # is this a beginning of a repitition of the current sequence?
-        #         if i + len(sequence) < len(schedule) and all([schedule[i+offset] == sequence[offset] for offset in range(len(sequence))]):  
-        #             repititions = repititions + 1
-        #             i = i+len(sequence)
-        #         else:
-        #             schedule = schedule[i:] # cut off processed entries
-        #             break
-        #     generator.end_last_sequence_counter = repititions
-
-        #     #remainder
-        #     generator.end_sequence = schedule
-
-        #     return generator
-
+        # ToDo: maybe replace with directly-computed schedule (similar to addr. buffer impl. style)
         def compact_schedule(schedule):
 
             # leave first sequence (pre-load) as is
@@ -852,6 +870,16 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 end_sequence = schedule[i]
                 i += 1
 
+            if i < len(schedule):
+                end_sequence = end_sequence + schedule[i]
+                i += 1
+
+            assert len(start_sequence) == 1*2, "ERROR: invalid start sequence"
+            assert len(loop_sequence_1) == 2*2, "ERROR: invalid loop 1 sequence"
+            if loop_sequence_2:
+                assert len(loop_sequence_2) <= 2*2, "ERROR: invalid loop 2 sequence"
+            if end_sequence:
+                assert len(end_sequence) <= 2*2, "ERROR: invalid end sequence"
             assert i == len(schedule), "ERROR: schedule could not be compacted %d / %d" %(i, len(schedule))
 
             return (
@@ -866,9 +894,12 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         f_debug.write("\n"+"max buffer size observed: %d" %(buffer_max_size))
         f_debug.write("\n"+"output vector elements: relative buffer indices")
         f_debug.write("\n"+str(idx_px_relative))
-        f_debug.write("\n"+"found %d buffer access patterns:" % len(buffer_access_patterns))
-        f_debug.write("\n"+str(buffer_access_patterns))
-        f_debug.write("\n"+"required parallel-access registers for mmv_out=k: %d" % len(sum(buffer_access_patterns,[])))
+        f_debug.write("\n"+"output vector elements: absolute buffer address")
+        f_debug.write("\n"+str(idx_px_addr))
+        f_debug.write("\n"+"output vector elements: absolute buffer address increment from last")
+        f_debug.write("\n"+str(idx_px_addr_incr))
+        f_debug.write("\n"+"output vector elements: relative buffer address (from head)")
+        f_debug.write("\n"+str(idx_px_addr_rel))
         f_debug.write("\n"+"buffer write schedule (%d cycles)" % len(schedule_write))
         f_debug.write("\n"+str(schedule_write))
         f_debug.write("\n"+"writing buffer in %d cycles" % schedule_write.count(1))
@@ -879,19 +910,112 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         f_debug.write("\n"+"buffer read schedule (%d cycles)" % len(schedule_read))
         f_debug.write("\n"+str(schedule_read))
         f_debug.write("\n"+"reading buffer in %d cycles" % schedule_read.count(1))
+
+        #f_debug.write("\n"+"buffer shift schedule (%d cycles)" % len(schedule_shift))
+        #f_debug.write("\n"+str(schedule_shift))
+        #f_debug.write("\n"+"shifting buffer in %d cycles" % schedule_shift.count(1))
         #f_debug.write("\n"+"buffer read schedule COMPRESSED")
         #f_debug.write("\n"+str(schedule_read_compressed))
         #f_debug.write("\n"+"buffer read schedule ANALYZED")
         #f_debug.write("\n"+str(analyse_schedule(schedule_read)))
-        f_debug.write("\n"+"buffer rw schedule NEW")
-        f_debug.write("\n"+str(schedule))
-        f_debug.write("\n"+"buffer rw schedule NEW compacted")
-        f_debug.write("\n"+"\nstart_sequence: %s\nloop_counter: %s\nloop_sequence_1_counter: %s\nloop_sequence_1: %s\nloop_sequence_2: %s\nend_sequence: %s\n" % compact_schedule(schedule))
 
-        assert len(schedule_write) == len(schedule_read), "ERROR: Schedules have different lenghts"
-        cycles_total = len(schedule_write)
+        addr_incr_end_window_elem = 0
+        addr_incr_end_window_row = 0
+        addr_incr_end_window = 0
+        addr_incr_end_row = 0
+
+        if (impl_style == "default"):
+            f_debug.write("\n"+"mmv_out = 1: computing incremental addressing scheme directly:")
+            addressing_scheme = [[0]]
+
+            # compute index/address increments for each nested loop
+            channel_factor = int(ifm_ch/simd)
+
+            #todo: rename to (min) buffer len
+            buffer_max_size = buffer_max_size * channel_factor
+
+            kernel_width = (k_w-1)*dilation_w+1 # incl. dilation
+            addr_incr_end_simd = 1
+            addr_incr_end_window_elem = (dilation_w-1) * channel_factor + 1
+            
+            remaining_line = (w - kernel_width) * channel_factor
+            skip_lines = (dilation_h-1) * w * channel_factor
+            addr_incr_end_window_row = remaining_line + skip_lines + 1 # 1 = wrap around of minimally sized buffer
+            
+            #addr_incr_end_window = stride_w * channel_factor + 1 # 1 = wrap around of minimally sized buffer
+            addr_incr_end_window = -buffer_max_size + stride_w * channel_factor + 1 # 1 = wrap around of minimally sized buffer
+
+            # rows that are skipped due to imperfect stride<->W combination
+            skip_columns = w%(kernel_width + (out_dim_w-1)*stride_w)
+            remaining_line = (skip_columns + kernel_width) * channel_factor # increment from oldest buffer position (top left) to end of line
+            skip_lines = (stride_h-1) * w * channel_factor
+            #addr_incr_end_row = remaining_line + skip_lines + 1 # 1 = wrap around of minimally sized buffer
+            addr_incr_end_row = -buffer_max_size + remaining_line + skip_lines + 1 # 1 = wrap around of minimally sized buffer
+  
+            
+
+            if (depthwise):
+                addr_incr_end_window_elem = dilation_w * channel_factor
+                addr_incr_end_window_row = (channel_factor 
+                                            + (w - kernel_width) * channel_factor
+                                            + (dilation_h-1) * w * channel_factor
+                                           )
+                addr_incr_end_simd = -buffer_max_size + (channel_factor + 1)
+                #addr_incr_end_simd = channel_factor + 1
+                
+                # just for testing:
+                for i_windows_per_h in range(out_dim_h): # LOOP_H
+                    for i_windows_per_w in range(out_dim_w): # LOOP_W
+                        for i_simd_per_px in range(channel_factor): # LOOP_SIMD
+                            for i_px_per_window_h in range(k_h): # LOOP_KH
+                                for i_px_per_window_w in range(k_w-1): # LOOP_KW
+                                    addressing_scheme[0].append(addr_incr_end_window_elem)
+                                if i_px_per_window_h != k_h-1: # skip on last iteration
+                                    addressing_scheme[0].append(addr_incr_end_window_row)
+                            if i_simd_per_px != channel_factor-1: # skip on last iteration
+                                addressing_scheme[0].append(addr_incr_end_simd)
+                        if i_windows_per_w != out_dim_w-1: # skip on last iteration
+                            addressing_scheme[0].append(addr_incr_end_window)
+                    if i_windows_per_h != out_dim_h-1: # skip on last iteration
+                        addressing_scheme[0].append(addr_incr_end_row)
+            else:
+                # just for testing:
+                for i_windows_per_h in range(out_dim_h): # LOOP_H
+                    for i_windows_per_w in range(out_dim_w): # LOOP_W
+                        for i_px_per_window_h in range(k_h): # LOOP_KH
+                            for i_px_per_window_w in range(k_w): # LOOP_KW
+                                for i_simd_per_px in range(channel_factor-1): # LOOP_SIMD
+                                    addressing_scheme[0].append(addr_incr_end_simd)
+                                if i_px_per_window_w != k_w-1: # skip on last iteration
+                                    addressing_scheme[0].append(addr_incr_end_window_elem)
+                            if i_px_per_window_h != k_h-1: # skip on last iteration
+                                addressing_scheme[0].append(addr_incr_end_window_row)
+                        if i_windows_per_w != out_dim_w-1: # skip on last iteration
+                            addressing_scheme[0].append(addr_incr_end_window)
+                    if i_windows_per_h != out_dim_h-1: # skip on last iteration
+                        addressing_scheme[0].append(addr_incr_end_row)
+            
+            f_debug.write("\n"+str(np.array(addressing_scheme)))
+            if simd == ifm_ch:
+                # simd < c currently not simulated
+                if (np.array(addressing_scheme) == idx_px_addr_incr).all:
+                    f_debug.write("\n"+"computed addressing matches simulated addressing")
+                else:
+                    f_debug.write("\n"+"ERROR")
+        else:
+            f_debug.write("\n"+"found %d buffer access patterns:" % len(buffer_access_patterns))
+            f_debug.write("\n"+str(buffer_access_patterns))
+            f_debug.write("\n"+"required parallel-access registers for mmv_out=k: %d" % len(sum(buffer_access_patterns,[])))
+            f_debug.write("\n"+"buffer rw schedule NEW")
+            f_debug.write("\n"+str(schedule))
+            f_debug.write("\n"+"buffer rw schedule NEW compacted")
+            f_debug.write("\n"+"\nstart_sequence: %s\nloop_counter: %s\nloop_sequence_1_counter: %s\nloop_sequence_1: %s\nloop_sequence_2: %s\nend_sequence: %s\n" % compact_schedule(schedule))
+            assert len(schedule_write) == len(schedule_read), "ERROR: Schedules have different lenghts"
+            assert schedule_write.count(1) == self.get_number_input_values(), "ERROR: Writing buffer in fewer cycles than expected"
+            assert schedule_read.count(1) == self.get_number_output_values(), "ERROR: Reading buffer in fewer cycles than expected"
+            cycles_total = len(schedule_write)
+   
         
-        assert schedule_read.count(1) == self.get_number_output_values(), "ERROR: Reading buffer in fewer cycles than expected"
 
         code_gen_dict["$TOP_MODULE_NAME$"] = [self.get_verilog_top_module_name()]
         #save top module name so we can refer to it even after this node has been renamed (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
@@ -900,216 +1024,297 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dict["$SIMD$"] = [str(simd)]
         code_gen_dict["$MMV_IN$"] = [str(mmv_in)]
         code_gen_dict["$MMV_OUT$"] = [str(mmv_out)]
-        code_gen_dict["$CYCLES_TOTAL$"] = [str(cycles_total)]
-        code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_max_size)]
         
-        # determine buffer partitioning into REG FIFOs (parallel access) and BRAM FIFOs (line buffers)
-        # ToDo: this part doesn't fully account for M (2D buffer) yet
-        assert len(buffer_access_patterns) == 1, "ERROR: Buffer access pattern is not static"
-        buf_static_access_pattern = buffer_access_patterns[0]
-        reg_fifos = []
-        reg_fifos_depth = []
-        bram_fifos = []
-        bram_fifos_depth = []
-        current = []
-        for i in range(len(buf_static_access_pattern)):
-            access_idx = buf_static_access_pattern[i]
-            if len(current) == 0:
-                current.append(access_idx)
+
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style == "auto":
+            code_gen_dict["$RAM_STYLE$"]=[""]
+        else:
+            code_gen_dict["$RAM_STYLE$"]=["(* ram_style = \"{}\" *)".format(ram_style)]
+        
+        if (impl_style == "default"):
+            ### MMVout = 1: addressable buffer implementation style
+            f_debug.write("\n"+"Choosing implementation style: Addressable buffer due to mmv_out=1")
+
+            # add additional buffer space in case of stride > 1
+            # this minimizes cycle count, as it allows an earlier pre-load of skipped input elements
+            buffer_actual_size = (buffer_max_size + max(0,((stride_w-1)   - (int(mmv_out*k_h*k_w/mmv_in)))*channel_factor)
+                                                  + max(0,((stride_h-1)*w - (int(mmv_out*k_h*k_w/mmv_in)))*channel_factor))
+            code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_actual_size)]
+
+            assert not(abs(addr_incr_end_window) > buffer_actual_size), "ERROR: W increment > buffer size, wrap logic doesn't account for this"
+            assert not(abs(addr_incr_end_row) > buffer_actual_size), "ERROR: H increment > buffer size, wrap logic doesn't account for this"
+
+            kernel_width = (k_w-1)*dilation_w+1 # incl. dilation
+            kernel_height = (k_h-1)*dilation_h+1 # incl. dilation
+            skip_columns = w%(kernel_width + (out_dim_w-1)*stride_w)
+            skip_rows = h%(kernel_height + (out_dim_h-1)*stride_h)
+            code_gen_dict["$LAST_READ_ELEM$"] = [str(h*w*channel_factor-1)]
+            code_gen_dict["$LAST_WRITE_ELEM$"] = [str(((h - skip_rows - 1) * w + (w - skip_columns))*channel_factor -1)]
+
+            loop_h_iterations = out_dim_h
+            loop_w_iterations = out_dim_w
+            loop_kh_iterations = k_h
+            loop_kw_iterations = k_w
+            loop_simd_iterations = channel_factor
+
+            if (depthwise and channel_factor > 1):
+                # re-arrange existing controller loop structure for depthwise convolutions
+                loop_kh_iterations = channel_factor
+                loop_kw_iterations = k_h
+                loop_simd_iterations = k_w
+                addr_incr_end_simd_ = addr_incr_end_simd
+                addr_incr_end_simd = addr_incr_end_window_elem
+                addr_incr_end_window_elem = addr_incr_end_window_row
+                addr_incr_end_window_row = addr_incr_end_simd_
+                elem_per_window = k_h*k_w         
+                                                                                                       
+                code_gen_dict["$TAIL_INCR_GENERATION$"] = ["""
+                always @ (counter_loop_kh, counter_loop_w, counter_loop_h) begin
+                         if (counter_loop_kh != 0)
+                             tail_incr = 1;
+                         else if (counter_loop_w != 0)
+                             tail_incr = ADDR_INCREMENT_MAP[STATE_LOOP_W]-{channel_factor}+{buffer_min_size};
+                         else // do not check for counter_loop_h to increment past LAST_WRITE_ELEM during last window
+                             tail_incr = ADDR_INCREMENT_MAP[STATE_LOOP_H]-{channel_factor}+{buffer_min_size};
+                end
+                """.format(channel_factor=channel_factor, buffer_min_size=buffer_max_size)]
             else:
-                # assume non-decreasing index order in access pattern
-                # ToDo: this assumption does not hold for M>1 case (2D buffer)
-                distance = access_idx - max(current)
-                if not (distance-1 > REG_BRAM_THRESHOLD):
-                    for i in range(distance-1):
-                        # insert dummy into REG FIFO (not read as part of window)
-                        current.append(-1)
-                    # assign this access to same REG FIFO as previous one
+                # depthwise output format is equivalent to non-depthwise if SIMD=C
+                elem_per_window = k_h*k_w*channel_factor
+
+                code_gen_dict["$TAIL_INCR_GENERATION$"] = ["""
+                always @ (counter_loop_w, counter_loop_h) begin
+                        if (counter_loop_w != 0)
+                            tail_incr = ADDR_INCREMENT_MAP[STATE_LOOP_W]-1+{buffer_min_size};
+                        else // do not check for counter_loop_h to increment past LAST_WRITE_ELEM during last window
+                            tail_incr = ADDR_INCREMENT_MAP[STATE_LOOP_H]-1+{buffer_min_size};
+                end
+                """.format(buffer_min_size=buffer_max_size)]
+
+            # support SIMD = C and k_w = 1 cases
+            # for k = [k_h, k_w] = [1, k_w], no adjustment is needed
+            # for k = [k_h, k_w] = [1, 1], do not use this impl. style (mmv_out=K=1)
+            # innermost loop is executed at least once -> adjust if needed
+            if (loop_simd_iterations == 1):
+                # skip innermost SIMD loop completely
+                if (loop_kw_iterations == 1):
+                    # skip innermost KW loop completely
+                    code_gen_dict["$INNERMOST_STATE$"]=["STATE_LOOP_KH"]
+                    loop_kh_iterations -= 1  # -1 because state is initial state
+                else:
+                    code_gen_dict["$INNERMOST_STATE$"]=["STATE_LOOP_KW"]
+                    loop_kw_iterations -= 1 # -1 because state is initial state
+            else:
+                code_gen_dict["$INNERMOST_STATE$"]=["STATE_LOOP_SIMD"]
+                loop_simd_iterations -= 1 # -1 because state is initial state
+            
+            code_gen_dict["$LOOP_H_ITERATIONS$"]=[str(loop_h_iterations-1)]
+            code_gen_dict["$LOOP_W_ITERATIONS$"]=[str(loop_w_iterations-1)]
+            code_gen_dict["$LOOP_KH_ITERATIONS$"]=[str(loop_kh_iterations-1)]
+            code_gen_dict["$LOOP_KW_ITERATIONS$"]=[str(loop_kw_iterations-1)]
+            code_gen_dict["$LOOP_SIMD_ITERATIONS$"]=[str(loop_simd_iterations-1)]
+
+            w = 32 #ToDo: minimize
+            code_gen_dict["$ADDR_INCREMENT_MAP$"]=["'{{ {}'d0, {}'d{}, {}'d{}, {}'d{}, {}'d{}, {}'d{}}}".format(w, 
+                                                int(copysign(w,addr_incr_end_simd)),abs(addr_incr_end_simd),
+                                                int(copysign(w,addr_incr_end_window_elem)),abs(addr_incr_end_window_elem),
+                                                int(copysign(w,addr_incr_end_window_row)),abs(addr_incr_end_window_row),
+                                                int(copysign(w,addr_incr_end_window)),abs(addr_incr_end_window),
+                                                int(copysign(w,addr_incr_end_row)),abs(addr_incr_end_row))]
+
+            code_gen_dict["$ELEM_PER_WINDOW$"] = [str(elem_per_window)]
+
+            with open("/workspace/finn/finn-rtllib/swg/swg_hdl_template_mmv_1.v", "r") as f:
+                template = f.read()
+        else:
+            f_debug.write("\n"+"Choosing implementation style: Parallel Registers (+ line buffers) due to mmv_out>1")
+            ### determine buffer partitioning into REG FIFOs (parallel access) and BRAM FIFOs (line buffers)
+            # ToDo: this part doesn't fully account for M (2D buffer) yet
+
+            code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_max_size)]
+
+            assert len(buffer_access_patterns) == 1, "ERROR: Buffer access pattern is not static"
+            buf_static_access_pattern = buffer_access_patterns[0]
+            reg_fifos = []
+            reg_fifos_depth = []
+            bram_fifos = []
+            bram_fifos_depth = []
+            current = []
+            for i in range(len(buf_static_access_pattern)):
+                access_idx = buf_static_access_pattern[i]
+                if len(current) == 0:
                     current.append(access_idx)
                 else:
-                    # assign skipped accesses to new BRAM FIFO
-                    bram_fifos.append([-1]*(distance-1))
-                    bram_fifos_depth.append(math.ceil((distance-1)/M)) # really ceil?
-                    # start with new REG FIFO
-                    reg_fifos.append(current)
-                    #reg_fifos_depth.append(math.ceil((max(current)+1)/M)) ToDo: fix for M again
-                    reg_fifos_depth.append(len(current))
-                    current = []
-                    current.append(access_idx)
-        reg_fifos.append(current)
-        #reg_fifos_depth.append(math.ceil((max(current)+1)/M)) ToDo fix for M again
-        reg_fifos_depth.append(len(current))
+                    # assume non-decreasing index order in access pattern
+                    # ToDo: this assumption does not hold for M>1 case (2D buffer)
+                    distance = access_idx - max(current)
+                    if not (distance-1 > REG_BRAM_THRESHOLD):
+                        for i in range(distance-1):
+                            # insert dummy into REG FIFO (not read as part of window)
+                            current.append(-1)
+                        # assign this access to same REG FIFO as previous one
+                        current.append(access_idx)
+                    else:
+                        # assign skipped accesses to new BRAM FIFO
+                        bram_fifos.append([-1]*(distance-1))
+                        bram_fifos_depth.append(math.ceil((distance-1)/M)) # really ceil?
+                        # start with new REG FIFO
+                        reg_fifos.append(current)
+                        #reg_fifos_depth.append(math.ceil((max(current)+1)/M)) #ToDo: fix for M again
+                        reg_fifos_depth.append(len(current))
+                        current = []
+                        current.append(access_idx)
+            reg_fifos.append(current)
+            #reg_fifos_depth.append(math.ceil((max(current)+1)/M)) #ToDo fix for M again
+            reg_fifos_depth.append(len(current))
 
-        f_debug.write("\n"+"Buffer partitioning using REG_BRAM_THRESHOLD=%d" % REG_BRAM_THRESHOLD)
-        f_debug.write("\n"+"%d REG FIFOs (parallel read access):" % len(reg_fifos))
-        f_debug.write("\n"+str(reg_fifos))
-        f_debug.write("\n"+"%d BRAM FIFOs (line buffers):" % len(bram_fifos))
-        f_debug.write("\n"+str(bram_fifos))
+            f_debug.write("\n"+"Buffer partitioning using REG_BRAM_THRESHOLD=%d" % REG_BRAM_THRESHOLD)
+            f_debug.write("\n"+"%d REG FIFOs (parallel read access):" % len(reg_fifos))
+            f_debug.write("\n"+str(reg_fifos))
+            f_debug.write("\n"+"%d BRAM FIFOs (line buffers):" % len(bram_fifos))
+            f_debug.write("\n"+str(bram_fifos))
 
-        code_gen_dict["$GENERATE_REG_FIFOS$"] = []
-        for i in range(len(reg_fifos)):
-            code_gen_dict["$GENERATE_REG_FIFOS$"].append(
-                """
-                wire [IN_WIDTH-1:0] reg_fifo_{id}_in;
-                wire [IN_WIDTH-1:0] reg_fifo_{id}_out;
-                wire [IN_WIDTH*{len}-1:0] reg_fifo_{id};
-                {name}_reg_buffer
-                #(
-                .WIDTH(IN_WIDTH),
-                .DEPTH({len})
-                )
-                reg_buffer_inst_{id}
-                (
-                    .CLK(CLK),
-                    .shift_enable(shift_enable),
-                    .shift_in(reg_fifo_{id}_in),
-                    .shift_out(reg_fifo_{id}_out),
-                    .data_out(reg_fifo_{id})
-                );""".format(name=self.get_verilog_top_module_name(), id=i, len=reg_fifos_depth[i]))
-
-        code_gen_dict["$GENERATE_BRAM_FIFOS$"] = []
-        for i in range(len(bram_fifos)):
-            code_gen_dict["$GENERATE_BRAM_FIFOS$"].append(
-                """
-                wire [IN_WIDTH-1:0] bram_fifo_{id}_in;
-                wire [IN_WIDTH-1:0] bram_fifo_{id}_out;
-                {name}_ram_buffer
-                #(
-                .WIDTH(IN_WIDTH),
-                .DEPTH({len})
-                )
-                ram_buffer_inst_{id}
-                (
-                    .CLK(CLK),
-                    .RST(RST),
-                    .shift_enable(shift_enable),
-                    .shift_in(bram_fifo_{id}_in),
-                    .shift_out(bram_fifo_{id}_out)
-                );""".format(name=self.get_verilog_top_module_name(), id=i, len=bram_fifos_depth[i]))
-
-        code_gen_dict["$GENERATE_OUTPUT_MAPPING$"] = []
-        out_idx = mmv_out-1
-        for fifo_id, reg_fifo in enumerate(reg_fifos):
-            for fifo_idx, access_idx in enumerate(reg_fifo):
-                if(access_idx != -1):
-                    #code_gen_dict["$GENERATE_OUTPUT_MAPPING$"].append(
-                    #    "assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH] = reg_fifo_{fifo_id}[{fifo_idx}]; //{access_idx}".format(
-                    #        out_idx=out_idx, fifo_id=fifo_id, fifo_idx=fifo_idx, access_idx=access_idx
-                    #    )
-                    #)
-                    code_gen_dict["$GENERATE_OUTPUT_MAPPING$"].append(
-                        "assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH] = reg_fifo_{fifo_id}[{access_idx}*{mmv}*OUT_ELEM_WIDTH+OUT_ELEM_WIDTH*{mmv_idx}+:OUT_ELEM_WIDTH];".format(
-                            out_idx=out_idx, fifo_id=fifo_id, 
-                            access_idx=reg_fifos_depth[fifo_id]-1-int((max(reg_fifo)-access_idx)/M), 
-                            mmv_idx=(max(reg_fifo)-access_idx)%M,
-                            mmv = M
-                        )
+            code_gen_dict["$GENERATE_REG_FIFOS$"] = []
+            for i in range(len(reg_fifos)):
+                code_gen_dict["$GENERATE_REG_FIFOS$"].append(
+                    """
+                    wire [IN_WIDTH-1:0] reg_fifo_{id}_in;
+                    wire [IN_WIDTH-1:0] reg_fifo_{id}_out;
+                    wire [IN_WIDTH*{len}-1:0] reg_fifo_{id};
+                    {name}_reg_buffer
+                    #(
+                    .WIDTH(IN_WIDTH),
+                    .DEPTH({len})
                     )
-                    # reversal: out_idx=0 -> oldest buffer element -> highest access_idx
-                    out_idx = out_idx-1
-        assert out_idx==-1, "ERROR: Not all output vector elements connected"
+                    reg_buffer_inst_{id}
+                    (
+                        .CLK(CLK),
+                        .shift_enable(shift_enable),
+                        .shift_in(reg_fifo_{id}_in),
+                        .shift_out(reg_fifo_{id}_out),
+                        .data_out(reg_fifo_{id})
+                    );""".format(name=self.get_verilog_top_module_name(), id=i, len=reg_fifos_depth[i]))
 
-        code_gen_dict["$GENERATE_BUFFER_CONNECTION$"] = []
-        for i in range(len(reg_fifos)):
-            if i == 0:
-                # first FIFO containing newest elements -> input comes from input reg
+            code_gen_dict["$GENERATE_BRAM_FIFOS$"] = []
+            for i in range(len(bram_fifos)):
+                code_gen_dict["$GENERATE_BRAM_FIFOS$"].append(
+                    """
+                    wire [IN_WIDTH-1:0] bram_fifo_{id}_in;
+                    wire [IN_WIDTH-1:0] bram_fifo_{id}_out;
+                    {name}_ram_buffer
+                    #(
+                    .WIDTH(IN_WIDTH),
+                    .DEPTH({len})
+                    )
+                    ram_buffer_inst_{id}
+                    (
+                        .CLK(CLK),
+                        .RST(RST),
+                        .shift_enable(shift_enable),
+                        .shift_in(bram_fifo_{id}_in),
+                        .shift_out(bram_fifo_{id}_out)
+                    );""".format(name=self.get_verilog_top_module_name(), id=i, len=bram_fifos_depth[i]))
+
+            code_gen_dict["$GENERATE_OUTPUT_MAPPING$"] = []
+            out_idx = mmv_out-1
+            for fifo_id, reg_fifo in enumerate(reg_fifos):
+                for fifo_idx, access_idx in enumerate(reg_fifo):
+                    if(access_idx != -1):
+                        #code_gen_dict["$GENERATE_OUTPUT_MAPPING$"].append(
+                        #    "assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH] = reg_fifo_{fifo_id}[{fifo_idx}]; //{access_idx}".format(
+                        #        out_idx=out_idx, fifo_id=fifo_id, fifo_idx=fifo_idx, access_idx=access_idx
+                        #    )
+                        #)
+                        code_gen_dict["$GENERATE_OUTPUT_MAPPING$"].append(
+                            "assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH] = reg_fifo_{fifo_id}[{access_idx}*{mmv}*OUT_ELEM_WIDTH+OUT_ELEM_WIDTH*{mmv_idx}+:OUT_ELEM_WIDTH];".format(
+                                out_idx=out_idx, fifo_id=fifo_id, 
+                                access_idx=reg_fifos_depth[fifo_id]-1-int((max(reg_fifo)-access_idx)/M), 
+                                mmv_idx=(max(reg_fifo)-access_idx)%M,
+                                mmv = M
+                            )
+                        )
+                        # reversal: out_idx=0 -> oldest buffer element -> highest access_idx
+                        out_idx = out_idx-1
+            assert out_idx==-1, "ERROR: Not all output vector elements connected"
+
+            code_gen_dict["$GENERATE_BUFFER_CONNECTION$"] = []
+            for i in range(len(reg_fifos)):
+                if i == 0:
+                    # first FIFO containing newest elements -> input comes from input reg
+                    code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                        """assign reg_fifo_{fifo_id}_in = reg_input;""".format(fifo_id=i,))
+                else:
+                    # other REG FIFOs -> input comes from connected BRAM FIFO (line buffer)
+                    input_fifo_id = i-1
+                    code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                        """assign reg_fifo_{fifo_id}_in = bram_fifo_{input_fifo_id}_out;""".format(fifo_id=i, input_fifo_id=input_fifo_id))
+            for i in range(len(bram_fifos)):
+                input_fifo_id = i
                 code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
-                    """assign reg_fifo_{fifo_id}_in = reg_input;""".format(fifo_id=i,))
-            else:
-                # other REG FIFOs -> input comes from connected BRAM FIFO (line buffer)
-                input_fifo_id = i-1
-                code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
-                    """assign reg_fifo_{fifo_id}_in = bram_fifo_{input_fifo_id}_out;""".format(fifo_id=i, input_fifo_id=input_fifo_id))
-        for i in range(len(bram_fifos)):
-            input_fifo_id = i
-            code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
-                """assign bram_fifo_{fifo_id}_in = reg_fifo_{input_fifo_id}_out;""".format(fifo_id=i, input_fifo_id=input_fifo_id))
+                    """assign bram_fifo_{fifo_id}_in = reg_fifo_{input_fifo_id}_out;""".format(fifo_id=i, input_fifo_id=input_fifo_id))
 
-        # Generate read schedule (when data is read from input, written to buffer)
-        # code_gen_dict["$GENERATE_READ_SCHEDULE$"] = []
-        # schedule_as_string = ""
-        # #todo: change naming to swap write/read
-        # for i in schedule_write:
-        #     if i == 1:
-        #         schedule_as_string += "1'b1,"
-        #     else:
-        #         schedule_as_string += "1'b0,"
-        # schedule_as_string = schedule_as_string[:-1] # remove trailing ','
-        # code_gen_dict["$GENERATE_READ_SCHEDULE$"].append(
-        #     "localparam [0:{len}-1] READ_SCHEDULE = {{{str}}};".format(len=cycles_total, str=schedule_as_string)
-        # )
-        # code_gen_dict["$GENERATE_READ_SCHEDULE$"].append(
-        #     "assign read_state = READ_SCHEDULE[cycle];"
-        # )
+            def convert_tuple(seq):
+                mapping = {'w': ("1'b1", "1'b0"),
+                            'r': ("1'b0", "1'b1"),
+                            'wr':("1'b1", "1'b1"),
+                            'n': ("1'b0", "1'b0")}
+                if seq:
+                    if len(seq) == 2:
+                        return (seq[0], mapping[seq[1]], 0, mapping['n'])
+                    if len(seq) == 4:
+                        return (seq[0], mapping[seq[1]], seq[2], mapping[seq[3]])
+                else:
+                    return (0, mapping['n'], 0, mapping['n'])
 
-        # # Generate write schedule (when data is written to output, read from buffer)
-        # code_gen_dict["$GENERATE_WRITE_SCHEDULE$"] = []
-        # schedule_as_string = ""
-        # #todo: change naming to swap write/read
-        # for i in schedule_read:
-        #     if i == 1:
-        #         schedule_as_string += "1'b1,"
-        #     else:
-        #         schedule_as_string += "1'b0,"
-        # schedule_as_string = schedule_as_string[:-1] # remove trailing ','
-        # code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
-        #     "localparam [0:{len}-1] WRITE_SCHEDULE = {{{str}}};".format(len=cycles_total, str=schedule_as_string)
-        # )
-        # code_gen_dict["$GENERATE_WRITE_SCHEDULE$"].append(
-        #     "assign write_state = WRITE_SCHEDULE[cycle_last];"
-        # )
+            start_sequence,loop_counter,loop_sequence_1_counter,loop_sequence_1,loop_sequence_2,end_sequence = compact_schedule(schedule)
 
-        def convert_tuple(seq):
-            mapping = {'w': ("1'b1", "1'b0"),
-                        'r': ("1'b0", "1'b1"),
-                        'wr':("1'b1", "1'b1"),
-                        'n': ("1'b0", "1'b0")}
-            if seq:
-                if len(seq) == 2:
-                    return (seq[0], mapping[seq[1]], 0, mapping['n'])
-                if len(seq) == 4:
-                    return (seq[0], mapping[seq[1]], seq[2], mapping[seq[3]])
-            else:
-                return (0, mapping['n'], 0, mapping['n'])
+            start_sequence = convert_tuple(start_sequence)
+            loop_sequence_1 = convert_tuple(loop_sequence_1)
+            loop_sequence_2 = convert_tuple(loop_sequence_2)
+            end_sequence = convert_tuple(end_sequence)
 
-        start_sequence,loop_counter,loop_sequence_1_counter,loop_sequence_1,loop_sequence_2,end_sequence = compact_schedule(schedule)
+            code_gen_dict["$CYCLES_TOTAL$"] = [str(cycles_total)]
 
-        start_sequence = convert_tuple(start_sequence)
-        loop_sequence_1 = convert_tuple(loop_sequence_1)
-        loop_sequence_2 = convert_tuple(loop_sequence_2)
-        end_sequence = convert_tuple(end_sequence)
+            code_gen_dict["$START_COUNTER$"]=[str(start_sequence[0])]
+            code_gen_dict["$LOOP_MAIN_COUNTER$"]=[str(loop_sequence_1_counter)]
+            code_gen_dict["$LOOP_INTER_COUNTER$"]=[str(loop_counter)]
 
-        code_gen_dict["$START_COUNTER$"]=[str(start_sequence[0])]
-        code_gen_dict["$LOOP_MAIN_COUNTER$"]=[str(loop_sequence_1_counter)]
-        code_gen_dict["$LOOP_INTER_COUNTER$"]=[str(loop_counter)]
+            code_gen_dict["$LOOP_MAIN_1_COUNTER$"]=[str(loop_sequence_1[0])]
+            code_gen_dict["$LOOP_MAIN_2_COUNTER$"]=[str(loop_sequence_1[2])]
 
-        code_gen_dict["$LOOP_MAIN_1_COUNTER$"]=[str(loop_sequence_1[0])]
-        code_gen_dict["$LOOP_MAIN_2_COUNTER$"]=[str(loop_sequence_1[2])]
+            code_gen_dict["$LOOP_INTER_1_COUNTER$"]=[str(loop_sequence_2[0])]
+            code_gen_dict["$LOOP_INTER_2_COUNTER$"]=[str(loop_sequence_2[2])]
 
-        code_gen_dict["$LOOP_INTER_1_COUNTER$"]=[str(loop_sequence_2[0])]
-        code_gen_dict["$LOOP_INTER_2_COUNTER$"]=[str(loop_sequence_2[2])]
+            code_gen_dict["$LOOP_END_1_COUNTER$"]=[str(end_sequence[0])]
+            code_gen_dict["$LOOP_END_2_COUNTER$"]=[str(end_sequence[2])]
 
-        code_gen_dict["$LOOP_END_1_COUNTER$"]=[str(end_sequence[0])]
-        code_gen_dict["$LOOP_END_2_COUNTER$"]=[str(end_sequence[2])]
+            code_gen_dict["$READ_CMD_MAP$"]=["{{ {}, {}, {}, {}, {}, {}, {} }}".format(
+                start_sequence[1][0],loop_sequence_1[1][0],loop_sequence_1[3][0],loop_sequence_2[1][0],loop_sequence_2[3][0],end_sequence[1][0],end_sequence[3][0])]
+            code_gen_dict["$WRITE_CMD_MAP$"]=["{{ {}, {}, {}, {}, {}, {}, {} }}".format(
+                start_sequence[1][1],loop_sequence_1[1][1],loop_sequence_1[3][1],loop_sequence_2[1][1],loop_sequence_2[3][1],end_sequence[1][1],end_sequence[3][1])]
 
-        code_gen_dict["$READ_CMD_MAP$"]=["{{ {}, {}, {}, {}, {}, {}, {} }}".format(
-            start_sequence[1][0],loop_sequence_1[1][0],loop_sequence_1[3][0],loop_sequence_2[1][0],loop_sequence_2[3][0],end_sequence[1][0],end_sequence[3][0])]
-        code_gen_dict["$WRITE_CMD_MAP$"]=["{{ {}, {}, {}, {}, {}, {}, {} }}".format(
-            start_sequence[1][1],loop_sequence_1[1][1],loop_sequence_1[3][1],loop_sequence_2[1][1],loop_sequence_2[3][1],end_sequence[1][1],end_sequence[3][1])]
-
-        with open("/workspace/finn/finn-rtllib/swg/swg_hdl_template.v", "r") as f:
-            template = f.read()
+            with open("/workspace/finn/finn-rtllib/swg/swg_hdl_template.v", "r") as f:
+                template = f.read()
         
+        
+        with open("/workspace/finn/finn-rtllib/swg/swg_hdl_template_wrapper.v", "r") as f:
+            template_wrapper = f.read()
+
         for key in code_gen_dict:
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(code_gen_dict[key])
             template = template.replace(key, code_gen_line)
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
 
-        f = open(os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_hdl_gen.v"), "w")
-        #debug:
-        #f = open(os.path.join("/workspace/finn/finn-rtllib/swg/", "swg_hdl_generated.v"), "w")
+        f = open(os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_impl.sv"), "w")
         f.write(template)
         f.close()
+
+        f = open(os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"), "w")
+        f.write(template_wrapper)
+        f.close()
+
         f_debug.close()
 
         #set ipgen_path and ip_path so that HLS-Synth transformation and stich_ip transformation do not complain
@@ -1127,10 +1332,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_paths = [code_gen_dir]    
-        verilog_files = [self.get_nodeattr("gen_top_module") + "_hdl_gen.v"]
-        #debug:
-        #verilog_paths = ["/workspace/finn/finn-rtllib/swg/"]
-        #verilog_files = ["swg_hdl_generated.v"]
+        verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper.v",
+                         self.get_nodeattr("gen_top_module") + "_impl.sv"]
+
         # build the Verilator emu library
         sim = PyVerilator.build(
             verilog_files,
@@ -1149,22 +1353,24 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         vlnv = self.get_nodeattr("ip_vlnv")
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
-        cmd = ["add_files -norecurse %s" % (os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_hdl_gen.v")),
+        cmd = ["add_files -norecurse %s" % (os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v")),
+            "add_files -norecurse %s" % (os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_impl.sv")),
             "create_bd_cell -type module -reference %s %s" % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)]
 
         return cmd
 
     def code_generation_ipgen(self, model, fpgapart, clk):
-        """Generates c++ code and tcl script for ip generation."""
+        """Normally: Generates c++ code and tcl script for ip generation.
+           Here: Generates (System-)Verilog code for ip generation."""
         self.generate_hdl()
 
     def ipgen_singlenode_code(self):
-        """Builds the bash script for ip generation using the CallHLS from
+        """Normally: Builds the bash script for ip generation using the CallHLS from
         finn.util.hls."""
         pass
 
     def code_generation_cppsim(self, model):
-        """Generates c++ code for simulation (cppsim)."""
+        """Normally: Generates c++ code for simulation (cppsim)."""
         pass
 
     def compile_singlenode_code(self):
