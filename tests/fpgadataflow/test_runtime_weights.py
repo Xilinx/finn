@@ -68,7 +68,7 @@ def test_runtime_weights_single_layer():
     }
     layer_spec_list = [layer_spec]
     model = hls_random_mlp_maker(layer_spec_list)
-    fcl = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+    fcl = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
     op_inst = getCustomOp(fcl)
     op_inst.set_nodeattr("mem_mode", "decoupled")
     op_inst.set_nodeattr("runtime_writeable_weights", 1)

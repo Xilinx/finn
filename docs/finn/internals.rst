@@ -146,10 +146,10 @@ A transformation passes changes (transforms) the given model, it gets the model 
 
 .. _mem_mode:
 
-StreamingFCLayer *mem_mode*
+MatrixVectorActivation *mem_mode*
 ===========================
 
-FINN supports two types of the so-called *mem_mode* attrıbute for the node StreamingFCLayer. This mode controls how the weight values are accessed during the execution. That means the mode setting has direct influence on the resulting circuit. Currently two settings for the *mem_mode* are supported in FINN:
+FINN supports two types of the so-called *mem_mode* attrıbute for the node MatrixVectorActivation. This mode controls how the weight values are accessed during the execution. That means the mode setting has direct influence on the resulting circuit. Currently two settings for the *mem_mode* are supported in FINN:
 
 * "const"
 
@@ -163,7 +163,7 @@ The following picture shows the idea behind the two modes.
 
 Const mode
 ----------
-In *const* mode the weights are "baked in" into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *const* mode IP block generation the `StreamingFCLayer_Batch function <https://github.com/Xilinx/finn-hlslib/blob/07a8353f6cdfd8bcdd81e309a5581044c2a93d3b/fclayer.h#L94>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
+In *const* mode the weights are "baked in" into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *const* mode IP block generation the `Matrix_Vector_Activate_Batch function <https://github.com/Xilinx/finn-hlslib/blob/19fa1197c09bca24a0f77a7fa04b8d7cb5cc1c1d/mvau.hpp#L93>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
 
 Advantages:
 
@@ -185,7 +185,7 @@ In *decoupled* mode a different variant of the MVAU with three ports is used. Be
 
 Advantages:
 
-* better control over the used memory primivites used (see the ram_style attribute in StreamingFCLayer)
+* better control over the used memory primivites used (see the ram_style attribute in MatrixVectorActivation)
 
 * potentially faster HLS synthesis time since weight array shape is no longer part of HLS synthesis
 

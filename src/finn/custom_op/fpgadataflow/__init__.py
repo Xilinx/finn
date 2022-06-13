@@ -43,6 +43,7 @@ from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
 from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
 from finn.custom_op.fpgadataflow.lookup import Lookup
+from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
 from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
@@ -50,15 +51,12 @@ from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
-from finn.custom_op.fpgadataflow.streamingfclayer_batch import StreamingFCLayer_Batch
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour_Batch
-from finn.custom_op.fpgadataflow.vector_vector_activate_batch import (
-    Vector_Vector_Activate_Batch,
-)
+from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 
 custom_op = dict()
 
@@ -66,7 +64,7 @@ custom_op = dict()
 # registered and plug in correctly into the infrastructure
 custom_op["DownSampler"] = DownSampler
 custom_op["StreamingMaxPool_Batch"] = StreamingMaxPool_Batch
-custom_op["StreamingFCLayer_Batch"] = StreamingFCLayer_Batch
+custom_op["MatrixVectorActivation"] = MatrixVectorActivation
 custom_op["ConvolutionInputGenerator"] = ConvolutionInputGenerator
 custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
 custom_op["TLastMarker"] = TLastMarker
@@ -79,7 +77,7 @@ custom_op["Thresholding_Batch"] = Thresholding_Batch
 custom_op["AddStreams_Batch"] = AddStreams_Batch
 custom_op["LabelSelect_Batch"] = LabelSelect_Batch
 custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
-custom_op["Vector_Vector_Activate_Batch"] = Vector_Vector_Activate_Batch
+custom_op["VectorVectorActivation"] = VectorVectorActivation
 custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
 custom_op["IODMA"] = IODMA
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition

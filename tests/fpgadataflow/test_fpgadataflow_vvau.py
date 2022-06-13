@@ -98,7 +98,7 @@ def _make_single_vvau_modelwrapper(
         actval = 0
 
     VVAU_node = helper.make_node(
-        "Vector_Vector_Activate_Batch",
+        "VectorVectorActivation",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -233,7 +233,7 @@ def test_fpgadataflow_vvau(
     assert (y_produced == y_expected).all(), "cppsim failed"
 
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")[0]
+        node = model.get_nodes_by_op_type("VectorVectorActivation")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
