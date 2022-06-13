@@ -148,21 +148,31 @@ def prepare_inputs(input_tensor):
 
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["UINT4"]])
+
+# @pytest.mark.parametrize(
+#     "conv_config",
+#     [
+#         [[12,12], [3, 3], [1, 1], [1, 1]],
+#         [[13,13], [3, 3], [1, 1], [1, 1]],
+#         [[12,12], [3, 3], [2, 2], [1, 1]],
+#         [[13,13], [3, 3], [2, 2], [1, 1]],
+#     ],
+# )
 # kernel size
-@pytest.mark.parametrize("k", [[3,3]])
+@pytest.mark.parametrize("k", [[1,1],[2,2],[3,3],[4,5],[1,3]])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[24,24]])
+@pytest.mark.parametrize("ifm_dim", [[8,8],[13,13],[1,12]])
 # input channels
-@pytest.mark.parametrize("ifm_ch", [8])
+@pytest.mark.parametrize("ifm_ch", [6])
 # Stride
-@pytest.mark.parametrize("stride", [[3,3],[6,6]])
+@pytest.mark.parametrize("stride", [[1,1],[2,2],[3,4]])
 # Dilation
-@pytest.mark.parametrize("dilation", [[1,1],[2,2]])
+@pytest.mark.parametrize("dilation", [[1,1],[2,2],[4,3]])
 # depthwise
 @pytest.mark.parametrize("dw", [0,1])
 
 # input channel parallelism ("SIMD")
-@pytest.mark.parametrize("simd", [1,2,8])
+@pytest.mark.parametrize("simd", [1,2,3,6])
 # in/out MMV ("M")
 @pytest.mark.parametrize("m", [1])
 # paralle_window enable (MMV_out = M*K)
@@ -175,7 +185,14 @@ def prepare_inputs(input_tensor):
 def test_fpgadataflow_slidingwindow_rtl(
     idt, k, ifm_dim, ifm_ch, stride, dilation, dw, simd, m, parallel_window, flip
 ):
+    #ifm_dim = conv_config[0]
+    #k = conv_config[1]
+    #stride = conv_config[2]
+    #dilation= conv_config[3]
+
     if flip:
+        if (ifm_dim[0]==ifm_dim[1] and k[0]==k[1] and stride[0]==stride[1] and dilation[0] == dilation[1]):
+            pytest.skip("Dimension flip would have no effect")
         k = k[::-1]
         ifm_dim = ifm_dim[::-1]
         stride = stride[::-1]
@@ -186,8 +203,21 @@ def test_fpgadataflow_slidingwindow_rtl(
     stride_h, stride_w = stride
     dilation_h, dilation_w = dilation
 
+    kernel_width = (k_w-1)*dilation_w+1 # incl. dilation
+    kernel_height = (k_h-1)*dilation_h+1 # incl. dilation
+
     if simd > ifm_ch:
         pytest.skip("SIMD cannot be larger than number of input channels")
+    if ifm_ch % simd != 0:
+        pytest.skip("SIMD must divide number of input channels")
+    if kernel_width > ifm_dim_h or stride_h > ifm_dim_h:
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
+    if kernel_height > ifm_dim_w or stride_w > ifm_dim_w:
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
+    if (k_h==1 and (stride_h!=1 or dilation_h!=1)) or (k_w==1 and (stride_w!=1 or dilation_w!=1)):
+        pytest.skip("Illegal convolution configuration: stride or dilation defined for unitary kernel dim")
+    if k_h==1 and k_w==1 and simd != ifm_ch:
+        pytest.skip("1x1 Kernel only supported in parallel mode (SIMD=C)")
 
     ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
     ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)

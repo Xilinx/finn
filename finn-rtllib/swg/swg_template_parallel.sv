@@ -9,7 +9,7 @@ module $TOP_MODULE_NAME$_controller
 );
 
 input CLK;
-input [31:0] cycle; //todo: minimize width or switch to single bit flag/advance wire
+input [31:0] cycle; //todo: minimize width or switch to single bit flag
 output cmd_read;
 output cmd_write;
 
@@ -159,6 +159,8 @@ input [WIDTH-1:0] shift_in;
 output [WIDTH-1:0] shift_out;
 output [WIDTH*DEPTH-1:0] data_out;
 
+// ToDo: experiment with SRL instead of FF-based shift register
+// by force or by achieving automatic SRL inference
 //UG901 template for SRL inference:
 // 32-bit Shift Register
 // Rising edge clock
@@ -303,12 +305,12 @@ module $TOP_MODULE_NAME$_impl (
 );
 
 parameter BIT_WIDTH = $BIT_WIDTH$;
-parameter SIMD = $SIMD$; //assuming SIMD=C for now
-parameter MMV_IN = $MMV_IN$; //assuming MMV_IN=1*M for now
-parameter MMV_OUT = $MMV_OUT$; //assuming MMV_OUT=K*M for now
-parameter BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN; //bit-width*C*MMV_in
-parameter BUF_OUT_ELEM_WIDTH = BIT_WIDTH * SIMD; //bit-width*C
-parameter BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT; //bit-width*C*MMV_out
+parameter SIMD = $SIMD$; //assuming SIMD = C for this implementation style
+parameter MMV_IN = $MMV_IN$;
+parameter MMV_OUT = $MMV_OUT$;
+parameter BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN;
+parameter BUF_OUT_ELEM_WIDTH = BIT_WIDTH * SIMD;
+parameter BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT;
 parameter CYCLES_TOTAL = $CYCLES_TOTAL$;
 parameter BUF_ELEM_TOTAL = $BUF_ELEM_TOTAL$;
 
