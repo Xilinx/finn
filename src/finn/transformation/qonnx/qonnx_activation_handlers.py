@@ -333,7 +333,7 @@ class QuantReluHandler(QuantActBaseHandler):
         # Calculate thersholds, see: https://github.com/Xilinx/brevitas/blob/
         # a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/export/
         # onnx/finn/handler/act.py#L21
-        num_distinct_values = 2 ** bit_width
+        num_distinct_values = 2**bit_width
         num_thresholds = int(num_distinct_values - 1)
         flat_scale = quant_scale.flatten().astype(np.float32)
         num_scale_channels = flat_scale.shape[0]
@@ -468,9 +468,9 @@ class QuantIdentityHandler(QuantActBaseHandler):
             return thresholds
         else:
             if narrow:
-                num_distinct_values = 2 ** bit_width - 1
+                num_distinct_values = 2**bit_width - 1
             else:
-                num_distinct_values = 2 ** bit_width
+                num_distinct_values = 2**bit_width
 
             num_thresholds = int(num_distinct_values - 1)
             flat_scale = quant_scale.flatten()

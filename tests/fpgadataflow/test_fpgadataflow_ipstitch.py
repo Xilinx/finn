@@ -66,7 +66,7 @@ ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
 
 
 def create_one_fc_model(mem_mode="const"):
-    # create a model with a StreamingFCLayer instance with no activation
+    # create a model with a MatrixVectorActivation instance with no activation
     # the wider range of the full accumulator makes debugging a bit easier
     wdt = DataType["INT2"]
     idt = DataType["INT32"]
@@ -82,7 +82,7 @@ def create_one_fc_model(mem_mode="const"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "StreamingFCLayer_Batch",
+        "MatrixVectorActivation",
         ["inp", "w0"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -120,7 +120,7 @@ def create_one_fc_model(mem_mode="const"):
 
 
 def create_two_fc_model(mem_mode="decoupled"):
-    # create a model with two StreamingFCLayer instances
+    # create a model with two MatrixVectorActivation instances
     wdt = DataType["INT2"]
     idt = DataType["INT32"]
     odt = DataType["INT32"]
@@ -136,7 +136,7 @@ def create_two_fc_model(mem_mode="decoupled"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "StreamingFCLayer_Batch",
+        "MatrixVectorActivation",
         ["inp", "w0"],
         ["mid"],
         domain="finn.custom_op.fpgadataflow",
@@ -155,7 +155,7 @@ def create_two_fc_model(mem_mode="decoupled"):
     )
 
     fc1 = helper.make_node(
-        "StreamingFCLayer_Batch",
+        "MatrixVectorActivation",
         ["mid", "w1"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -201,6 +201,7 @@ def create_two_fc_model(mem_mode="decoupled"):
 
 
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = create_one_fc_model(mem_mode)
@@ -214,7 +215,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
-    assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
+    assert model.graph.node[0].op_type == "MatrixVectorActivation"
     assert model.graph.node[-1].op_type == "TLastMarker"
     model.save(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode
@@ -222,6 +223,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
 
 
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
     model = load_test_checkpoint_or_skip(
@@ -239,6 +241,7 @@ def test_fpgadataflow_ipstitch_do_stitch(mem_mode):
 
 
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
     model = load_test_checkpoint_or_skip(
@@ -287,6 +290,7 @@ def test_fpgadataflow_ipstitch_rtlsim(mem_mode):
 
 
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_ipstitch_synth_ooc(mem_mode):
@@ -308,6 +312,7 @@ def test_fpgadataflow_ipstitch_synth_ooc(mem_mode):
     assert ret["fmax_mhz"] > 100
 
 
+@pytest.mark.fpgadataflow
 def test_fpgadataflow_ipstitch_iodma_floorplan():
     model = create_one_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
@@ -330,10 +335,13 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.parametrize("period_ns", [5])
 # override mem_mode to external
 @pytest.mark.parametrize("extw", [True, False])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.vitis
-def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
+# temporarily marked as xfail
+@pytest.mark.xfail
+def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")
     platform = alveo_default_platform[board]
@@ -353,9 +361,12 @@ def test_fpgadataflow_ipstitch_vitis(board, period_ns, extw):
 
 # board
 @pytest.mark.parametrize("board", ["Pynq-Z1"])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_ipstitch_zynqbuild(board):
+# temporarily marked as xfail
+@pytest.mark.xfail
+def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
     model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":
         sdp_node = getCustomOp(model.graph.node[0])

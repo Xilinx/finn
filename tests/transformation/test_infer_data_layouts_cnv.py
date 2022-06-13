@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 import brevitas.onnx as bo
 import os
 
@@ -46,6 +48,7 @@ from finn.util.test import get_test_model_trained
 export_onnx_path_cnv = "test_infer_data_layouts.onnx"
 
 
+@pytest.mark.transform
 def test_infer_data_layouts_cnv():
     cnv = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path_cnv)
@@ -87,8 +90,8 @@ def test_infer_data_layouts_cnv():
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
-    model = model.transform(to_hls.InferBinaryStreamingFCLayer())
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
+    model = model.transform(to_hls.InferBinaryMatrixVectorActivation())
+    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
     model = model.transform(GiveUniqueNodeNames())
@@ -103,9 +106,9 @@ def test_infer_data_layouts_cnv():
     assert (
         model.get_tensor_layout("ConvolutionInputGenerator_0_out0") == DataLayout.NHWC
     )
-    assert model.get_tensor_layout("StreamingFCLayer_Batch_3_out0") == DataLayout.NHWC
+    assert model.get_tensor_layout("MatrixVectorActivation_3_out0") == DataLayout.NHWC
     assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
-    assert model.get_tensor_layout("StreamingFCLayer_Batch_6_out0") == DataLayout.NC
+    assert model.get_tensor_layout("MatrixVectorActivation_6_out0") == DataLayout.NC
     assert model.get_tensor_layout("global_out") == DataLayout.NC
 
     os.remove(export_onnx_path_cnv)

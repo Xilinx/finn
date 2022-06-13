@@ -66,7 +66,7 @@ from finn.transformation.remove import RemoveIdentityOps
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
-from finn.util.basic import alveo_default_platform, alveo_part_map
+from finn.util.basic import alveo_default_platform, alveo_part_map, get_finn_root
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import (
     crop_center,
@@ -114,7 +114,7 @@ def test_end2end_mobilenet_export():
 
     # calculate golden output with pytorch/brevitas and save as .npy
     # get single image as input and prepare image
-    img = Image.open("/workspace/finn/tests/brevitas/king_charles.jpg")
+    img = Image.open(get_finn_root() + "/tests/brevitas/king_charles.jpg")
     # resize smallest side of the image to 256 pixels and resize larger side
     # with same ratio
     img = resize_smaller_side(256, img)
@@ -212,8 +212,8 @@ def test_end2end_mobilenet_convert_to_hls_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_lowered.onnx")
     model = model.transform(to_hls.InferPool_Batch())
     model = model.transform(to_hls.InferConvInpGen())
-    model = model.transform(to_hls.InferVVAU())
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
+    model = model.transform(to_hls.InferVectorVectorActivation())
+    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode))
     model = model.transform(to_hls.InferChannelwiseLinearLayer())
     model = model.transform(to_hls.InferLabelSelectLayer())
     model = model.transform(InferShapes())
@@ -231,7 +231,7 @@ def test_end2end_mobilenet_folding():
     assert extra_fold in [1, 2, 4]
     # set up folding for the depthwise conv layers impl'd by VVAUs
     # each value is PE for a layer
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # each tuple is (PE, SIMD, ram_style) for a layer
     folding = [
         (32, 3, "block"),
@@ -260,7 +260,7 @@ def test_end2end_mobilenet_folding():
     getCustomOp(fc_layers[0]).set_nodeattr("resType", first_layer_res_type)
     # set up folding for the depthwise conv layers impl'd by VVAUs
     # each value is PE for a layer
-    vvau_layers = model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")
+    vvau_layers = model.get_nodes_by_op_type("VectorVectorActivation")
     folding = [32, 32, 64, 16, 32, 8, 16, 16, 16, 16, 16, 4, 8]
     for vvau, pe in zip(vvau_layers, folding):
         vvau_inst = getCustomOp(vvau)

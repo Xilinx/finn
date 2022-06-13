@@ -47,6 +47,7 @@ from finn.util.basic import gen_finn_dt_tensor
 base_export_onnx_path = "test_brevitas_avg_pool_export.onnx"
 
 
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("QONNX_export", [False, True])
 @pytest.mark.parametrize("kernel_size", [2, 3])
 @pytest.mark.parametrize("stride", [1, 2])

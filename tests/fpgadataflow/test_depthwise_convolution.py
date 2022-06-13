@@ -40,7 +40,7 @@ from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hls_layers import (
     InferConvInpGen,
-    InferVVAU,
+    InferVectorVectorActivation,
 )
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
@@ -168,6 +168,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 @pytest.mark.parametrize("stride", [1, 2])
 # padding
 @pytest.mark.parametrize("padding", [0, 1])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
@@ -182,7 +183,7 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
     input_dict = {"inp": input_tensor}
 
     new_model = model.transform(InferConvInpGen())
-    new_model = new_model.transform(InferVVAU())
+    new_model = new_model.transform(InferVectorVectorActivation())
 
     # set SIMD in ConvInputGen node and PE in VVAU node
 
@@ -190,7 +191,7 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
         if n.op_type == "ConvolutionInputGenerator":
             convinputgen_node = getCustomOp(n)
             convinputgen_node.set_nodeattr("SIMD", pe)
-        elif n.op_type == "Vector_Vector_Activate_Batch":
+        elif n.op_type == "VectorVectorActivation":
             vvau_node = getCustomOp(n)
             vvau_node.set_nodeattr("PE", pe)
     new_model = new_model.transform(SetExecMode("cppsim"))
@@ -210,6 +211,7 @@ def test_depthwise_conv_hls_cppsim(act, pe, k, stride, padding):
 @pytest.mark.parametrize("stride", [1, 2])
 # padding
 @pytest.mark.parametrize("padding", [0, 1])
+@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
@@ -224,7 +226,7 @@ def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
     input_dict = {"inp": input_tensor}
 
     new_model = model.transform(InferConvInpGen())
-    new_model = new_model.transform(InferVVAU())
+    new_model = new_model.transform(InferVectorVectorActivation())
 
     # set SIMD in ConvInputGen node and PE in VVAU node
 
@@ -232,7 +234,7 @@ def test_depthwise_conv_hls_rtlsim(act, pe, k, stride, padding):
         if n.op_type == "ConvolutionInputGenerator":
             convinputgen_node = getCustomOp(n)
             convinputgen_node.set_nodeattr("SIMD", pe)
-        elif n.op_type == "Vector_Vector_Activate_Batch":
+        elif n.op_type == "VectorVectorActivation":
             vvau_node = getCustomOp(n)
             vvau_node.set_nodeattr("PE", pe)
 

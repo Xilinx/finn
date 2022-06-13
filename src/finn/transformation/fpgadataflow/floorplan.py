@@ -151,7 +151,7 @@ class Floorplan(Transformation):
                 partition_cnt += 1
                 continue
             elif not (
-                node.op_type == "StreamingFCLayer_Batch"
+                node.op_type == "MatrixVectorActivation"
                 and node_inst.get_nodeattr("mem_mode") is not None
                 and node_inst.get_nodeattr("mem_mode") == "external"
             ):

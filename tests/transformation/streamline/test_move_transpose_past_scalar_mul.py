@@ -13,6 +13,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.reorder import MoveTransposePastScalarMul
 
 
+@pytest.mark.streamline
 # permutation of transpose node
 @pytest.mark.parametrize("perm", [[0, 2, 3, 1], [0, 1, 3, 2], [3, 2, 0, 1]])
 # scalar mul

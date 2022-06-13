@@ -4,7 +4,7 @@
 
 <img align="left" src="https://raw.githubusercontent.com/Xilinx/finn/github-pages/docs/img/finn-stack.png" alt="drawing" style="margin-right: 20px" width="250"/>
 
-[![Gitter](https://badges.gitter.im/xilinx-finn/community.svg)](https://gitter.im/xilinx-finn/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+[![GitHub Discussions](https://img.shields.io/badge/discussions-join-green)](https://github.com/Xilinx/finn/discussions)
 [![ReadTheDocs](https://readthedocs.org/projects/finn/badge/?version=latest&style=plastic)](http://finn.readthedocs.io/)
 
 FINN is an experimental framework from Xilinx Research Labs to explore deep neural network
@@ -24,9 +24,9 @@ Please see the [Getting Started](https://finn.readthedocs.io/en/latest/getting_s
 
 ## What's New in FINN?
 
+* **2021-11-05:** v0.7 is released, introducing QONNX support, three new example networks and many other improvements. Read more on the [v0.7 release blog post](https://xilinx.github.io/finn//2021/11/05/finn-v07-is-released.html).
 * **2021-06-15:** v0.6 is released, with ResNet-50 on U250 and ZCU104 MobileNet-v1 in finn-examples showcasing new features plus a lot more. Read more on the [v0.6 release blog post](https://xilinx.github.io/finn//2021/06/15/finn-v06-is-released.html).
 * **2020-12-17:** v0.5b (beta) is released, with a new [examples repo](https://github.com/Xilinx/finn-examples) including MobileNet-v1. Read more on the <a href="https://xilinx.github.io/finn/2020/12/17/finn-v05b-beta-is-released.html">release blog post</a>.
-* **2020-09-21:** v0.4b (beta) is released. Read more on the <a href="https://xilinx.github.io/finn/2020/09/21/finn-v04b-beta-is-released.html">release blog post</a>.
 
 ## Documentation
 
@@ -34,9 +34,12 @@ You can view the documentation on [readthedocs](https://finn.readthedocs.io) or 
 
 ## Community
 
-We have a [gitter channel](https://gitter.im/xilinx-finn/community) where you can ask questions. You can use the GitHub issue tracker to report bugs, but please don't file issues to ask questions as this is better handled in the gitter channel.
+We have [GitHub discussions](https://github.com/Xilinx/finn/discussions) where you can ask questions. You can use the GitHub issue tracker to report bugs, but please don't file issues to ask questions as this is better handled in GitHub discussions.
 
-We also heartily welcome contributions to the project, please check out the [contribution guidelines](CONTRIBUTING.md) and the [list of open issues](https://github.com/Xilinx/finn/issues). Don't hesitate to get in touch over [Gitter](https://gitter.im/xilinx-finn/community) to discuss your ideas.
+We also heartily welcome contributions to the project, please check out the [contribution guidelines](CONTRIBUTING.md) and the [list of open issues](https://github.com/Xilinx/finn/issues). Don't hesitate to get in touch over [GitHub discussions](https://github.com/Xilinx/finn/discussions) to discuss your ideas.
+
+In the past, we also had a [Gitter channel](https://gitter.im/xilinx-finn/community). Please be aware that this is no longer maintained by us but can still be used to search for questions previous users had.
+
 
 ## Citation
 

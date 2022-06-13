@@ -55,6 +55,7 @@ from finn.util.test import get_test_model_trained
 export_onnx_path = "test_convert_to_hls_layers_fc.onnx"
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a1():
     tfc = get_test_model_trained("TFC", 1, 1)
@@ -69,24 +70,24 @@ def test_convert_to_hls_layers_tfc_w1a1():
     model = model.transform(absorb.AbsorbAddIntoMultiThreshold())
     model = model.transform(absorb.AbsorbMulIntoMultiThreshold())
     model = model.transform(RoundAndClipThresholds())
-    model = model.transform(to_hls.InferBinaryStreamingFCLayer())
+    model = model.transform(to_hls.InferBinaryMatrixVectorActivation())
     fc0 = model.graph.node[2]
-    assert fc0.op_type == "StreamingFCLayer_Batch"
+    assert fc0.op_type == "MatrixVectorActivation"
     assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
     assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
     assert model.get_tensor_shape(fc0.input[2]) == [64, 1]
     fc1 = model.graph.node[3]
-    assert fc1.op_type == "StreamingFCLayer_Batch"
+    assert fc1.op_type == "MatrixVectorActivation"
     assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
     assert model.get_tensor_shape(fc1.input[2]) == [64, 1]
     fc2 = model.graph.node[4]
-    assert fc2.op_type == "StreamingFCLayer_Batch"
+    assert fc2.op_type == "MatrixVectorActivation"
     assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
     assert model.get_tensor_shape(fc2.input[2]) == [64, 1]
     fc3 = model.graph.node[5]
-    assert fc3.op_type == "StreamingFCLayer_Batch"
+    assert fc3.op_type == "MatrixVectorActivation"
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
 
@@ -125,6 +126,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
     os.remove(export_onnx_path)
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a2():
     tfc = get_test_model_trained("TFC", 1, 2)
@@ -136,28 +138,28 @@ def test_convert_to_hls_layers_tfc_w1a2():
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
     from finn.transformation.fpgadataflow.convert_to_hls_layers import (
-        InferQuantizedStreamingFCLayer,
+        InferQuantizedMatrixVectorActivation,
     )
 
-    model = model.transform(InferQuantizedStreamingFCLayer())
+    model = model.transform(InferQuantizedMatrixVectorActivation())
 
     fc0 = model.graph.node[2]
-    assert fc0.op_type == "StreamingFCLayer_Batch"
+    assert fc0.op_type == "MatrixVectorActivation"
     assert model.get_tensor_shape(fc0.input[0]) == [1, 784]
     assert model.get_tensor_shape(fc0.input[1]) == [784, 64]
     assert model.get_tensor_shape(fc0.input[2]) == [64, 2]
     fc1 = model.graph.node[3]
-    assert fc1.op_type == "StreamingFCLayer_Batch"
+    assert fc1.op_type == "MatrixVectorActivation"
     assert model.get_tensor_shape(fc1.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc1.input[1]) == [64, 64]
     assert model.get_tensor_shape(fc1.input[2]) == [64, 2]
     fc2 = model.graph.node[4]
-    assert fc2.op_type == "StreamingFCLayer_Batch"
+    assert fc2.op_type == "MatrixVectorActivation"
     assert model.get_tensor_shape(fc2.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc2.input[1]) == [64, 64]
     assert model.get_tensor_shape(fc2.input[2]) == [64, 2]
     fc3 = model.graph.node[5]
-    assert fc3.op_type == "StreamingFCLayer_Batch"
+    assert fc3.op_type == "MatrixVectorActivation"
     assert model.get_tensor_shape(fc3.input[0]) == [1, 64]
     assert model.get_tensor_shape(fc3.input[1]) == [64, 10]
     fc0w = getCustomOp(fc0)

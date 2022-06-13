@@ -267,13 +267,13 @@ class MakePYNQDriver(Transformation):
         # copy all the dependencies into the driver folder
         # driver imports utils/data_packing and core/datatype
         # both of which are in finn-base
-        # e.g. /workspace/finn-base/src/finn/util/data_packing.py
+        # e.g. $FINN_ROOT/deps/finn-base/src/finn/util/data_packing.py
         dpk_root = dpk.__file__
-        # e.g. /workspace/finn-base/src/finn/util
+        # e.g. $FINN_ROOT/deps/finn-base/src/finn/util
         dpk_root = dpk_root.replace("data_packing.py", "")
-        # e.g. /workspace/finn-base/src/finn/core/datatype.py
+        # e.g. $FINN_ROOT/deps/finn-base/src/finn/core/datatype.py
         dtp_root = dtp.__file__
-        # e.g. /workspace/finn-base/src/finn/core
+        # e.g. $FINN_ROOT/deps/finn-base/src/finn/core
         dtp_root = dtp_root.replace("datatype.py", "")
         shutil.copytree(dpk_root, pynq_driver_dir + "/finn/util")
         shutil.copytree(dtp_root, pynq_driver_dir + "/finn/core")
@@ -288,7 +288,7 @@ class MakePYNQDriver(Transformation):
             dataflow_model = ModelWrapper(dataflow_model_filename)
             rt_layer_ind = 0
             for node in dataflow_model.graph.node:
-                if node.op_type in ["StreamingFCLayer_Batch", "Thresholding_Batch"]:
+                if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
                     node_inst = getCustomOp(node)
                     is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
                     if is_rt_weights == 1:

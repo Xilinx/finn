@@ -60,6 +60,7 @@ def create_model(perm):
     return model
 
 
+@pytest.mark.streamline
 # Permutation of transpose node
 @pytest.mark.parametrize("perm", [[0, 3, 1, 2], [0, 2, 3, 1]])
 def test_move_identical_op_past_join_op(perm):

@@ -117,7 +117,7 @@ def hls_mlp_maker(layer_spec):
             model.graph.output.append(global_out)
 
         # there are two ways to implement bipolar weights and inputs for
-        # StreamingFC:
+        # MatrixVectorActivation:
         # - specify their datatypes as such
         # - specify their datatypes as BINARY as use binaryXnorMode
         if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
@@ -144,7 +144,7 @@ def hls_mlp_maker(layer_spec):
             actval = 0
             no_act = 1
         FCLayer_node = helper.make_node(
-            "StreamingFCLayer_Batch",
+            "MatrixVectorActivation",
             node_inp_list,
             [current_out_name],
             domain="finn.custom_op.fpgadataflow",

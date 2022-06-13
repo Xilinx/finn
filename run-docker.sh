@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2020-2022, Advanced Micro Devices
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -92,11 +92,13 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_PREBUILT="0"}
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
 : ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
+: ${FINN_DOCKER_EXTRA=""}
+: ${FINN_SKIP_DEP_REPOS="0"}
+: ${OHMYXILINX="${SCRIPTPATH}/deps/oh-my-xilinx"}
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
 
 DOCKER_INTERACTIVE=""
-DOCKER_EXTRA=""
 
 if [ "$1" = "test" ]; then
   gecho "Running test suite (all tests)"
@@ -112,36 +114,41 @@ elif [ "$1" = "notebook" ]; then
     JUPYTER_PASSWD_ARG="--NotebookApp.password='$JUPYTER_PASSWD_HASH'"
   fi
   DOCKER_CMD="jupyter notebook --allow-root --no-browser --ip=0.0.0.0 --port $JUPYTER_PORT $JUPYTER_PASSWD_ARG notebooks"
-  DOCKER_EXTRA+="-e JUPYTER_PORT=$JUPYTER_PORT "
-  DOCKER_EXTRA+="-e NETRON_PORT=$NETRON_PORT "
-  DOCKER_EXTRA+="-p $JUPYTER_PORT:$JUPYTER_PORT "
-  DOCKER_EXTRA+="-p $NETRON_PORT:$NETRON_PORT "
+  FINN_DOCKER_EXTRA+="-e JUPYTER_PORT=$JUPYTER_PORT "
+  FINN_DOCKER_EXTRA+="-e NETRON_PORT=$NETRON_PORT "
+  FINN_DOCKER_EXTRA+="-p $JUPYTER_PORT:$JUPYTER_PORT "
+  FINN_DOCKER_EXTRA+="-p $NETRON_PORT:$NETRON_PORT "
 elif [ "$1" = "build_dataflow" ]; then
   BUILD_DATAFLOW_DIR=$(readlink -f "$2")
-  DOCKER_EXTRA="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR "
+  FINN_DOCKER_EXTRA+="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR "
   DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
   gecho "Running build_dataflow for folder $BUILD_DATAFLOW_DIR"
   DOCKER_CMD="build_dataflow $BUILD_DATAFLOW_DIR"
 elif [ "$1" = "build_custom" ]; then
   BUILD_CUSTOM_DIR=$(readlink -f "$2")
-  DOCKER_EXTRA="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR "
+  FLOW_NAME=${3:-build}
+  FINN_DOCKER_EXTRA+="-v $BUILD_CUSTOM_DIR:$BUILD_CUSTOM_DIR -w $BUILD_CUSTOM_DIR "
   DOCKER_INTERACTIVE="-it"
   #FINN_HOST_BUILD_DIR=$BUILD_DATAFLOW_DIR/build
-  gecho "Running build_custom: $BUILD_CUSTOM_DIR/build.py"
-  DOCKER_CMD="python -mpdb -cc -cq build.py"
+  gecho "Running build_custom: $BUILD_CUSTOM_DIR/$FLOW_NAME.py"
+  DOCKER_CMD="python -mpdb -cc -cq $FLOW_NAME.py"
+elif [ -z "$1" ]; then
+   gecho "Running container only"
+   DOCKER_CMD="bash"
+   DOCKER_INTERACTIVE="-it"
 else
-  gecho "Running container only"
-  DOCKER_CMD="bash"
-  DOCKER_INTERACTIVE="-it"
+  gecho "Running container with passed arguments"
+  DOCKER_CMD="$@"
 fi
+
 
 if [ "$FINN_DOCKER_GPU" != 0 ];then
   gecho "nvidia-docker detected, enabling GPUs"
   if [ ! -z "$NVIDIA_VISIBLE_DEVICES" ];then
-    DOCKER_EXTRA+="--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES "
+    FINN_DOCKER_EXTRA+="--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES "
   else
-    DOCKER_EXTRA+="--gpus all "
+    FINN_DOCKER_EXTRA+="--gpus all "
   fi
 fi
 
@@ -161,6 +168,11 @@ gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
 
+# Ensure git-based deps are checked out at correct commit
+if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
+  ./fetch-repos.sh
+fi
+
 # Build the FINN Docker image
 if [ "$FINN_DOCKER_PREBUILT" = "0" ]; then
   # Need to ensure this is done within the finn/ root folder:
@@ -175,10 +187,11 @@ fi
 DOCKER_EXEC="docker run -t --rm $DOCKER_INTERACTIVE --tty --init "
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
-DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
+DOCKER_EXEC+="-w $SCRIPTPATH "
+DOCKER_EXEC+="-v $SCRIPTPATH:$SCRIPTPATH "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
-DOCKER_EXEC+="-e FINN_ROOT="/workspace/finn" "
+DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
 DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
 DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "
@@ -186,6 +199,7 @@ DOCKER_EXEC+="-e PYNQ_IP=$PYNQ_IP "
 DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
 DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
 DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
+DOCKER_EXEC+="-e OHMYXILINX=$OHMYXILINX "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ];then
   DOCKER_EXEC+="-v /etc/group:/etc/group:ro "
@@ -204,10 +218,14 @@ fi
 if [ ! -z "$FINN_XILINX_PATH" ];then
   VIVADO_PATH="$FINN_XILINX_PATH/Vivado/$FINN_XILINX_VERSION"
   VITIS_PATH="$FINN_XILINX_PATH/Vitis/$FINN_XILINX_VERSION"
+  HLS_PATH="$FINN_XILINX_PATH/Vitis_HLS/$FINN_XILINX_VERSION"
   DOCKER_EXEC+="-v $FINN_XILINX_PATH:$FINN_XILINX_PATH "
   if [ -d "$VIVADO_PATH" ];then
     DOCKER_EXEC+="-e "XILINX_VIVADO=$VIVADO_PATH" "
     DOCKER_EXEC+="-e VIVADO_PATH=$VIVADO_PATH "
+  fi
+  if [ -d "$HLS_PATH" ];then
+    DOCKER_EXEC+="-e HLS_PATH=$HLS_PATH "
   fi
   if [ -d "$VITIS_PATH" ];then
     DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
@@ -222,7 +240,7 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
     DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
   fi
 fi
-DOCKER_EXEC+="$DOCKER_EXTRA "
+DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
 DOCKER_EXEC+="$FINN_DOCKER_TAG $DOCKER_CMD"
 
 $DOCKER_EXEC

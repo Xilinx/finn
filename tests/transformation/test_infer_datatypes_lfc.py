@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 import brevitas.onnx as bo
 import os
 
@@ -40,6 +42,7 @@ from finn.util.test import get_test_model_trained
 export_onnx_path = "test_infer_datatypes.onnx"
 
 
+@pytest.mark.transform
 def test_infer_datatypes_lfc():
     lfc = get_test_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)

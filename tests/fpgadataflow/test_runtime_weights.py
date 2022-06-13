@@ -43,10 +43,11 @@ from finn.util.basic import gen_finn_dt_tensor
 from finn.util.create import hls_random_mlp_maker
 from finn.util.pyverilator import axilite_read, axilite_write
 
-test_fpga_part = "xc7z020clg400-1"
+test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_runtime_weights_single_layer():
     idt = DataType["UINT32"]
@@ -67,7 +68,7 @@ def test_runtime_weights_single_layer():
     }
     layer_spec_list = [layer_spec]
     model = hls_random_mlp_maker(layer_spec_list)
-    fcl = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+    fcl = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
     op_inst = getCustomOp(fcl)
     op_inst.set_nodeattr("mem_mode", "decoupled")
     op_inst.set_nodeattr("runtime_writeable_weights", 1)

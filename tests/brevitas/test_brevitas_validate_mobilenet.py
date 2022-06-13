@@ -61,7 +61,7 @@ mean = [0.485, 0.456, 0.406]
 std = 0.226
 ch = 3
 
-
+@pytest.mark.brevitas_export
 def test_brevitas_mobilenet_preproc():
     if "IMAGENET_VAL_PATH" not in os.environ.keys():
         pytest.skip("Can't do validation without IMAGENET_VAL_PATH")
@@ -98,6 +98,7 @@ def test_brevitas_mobilenet_preproc():
         assert (finn_img == pyt_img).all()
 
 
+@pytest.mark.brevitas_export
 @pytest.mark.slow
 # marked as XFAIL until Brevitas export issues are resolved:
 # https://github.com/Xilinx/brevitas/issues/173
