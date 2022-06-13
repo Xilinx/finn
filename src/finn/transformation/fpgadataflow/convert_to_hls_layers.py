@@ -51,7 +51,6 @@ class InferConvInpGen(Transformation):
     def __init__(self, use_rtl_variant=False):
         super().__init__()
         self.use_rtl_variant = use_rtl_variant
-        self.use_rtl_variant = True #testing
 
     def apply(self, model):
         graph = model.graph
@@ -225,15 +224,15 @@ class InferConvInpGen(Transformation):
                                 depthwise=depthwise,
                                 name="ConvolutionInputGenerator_" + n.name,
                             )
-                        else:  # non-square images and/or kernels
+                        else:  # 1D images and/or kernels
                             assert is_1d_convolution, (
                                 "%s: ConvolutionInputGenerator1D works only for 1D convs"
                                 % n.name
                             )
                             if dilation_h > 1 or dilation_w > 1:
-                                assert stride_h == 1 and stride_w == 1, (
-                                    """%s: Stride value of greater than 1 is not supported for convolutions
-                                    with dilation value greater than 1"""
+                                assert depthwise == 1, (
+                                    """%s: Dilation value > 1 is only supported for
+                                    1D depthwise separable convolutions"""
                                     % n.name
                                 )
                             ConvInpGen_node = helper.make_node(
