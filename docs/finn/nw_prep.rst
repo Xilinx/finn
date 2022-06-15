@@ -35,7 +35,7 @@ After this transformation the ONNX model is streamlined and contains now custom 
 Convert to HLS Layers
 =====================
 
-Pairs of binary XNORPopcountMatMul layers are converted to StreamingFCLayers and following Multithreshold layers are absorbed into the Matrix-Vector-Activate-Unit (MVAU). The result is a model consisting of a mixture of HLS and non-HLS layers. For more details, see :py:mod:`finn.transformation.fpgadataflow.convert_to_hls_layers`. The MVAU can be implemented in two different modes, *const* and *decoupled*, see chapter :ref:`mem_mode`.
+Pairs of binary XNORPopcountMatMul layers are converted to MatrixVectorActivation layers and following Multithreshold layers are absorbed into the Matrix-Vector-Activate-Unit (MVAU). The result is a model consisting of a mixture of HLS and non-HLS layers. For more details, see :py:mod:`finn.transformation.fpgadataflow.convert_to_hls_layers`. The MVAU can be implemented in two different modes, *const* and *decoupled*, see chapter :ref:`mem_mode`.
 
 Dataflow Partitioning
 =====================
@@ -43,7 +43,7 @@ Dataflow Partitioning
 In the next step the graph is split and the part consisting of HLS layers is further processed in the FINN flow. The parent graph containing the non-HLS layers remains. The PE and SIMD are set to 1 by default, so the result is a network of only HLS layers with maximum folding. The model can be verified using the *cppsim* simulation. It is a simulation using C++ and is described in more detail in chapter :ref:`verification`.
 
 Folding
-=======
+=========
 
 To adjust the folding, the values for PE and SIMD can be increased to achieve also an increase in the performance. The result can be verified using the same simulation flow as for the network with maximum folding (*cppsim* using C++), for details please have a look at chapter :ref:`verification`.
 

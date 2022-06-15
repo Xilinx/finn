@@ -56,7 +56,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     assert mw % simd == 0
 
     # there are two ways to implement bipolar weights and inputs for
-    # StreamingFC:
+    # MatrixVectorActivation:
     # - specify their datatypes as such
     # - specify their datatypes as BINARY as use binaryXnorMode
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
@@ -85,7 +85,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         actval = 0
         no_act = 1
     FCLayer_node = helper.make_node(
-        "StreamingFCLayer_Batch",
+        "MatrixVectorActivation",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -307,9 +307,9 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
+    assert "MatrixVectorActivation_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+    node = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -408,9 +408,9 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
+    assert "MatrixVectorActivation_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
+    node = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)

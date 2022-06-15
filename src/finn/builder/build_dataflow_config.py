@@ -59,7 +59,7 @@ class DataflowOutputType(str, Enum):
 
 class ComputeEngineMemMode(str, Enum):
     """Memory mode for generated compute engines. See
-    https://finn.readthedocs.io/en/latest/internals.html#streamingfclayer-mem-mode
+    https://finn.readthedocs.io/en/latest/internals.html#matrixvectoractivation-mem-mode
     for more information."""
 
     CONST = "const"
@@ -222,8 +222,8 @@ class DataflowBuildConfig:
 
     #: (Optional) Whether thresholding layers (which implement quantized
     #: activations in FINN) will be implemented as stand-alone HLS layers,
-    #: instead of being part of StreamingFCLayer. This gives larger flexibility,
-    #: and makes it possible to have runtime-writable thresholds.
+    #: instead of being part of MatrixVectorActivation layer. This gives larger
+    #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
 
     #: Target board, only needed for generating full bitfiles where the FINN

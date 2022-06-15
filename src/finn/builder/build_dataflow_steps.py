@@ -292,9 +292,9 @@ def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
         # doing this first causes all threshold layers to be standalone
         model = model.transform(to_hls.InferThresholdingLayer())
     # needed for bipolar MatMul layers
-    model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
+    model = model.transform(to_hls.InferBinaryMatrixVectorActivation(mem_mode))
     # needed for non-bipolar MatMul layers
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
+    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode))
     # TopK to LabelSelect
     model = model.transform(to_hls.InferLabelSelectLayer())
     # input quantization (if any) as standalone threshold

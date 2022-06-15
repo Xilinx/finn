@@ -137,7 +137,7 @@ def update_dashboard_data(topology, wbits, abits, key, val):
 
 
 def fold_tfc(model):
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # (PE, SIMD, ramstyle) for each layer
     config = [(16, 49, "block"), (8, 8, "auto"), (8, 8, "auto"), (10, 8, "distributed")]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
@@ -155,7 +155,7 @@ def fold_tfc(model):
 
 
 def fold_lfc(model):
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # (PE, SIMD, ramstyle) for each layer
     config = [
         (32, 49, "block"),
@@ -177,7 +177,7 @@ def fold_lfc(model):
 
 
 def fold_cnv_large(model):
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # each tuple is (PE, SIMD) for a layer
     folding = [
         (16, 3),
@@ -204,7 +204,7 @@ def fold_cnv_large(model):
 
 
 def fold_cnv_small(model):
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # each tuple is (PE, SIMD) for a layer
     folding = [
         (8, 3, "distributed"),
@@ -426,9 +426,9 @@ class TestEnd2End:
             # use standalone thresholds for tfc-w1a1 to also exercise that option
             model = model.transform(to_hls.InferThresholdingLayer())
         # needed for bipolar MatMul layers
-        model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
+        model = model.transform(to_hls.InferBinaryMatrixVectorActivation(mem_mode))
         # needed for non-bipolar MatMul layers
-        model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
+        model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode))
         # TopK to LabelSelect
         model = model.transform(to_hls.InferLabelSelectLayer())
         # input quantization (if any) to standalone thresholding
@@ -451,26 +451,26 @@ class TestEnd2End:
             "tfc": [
                 ("Reshape", 1),
                 ("Thresholding_Batch", 1),
-                ("StreamingFCLayer_Batch", 4),
+                ("MatrixVectorActivation", 4),
                 ("LabelSelect_Batch", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
                 ("Thresholding_Batch", 4),
-                ("StreamingFCLayer_Batch", 4),
+                ("MatrixVectorActivation", 4),
                 ("LabelSelect_Batch", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
                 ("Thresholding_Batch", 1),
-                ("StreamingFCLayer_Batch", 4),
+                ("MatrixVectorActivation", 4),
                 ("LabelSelect_Batch", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding_Batch", 1),
                 ("ConvolutionInputGenerator", 6),
-                ("StreamingFCLayer_Batch", 9),
+                ("MatrixVectorActivation", 9),
                 ("StreamingMaxPool_Batch", 2),
                 ("LabelSelect_Batch", 1),
             ],

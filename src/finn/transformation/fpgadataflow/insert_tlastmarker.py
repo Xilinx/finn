@@ -105,7 +105,7 @@ class InsertTLastMarker(Transformation):
                 #    the input is in the list of graph inputs because it has an
                 #    initializer (TODO: fix this with a clean-up transform)
                 if (
-                    first_node.op_type == "StreamingFCLayer_Batch"
+                    first_node.op_type == "MatrixVectorActivation"
                     and get_by_name(first_node.attribute, "mem_mode").s.decode("UTF-8")
                     != "external"
                 ):
@@ -122,7 +122,7 @@ class InsertTLastMarker(Transformation):
                     inp_idx = list(first_node.input).index(graph_in_name)
                     if inp_idx > 0:
                         if (
-                            first_node.op_type == "StreamingFCLayer_Batch"
+                            first_node.op_type == "MatrixVectorActivation"
                             and inp_idx == 1
                         ):
                             stream_width = int(custom_op.get_weightstream_width())

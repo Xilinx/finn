@@ -90,10 +90,10 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     # subsequently, the FC inference will generate passthrough MVAUs
     if not fused_activation:
         model = model.transform(to_hls.InferThresholdingLayer())
-    model = model.transform(to_hls.InferBinaryStreamingFCLayer())
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
+    model = model.transform(to_hls.InferBinaryMatrixVectorActivation())
+    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation())
     for node in model.graph.node:
-        if node.op_type == "StreamingFCLayer_Batch":
+        if node.op_type == "MatrixVectorActivation":
             inst = getCustomOp(node)
             inst.set_nodeattr("mem_mode", "decoupled")
             mw = inst.get_nodeattr("MW")
@@ -122,7 +122,7 @@ def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     assert len(non_finn_nodes) == 5
     exp_non_finn_nodes = ["Transpose", "Transpose", "Reshape", "Mul", "Add"]
     assert [x.op_type for x in non_finn_nodes] == exp_non_finn_nodes
-    fc_nodes = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_nodes = model.get_nodes_by_op_type("MatrixVectorActivation")
     assert len(fc_nodes) == 9
     swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator")
     assert len(swg_nodes) == 6

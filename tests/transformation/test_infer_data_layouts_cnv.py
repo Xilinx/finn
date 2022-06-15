@@ -90,8 +90,8 @@ def test_infer_data_layouts_cnv():
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
-    model = model.transform(to_hls.InferBinaryStreamingFCLayer())
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
+    model = model.transform(to_hls.InferBinaryMatrixVectorActivation())
+    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
     model = model.transform(GiveUniqueNodeNames())
@@ -106,9 +106,9 @@ def test_infer_data_layouts_cnv():
     assert (
         model.get_tensor_layout("ConvolutionInputGenerator_0_out0") == DataLayout.NHWC
     )
-    assert model.get_tensor_layout("StreamingFCLayer_Batch_3_out0") == DataLayout.NHWC
+    assert model.get_tensor_layout("MatrixVectorActivation_3_out0") == DataLayout.NHWC
     assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
-    assert model.get_tensor_layout("StreamingFCLayer_Batch_6_out0") == DataLayout.NC
+    assert model.get_tensor_layout("MatrixVectorActivation_6_out0") == DataLayout.NC
     assert model.get_tensor_layout("global_out") == DataLayout.NC
 
     os.remove(export_onnx_path_cnv)

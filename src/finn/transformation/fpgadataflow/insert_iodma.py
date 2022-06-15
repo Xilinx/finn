@@ -58,11 +58,11 @@ class InsertIODMA(Transformation):
         .
         """
 
-        # TODO: refactor this into streamingfclayer_batch.py, could go into
+        # TODO: refactor this into matrixvectoractivation.py, could go into
         # make_weight_file except it doesn't write a file but returns a npy
         # array instead
         w_shape = weights.shape
-        assert len(w_shape) == 2, "weights withincorrect number of dims"
+        assert len(w_shape) == 2, "weights with incorrect number of dims"
         inp_w, out_w = w_shape
 
         assert out_w % pe == 0, "Malformed weight matrix"
@@ -93,10 +93,11 @@ class InsertIODMA(Transformation):
             get_by_name(x.attribute, "backend").s.decode("UTF-8") == "fpgadataflow"
             for x in all_nodes
         )
-        # parse streamingfclayers looking for external weights with no attached IODMA
+        # parse matrixvectoractivation layers looking for external weights with no
+        # attached IODMA
         fc_extw_nodes = list(
             filter(
-                lambda x: x.op_type == "StreamingFCLayer_Batch"
+                lambda x: x.op_type == "MatrixVectorActivation"
                 and getCustomOp(x).get_nodeattr("mem_mode") == "external"
                 and model.find_producer(x.input[1]) is None,
                 all_nodes,

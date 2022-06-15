@@ -50,7 +50,7 @@ class RemoveCNVtoFCFlatten(Transformation):
                             producer = model.find_producer(transp_node.input[0])
                             if _is_fpgadataflow_node(producer) is True:
                                 consumer = model.find_consumer(n.output[0])
-                                if consumer.op_type == "StreamingFCLayer_Batch":
+                                if consumer.op_type == "MatrixVectorActivation":
                                     fc_inst = getCustomOp(consumer)
                                     mw = fc_inst.get_nodeattr("MW")
                                     mh = fc_inst.get_nodeattr("MH")

@@ -55,7 +55,7 @@ def is_external_input(model, node, i):
         if model.get_initializer(node.input[i]) is None:
             return True
         else:
-            if node.op_type == "StreamingFCLayer_Batch":
+            if node.op_type == "MatrixVectorActivation":
                 if node_inst.get_nodeattr("mem_mode") == "external":
                     return True
     return False
