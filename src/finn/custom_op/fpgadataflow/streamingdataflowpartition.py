@@ -26,7 +26,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.base import CustomOp
+
+from finn.core.onnx_exec import execute_onnx
 
 # TODO move StreamingDataflowPartition to HLSCustomOp base class
 
@@ -48,6 +51,7 @@ class StreamingDataflowPartition(CustomOp):
             "device_id": ("i", False, 0),
             "mem_port": ("s", False, ""),
             "instance_name": ("s", False, ""),
+            "return_full_exec_context": ("i", False, 0),
         }
 
     def make_shape_compatible_op(self, model):
@@ -57,8 +61,26 @@ class StreamingDataflowPartition(CustomOp):
         pass
 
     def execute_node(self, context, graph):
-        # TODO add RPC execution with synthesized bitfile?
-        # whole-design rtlsim with PyVerilator may also be an alternative
+        model = ModelWrapper(self.get_nodeattr("model"))
+        return_full_exec_context = self.get_nodeattr("return_full_exec_context") == 1
+        node = self.onnx_node
+        inp_ctx = dict(filter(lambda x: x[0] in node.input, context.items()))
+        # inputs may have been renamed in partition
+        for i, old_iname in enumerate(node.input):
+            new_iname = model.graph.input[i].name
+            if old_iname != new_iname:
+                inp_ctx[new_iname] = inp_ctx[old_iname]
+                del inp_ctx[old_iname]
+        ret = execute_onnx(model, inp_ctx, return_full_exec_context)
+        # outputs may have been renamed in partition
+        for i, node_oname in enumerate(node.output):
+            model_oname = model.graph.output[i].name
+            context[node_oname] = ret[model_oname]
+        # prefix and insert exec context entries
+        if return_full_exec_context:
+            for tname in ret.keys():
+                if tname not in [x.name for x in model.graph.output]:
+                    context[node.name + "_" + tname] = ret[tname]
         pass
 
     def verify_node(self):
