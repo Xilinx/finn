@@ -425,6 +425,13 @@ class CreateStitchedIP(Transformation):
             )
             % (vivado_stitch_proj_dir, block_vendor, block_library, block_name)
         )
+        # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
+        # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
+        # the following is a hotfix to remove this aperture during IODMA packaging
+        tcl.append(
+            "ipx::remove_segment -quiet m_axi_gmem0:APERTURE_0 "
+            "[ipx::get_address_spaces m_axi_gmem0 -of_objects [ipx::current_core]]"
+        )
         tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
         # mark bus interface params as user-resolvable to avoid FREQ_MHZ mismatches
