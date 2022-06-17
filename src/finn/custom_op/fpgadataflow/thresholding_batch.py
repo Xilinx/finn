@@ -480,7 +480,7 @@ class Thresholding_Batch(HLSCustomOp):
                 # UltraRAM must have no memory initializer, or only zeroes
                 # otherwise BRAM will be inferred instead of URAM
                 # as a workaround we provide a zero-weight init here
-                synth_thresholds = np.zeros_like(thresholds)
+                synth_thresholds = np.zeros_like(thresholds, dtype=np.float32)
             else:
                 synth_thresholds = thresholds
             self.make_weight_file(

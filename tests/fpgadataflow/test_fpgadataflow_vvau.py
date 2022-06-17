@@ -48,7 +48,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
-    W_sparse = np.zeros((channels, channels, k_h, k_w))
+    W_sparse = np.zeros((channels, channels, k_h, k_w), dtype=np.float32)
     for ch in range(channels):
         W_sparse[ch][ch] = W_conv[ch][0]
     W_conv = W_sparse.astype(np.float32)

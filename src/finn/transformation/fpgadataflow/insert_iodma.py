@@ -67,7 +67,7 @@ class InsertIODMA(Transformation):
 
         assert out_w % pe == 0, "Malformed weight matrix"
         assert inp_w % simd == 0, "Malformed weight matrix"
-        reshaped_w = np.zeros(inp_w * out_w).reshape(-1, pe * simd)
+        reshaped_w = np.zeros(inp_w * out_w, dtype=np.float32).reshape(-1, pe * simd)
 
         addr = 0
         for fr in range(out_w // pe):

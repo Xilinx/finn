@@ -908,7 +908,7 @@ class InferVectorVectorActivation(Transformation):
                     W = W.transpose(0, 3, 1, 2)
                     # now we can extract the values using a for loop over the channels
                     # and fill a zero numpy array in the correct shape
-                    w_tensor = np.zeros((channels, 1, k_h, k_w))
+                    w_tensor = np.zeros((channels, 1, k_h, k_w), dtype=np.float32)
                     for ch in range(channels):
                         w_tensor[ch][0] = W[ch][ch]
                     model.set_initializer(mm_weight, w_tensor)

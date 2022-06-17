@@ -836,7 +836,7 @@ class MatrixVectorActivation(HLSCustomOp):
                     # UltraRAM must have no memory initializer, or only zeroes
                     # otherwise BRAM will be inferred instead of URAM
                     # as a workaround we provide a zero-weight init here
-                    synth_weights = np.zeros_like(weights)
+                    synth_weights = np.zeros_like(weights, dtype=np.float32)
                 else:
                     synth_weights = weights
                 self.make_weight_file(

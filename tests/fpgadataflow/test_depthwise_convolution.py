@@ -133,7 +133,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
 
     w_tensor = gen_finn_dt_tensor(wdt, [ofm_ch, 1, k, k])
     # create sparse matrix
-    W_matrix = np.zeros((ofm_ch, ifm_ch, k, k))
+    W_matrix = np.zeros((ofm_ch, ifm_ch, k, k), dtype=np.float32)
     for ch in range(ifm_ch):
         W_matrix[ch][ch] = w_tensor[ch][0]
     W_matrix = W_matrix.astype(np.float32)
