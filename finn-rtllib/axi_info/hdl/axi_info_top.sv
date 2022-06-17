@@ -78,7 +78,7 @@ module axi_info_top #(
 			32'h0,
 			CHECKSUM_COUNT
 		})
-	)(
+	) inst (
 		//- Global Control ------------------
 		.ap_clk, .ap_rst_n,
 
