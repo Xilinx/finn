@@ -68,6 +68,7 @@ def get_checkpoint_name(step):
         return build_dir + "/end2end_ext_weights_%s.onnx" % (step)
 
 
+@pytest.mark.end2end
 def test_end2end_ext_weights_download():
     if not os.path.isfile(onnx_zip_local):
         wget.download(onnx_zip_url, out=onnx_zip_local)
@@ -78,6 +79,7 @@ def test_end2end_ext_weights_download():
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.end2end
 def test_end2end_ext_weights_build():
     model_file = get_checkpoint_name("download")
     load_test_checkpoint_or_skip(model_file)
@@ -110,6 +112,8 @@ def test_end2end_ext_weights_build():
 
 
 @pytest.mark.board
+@pytest.mark.end2end
+@pytest.mark.xfail
 def test_end2end_ext_weights_dataset():
     # make sure we have local copies of mnist dataset files
     subprocess.check_output(["mkdir", "-p", mnist_local])
@@ -125,6 +129,8 @@ def test_end2end_ext_weights_dataset():
     subprocess.check_output(rsync_dataset_cmd)
 
 
+@pytest.mark.end2end
+@pytest.mark.xfail
 def test_end2end_ext_weights_run_on_hw():
     build_env = get_build_env(build_kind, target_clk_ns)
     deploy_dir = get_checkpoint_name("build")

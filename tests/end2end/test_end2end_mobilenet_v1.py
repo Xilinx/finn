@@ -87,6 +87,7 @@ extra_fold = 1
 first_layer_res_type = "dsp"
 
 
+@pytest.mark.end2end
 def test_end2end_mobilenet_export():
     # export preprocessing
     preproc_onnx = build_dir + "/end2end_mobilenet_preproc.onnx"
@@ -142,6 +143,7 @@ def test_end2end_mobilenet_export():
     assert os.path.isfile(build_dir + "/end2end_mobilenet_preproc.onnx")
 
 
+@pytest.mark.end2end
 def test_end2end_mobilenet_tidy_and_merge_with_preproc():
     preproc_model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_mobilenet_preproc.onnx"
@@ -164,6 +166,7 @@ def test_end2end_mobilenet_tidy_and_merge_with_preproc():
     model.save(build_dir + "/end2end_mobilenet_tidy.onnx")
 
 
+@pytest.mark.end2end
 def test_end2end_mobilenet_streamline():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_tidy.onnx")
     model = model.transform(Streamline())
@@ -194,6 +197,7 @@ def test_end2end_mobilenet_streamline():
     assert len(model.get_nodes_by_op_type("Mul")) == 0  # no Mul ops remain
 
 
+@pytest.mark.end2end
 def test_end2end_mobilenet_lowering():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_mobilenet_streamlined.onnx"
@@ -208,6 +212,7 @@ def test_end2end_mobilenet_lowering():
     model.save(build_dir + "/end2end_mobilenet_lowered.onnx")
 
 
+@pytest.mark.end2end
 def test_end2end_mobilenet_convert_to_hls_layers():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_lowered.onnx")
     model = model.transform(to_hls.InferPool_Batch())
@@ -222,6 +227,7 @@ def test_end2end_mobilenet_convert_to_hls_layers():
     model.save(build_dir + "/end2end_mobilenet_hls_layers.onnx")
 
 
+@pytest.mark.end2end
 def test_end2end_mobilenet_folding():
     model = load_test_checkpoint_or_skip(
         build_dir + "/end2end_mobilenet_hls_layers.onnx"
@@ -285,6 +291,7 @@ def test_end2end_mobilenet_folding():
     model.save(build_dir + "/end2end_mobilenet_folded.onnx")
 
 
+@pytest.mark.end2end
 def test_end2end_mobilenet_create_dataflow_partition():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
     parent_model = model.transform(CreateDataflowPartition())
@@ -299,6 +306,7 @@ def test_end2end_mobilenet_create_dataflow_partition():
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.end2end
 @pytest.mark.xfail
 def test_end2end_mobilenet_cppsim():
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_folded.onnx")
