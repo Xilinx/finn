@@ -31,19 +31,16 @@ import pkg_resources as pk
 
 import numpy as np
 import os
+import qonnx.core.datatype as dtp
 import shutil
 import warnings
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 
-import finn.core.datatype as dtp
 import finn.util.data_packing as dpk
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.util.basic import (
-    gen_finn_dt_tensor,
-    make_build_dir,
-    roundup_to_integer_multiple,
-)
+from finn.util.basic import make_build_dir
 from finn.util.data_packing import (
     hexstring2npbytearray,
     pack_innermost_dim_as_hex_string,

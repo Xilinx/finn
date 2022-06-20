@@ -25,26 +25,23 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-# namespace package, extend path
 
 import numpy as np
 import os
 import subprocess
 from abc import abstractmethod
+from pyverilator.util.axi_utils import rtlsim_multi_io
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.base import CustomOp
+from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.core.datatype import DataType
-from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
     get_rtlsim_trace_depth,
     make_build_dir,
-    roundup_to_integer_multiple,
+    pyverilate_get_liveness_threshold_cycles,
 )
 from finn.util.hls import CallHLS
-from finn.util.pyverilator import (
-    pyverilate_get_liveness_threshold_cycles,
-    rtlsim_multi_io,
-)
 
 from . import templates
 
@@ -604,7 +601,12 @@ compilation transformations?
             trace_file = self.onnx_node.name + ".vcd"
         num_out_values = self.get_number_output_values()
         total_cycle_count = rtlsim_multi_io(
-            sim, io_dict, num_out_values, trace_file, sname=sname
+            sim,
+            io_dict,
+            num_out_values,
+            trace_file=trace_file,
+            sname=sname,
+            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 

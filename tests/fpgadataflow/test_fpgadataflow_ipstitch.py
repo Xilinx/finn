@@ -31,11 +31,14 @@ import pytest
 import numpy as np
 import os
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.util.basic import gen_finn_dt_tensor
 
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
-from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -48,14 +51,7 @@ from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.util.basic import (
-    alveo_default_platform,
-    alveo_part_map,
-    gen_finn_dt_tensor,
-    pynq_part_map,
-)
+from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 from finn.util.pyverilator import pyverilate_stitched_ip
 from finn.util.test import load_test_checkpoint_or_skip
 

@@ -27,20 +27,19 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import TensorProto
 from onnx import helper as oh
-
-import finn.core.data_layout as DataLayout
-from finn.core.datatype import DataType
-from finn.core.onnx_exec import execute_node
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.transformation.general import SortGraph
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import get_by_name
+from qonnx.core.datatype import DataType
+from qonnx.core.onnx_exec import execute_node
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import SortGraph
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import get_by_name
 
 
 class MoveAddPastMul(Transformation):
@@ -678,7 +677,7 @@ class MakeMaxPoolNHWC(Transformation):
                                 0  # default to ceil_mode=0 (equivalent to np.floor)
                             )
                         n.op_type = "MaxPoolNHWC"
-                        n.domain = "finn.custom_op.general"
+                        n.domain = "qonnx.custom_op.general"
                         start_name = n.input[0]
                         mid_name = consumer.input[0]
                         end_name = consumer.output[0]
@@ -705,7 +704,7 @@ class MakeMaxPoolNHWC(Transformation):
                                 0  # default to ceil_mode=0 (equivalent to np.floor)
                             )
                         n.op_type = "MaxPoolNHWC"
-                        n.domain = "finn.custom_op.general"
+                        n.domain = "qonnx.custom_op.general"
                         start_name = producer.input[0]
                         mid_name = n.input[0]
                         end_name = n.output[0]

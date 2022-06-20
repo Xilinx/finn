@@ -3,14 +3,14 @@ import pytest
 import onnx
 import onnx.helper as oh
 from onnx import TensorProto
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.general.maxpoolnhwc import compute_pool_output_dim
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
-from finn.util.basic import gen_finn_dt_tensor
 
 
 def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt):

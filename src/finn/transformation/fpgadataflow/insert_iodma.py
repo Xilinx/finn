@@ -30,11 +30,10 @@ import math
 import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
-
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.transformation.general import SortGraph
-from finn.util.basic import get_by_name
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import SortGraph
+from qonnx.util.basic import get_by_name
 
 
 class InsertIODMA(Transformation):
@@ -68,7 +67,7 @@ class InsertIODMA(Transformation):
 
         assert out_w % pe == 0, "Malformed weight matrix"
         assert inp_w % simd == 0, "Malformed weight matrix"
-        reshaped_w = np.zeros(inp_w * out_w).reshape(-1, pe * simd)
+        reshaped_w = np.zeros(inp_w * out_w, dtype=np.float32).reshape(-1, pe * simd)
 
         addr = 0
         for fr in range(out_w // pe):

@@ -1,8 +1,8 @@
 from onnx import TensorProto
 from onnx import helper as oh
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
 
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
