@@ -37,7 +37,7 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def _is_hook_node(node):
-    if node.op_type in ["checksum"]:
+    if node.op_type in ["CheckSum"]:
         return True
     else:
         return False
@@ -82,7 +82,7 @@ class InsertHook(Transformation):
                     if n0_hook in list_supported_hooks:
                         if n0_hook == "checksum":
                             if len(consumers) == 1:
-                                if consumers[0].op_type == "checksum":
+                                if consumers[0].op_type == "CheckSum":
                                     continue
                             n0_normal_oshape = n0.get_normal_output_shape()
                             n0_folded_oshape = n0.get_folded_output_shape()
@@ -100,7 +100,7 @@ class InsertHook(Transformation):
                                 [1],
                             )
                             chk_node = oh.make_node(
-                                "checksum",
+                                "CheckSum",
                                 [output_name],
                                 outputs=[chk_otensor.name, chk_result.name],
                                 domain="finn.custom_op.fpgadataflow",

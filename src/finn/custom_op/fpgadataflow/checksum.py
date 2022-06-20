@@ -35,7 +35,7 @@ from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-class checksum(HLSCustomOp):
+class CheckSum(HLSCustomOp):
     """Class that corresponds to custom_hls checksum function."""
 
     def __init__(self, onnx_node):
