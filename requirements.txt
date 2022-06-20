@@ -4,7 +4,7 @@ dataclasses-json==0.5.2
 docrep==0.2.7
 future==0.18.2
 gspread==3.6.0
-numpy==1.18.0
+numpy==1.21.0
 onnx==1.7.0
 onnxoptimizer
 onnxruntime==1.4.0
