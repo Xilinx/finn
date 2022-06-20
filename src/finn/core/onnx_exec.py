@@ -88,8 +88,6 @@ def execute_onnx(
                         str(input_dict[inp_name].shape),
                     )
                 )
-        # else:
-        # raise Exception("Provided input not found in graph context: %s" % inp_name)
 
     # check if model has an execution mode set
     # if None, execute model node by node using execute_node()
@@ -136,7 +134,6 @@ def execute_onnx_and_make_model(model, input_dict):
         new_model.set_initializer(i, execution_context[i])
     for vi in new_model.graph.value_info:
         new_model.graph.output.append(vi)
-    # import pdb; pdb.set_trace()
     return new_model
 
 
