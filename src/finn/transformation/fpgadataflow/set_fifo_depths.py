@@ -222,7 +222,7 @@ class InsertAndSetFIFODepths(Transformation):
         fpgapart,
         clk_ns=10.0,
         max_qsrl_depth=256,
-        max_depth=2 ** 14,
+        max_depth=2**14,
         swg_exception=True,
         vivado_ram_style="auto",
     ):
