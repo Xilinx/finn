@@ -182,7 +182,7 @@ proc assign_axi_addr_proc {axi_intf_path} {
     #align base address to range
     set offset [expr ($axi_peripheral_base + ($range-1)) & ~($range-1)]
     #perform assignment
-    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg0] -offset $offset -range $range
+    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg*] -offset $offset -range $range
     #advance base address
     set axi_peripheral_base [expr $offset + $range]
 }
