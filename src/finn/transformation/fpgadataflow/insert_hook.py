@@ -122,6 +122,7 @@ class InsertHook(Transformation):
                             else:
                                 model.graph.output.pop()
                                 model.graph.output.append(chk_otensor)
+                                model.graph.value_info.remove(chk_otensor)
                                 model = model.transform(GiveUniqueNodeNames())
                                 model = model.transform(GiveReadableTensorNames())
                             graph_modified = True
