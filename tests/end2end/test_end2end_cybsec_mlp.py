@@ -182,6 +182,7 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
+@pytest.mark.xfail
 @pytest.mark.parametrize("QONNX_export", [False, True])
 def test_end2end_cybsec_mlp_build(QONNX_export):
     model_file = get_checkpoint_name("export", QONNX_export)

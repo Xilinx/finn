@@ -80,6 +80,7 @@ def test_end2end_ext_weights_download():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
+@pytest.mark.xfail
 def test_end2end_ext_weights_build():
     model_file = get_checkpoint_name("download")
     load_test_checkpoint_or_skip(model_file)
