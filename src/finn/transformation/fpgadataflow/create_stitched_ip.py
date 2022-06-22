@@ -171,7 +171,7 @@ class CreateStitchedIP(Transformation):
                 "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
             )
             self.connect_cmds.append("assign_bd_address")
-            seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (ext_if_name, inst_name)
+            seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
             self.connect_cmds.append(
                 "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
             )
