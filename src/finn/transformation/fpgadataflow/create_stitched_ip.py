@@ -166,11 +166,12 @@ class CreateStitchedIP(Transformation):
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                 % (inst_name, aximm_intf_name[0][0])
             )
+            ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
             self.connect_cmds.append(
-                "set_property name m_axi_gmem0 [get_bd_intf_ports m_axi_gmem_0]"
+                "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
             )
             self.connect_cmds.append("assign_bd_address")
-            seg_name = "%s/Data_m_axi_gmem/SEG_m_axi_gmem0_Reg" % (inst_name)
+            seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (ext_if_name, inst_name)
             self.connect_cmds.append(
                 "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
             )
@@ -178,9 +179,7 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append(
                 "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
             )
-
-            self.intf_names["aximm"] = [("m_axi_gmem0", aximm_intf_name[0][1])]
-            assert self.has_aximm is False, "Currently limited to one AXI-MM interface"
+            self.intf_names["aximm"] = [(ext_if_name, aximm_intf_name[0][1])]
             self.has_aximm = True
 
     def connect_m_axis_external(self, node, idx=None):
