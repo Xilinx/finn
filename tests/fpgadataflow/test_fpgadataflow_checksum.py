@@ -47,7 +47,6 @@ from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_hook import InsertHook
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
@@ -178,7 +177,6 @@ def test_fpgadataflow_checksum():
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
-    model = model.transform(PrepareRTLSim())
     model.set_metadata_prop("exec_mode", "rtlsim")
 
     # define function to read out the checksums from axilite
