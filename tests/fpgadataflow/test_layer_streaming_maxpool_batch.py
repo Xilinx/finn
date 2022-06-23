@@ -28,7 +28,6 @@
 
 import pytest
 
-# import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -39,8 +38,6 @@ from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-
-# from qonnx.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hls_layers import InferStreamingMaxPool
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP

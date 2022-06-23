@@ -34,6 +34,8 @@ from finn.util.test import get_build_env
 
 
 @pytest.mark.board
+@pytest.mark.end2end
+@pytest.mark.xfail
 def test_end2end_access_board():
     build_env = get_build_env("zynq", 5)
     if build_env["ip"] == "":

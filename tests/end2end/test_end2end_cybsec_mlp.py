@@ -86,6 +86,7 @@ class CybSecMLPForExport(nn.Module):
 
 
 @pytest.mark.parametrize("QONNX_export", [False, True])
+@pytest.mark.end2end
 def test_end2end_cybsec_mlp_export(QONNX_export):
     assets_dir = pk.resource_filename("finn.qnn-data", "cybsec-mlp/")
     # load up trained net in Brevitas
@@ -180,6 +181,8 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.end2end
+@pytest.mark.xfail
 @pytest.mark.parametrize("QONNX_export", [False, True])
 def test_end2end_cybsec_mlp_build(QONNX_export):
     model_file = get_checkpoint_name("export", QONNX_export)
@@ -226,6 +229,8 @@ def test_end2end_cybsec_mlp_build(QONNX_export):
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build", QONNX_export))
 
 
+@pytest.mark.end2end
+@pytest.mark.xfail
 @pytest.mark.parametrize("QONNX_export", [False, True])
 def test_end2end_cybsec_mlp_run_on_hw(QONNX_export):
     build_env = get_build_env(build_kind, target_clk_ns)
