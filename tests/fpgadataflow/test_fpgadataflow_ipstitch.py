@@ -360,8 +360,6 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-# temporarily marked as xfail
-@pytest.mark.xfail
 def test_fpgadataflow_ipstitch_zynqbuild_end2end(board):
     model = create_two_fc_model()
     if model.graph.node[0].op_type == "StreamingDataflowPartition":

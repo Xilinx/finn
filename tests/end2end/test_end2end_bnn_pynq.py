@@ -671,9 +671,11 @@ class TestEnd2End:
     @pytest.mark.slow
     @pytest.mark.vivado
     @pytest.mark.vitis
-    @pytest.mark.xfail
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_build(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(
@@ -694,9 +696,11 @@ class TestEnd2End:
     @pytest.mark.slow
     @pytest.mark.vivado
     @pytest.mark.vitis
-    @pytest.mark.xfail
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_make_pynq_driver(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(
@@ -710,8 +714,10 @@ class TestEnd2End:
         )
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    @pytest.mark.xfail
     def test_deploy(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "driver_" + kind
         )
@@ -734,8 +740,10 @@ class TestEnd2End:
         )
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    @pytest.mark.xfail
     def test_run_on_hw(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "deploy_" + kind
         )
@@ -759,8 +767,10 @@ class TestEnd2End:
         assert np.isclose(y, output_tensor_npy).all()
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    @pytest.mark.xfail
     def test_throughput_hw(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "deploy_" + kind
         )
@@ -819,7 +829,6 @@ class TestEnd2End:
             ret[largest_bsize]["throughput[images/s]"],
         )
 
-    @pytest.mark.xfail
     def test_upload_results_to_dashboard(self, topology, wbits, abits, QONNX_export):
         # ToDo: Extend the dashboard to also upload QONNX exported models?
         if QONNX_export:
