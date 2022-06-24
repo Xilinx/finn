@@ -28,7 +28,7 @@
 
 from finn.custom_op.fpgadataflow.addstreams_batch import AddStreams_Batch
 from finn.custom_op.fpgadataflow.channelwise_op_batch import ChannelwiseOp_Batch
-from finn.custom_op.fpgadataflow.checksum import checksum
+from finn.custom_op.fpgadataflow.checksum import CheckSum
 from finn.custom_op.fpgadataflow.concat import StreamingConcat
 from finn.custom_op.fpgadataflow.convolutioninputgenerator import (
     ConvolutionInputGenerator,
@@ -84,4 +84,4 @@ custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
 custom_op["UpsampleNearestNeighbour_Batch"] = UpsampleNearestNeighbour_Batch
 custom_op["Lookup"] = Lookup
 custom_op["StreamingConcat"] = StreamingConcat
-custom_op["checksum"] = checksum
+custom_op["CheckSum"] = CheckSum
