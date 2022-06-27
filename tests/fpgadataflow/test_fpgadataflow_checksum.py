@@ -203,7 +203,7 @@ def test_fpgadataflow_checksum():
     checksum0_rtlsim = int(checksums[0])
     checksum1_rtlsim = int(checksums[1])
     checksum0_drain = int(drain[0])
-    checksum1_drain = int(drain[0])
+    checksum1_drain = int(drain[1])
 
     assert (
         checksum0_rtlsim == checksum0_cppsim
