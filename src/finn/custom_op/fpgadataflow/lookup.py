@@ -471,6 +471,8 @@ class Lookup(HLSCustomOp):
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
-        intf_names["axilite"] = ["s_axi_control"]
-        intf_names["aximm"] = [("m_axi_gmem", self.get_nodeattr("ext_mem_width"))]
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode == "external":
+            intf_names["axilite"] = ["s_axi_control"]
+            intf_names["aximm"] = [("m_axi_gmem", self.get_nodeattr("ext_mem_width"))]
         return intf_names
