@@ -300,7 +300,7 @@ class CheckSum(HLSCustomOp):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0,
-            hls::stream<T> &out, ap_uint<32> &chk, ap_uint<1> drain)""".format(
+            hls::stream<T> &out, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
                 self.onnx_node.name
             )
         ]
@@ -314,6 +314,9 @@ class CheckSum(HLSCustomOp):
         )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS interface s_axilite port=chk bundle=checksum"
+        )
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS interface s_axilite port=drain bundle=checksum"
         )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS interface ap_ctrl_none port=return"
