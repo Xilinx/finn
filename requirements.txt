@@ -9,7 +9,7 @@ onnx==1.7.0
 onnxoptimizer
 onnxruntime==1.4.0
 pre-commit==2.9.2
-pre-commit==3.20.1
+protobuf==3.20.1
 pyscaffold==3.2.1
 scipy==1.5.2
 setupext-janitor>=1.1.2
