@@ -67,4 +67,3 @@ proc update_MODELPARAM_VALUE.CHECKSUM_COUNT { MODELPARAM_VALUE.CHECKSUM_COUNT PA
 	# Procedure called to set VHDL generic/Verilog parameter value(s) based on TCL parameter value
 	set_property value [get_property value ${PARAM_VALUE.CHECKSUM_COUNT}] ${MODELPARAM_VALUE.CHECKSUM_COUNT}
 }
-

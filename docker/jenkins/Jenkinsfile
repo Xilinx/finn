@@ -22,7 +22,7 @@ node {
                 dir("${env.WORKSPACE}") {
                 sh("bash run-docker.sh python setup.py test --addopts -mstreamline")
                 }
-            } 
+            }
         }, thirdBranch: {
             stage('Util functions') {
                 dir("${env.WORKSPACE}") {
@@ -41,6 +41,6 @@ node {
                 sh("bash run-docker.sh python setup.py test --addopts -mfpgadataflow")
                 }
             }
-        }        
+        }
     }
 }
