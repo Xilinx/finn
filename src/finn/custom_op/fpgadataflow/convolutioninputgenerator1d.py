@@ -217,13 +217,12 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         dilation = self.get_nodeattr("Dilation")
         stride_h, stride_w = stride
         dilation_h, dilation_w = dilation
-        ram_style = self.get_nodeattr("ram_style")
 
         if self.get_nodeattr("SIMD") == self.get_nodeattr("IFMChannels"):
             if self.get_nodeattr("depthwise") == 0:
                 if stride_h == 1 and stride_w == 1:
                     if dilation_h == 1 and dilation_w == 1:
-                        return ram_style in ["auto", "distributed"]
+                        return True
 
         return False
 
@@ -266,8 +265,6 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         k = np.prod(self.get_nodeattr("ConvKernelDim"))
         stride = np.prod(self.get_nodeattr("Stride"))
         ram_style = self.get_nodeattr("ram_style")
-        if self.use_parallel_window_output():
-            return 0
         if ram_style == "block" or ram_style == "auto":
             ram_depth = ifm_dim * ifm_ch / simd
             if ram_depth <= 512:
@@ -300,11 +297,7 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         k = np.prod(self.get_nodeattr("ConvKernelDim"))
         stride = np.prod(self.get_nodeattr("Stride"))
         ram_style = self.get_nodeattr("ram_style")
-        if self.use_parallel_window_output():
-            ram_luts = math.ceil(
-                (simd * self.get_input_datatype().bitwidth() * (k + 1)) / 64
-            )
-        elif ram_style == "distributed":
+        if ram_style == "distributed":
             ram_luts = int(
                 (k + stride)
                 * (
@@ -319,26 +312,20 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
 
     def uram_estimation(self):
         # NOTE: not tested for correctness
-        (
-            ifm_ch,
-            ifm_dim,
-            ofm_dim,
-            k,
-            stride,
-            dilation,
-        ) = self.get_1d_conv_attrs_normalized()
-        ifm_dim_y, ifm_dim_x = ifm_dim
-        k_y, k_x = k
-        stride_y, stride_x = stride
-        ram_style = self.get_nodeattr("ram_style")
         simd = self.get_nodeattr("SIMD")
-        if self.use_parallel_window_output():
-            return 0
-        elif ram_style == "ultra":
-            block_mul = 2
-            width_mul = math.ceil(simd * self.get_input_datatype().bitwidth() / 64)
-            depth_mul = math.ceil(stride_x * ifm_dim_x * (ifm_ch // simd) / 4096)
-            return block_mul * width_mul * depth_mul
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        ifm_dim = np.prod(self.get_nodeattr("IFMDim"))
+        k = np.prod(self.get_nodeattr("ConvKernelDim"))
+        stride = np.prod(self.get_nodeattr("Stride"))
+        ram_style = self.get_nodeattr("ram_style")
+        if ram_style == "ultra":
+            return int(
+                (k + stride)
+                * (
+                    math.ceil(simd * self.get_input_datatype().bitwidth() / 64)
+                    * math.ceil(ifm_dim * ifm_ch / simd / 4096)
+                )
+            )
         else:
             return 0
 
