@@ -28,7 +28,7 @@ Base Class
 finn.transformation.batchnorm\_to\_affine
 ------------------------------------------------
 
-.. automodule:: finn.transformation.batchnorm_to_affine
+.. automodule:: qonnx.transformation.batchnorm_to_affine
    :members:
    :undoc-members:
    :show-inheritance:
@@ -84,7 +84,7 @@ finn.transformation.extend\_partition
 finn.transformation.extract\_conv\_bias
 ------------------------------------------
 
-.. automodule:: finn.transformation.extract_conv_bias
+.. automodule:: qonnx.transformation.extract_conv_bias
    :members:
    :undoc-members:
    :show-inheritance:
@@ -93,7 +93,7 @@ finn.transformation.extract\_conv\_bias
 finn.transformation.fold\_constants
 ------------------------------------------
 
-.. automodule:: finn.transformation.fold_constants
+.. automodule:: qonnx.transformation.fold_constants
    :members:
    :undoc-members:
    :show-inheritance:
@@ -101,15 +101,15 @@ finn.transformation.fold\_constants
 finn.transformation.gemm\_to\_matmul
 ------------------------------------------
 
-.. automodule:: finn.transformation.gemm_to_matmul
+.. automodule:: qonnx.transformation.gemm_to_matmul
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.general
+qonnx.transformation.general
 ----------------------------------
 
-.. automodule:: finn.transformation.general
+.. automodule:: qonnx.transformation.general
    :members:
    :undoc-members:
    :show-inheritance:
@@ -117,7 +117,7 @@ finn.transformation.general
 finn.transformation.infer\_data\_layouts
 -------------------------------------------
 
-.. automodule:: finn.transformation.infer_data_layouts
+.. automodule:: qonnx.transformation.infer_data_layouts
   :members:
   :undoc-members:
   :show-inheritance:
@@ -125,7 +125,7 @@ finn.transformation.infer\_data\_layouts
 finn.transformation.infer\_datatypes
 -------------------------------------------
 
-.. automodule:: finn.transformation.infer_datatypes
+.. automodule:: qonnx.transformation.infer_datatypes
    :members:
    :undoc-members:
    :show-inheritance:
@@ -133,7 +133,7 @@ finn.transformation.infer\_datatypes
 finn.transformation.infer\_shapes
 ----------------------------------------
 
-.. automodule:: finn.transformation.infer_shapes
+.. automodule:: qonnx.transformation.infer_shapes
    :members:
    :undoc-members:
    :show-inheritance:
@@ -141,7 +141,7 @@ finn.transformation.infer\_shapes
 finn.transformation.insert\_topk
 ---------------------------------------
 
-.. automodule:: finn.transformation.insert_topk
+.. automodule:: qonnx.transformation.insert_topk
    :members:
    :undoc-members:
    :show-inheritance:
@@ -157,7 +157,7 @@ finn.transformation.lower\_convs\_to\_matmul
 finn.transformation.make\_input\_chanlast
 ------------------------------------------
 
-.. automodule:: finn.transformation.make_input_chanlast
+.. automodule:: qonnx.transformation.make_input_chanlast
   :members:
   :undoc-members:
   :show-inheritance:
@@ -165,7 +165,7 @@ finn.transformation.make\_input\_chanlast
 finn.transformation.merge\_onnx\_models
 ----------------------------------------
 
-.. automodule:: finn.transformation.merge_onnx_models
+.. automodule:: qonnx.transformation.merge_onnx_models
   :members:
   :undoc-members:
   :show-inheritance:
@@ -179,10 +179,10 @@ finn.transformation.move\_reshape
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.remove
+qonnx.transformation.remove
 -------------------------------------
 
-.. automodule:: finn.transformation.remove
+.. automodule:: qonnx.transformation.remove
   :members:
   :undoc-members:
   :show-inheritance:

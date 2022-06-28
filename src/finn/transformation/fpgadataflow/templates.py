@@ -129,7 +129,7 @@ if {$BOARD == "ZCU104"} {
 
 create_bd_design "top"
 if {$ZYNQ_TYPE == "zynq_us+"} {
-    create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.3 zynq_ps
+    create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.4 zynq_ps
     apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset "1" }  [get_bd_cells zynq_ps]
     #activate one slave port, deactivate the second master port
     set_property -dict [list CONFIG.PSU__USE__S_AXI_GP2 {1}] [get_bd_cells zynq_ps]
@@ -182,7 +182,7 @@ proc assign_axi_addr_proc {axi_intf_path} {
     #align base address to range
     set offset [expr ($axi_peripheral_base + ($range-1)) & ~($range-1)]
     #perform assignment
-    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg] -offset $offset -range $range
+    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg*] -offset $offset -range $range
     #advance base address
     set axi_peripheral_base [expr $offset + $range]
 }

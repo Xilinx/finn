@@ -90,13 +90,11 @@ set config_bnnlibdir "$::env(FINN_ROOT)/deps/finn-hlslib"
 puts "finn-hlslib dir: $config_bnnlibdir"
 set config_customhlsdir "$::env(FINN_ROOT)/custom_hls"
 puts "custom HLS dir: $config_customhlsdir"
-set config_customrtldir "$::env(FINN_ROOT)/finn-rtllib/checksum"
-puts "custom RTL dir: $config_customrtldir"
 set config_toplevelfxn "$TOPFXN$"
 set config_clkperiod $CLKPERIOD$
 
 open_project $config_proj_name
-add_files $config_hwsrcdir/top_$TOPFXN$.cpp -cflags "-std=c++14 -I$config_bnnlibdir -I$config_customhlsdir -I$config_customrtldir"
+add_files $config_hwsrcdir/top_$TOPFXN$.cpp -cflags "-std=c++14 -I$config_bnnlibdir -I$config_customhlsdir"
 
 set_top $config_toplevelfxn
 open_solution sol1

@@ -34,13 +34,13 @@ import pdb  # NOQA
 import sys
 import time
 import traceback
+from qonnx.core.modelwrapper import ModelWrapper
 
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
     default_build_dataflow_steps,
 )
 from finn.builder.build_dataflow_steps import build_dataflow_step_lookup
-from finn.core.modelwrapper import ModelWrapper
 
 
 # adapted from https://stackoverflow.com/a/39215961

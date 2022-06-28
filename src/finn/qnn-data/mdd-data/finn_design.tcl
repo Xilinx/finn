@@ -25,34 +25,36 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-# @brief        Address range defines for FINN IP.
-# @author       Thomas B. Preußer <thomas.preusser@amd.com>
+# @brief	Address range defines for FINN IP.
+# @author	Thomas B. Preußer <thomas.preusser@amd.com>
 ##
 
 proc generate {drv_handle} {
-        # Bounds of all exposed slave address ranges to xparameters.h
-        set file_handle [hsi::utils::open_include_file "xparameters.h"]
-        generate_memrange_parameters $drv_handle $file_handle
-        close $file_handle
+	# Bounds of all exposed slave address ranges to xparameters.h
+	set file_handle [hsi::utils::open_include_file "xparameters.h"]
+	foreach drv [hsi::get_drivers -filter "NAME==[common::get_property NAME $drv_handle]"] {
+		generate_memrange_parameters $drv $file_handle
+	}
+	close $file_handle
 }
 
 proc generate_memrange_parameters {drv_handle file_handle} {
-        # Collect unique slave interfaces to custom module
-        array unset ranges
-        foreach mem_range [hsi::get_mem_ranges -of_object [hsi::get_cells -hier [hsi::get_sw_processor]] $drv_handle] {
-                set ranges([common::get_property SLAVE_INTERFACE $mem_range]) [list \
-                        [common::get_property BASE_NAME  $mem_range] \
-                        [common::get_property BASE_VALUE $mem_range] \
-                        [common::get_property HIGH_NAME  $mem_range] \
-                        [common::get_property HIGH_VALUE $mem_range] \
-                ]
-        }
+	# Collect unique slave interfaces to custom module
+	array unset ranges
+	foreach mem_range [hsi::get_mem_ranges -of_object [hsi::get_cells -hier [hsi::get_sw_processor]] $drv_handle] {
+		set ranges([common::get_property SLAVE_INTERFACE $mem_range]) [list \
+			[common::get_property BASE_NAME  $mem_range] \
+			[common::get_property BASE_VALUE $mem_range] \
+			[common::get_property HIGH_NAME  $mem_range] \
+			[common::get_property HIGH_VALUE $mem_range] \
+		]
+	}
 
-        # Produce defines for the address range bounds
-        set prefix "XPAR_[string toupper $drv_handle]"
-        foreach {key val} [array get ranges] {
-                puts $file_handle "#define [format "%s_%s_%s" $prefix $key [lindex $val 0]] [lindex $val 1]"
-                puts $file_handle "#define [format "%s_%s_%s" $prefix $key [lindex $val 2]] [lindex $val 3]"
-        }
-        puts $file_handle ""
+	# Produce defines for the address range bounds
+	set prefix "XPAR_[string toupper $drv_handle]"
+	foreach {key val} [array get ranges] {
+		puts $file_handle "#define [format "%s_%s_%s" $prefix $key [lindex $val 0]] [lindex $val 1]"
+		puts $file_handle "#define [format "%s_%s_%s" $prefix $key [lindex $val 2]] [lindex $val 3]"
+	}
+	puts $file_handle ""
 }

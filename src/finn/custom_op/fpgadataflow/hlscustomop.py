@@ -25,25 +25,23 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-# namespace package, extend path
 
 import numpy as np
 import os
 import subprocess
 from abc import abstractmethod
+from pyverilator.util.axi_utils import rtlsim_multi_io
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.base import CustomOp
+from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
     get_rtlsim_trace_depth,
     make_build_dir,
-    roundup_to_integer_multiple,
+    pyverilate_get_liveness_threshold_cycles,
 )
 from finn.util.hls import CallHLS
-from finn.util.pyverilator import (
-    pyverilate_get_liveness_threshold_cycles,
-    rtlsim_multi_io,
-)
 
 from . import templates
 
@@ -112,6 +110,7 @@ class HLSCustomOp(CustomOp):
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
+            "output_hook": ("s", False, ""),
             # HLS version to be used for IP synthesis
             "hls_version": ("s", False, "vitis_hls", {"vivado_hls", "vitis_hls"}),
         }
@@ -330,10 +329,10 @@ class HLSCustomOp(CustomOp):
             ],
             "vitis_hls": [
                 "set_param hls.enable_hidden_option_error false",
-                "config_compile -disable_unroll_code_size_check",
+                "config_compile -disable_unroll_code_size_check -pipeline_style flp",
                 "config_interface -m_axi_addr64",
-                "config_rtl -auto_prefix",
-                "config_export -disable_deadlock_detection",
+                "config_rtl -module_auto_prefix",
+                "config_rtl -deadlock_detection none",
             ],
         }
         return default_directives[hls_version]
@@ -432,10 +431,22 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
         # assuming dynamic inputs start from 0
         for in_ind in range(count):
             current_input_name = node.input[in_ind]
-            # make copy before saving array
-            input_array = context[current_input_name].copy()
+            input_array = context[current_input_name]
+            if in_ind == 0:
+                expected_inp_shape = self.get_folded_input_shape()
+                idt = self.get_input_datatype()
+            else:
+                expected_inp_shape = self.get_folded_input_shape(in_ind)
+                idt = self.get_input_datatype(in_ind)
+            reshaped_input = input_array.reshape(expected_inp_shape)
+            if idt == DataType["BIPOLAR"]:
+                # store bipolar activations as binary
+                reshaped_input = (reshaped_input + 1) / 2
+            # make copy before saving the array
+            reshaped_input = reshaped_input.copy()
             np.save(
-                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)), input_array
+                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                reshaped_input,
             )
 
     def npy_to_dynamic_output(self, context):
@@ -444,7 +455,8 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         output = np.load("{}/output.npy".format(code_gen_dir))
-        context[node.output[0]] = output
+        exp_shape = self.get_normal_output_shape()
+        context[node.output[0]] = output.reshape(exp_shape)
 
     def npy_to_dynamic_outputs(self, context, npy_list):
         """Reads the output from .npy files generated from cppsim and places
@@ -455,7 +467,11 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         for i in range(len(npy_list)):
             output = np.load("{}/{}".format(code_gen_dir, npy_list[i]))
-            context[node.output[i]] = output
+            if i == 0:
+                exp_shape = self.get_normal_output_shape()
+            else:
+                exp_shape = self.get_normal_output_shape(i)
+            context[node.output[i]] = output.reshape(exp_shape)
 
     def exec_precompiled_singlenode_model(self):
         """Executes precompiled executable."""
@@ -585,7 +601,12 @@ compilation transformations?
             trace_file = self.onnx_node.name + ".vcd"
         num_out_values = self.get_number_output_values()
         total_cycle_count = rtlsim_multi_io(
-            sim, io_dict, num_out_values, trace_file, sname=sname
+            sim,
+            io_dict,
+            num_out_values,
+            trace_file=trace_file,
+            sname=sname,
+            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 
@@ -637,7 +658,7 @@ compilation transformations?
         be filled by every node.
 
         var: makes it possible to reuse the function for different c++ code generation.
-        I.e. if set to "ipgen" in StreamingFCLayer_Batch additional PRAGMA defines are
+        I.e. if set to "ipgen" in MatrixVectorActivation additional PRAGMA defines are
         added."""
         pass
 

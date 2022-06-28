@@ -28,8 +28,9 @@
 
 import pytest
 
+from qonnx.core.datatype import DataType
+
 import finn.util.create as create
-from finn.core.datatype import DataType
 
 
 @pytest.mark.util

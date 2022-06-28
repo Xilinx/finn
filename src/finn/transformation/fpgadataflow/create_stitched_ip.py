@@ -33,14 +33,15 @@ import multiprocessing as mp
 import os
 import subprocess
 import warnings
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.util.basic import get_num_default_workers
 from shutil import copytree
 
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.basic import get_num_default_workers, make_build_dir
+from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -54,7 +55,7 @@ def is_external_input(model, node, i):
         if model.get_initializer(node.input[i]) is None:
             return True
         else:
-            if node.op_type == "StreamingFCLayer_Batch":
+            if node.op_type == "MatrixVectorActivation":
                 if node_inst.get_nodeattr("mem_mode") == "external":
                     return True
     return False
@@ -85,12 +86,15 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False):
+    def __init__(
+        self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]
+    ):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
         self.ip_name = ip_name
         self.vitis = vitis
+        self.signature = signature
         self.has_aximm = False
         self.has_m_axis = False
         self.m_axis_idx = 0
@@ -162,11 +166,12 @@ class CreateStitchedIP(Transformation):
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                 % (inst_name, aximm_intf_name[0][0])
             )
+            ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
             self.connect_cmds.append(
-                "set_property name m_axi_gmem0 [get_bd_intf_ports m_axi_gmem_0]"
+                "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
             )
             self.connect_cmds.append("assign_bd_address")
-            seg_name = "%s/Data_m_axi_gmem/SEG_m_axi_gmem0_Reg" % (inst_name)
+            seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
             self.connect_cmds.append(
                 "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
             )
@@ -174,9 +179,7 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append(
                 "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
             )
-
-            self.intf_names["aximm"] = [("m_axi_gmem0", aximm_intf_name[0][1])]
-            assert self.has_aximm is False, "Currently limited to one AXI-MM interface"
+            self.intf_names["aximm"] = [(ext_if_name, aximm_intf_name[0][1])]
             self.has_aximm = True
 
     def connect_m_axis_external(self, node, idx=None):
@@ -225,12 +228,65 @@ class CreateStitchedIP(Transformation):
             )
             self.s_axis_idx += 1
 
+    def insert_signature(self, checksum_count):
+        signature_vlnv = "AMD:user:axi_info_top:1.0"
+        signature_name = "axi_info_top0"
+        self.create_cmds.append(
+            "create_bd_cell -type ip -vlnv %s %s" % (signature_vlnv, signature_name)
+        )
+        self.create_cmds.append(
+            "set_property -dict [list "
+            "CONFIG.SIG_CUSTOMER {%s} "
+            "CONFIG.SIG_APPLICATION {%s} "
+            "CONFIG.VERSION {%s} "
+            "CONFIG.CHECKSUM_COUNT {%s} "
+            "] [get_bd_cells %s]"
+            % (
+                self.signature[0],
+                self.signature[1],
+                self.signature[2],
+                checksum_count,
+                signature_name,
+            )
+        )
+        # set clk and reset
+        self.connect_cmds.append(
+            "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/ap_clk]"
+            % signature_name
+        )
+        self.connect_cmds.append(
+            "connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins %s/ap_rst_n]"
+            % signature_name
+        )
+        fclk_mhz = 1 / (self.clk_ns * 0.001)
+        fclk_hz = fclk_mhz * 1000000
+        self.connect_cmds.append(
+            "set_property -dict [list "
+            "CONFIG.FREQ_HZ {%f} "
+            "CONFIG.CLK_DOMAIN {ap_clk} "
+            "] [get_bd_intf_pins %s/s_axi]"
+            % (
+                fclk_hz,
+                signature_name,
+            )
+        )
+        # make axilite interface external
+        self.connect_cmds.append(
+            "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi]" % signature_name
+        )
+        self.connect_cmds.append(
+            "set_property name s_axis_info [get_bd_intf_ports s_axi_0]"
+        )
+        self.connect_cmds.append("assign_bd_address")
+
     def apply(self, model):
         # ensure non-relative readmemh .dat files
         model = model.transform(ReplaceVerilogRelPaths())
         ip_dirs = ["list"]
         # add RTL streamer IP
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
+        if self.signature:
+            ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
         if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
             warnings.warn(
                 """First node is not StreamingFIFO or IODMA.
@@ -287,6 +343,11 @@ class CreateStitchedIP(Transformation):
             for i in range(len(node.output)):
                 if node.output[i] == out_name:
                     self.connect_m_axis_external(node, idx=i)
+
+        if self.signature:
+            # extract number of checksum layer from graph
+            checksum_layers = model.get_nodes_by_op_type("checksum")
+            self.insert_signature(len(checksum_layers))
 
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
@@ -362,6 +423,13 @@ class CreateStitchedIP(Transformation):
                 "-library %s -taxonomy /UserIP -module %s -import_files"
             )
             % (vivado_stitch_proj_dir, block_vendor, block_library, block_name)
+        )
+        # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
+        # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
+        # the following is a hotfix to remove this aperture during IODMA packaging
+        tcl.append(
+            "ipx::remove_segment -quiet m_axi_gmem0:APERTURE_0 "
+            "[ipx::get_address_spaces m_axi_gmem0 -of_objects [ipx::current_core]]"
         )
         tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)

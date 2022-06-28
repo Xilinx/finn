@@ -33,17 +33,17 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 from pkgutil import get_data
-
-import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import (
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     RemoveStaticGraphInputs,
     RemoveUnusedTensors,
 )
-from finn.transformation.infer_shapes import InferShapes
+from qonnx.transformation.infer_shapes import InferShapes
+
+import finn.core.onnx_exec as oxe
 from finn.transformation.streamline import Streamline
 from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
@@ -74,7 +74,7 @@ def test_streamline_fc(size, wbits, abits):
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(RemoveStaticGraphInputs())
     # load one of the test vectors
-    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {"global_in": nph.to_array(input_tensor)}
