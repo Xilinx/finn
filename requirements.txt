@@ -8,7 +8,7 @@ numpy==1.22.0
 onnx==1.7.0
 onnxoptimizer
 onnxruntime==1.4.0
-pre-commit==2.6.0
+pre-commit==2.9.2
 protobuf==3.20.1
 pyscaffold==3.2.1
 scipy==1.5.2

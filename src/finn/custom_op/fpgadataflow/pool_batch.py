@@ -38,7 +38,7 @@ class Pool_Batch(HLSCustomOp):
     """Class that corresponds to finn-hlslib Pool_batch function.
     Requires ConvolutionInputGenerator(depthwise == 1) to format its input
 
-    Input shape (BatchSize,OutImgDim,OutImgDim,KernelSize^2*Channels)
+    Input shape (BatchSize,OutImgDim,OutImgDim,TotalKernelSize*Channels)
     Output shape (BatchSize,OutImgDim,OutImgDim,Channels)
 
     Notes:
@@ -56,13 +56,13 @@ class Pool_Batch(HLSCustomOp):
         my_attrs = {
             "Channels": ("i", True, 0),
             "PE": ("i", True, 1),
-            "KernelSize": ("i", True, 0),
+            "KernelSize": ("ints", True, []),
             # Function:
             #  - MaxPool
             #  - QuantAvgPool
             # TODO add support for AvgPool and AccPool
             "Function": ("s", True, "", {"MaxPool", "QuantAvgPool"}),
-            "OutImgDim": ("i", True, 0),
+            "OutImgDims": ("ints", True, []),
             # FINN DataTypes for inputs/outputs
             "InputDataType": ("s", True, ""),
             "OutputDataType": ("s", True, ""),
@@ -100,10 +100,11 @@ class Pool_Batch(HLSCustomOp):
 
     def get_normal_input_shape(self):
         ifm_ch = self.get_nodeattr("Channels")
-        odim = self.get_nodeattr("OutImgDim")
+        odims = self.get_nodeattr("OutImgDims")
         batch_size = self.get_nodeattr("BatchSize")
         k = self.get_nodeattr("KernelSize")
-        ishape = (batch_size, odim, odim, k * k * ifm_ch)
+        k_prod = int(np.prod(k))
+        ishape = (batch_size, *odims, k_prod * ifm_ch)
         return ishape
 
     def get_folded_input_shape(self):
@@ -117,9 +118,9 @@ class Pool_Batch(HLSCustomOp):
 
     def get_normal_output_shape(self):
         ofm_ch = self.get_nodeattr("Channels")
-        odim = self.get_nodeattr("OutImgDim")
+        odims = self.get_nodeattr("OutImgDims")
         batch_size = self.get_nodeattr("BatchSize")
-        oshape = (batch_size, odim, odim, ofm_ch)
+        oshape = (batch_size, *odims, ofm_ch)
         return oshape
 
     def get_folded_output_shape(self):
@@ -140,9 +141,10 @@ class Pool_Batch(HLSCustomOp):
         ifm_ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
         k = self.get_nodeattr("KernelSize")
-        odim = self.get_nodeattr("OutImgDim")
+        k_prod = int(np.prod(k))
+        odims = self.get_nodeattr("OutImgDims")
         batch_size = self.get_nodeattr("BatchSize")
-        exp_cycles = ((ifm_ch * k * k) / pe) * odim * odim * batch_size
+        exp_cycles = ((ifm_ch * k_prod) / pe) * np.prod(odims) * batch_size
         return int(exp_cycles)
 
     def get_instream_width(self):
@@ -211,10 +213,12 @@ class Pool_Batch(HLSCustomOp):
         self.code_gen_dict["$DEFINES$"] += ["#define PE {}".format(pe)]
 
         k = self.get_nodeattr("KernelSize")
-        self.code_gen_dict["$DEFINES$"] += ["#define KernelSize {}".format(k)]
+        k_prod = int(np.prod(k))
+        self.code_gen_dict["$DEFINES$"] += ["#define KernelSize {}".format(k_prod)]
 
-        odim = self.get_nodeattr("OutImgDim")
-        self.code_gen_dict["$DEFINES$"] += ["#define OFMDim {}".format(odim)]
+        odims = self.get_nodeattr("OutImgDims")
+        total_odim = np.prod(odims)
+        self.code_gen_dict["$DEFINES$"] += ["#define OFMDimTotal {}".format(total_odim)]
 
         numReps = self.get_nodeattr("BatchSize")
         self.code_gen_dict["$DEFINES$"] += ["#define numReps {}".format(numReps)]
@@ -275,7 +279,7 @@ class Pool_Batch(HLSCustomOp):
 
         self.code_gen_dict["$DOCOMPUTE$"] += [
             """Pool_batch<Channels, PE, KernelSize,Slice<{} >, Slice< {} > >
-        (in0,out, pool_fxn, OFMDim*OFMDim*numReps);""".format(
+        (in0,out, pool_fxn, OFMDimTotal*numReps);""".format(
                 i_hls_dt, o_hls_dt
             )
         ]

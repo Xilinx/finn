@@ -48,22 +48,31 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.util.basic import gen_finn_dt_tensor
 
 
-def make_single_maxpool_modelwrapper(k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt):
+def make_single_maxpool_modelwrapper(
+    k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d=False
+):
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ifm_ch, ofm_dim, ofm_dim]
-    )
-
+    if use_1d:
+        ishape = [1, ifm_ch, 1, ifm_dim]
+        oshape = [1, ifm_ch, 1, ofm_dim]
+        kshape = [1, k]
+        pads = [0, pad, 0, pad]
+        strides = [1, stride]
+    else:
+        ishape = [1, ifm_ch, ifm_dim, ifm_dim]
+        oshape = [1, ifm_ch, ofm_dim, ofm_dim]
+        kshape = [k, k]
+        pads = [pad, pad, pad, pad]
+        strides = [stride, stride]
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, ishape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, oshape)
     mp_node = helper.make_node(
         "MaxPool",
         ["inp"],
         ["outp"],
-        kernel_shape=[k, k],
-        pads=[pad, pad, pad, pad],
-        strides=[stride, stride],
+        kernel_shape=kshape,
+        pads=pads,
+        strides=strides,
     )
     graph = helper.make_graph(
         nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
@@ -128,7 +137,7 @@ def prepare_inputs(input_tensor):
 # number of out channel computed in parallel
 @pytest.mark.parametrize("pe", [1, 2, 4])
 # pool type
-@pytest.mark.parametrize("op_type", ["QuantAvgPool2d", "MaxPool"])
+@pytest.mark.parametrize("op_type", ["QuantAvgPool2d", "MaxPool", "MaxPool1D"])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.slow
@@ -147,7 +156,14 @@ def test_convert_to_hls_pool_batch(
     np.random.seed(0)
     ofm_dim = int(((ifm_dim + 2 * pad - k) / stride) + 1)
 
-    x = gen_finn_dt_tensor(idt, (1, ifm_ch, ifm_dim, ifm_dim))
+    ishape = (1, ifm_ch, ifm_dim, ifm_dim)
+    use_1d = False
+    if op_type == "MaxPool1D":
+        use_1d = True
+        ishape = (1, ifm_ch, 1, ifm_dim)
+        op_type = "MaxPool"
+
+    x = gen_finn_dt_tensor(idt, ishape)
     # prepare input data
     input_dict = prepare_inputs(x)
     if op_type == "MaxPool":
@@ -159,7 +175,7 @@ def test_convert_to_hls_pool_batch(
             pytest.skip("Skipping Maxpool with idt != odt")
 
         model = make_single_maxpool_modelwrapper(
-            k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt
+            k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d
         )
     elif op_type == "QuantAvgPool2d":
         if pad != 0:
@@ -178,16 +194,40 @@ def test_convert_to_hls_pool_batch(
     new_model = model.transform(to_hls.InferPool_Batch())
     new_model = new_model.transform(GiveUniqueNodeNames())
 
-    if ifm_ch != pe:
-        new_model = new_model.transform(to_hls.InferConvInpGen())
-        # Folding
-        for n in new_model.graph.node:
-            if n.op_type == "ConvolutionInputGenerator":
-                inst = getCustomOp(n)
-                inst.set_nodeattr("SIMD", pe)
-            elif n.op_type == "Pool_Batch":
-                inst = getCustomOp(n)
-                inst.set_nodeattr("PE", pe)
+    new_model = new_model.transform(to_hls.InferConvInpGen())
+    # Folding
+    for n in new_model.graph.node:
+        if n.op_type.startswith("ConvolutionInputGenerator"):
+            inst = getCustomOp(n)
+            inst.set_nodeattr("SIMD", pe)
+        elif n.op_type == "Pool_Batch":
+            inst = getCustomOp(n)
+            inst.set_nodeattr("PE", pe)
+
+    if stride <= k:
+        if pad == 0:
+            assert len(new_model.graph.node) == 4
+            assert new_model.graph.node[0].op_type == "Transpose"
+            assert new_model.graph.node[1].op_type.startswith(
+                "ConvolutionInputGenerator"
+            )
+            assert new_model.graph.node[2].op_type == "Pool_Batch"
+            assert new_model.graph.node[3].op_type == "Transpose"
+        else:
+            assert len(new_model.graph.node) == 5
+            assert new_model.graph.node[0].op_type == "Transpose"
+            assert new_model.graph.node[1].op_type == "FMPadding_Batch"
+            assert new_model.graph.node[2].op_type.startswith(
+                "ConvolutionInputGenerator"
+            )
+            assert new_model.graph.node[3].op_type == "Pool_Batch"
+            assert new_model.graph.node[4].op_type == "Transpose"
+    else:
+        # not currently converted to HLS, node stays as-is
+        assert len(new_model.graph.node) == 1
+        assert new_model.graph.node[0].op_type in ["MaxPool", "QuantAvgPool2d"]
+        # no need to exec
+        return
 
     if exec_mode == "cppsim":
         new_model = new_model.transform(SetExecMode("cppsim"))
@@ -205,13 +245,6 @@ def test_convert_to_hls_pool_batch(
     # execute new_model
     y_produced = oxe.execute_onnx(new_model, input_dict)["outp"]
     assert (y_produced == y_expected).all()
-    if stride <= k:
-        if pad == 0 or ifm_ch == pe:
-            assert len(new_model.graph.node) == 4
-        else:
-            assert len(new_model.graph.node) == 5
-    else:
-        assert len(new_model.graph.node) == 1
 
     if exec_mode == "rtlsim":
         node = new_model.get_nodes_by_op_type("Pool_Batch")[0]
