@@ -34,18 +34,13 @@ from finn.util.basic import which
 
 
 class CallHLS:
-    """Call either vivado_hls or vitis_hls to run HLS build tcl scripts."""
+    """Call vitis_hls to run HLS build tcl scripts."""
 
-    def __init__(self, backend="vivado_hls"):
+    def __init__(self):
         self.tcl_script = ""
         self.ipgen_path = ""
         self.code_gen_dir = ""
         self.ipgen_script = ""
-        assert backend in [
-            "vivado_hls",
-            "vitis_hls",
-        ], "Unrecognized backend for CallHLS"
-        self.backend = backend
 
     def append_tcl(self, tcl_script):
         """Sets the tcl script to be executed."""
@@ -59,14 +54,14 @@ class CallHLS:
         """Builds the bash script with given parameters and saves it in given folder.
         To guarantee the generation in the correct folder the bash script contains a
         cd command."""
-        assert which(self.backend) is not None, "%s not found in PATH" % self.backend
+        assert which("vitis_hls") is not None, "vitis_hls not found in PATH"
         self.code_gen_dir = code_gen_dir
         self.ipgen_script = str(self.code_gen_dir) + "/ipgen.sh"
         working_dir = os.environ["PWD"]
         f = open(self.ipgen_script, "w")
         f.write("#!/bin/bash \n")
         f.write("cd {}\n".format(code_gen_dir))
-        f.write("%s %s\n" % (self.backend, self.tcl_script))
+        f.write("vitis_hls %s\n" % (self.tcl_script))
         f.write("cd {}\n".format(working_dir))
         f.close()
         bash_command = ["bash", self.ipgen_script]
