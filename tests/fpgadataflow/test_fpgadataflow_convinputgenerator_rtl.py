@@ -33,15 +33,15 @@ from onnx import TensorProto, helper
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.general.im2col import compute_conv_output_dim
-from finn.custom_op.registry import getCustomOp
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.im2col import compute_conv_output_dim
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import gen_finn_dt_tensor
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import gen_finn_dt_tensor
 
 def make_single_im2col_modelwrapper(
     k, ifm_ch, ifm_dim, ofm_dim, stride, dilation, idt

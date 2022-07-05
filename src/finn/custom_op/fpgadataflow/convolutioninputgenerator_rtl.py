@@ -31,11 +31,11 @@ from math import copysign
 import numpy as np
 import os
 
-from finn.core.datatype import DataType
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.general import im2col
+from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
-from finn.custom_op.general import im2col
 
 from finn.util.basic import (
     get_rtlsim_trace_depth,
@@ -625,7 +625,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
             code_gen_dict["$ELEM_PER_WINDOW$"] = [str(elem_per_window)]
 
-            with open("/workspace/finn/finn-rtllib/swg/swg_template_default.sv", "r") as f:
+            with open(os.environ['FINN_ROOT']+"/finn-rtllib/swg/swg_template_default.sv", "r") as f:
                 template = f.read()
        
         ##### END CODE GEN FOR DEFAULT STYLE #####
@@ -976,7 +976,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             code_gen_dict["$WRITE_CMD_MAP$"]=["{{ {}, {}, {}, {}, {}, {}, {} }}".format(
                 start_sequence[1][1],loop_sequence_1[1][1],loop_sequence_1[3][1],loop_sequence_2[1][1],loop_sequence_2[3][1],end_sequence[1][1],end_sequence[3][1])]
 
-            with open("/workspace/finn/finn-rtllib/swg/swg_template_parallel.sv", "r") as f:
+            with open(os.environ['FINN_ROOT']+"/finn-rtllib/swg/swg_template_parallel.sv", "r") as f:
                 template = f.read()
 
         ##### END CODE GEN FOR PARALLEL STYLE #####
@@ -997,7 +997,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         else:
             code_gen_dict["$RAM_STYLE$"]=["(* ram_style = \"{}\" *)".format(ram_style)]
 
-        with open("/workspace/finn/finn-rtllib/swg/swg_template_wrapper.v", "r") as f:
+        with open(os.environ['FINN_ROOT']+"/finn-rtllib/swg/swg_template_wrapper.v", "r") as f:
             template_wrapper = f.read()
 
         for key in code_gen_dict:
