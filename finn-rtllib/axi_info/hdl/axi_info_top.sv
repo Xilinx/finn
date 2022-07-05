@@ -1,5 +1,5 @@
 /******************************************************************************
- *  Copyright (c) 2022, Advanced Micro Devices, Inc.
+ *  Copyright (c) 2022, Xilinx, Inc.
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -78,7 +78,7 @@ module axi_info_top #(
 			32'h0,
 			CHECKSUM_COUNT
 		})
-	)(
+	) inst (
 		//- Global Control ------------------
 		.ap_clk, .ap_rst_n,
 

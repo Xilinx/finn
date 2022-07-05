@@ -31,10 +31,10 @@ import pytest
 import numpy as np
 import onnx.helper as oh
 from onnx import TensorProto
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as ox
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import (
     MoveScalarAddPastMatMul,
     MoveScalarMulPastMatMul,

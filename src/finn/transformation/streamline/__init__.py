@@ -30,16 +30,17 @@ from pkgutil import extend_path
 
 __path__ = extend_path(__path__, __name__)
 
-from finn.transformation.base import Transformation
-from finn.transformation.batchnorm_to_affine import BatchNormToAffine
-from finn.transformation.general import (
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.batchnorm_to_affine import BatchNormToAffine
+from qonnx.transformation.general import (
     ConvertDivToMul,
     ConvertSubToAdd,
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
 )
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.remove import RemoveIdentityOps
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.remove import RemoveIdentityOps
+
 from finn.transformation.streamline.absorb import (
     Absorb1BitMulIntoConv,
     Absorb1BitMulIntoMatMul,

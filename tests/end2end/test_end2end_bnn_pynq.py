@@ -42,19 +42,31 @@ from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from collections import OrderedDict
 from dataset_loading import cifar, mnist
 from datetime import datetime
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import (
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    RemoveStaticGraphInputs,
+    RemoveUnusedTensors,
+)
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.insert_topk import InsertTopK
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from scipy.stats import linregress
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.core.throughput_test import throughput_test_remote, throughput_test_rtlsim
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
-from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -71,18 +83,6 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
-from finn.transformation.general import (
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    RemoveStaticGraphInputs,
-    RemoveUnusedTensors,
-)
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.insert_topk import InsertTopK
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from finn.transformation.merge_onnx_models import MergeONNXModels
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
@@ -314,6 +314,7 @@ def topology2dataset(topology):
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("topology", ["lfc", "tfc", "cnv"])
 @pytest.mark.parametrize("QONNX_export", [False, True])
+@pytest.mark.end2end
 class TestEnd2End:
     def test_export(self, topology, wbits, abits, QONNX_export):
         if wbits > abits:
@@ -672,6 +673,9 @@ class TestEnd2End:
     @pytest.mark.vitis
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_build(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(
@@ -694,6 +698,9 @@ class TestEnd2End:
     @pytest.mark.vitis
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_make_pynq_driver(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(
@@ -708,6 +715,9 @@ class TestEnd2End:
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_deploy(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "driver_" + kind
         )
@@ -731,6 +741,9 @@ class TestEnd2End:
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_run_on_hw(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "deploy_" + kind
         )
@@ -755,6 +768,9 @@ class TestEnd2End:
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_throughput_hw(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "deploy_" + kind
         )

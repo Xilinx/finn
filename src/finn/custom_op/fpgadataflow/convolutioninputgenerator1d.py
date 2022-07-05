@@ -30,10 +30,10 @@ import math
 import numpy as np
 import os
 import warnings
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.general.im2col import compute_conv_output_dim
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # This operation should only be used for 1D convolutions. Either the

@@ -28,21 +28,21 @@
 
 
 import numpy as np
+import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import SortGraph
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import get_by_name
+from qonnx.util.onnx import nchw_to_nhwc
 
-import finn.core.data_layout as DataLayout
-from finn.core.datatype import DataType
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
-from finn.transformation.general import SortGraph
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import get_by_name
-from finn.util.onnx import nchw_to_nhwc
 
 
 class InferConvInpGen(Transformation):
@@ -547,7 +547,7 @@ class InferPool_Batch(Transformation):
                     "Im2Col",
                     [im2col_in],
                     [im2col_out],
-                    domain="finn.custom_op.general",
+                    domain="qonnx.custom_op.general",
                     stride=[sh, sw],
                     kernel_size=[kh, kw],
                     pad_amount=pad,
@@ -935,7 +935,7 @@ class InferVectorVectorActivation(Transformation):
                     W = W.transpose(0, 3, 1, 2)
                     # now we can extract the values using a for loop over the channels
                     # and fill a zero numpy array in the correct shape
-                    w_tensor = np.zeros((channels, 1, k_h, k_w))
+                    w_tensor = np.zeros((channels, 1, k_h, k_w), dtype=np.float32)
                     for ch in range(channels):
                         w_tensor[ch][0] = W[ch][ch]
                     model.set_initializer(mm_weight, w_tensor)
@@ -1286,7 +1286,7 @@ class InferChannelwiseLinearLayer(Transformation):
     def get_smallest_possible(self, vals):
         """Returns smallest (fewest bits) possible DataType that can represent
         value. Prefers unsigned integers where possible."""
-        vals = np.array(vals)
+        vals = np.array(vals, dtype=np.float64)
         for v in vals:
             assert int(v) == v, "Error float value"
 
@@ -1562,7 +1562,9 @@ class InferGlobalAccPoolLayer(Transformation):
                     model.make_new_valueinfo_name(), TensorProto.FLOAT, [1]
                 )
                 model.graph.value_info.append(mul_value)
-                model.set_initializer(mul_value.name, np.array(1 / (vecs[1] * vecs[2])))
+                model.set_initializer(
+                    mul_value.name, np.array(1 / (vecs[1] * vecs[2]), dtype=np.float32)
+                )
                 new_mul = helper.make_node(
                     "Mul",
                     [pool_out, mul_value.name],

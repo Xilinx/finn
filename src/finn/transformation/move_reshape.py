@@ -1,8 +1,7 @@
 import warnings
-
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.util.basic import get_by_name, is_finn_op
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.util.basic import get_by_name, is_finn_op
 
 
 def _is_fpgadataflow_node(node):

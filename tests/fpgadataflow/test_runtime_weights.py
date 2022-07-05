@@ -30,18 +30,18 @@ import pytest
 
 import numpy as np
 import os
+from pyverilator.util.axi_utils import axilite_read, axilite_write
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import gen_finn_dt_tensor
 
-from finn.core.datatype import DataType
 from finn.core.rtlsim_exec import rtlsim_exec
-from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import gen_finn_dt_tensor
 from finn.util.create import hls_random_mlp_maker
-from finn.util.pyverilator import axilite_read, axilite_write
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5

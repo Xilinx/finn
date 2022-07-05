@@ -1,5 +1,5 @@
 /******************************************************************************
- *  Copyright (c) 2022, Advanced Micro Devices, Inc.
+ *  Copyright (c) 2022, Xilinx, Inc.
  *  All rights reserved.
  *
  *  Redistribution and use in source and binary forms, with or without
@@ -74,6 +74,7 @@ void checksum(
 	hls::stream<T> &src,
 	hls::stream<T> &dst,
 	ap_uint<32>    &chk,
+	ap_uint<1>     drain,	// drain data after checksuming without forward to `dst`
 	F&& f = F()
 ) {
 	ap_uint<2>  coeff[3] = { 1, 2, 3 };
@@ -84,7 +85,7 @@ void checksum(
 		T const  x = src.read();
 
 		// Pass-thru copy
-		dst.write(x);
+		if(!drain)  dst.write(x);
 
 		// Actual checksum update
 		for(unsigned  j = 0; j < K; j++) {
@@ -118,14 +119,16 @@ void checksum(
 	void checksum_ ## WORDS_PER_FRAME ## _ ## WORD_SIZE ## _ ## ITEMS_PER_WORD ( \
 		hls::stream<T> &src, \
 		hls::stream<T> &dst, \
-		ap_uint<32>    &chk \
+		ap_uint<32>    &chk, \
+		ap_uint< 1>    drain \
 	) { \
 	_Pragma("HLS interface port=src axis") \
 	_Pragma("HLS interface port=dst axis") \
 	_Pragma("HLS interface port=chk s_axilite") \
+	_Pragma("HLS interface port=drain s_axilite") \
 	_Pragma("HLS interface port=return ap_ctrl_none") \
-	_Pragma("HLS dataflow") \
-		checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(src, dst, chk); \
+	_Pragma("HLS dataflow disable_start_propagation") \
+		checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(src, dst, chk, drain); \
 	}
 #define CHECKSUM_TOP(WORDS_PER_FRAME, WORD_SIZE, ITEMS_PER_WORD) \
 	CHECKSUM_TOP_(WORDS_PER_FRAME, WORD_SIZE, ITEMS_PER_WORD)

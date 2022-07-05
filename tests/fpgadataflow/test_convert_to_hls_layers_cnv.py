@@ -33,21 +33,21 @@ import pytest
 import brevitas.onnx as bo
 import numpy as np
 import os
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
-from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.util.test import get_test_model_trained

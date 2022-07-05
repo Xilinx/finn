@@ -33,14 +33,15 @@ import multiprocessing as mp
 import os
 import subprocess
 import warnings
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.util.basic import get_num_default_workers
 from shutil import copytree
 
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
-from finn.util.basic import get_num_default_workers, make_build_dir
+from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -165,11 +166,12 @@ class CreateStitchedIP(Transformation):
                 "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
                 % (inst_name, aximm_intf_name[0][0])
             )
+            ext_if_name = "m_axi_gmem%d" % (len(self.intf_names["aximm"]))
             self.connect_cmds.append(
-                "set_property name m_axi_gmem0 [get_bd_intf_ports m_axi_gmem_0]"
+                "set_property name %s [get_bd_intf_ports m_axi_gmem_0]" % ext_if_name
             )
             self.connect_cmds.append("assign_bd_address")
-            seg_name = "%s/Data_m_axi_gmem/SEG_m_axi_gmem0_Reg" % (inst_name)
+            seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
             self.connect_cmds.append(
                 "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
             )
@@ -177,9 +179,7 @@ class CreateStitchedIP(Transformation):
             self.connect_cmds.append(
                 "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
             )
-
-            self.intf_names["aximm"] = [("m_axi_gmem0", aximm_intf_name[0][1])]
-            assert self.has_aximm is False, "Currently limited to one AXI-MM interface"
+            self.intf_names["aximm"] = [(ext_if_name, aximm_intf_name[0][1])]
             self.has_aximm = True
 
     def connect_m_axis_external(self, node, idx=None):
@@ -423,6 +423,13 @@ class CreateStitchedIP(Transformation):
                 "-library %s -taxonomy /UserIP -module %s -import_files"
             )
             % (vivado_stitch_proj_dir, block_vendor, block_library, block_name)
+        )
+        # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
+        # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
+        # the following is a hotfix to remove this aperture during IODMA packaging
+        tcl.append(
+            "ipx::remove_segment -quiet m_axi_gmem0:APERTURE_0 "
+            "[ipx::get_address_spaces m_axi_gmem0 -of_objects [ipx::current_core]]"
         )
         tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
         tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
