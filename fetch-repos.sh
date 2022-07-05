@@ -35,7 +35,8 @@ CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
 HLSLIB_COMMIT="bea971285a506cd4c2032f133a8ec23a15f935e1"
 OMX_COMMIT="a97f0bf145a2f7e57ca416ea76c9e45df4e9aa37"
 AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
-EXP_BOARD_FILES_MD5="ac1811ae93b03f5f09a505283ff989a3"
+XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
+EXP_BOARD_FILES_MD5="30eecc497c31050bd46d10ea20eba232"
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
@@ -45,6 +46,7 @@ CNPY_URL="https://github.com/rogersce/cnpy.git"
 HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
 OMX_URL="https://github.com/maltanar/oh-my-xilinx.git"
 AVNET_BDF_URL="https://github.com/Avnet/bdf.git"
+XIL_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 
 QONNX_DIR="qonnx"
 FINN_EXP_DIR="finn-experimental"
@@ -54,6 +56,7 @@ CNPY_DIR="cnpy"
 HLSLIB_DIR="finn-hlslib"
 OMX_DIR="oh-my-xilinx"
 AVNET_BDF_DIR="avnet-bdf"
+XIL_BDF_DIR="xil-bdf"
 
 # absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -99,7 +102,8 @@ fetch_board_files() {
     wget -q https://dpoauwgwqsy2x.cloudfront.net/Download/pynq-z2.zip
     unzip -q pynq-z1.zip
     unzip -q pynq-z2.zip
-    cp -r $SCRIPTPATH/deps/avnet-bdf/* $SCRIPTPATH/deps/board_files/
+    cp -r $SCRIPTPATH/deps/$AVNET_BDF_DIR/* $SCRIPTPATH/deps/board_files/
+    cp -r $SCRIPTPATH/deps/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $SCRIPTPATH/deps/board_files/;
     cd $OLD_PWD
 }
 
@@ -111,6 +115,7 @@ fetch_repo $CNPY_URL $CNPY_COMMIT $CNPY_DIR
 fetch_repo $HLSLIB_URL $HLSLIB_COMMIT $HLSLIB_DIR
 fetch_repo $OMX_URL $OMX_COMMIT $OMX_DIR
 fetch_repo $AVNET_BDF_URL $AVNET_BDF_COMMIT $AVNET_BDF_DIR
+fetch_repo $XIL_BDF_URL $XIL_BDF_COMMIT $XIL_BDF_DIR
 
 # download extra Pynq board files and extract if needed
 if [ ! -d "$SCRIPTPATH/deps/board_files" ]; then
