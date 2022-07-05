@@ -556,11 +556,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 tail_incr_last_window = buffer_min_size-1                                                
                 code_gen_dict["$TAIL_INCR_GENERATION$"] = ["""
                 always @ (counter_loop_kh, counter_loop_w, counter_loop_h) begin
-                         if (counter_loop_kh != 0)
+                         if (counter_loop_kh >= 0)
                              tail_incr_reg = 1;
-                         else if (counter_loop_w != 0)
+                         else if (counter_loop_w >= 0)
                              tail_incr_reg = {};
-                         else if (counter_loop_h != 0)
+                         else if (counter_loop_h >= 0)
                              tail_incr_reg = {};
                          else
                              tail_incr_reg = {};
@@ -575,9 +575,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 tail_incr_last_window = buffer_min_size-1
                 code_gen_dict["$TAIL_INCR_GENERATION$"] = ["""
                 always @ (counter_loop_w, counter_loop_h) begin
-                        if (counter_loop_w != 0)
+                        if (counter_loop_w >= 0)
                             tail_incr_reg = {};
-                        else if (counter_loop_h != 0)
+                        else if (counter_loop_h >= 0)
                             tail_incr_reg = {};
                         else
                             tail_incr_reg = {};
