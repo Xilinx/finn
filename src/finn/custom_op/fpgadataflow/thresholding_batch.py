@@ -31,13 +31,13 @@ import os
 import textwrap
 import warnings
 from math import ceil, log2
-
-from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import (
+from qonnx.core.datatype import DataType
+from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
+
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -465,9 +465,26 @@ class Thresholding_Batch(HLSCustomOp):
             weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
             self.make_weight_file(thresholds, "decoupled_npy", weight_filename_sim)
             # also save weights as Verilog .dat file
-            weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+            # note that we provide two different .dat files, one for synth
+            # and one for synthesis. this is because URAM-based weights always
+            # need zero weights for synthesis, otherwise they get inferred
+            # as BRAM
+            weight_filename_rtl_synth = "{}/memblock_synth_0.dat".format(code_gen_dir)
+            weight_filename_rtl_sim = "{}/memblock_sim_0.dat".format(code_gen_dir)
+            # sim weights are always the true weights
             self.make_weight_file(
-                thresholds, "decoupled_verilog_dat", weight_filename_rtl
+                thresholds, "decoupled_verilog_dat", weight_filename_rtl_sim
+            )
+            ram_style = self.get_nodeattr("ram_style")
+            if ram_style == "ultra":
+                # UltraRAM must have no memory initializer, or only zeroes
+                # otherwise BRAM will be inferred instead of URAM
+                # as a workaround we provide a zero-weight init here
+                synth_thresholds = np.zeros_like(thresholds, dtype=np.float32)
+            else:
+                synth_thresholds = thresholds
+            self.make_weight_file(
+                synth_thresholds, "decoupled_verilog_dat", weight_filename_rtl_synth
             )
         else:
             raise Exception("Unrecognized mem_mode")
@@ -528,12 +545,10 @@ class Thresholding_Batch(HLSCustomOp):
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
-            assert (
-                context[node.output[0]].shape == self.get_folded_output_shape()
-            ), """Output shape is not as expected"""
-            # reshape output to have expected shape
             oshape = self.get_normal_output_shape()
-            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
+            assert (
+                context[node.output[0]].shape == oshape
+            ), """Output shape is not as expected"""
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -674,9 +689,12 @@ class Thresholding_Batch(HLSCustomOp):
                 )
             ]
         elif mem_mode == "decoupled":
+            # note that numReps is set to 1 in the invocation below, since
+            # - for cppsim the repetition comes from the threshold stream reader+input
+            # - for synth the unit runs continuously anyway (ap_ctrl_none)
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<{}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
-                (in0, out, weights, numReps);""".format(
+                (in0, out, weights, 1);""".format(
                     "Thresholding_Stream_Batch",
                     total_spatial_size,
                     tmpl_args["TSrcI"],

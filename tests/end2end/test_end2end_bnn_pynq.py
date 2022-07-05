@@ -42,19 +42,31 @@ from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from collections import OrderedDict
 from dataset_loading import cifar, mnist
 from datetime import datetime
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import (
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    RemoveStaticGraphInputs,
+    RemoveUnusedTensors,
+)
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.insert_topk import InsertTopK
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 from scipy.stats import linregress
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.core.throughput_test import throughput_test_remote, throughput_test_rtlsim
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
-from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -71,18 +83,6 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
-from finn.transformation.general import (
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    RemoveStaticGraphInputs,
-    RemoveUnusedTensors,
-)
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.insert_topk import InsertTopK
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from finn.transformation.merge_onnx_models import MergeONNXModels
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
@@ -90,6 +90,7 @@ from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
+from finn.util.basic import get_finn_root
 from finn.util.gdrive import upload_to_end2end_dashboard
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
@@ -136,7 +137,7 @@ def update_dashboard_data(topology, wbits, abits, key, val):
 
 
 def fold_tfc(model):
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # (PE, SIMD, ramstyle) for each layer
     config = [(16, 49, "block"), (8, 8, "auto"), (8, 8, "auto"), (10, 8, "distributed")]
     for fcl, (pe, simd, ramstyle) in zip(fc_layers, config):
@@ -154,7 +155,7 @@ def fold_tfc(model):
 
 
 def fold_lfc(model):
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # (PE, SIMD, ramstyle) for each layer
     config = [
         (32, 49, "block"),
@@ -176,7 +177,7 @@ def fold_lfc(model):
 
 
 def fold_cnv_large(model):
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # each tuple is (PE, SIMD) for a layer
     folding = [
         (16, 3),
@@ -203,7 +204,7 @@ def fold_cnv_large(model):
 
 
 def fold_cnv_small(model):
-    fc_layers = model.get_nodes_by_op_type("StreamingFCLayer_Batch")
+    fc_layers = model.get_nodes_by_op_type("MatrixVectorActivation")
     # each tuple is (PE, SIMD) for a layer
     folding = [
         (8, 3, "distributed"),
@@ -259,11 +260,11 @@ def get_golden_io_pair(topology, wbits, abits, preproc=ToTensor(), return_topk=N
 def measure_top1_accuracy(model_chkpt, dataset, parent_chkpt=None):
     if dataset == "cifar10":
         trainx, trainy, testx, testy, valx, valy = cifar.load_cifar_data(
-            "/workspace/finn/dataset", download=True, one_hot=False
+            get_finn_root() + "/dataset", download=True, one_hot=False
         )
     elif dataset == "mnist":
         trainx, trainy, testx, testy, valx, valy = mnist.load_mnist_data(
-            "/workspace/finn/dataset", download=True, one_hot=False
+            get_finn_root() + "/dataset", download=True, one_hot=False
         )
     else:
         raise Exception("Unrecognized dataset")
@@ -313,6 +314,7 @@ def topology2dataset(topology):
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("topology", ["lfc", "tfc", "cnv"])
 @pytest.mark.parametrize("QONNX_export", [False, True])
+@pytest.mark.end2end
 class TestEnd2End:
     def test_export(self, topology, wbits, abits, QONNX_export):
         if wbits > abits:
@@ -334,7 +336,7 @@ class TestEnd2End:
         dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         update_dashboard_data(topology, wbits, abits, "datetime", dtstr)
         finn_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd="/workspace/finn"
+            ["git", "rev-parse", "HEAD"], cwd=get_finn_root()
         )
         finn_commit = finn_commit.decode("utf-8").strip()
         update_dashboard_data(topology, wbits, abits, "finn-commit", finn_commit)
@@ -425,9 +427,9 @@ class TestEnd2End:
             # use standalone thresholds for tfc-w1a1 to also exercise that option
             model = model.transform(to_hls.InferThresholdingLayer())
         # needed for bipolar MatMul layers
-        model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
+        model = model.transform(to_hls.InferBinaryMatrixVectorActivation(mem_mode))
         # needed for non-bipolar MatMul layers
-        model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
+        model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode))
         # TopK to LabelSelect
         model = model.transform(to_hls.InferLabelSelectLayer())
         # input quantization (if any) to standalone thresholding
@@ -450,26 +452,26 @@ class TestEnd2End:
             "tfc": [
                 ("Reshape", 1),
                 ("Thresholding_Batch", 1),
-                ("StreamingFCLayer_Batch", 4),
+                ("MatrixVectorActivation", 4),
                 ("LabelSelect_Batch", 1),
             ],
             "tfc-1-1": [
                 ("Reshape", 1),
                 ("Thresholding_Batch", 4),
-                ("StreamingFCLayer_Batch", 4),
+                ("MatrixVectorActivation", 4),
                 ("LabelSelect_Batch", 1),
             ],
             "lfc": [
                 ("Reshape", 1),
                 ("Thresholding_Batch", 1),
-                ("StreamingFCLayer_Batch", 4),
+                ("MatrixVectorActivation", 4),
                 ("LabelSelect_Batch", 1),
             ],
             "cnv": [
                 ("Transpose", 1),
                 ("Thresholding_Batch", 1),
                 ("ConvolutionInputGenerator", 6),
-                ("StreamingFCLayer_Batch", 9),
+                ("MatrixVectorActivation", 9),
                 ("StreamingMaxPool_Batch", 2),
                 ("LabelSelect_Batch", 1),
             ],
@@ -671,6 +673,9 @@ class TestEnd2End:
     @pytest.mark.vitis
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_build(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(
@@ -693,6 +698,9 @@ class TestEnd2End:
     @pytest.mark.vitis
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_make_pynq_driver(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
         prev_chkpt_name = get_checkpoint_name(
@@ -707,6 +715,9 @@ class TestEnd2End:
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_deploy(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "driver_" + kind
         )
@@ -730,6 +741,9 @@ class TestEnd2End:
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_run_on_hw(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "deploy_" + kind
         )
@@ -754,6 +768,9 @@ class TestEnd2End:
 
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_throughput_hw(self, topology, wbits, abits, QONNX_export, kind):
+        # temporarily adding skip for alveo builds
+        if kind == "alveo":
+            pytest.skip("Alveo tests temporarily excluded")
         prev_chkpt_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "deploy_" + kind
         )

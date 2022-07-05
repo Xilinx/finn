@@ -38,10 +38,10 @@ import torchvision.transforms.functional as torchvision_util
 import warnings
 from brevitas_examples import bnn_pynq, imagenet_classification
 from pkgutil import get_data
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 
-from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
-from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
@@ -144,7 +144,7 @@ def get_example_input(topology):
     "Get example numpy input tensor for given topology."
 
     if "fc" in topology:
-        raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+        raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
         onnx_tensor = onnx.load_tensor_from_string(raw_i)
         return nph.to_array(onnx_tensor)
     elif topology == "cnv":

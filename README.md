@@ -34,9 +34,12 @@ You can view the documentation on [readthedocs](https://finn.readthedocs.io) or 
 
 ## Community
 
-We have a [gitter channel](https://gitter.im/xilinx-finn/community) where you can ask questions. You can use the GitHub issue tracker to report bugs, but please don't file issues to ask questions as this is better handled in the gitter channel.
+We have [GitHub discussions](https://github.com/Xilinx/finn/discussions) where you can ask questions. You can use the GitHub issue tracker to report bugs, but please don't file issues to ask questions as this is better handled in GitHub discussions.
 
-We also heartily welcome contributions to the project, please check out the [contribution guidelines](CONTRIBUTING.md) and the [list of open issues](https://github.com/Xilinx/finn/issues). Don't hesitate to get in touch over [Gitter](https://gitter.im/xilinx-finn/community) to discuss your ideas.
+We also heartily welcome contributions to the project, please check out the [contribution guidelines](CONTRIBUTING.md) and the [list of open issues](https://github.com/Xilinx/finn/issues). Don't hesitate to get in touch over [GitHub discussions](https://github.com/Xilinx/finn/discussions) to discuss your ideas.
+
+In the past, we also had a [Gitter channel](https://gitter.im/xilinx-finn/community). Please be aware that this is no longer maintained by us but can still be used to search for questions previous users had.
+
 
 ## Citation
 

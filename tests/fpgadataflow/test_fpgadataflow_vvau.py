@@ -30,25 +30,25 @@ import pytest
 
 import numpy as np
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.multithreshold import multithreshold
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.general.multithreshold import multithreshold
-from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import gen_finn_dt_tensor
 
 
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
-    W_sparse = np.zeros((channels, channels, k_h, k_w))
+    W_sparse = np.zeros((channels, channels, k_h, k_w), dtype=np.float32)
     for ch in range(channels):
         W_sparse[ch][ch] = W_conv[ch][0]
     W_conv = W_sparse.astype(np.float32)
@@ -98,7 +98,7 @@ def _make_single_vvau_modelwrapper(
         actval = 0
 
     VVAU_node = helper.make_node(
-        "Vector_Vector_Activate_Batch",
+        "VectorVectorActivation",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -233,7 +233,7 @@ def test_fpgadataflow_vvau(
     assert (y_produced == y_expected).all(), "cppsim failed"
 
     if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("Vector_Vector_Activate_Batch")[0]
+        node = model.get_nodes_by_op_type("VectorVectorActivation")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

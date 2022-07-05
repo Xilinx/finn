@@ -32,31 +32,32 @@ import brevitas.onnx as bo
 import numpy as np
 import torch
 from PIL import Image
-
-import finn.core.onnx_exec as oxe
-import finn.transformation.streamline.absorb as absorb
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import (
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     GiveUniqueParameterTensors,
 )
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.insert_topk import InsertTopK
-from finn.transformation.merge_onnx_models import MergeONNXModels
-from finn.util.basic import make_build_dir
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.insert_topk import InsertTopK
+from qonnx.transformation.merge_onnx_models import MergeONNXModels
+
+import finn.core.onnx_exec as oxe
+import finn.transformation.streamline.absorb as absorb
+from finn.util.basic import get_finn_root, make_build_dir
 from finn.util.pytorch import NormalizePreProc
 from finn.util.test import crop_center, get_test_model_trained, resize_smaller_side
+
 
 @pytest.mark.brevitas_export
 @pytest.mark.xfail
 def test_brevitas_mobilenet():
     # get single image as input and prepare image
-    img = Image.open("/workspace/finn/tests/brevitas/king_charles.jpg")
+    img = Image.open(get_finn_root() + "/tests/brevitas/king_charles.jpg")
     # resize smallest side of the image to 256 pixels and resize larger side
     # with same ratio
     img = resize_smaller_side(256, img)

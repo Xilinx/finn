@@ -30,22 +30,23 @@ import pytest
 
 import brevitas.onnx as bo
 import os
+import qonnx.core.data_layout as DataLayout
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 
-import finn.core.data_layout as DataLayout
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 from finn.util.test import get_test_model_trained
 
 export_onnx_path_cnv = "test_infer_data_layouts.onnx"
+
 
 @pytest.mark.transform
 def test_infer_data_layouts_cnv():
@@ -89,8 +90,8 @@ def test_infer_data_layouts_cnv():
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
     model = model.transform(Streamline())
-    model = model.transform(to_hls.InferBinaryStreamingFCLayer())
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer())
+    model = model.transform(to_hls.InferBinaryMatrixVectorActivation())
+    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation())
     model = model.transform(to_hls.InferConvInpGen())
     model = model.transform(to_hls.InferStreamingMaxPool())
     model = model.transform(GiveUniqueNodeNames())
@@ -105,9 +106,9 @@ def test_infer_data_layouts_cnv():
     assert (
         model.get_tensor_layout("ConvolutionInputGenerator_0_out0") == DataLayout.NHWC
     )
-    assert model.get_tensor_layout("StreamingFCLayer_Batch_3_out0") == DataLayout.NHWC
+    assert model.get_tensor_layout("MatrixVectorActivation_3_out0") == DataLayout.NHWC
     assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
-    assert model.get_tensor_layout("StreamingFCLayer_Batch_6_out0") == DataLayout.NC
+    assert model.get_tensor_layout("MatrixVectorActivation_6_out0") == DataLayout.NC
     assert model.get_tensor_layout("global_out") == DataLayout.NC
 
     os.remove(export_onnx_path_cnv)

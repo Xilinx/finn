@@ -28,7 +28,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-export FINN_ROOT=/workspace
 export HOME=/tmp/home_dir
 export SHELL=/bin/bash
 export LANG="en_US.UTF-8"
@@ -36,6 +35,7 @@ export LC_ALL="en_US.UTF-8"
 export LANGUAGE="en_US:en"
 # colorful terminal output
 export PS1='\[\033[1;36m\]\u\[\033[1;31m\]@\[\033[1;32m\]\h:\[\033[1;35m\]\w\[\033[1;31m\]\$\[\033[0m\] '
+export PATH=$PATH:$OHMYXILINX
 
 YELLOW='\033[0;33m'
 GREEN='\033[0;32m'
@@ -54,12 +54,21 @@ recho () {
   echo -e "${RED}ERROR: $1${NC}"
 }
 
-if [ -f "$FINN_ROOT/finn/setup.py" ];then
+# qonnx
+pip install --user -e ${FINN_ROOT}/deps/qonnx
+# finn-experimental
+pip install --user -e ${FINN_ROOT}/deps/finn-experimental
+# brevitas
+pip install --user -e ${FINN_ROOT}/deps/brevitas
+# pyverilator
+pip install --user -e ${FINN_ROOT}/deps/pyverilator
+
+if [ -f "${FINN_ROOT}/setup.py" ];then
   # run pip install for finn
-  pip install --user -e $FINN_ROOT/finn
+  pip install --user -e ${FINN_ROOT}
 else
-  recho "Unable to find FINN source code in $FINN_ROOT/finn"
-  recho "Ensure you have passed -v <path-to-finn-repo>:/workspace/finn to the docker run command"
+  recho "Unable to find FINN source code in ${FINN_ROOT}"
+  recho "Ensure you have passed -v <path-to-finn-repo>:<path-to-finn-repo> to the docker run command"
   exit -1
 fi
 

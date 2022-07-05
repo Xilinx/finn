@@ -30,8 +30,8 @@ import numpy as np
 import os
 import warnings
 from math import ceil
+from qonnx.core.datatype import DataType
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
@@ -51,7 +51,7 @@ from . import templates
 def get_smallest_possible(vals):
     """Returns smallest (fewest bits) possible DataType that can represent
     value. Prefers unsigned integers where possible."""
-    vals = np.array(vals)
+    vals = np.array(vals, dtype=np.float64)
     for v in vals:
         assert int(v) == v, "Error float value"
 
@@ -431,11 +431,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
                 out = 2 * out - 1
                 context[node.output[0]] = out
             assert (
-                context[node.output[0]].shape == self.get_folded_output_shape()
+                context[node.output[0]].shape == self.get_normal_output_shape()
             ), """Output shape is not as expected"""
-            # reshape output to have expected shape
-            oshape = self.get_normal_output_shape()
-            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Copyright (c) 2020-2022, Advanced Micro Devices
+# Copyright (c) 2020-2022, Xilinx, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -93,6 +93,8 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${FINN_DOCKER_RUN_AS_ROOT="0"}
 : ${FINN_DOCKER_GPU="$(docker info | grep nvidia | wc -m)"}
 : ${FINN_DOCKER_EXTRA=""}
+: ${FINN_SKIP_DEP_REPOS="0"}
+: ${OHMYXILINX="${SCRIPTPATH}/deps/oh-my-xilinx"}
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
 
@@ -166,6 +168,11 @@ gecho "Port-forwarding for Netron $NETRON_PORT:$NETRON_PORT"
 gecho "Vivado IP cache dir is at $VIVADO_IP_CACHE"
 gecho "Using default PYNQ board $PYNQ_BOARD"
 
+# Ensure git-based deps are checked out at correct commit
+if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
+  ./fetch-repos.sh
+fi
+
 # Build the FINN Docker image
 if [ "$FINN_DOCKER_PREBUILT" = "0" ]; then
   # Need to ensure this is done within the finn/ root folder:
@@ -180,10 +187,11 @@ fi
 DOCKER_EXEC="docker run -t --rm $DOCKER_INTERACTIVE --tty --init "
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
-DOCKER_EXEC+="-v $SCRIPTPATH:/workspace/finn "
+DOCKER_EXEC+="-w $SCRIPTPATH "
+DOCKER_EXEC+="-v $SCRIPTPATH:$SCRIPTPATH "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
 DOCKER_EXEC+="-e FINN_BUILD_DIR=$FINN_HOST_BUILD_DIR "
-DOCKER_EXEC+="-e FINN_ROOT="/workspace" "
+DOCKER_EXEC+="-e FINN_ROOT="$SCRIPTPATH" "
 DOCKER_EXEC+="-e LOCALHOST_URL=$LOCALHOST_URL "
 DOCKER_EXEC+="-e VIVADO_IP_CACHE=$VIVADO_IP_CACHE "
 DOCKER_EXEC+="-e PYNQ_BOARD=$PYNQ_BOARD "
@@ -191,6 +199,7 @@ DOCKER_EXEC+="-e PYNQ_IP=$PYNQ_IP "
 DOCKER_EXEC+="-e PYNQ_USERNAME=$PYNQ_USERNAME "
 DOCKER_EXEC+="-e PYNQ_PASSWORD=$PYNQ_PASSWORD "
 DOCKER_EXEC+="-e PYNQ_TARGET_DIR=$PYNQ_TARGET_DIR "
+DOCKER_EXEC+="-e OHMYXILINX=$OHMYXILINX "
 DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ];then
   DOCKER_EXEC+="-v /etc/group:/etc/group:ro "
