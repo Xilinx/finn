@@ -62,13 +62,13 @@ def collect_ip_dirs(model, ipstitch_path):
         ), """The directory that should
         contain the generated ip blocks doesn't exist."""
         ip_dirs += [ip_dir_value]
-        if node.op_type in ["StreamingFCLayer_Batch", "Thresholding_Batch"]:
+        if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
             if node_inst.get_nodeattr("mem_mode") == "decoupled":
                 need_memstreamer = True
     ip_dirs += [ipstitch_path + "/ip"]
     if need_memstreamer:
         # add RTL streamer IP
-        ip_dirs.append("/workspace/finn/finn-rtllib/memstream")
+        ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
     return ip_dirs
 
 
@@ -152,11 +152,13 @@ class MakeZYNQProject(Transformation):
             # define kernel instances
             # name kernels connected to graph inputs as idmaxx
             # name kernels connected to graph outputs as odmaxx
-            if producer is None or consumer is None:
+            if (producer is None) or (consumer == []):
+                # TODO not a good way of checking for external inp&out
+                # should look at the list of top-level in/out instead
                 if producer is None:
                     instance_names[node.name] = "idma" + str(idma_idx)
                     idma_idx += 1
-                elif consumer is None:
+                elif consumer == []:
                     instance_names[node.name] = "odma" + str(odma_idx)
                     odma_idx += 1
                 config.append(
@@ -279,10 +281,16 @@ class MakeZYNQProject(Transformation):
         copy(bitfile_name, deploy_bitfile_name)
         # set bitfile attribute
         model.set_metadata_prop("bitfile", deploy_bitfile_name)
-        hwh_name = (
+        hwh_name_alts = [
             vivado_pynq_proj_dir
-            + "/finn_zynq_link.srcs/sources_1/bd/top/hw_handoff/top.hwh"
-        )
+            + "/finn_zynq_link.srcs/sources_1/bd/top/hw_handoff/top.hwh",
+            vivado_pynq_proj_dir
+            + "/finn_zynq_link.gen/sources_1/bd/top/hw_handoff/top.hwh",
+        ]
+        hwh_name = None
+        for hwh_name_cand in hwh_name_alts:
+            if os.path.isfile(hwh_name_cand):
+                hwh_name = hwh_name_cand
         if not os.path.isfile(hwh_name):
             raise Exception(
                 "Synthesis failed, no bitfile found. Check logs under %s"

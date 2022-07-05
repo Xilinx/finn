@@ -39,6 +39,7 @@ from finn.transformation.insert_topk import InsertTopK
 from finn.transformation.streamline.absorb import AbsorbScalarMulAddIntoTopK
 
 
+@pytest.mark.streamline
 # parameter to indicate if mul parameter is negative or positive
 @pytest.mark.parametrize("mul_positive", [True, False])
 # parameter to indicate if mul parameter is scalar or not

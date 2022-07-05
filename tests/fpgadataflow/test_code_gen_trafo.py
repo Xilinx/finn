@@ -37,6 +37,7 @@ from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_code_gen_trafo():
     idt = wdt = odt = DataType["BIPOLAR"]
@@ -49,7 +50,7 @@ def test_code_gen_trafo():
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
     node_inp_list = ["inp", "weights", "thresh"]
     FCLayer_node = helper.make_node(
-        "StreamingFCLayer_Batch",
+        "MatrixVectorActivation",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",

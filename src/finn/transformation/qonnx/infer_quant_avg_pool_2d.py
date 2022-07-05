@@ -230,7 +230,7 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
                         # 7c2603a95e90e4de2575020e575c24eab6a15889/src/finn/custom_op/
                         # general/quantavgpool2d.py#L94
                         ibits = math.floor(
-                            math.log(2 ** trunc_in_bits / (k_s * k_s), 2)
+                            math.log(2**trunc_in_bits / (k_s * k_s), 2)
                         )
                         # Get sign
                         signed = _get_signed_from_upstream(model, t_node)

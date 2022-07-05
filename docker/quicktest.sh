@@ -2,7 +2,7 @@
 
 : ${PYTEST_PARALLEL=auto}
 
-cd $FINN_ROOT
+cd $FINN_ROOT/finn
 # check if command line argument is empty or not present
 if [ -z $1 ]; then
   echo "Running quicktest: not (vivado or slow or board) with pytest-xdist"

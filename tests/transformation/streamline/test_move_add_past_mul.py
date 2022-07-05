@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pytest
+
 import numpy as np
 import onnx.helper as oh
 from onnx import TensorProto
@@ -36,6 +38,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import MoveAddPastMul
 
 
+@pytest.mark.streamline
 def test_move_add_past_mul_single():
     top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, [2])
     add_param = oh.make_tensor_value_info("add_param", TensorProto.FLOAT, [2])
@@ -65,6 +68,7 @@ def test_move_add_past_mul_single():
     assert new_model.graph.node[0].output[0] == new_model.graph.node[1].input[0]
 
 
+@pytest.mark.streamline
 def test_move_add_past_mul_multi():
     top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, [2])
     add_param_0 = oh.make_tensor_value_info("add_param_0", TensorProto.FLOAT, [2])
@@ -103,6 +107,7 @@ def test_move_add_past_mul_multi():
         assert new_model.graph.node[i].output[0] == new_model.graph.node[i + 1].input[0]
 
 
+@pytest.mark.streamline
 def test_move_add_past_mul_only_if_linear():
     top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, [2])
     top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, [2])

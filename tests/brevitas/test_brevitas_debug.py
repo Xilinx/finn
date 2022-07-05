@@ -47,6 +47,7 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.test import get_test_model_trained
 
 
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("QONNX_export", [False, True])
 @pytest.mark.parametrize("QONNX_FINN_conversion", [False, True])
 def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):

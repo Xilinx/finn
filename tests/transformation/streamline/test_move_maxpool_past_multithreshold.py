@@ -1,3 +1,5 @@
+import pytest
+
 import numpy as np
 from onnx import TensorProto, helper
 
@@ -17,7 +19,7 @@ def get_multithreshold_rand_params(channels, num_of_thres, seed=None):
     thres = ((thres - bias) * steps).astype(np.float32)
     return thres
 
-
+@pytest.mark.streamline
 def test_move_maxpool_past_multithreshold():
     # generate test vectors of correct shape
     ch = 64

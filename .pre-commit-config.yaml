@@ -29,11 +29,11 @@
 exclude: '^docs/conf.py'
 
 default_language_version:
-    python: python3
+    python: python3.8
 
 repos:
-- repo: git://github.com/pre-commit/pre-commit-hooks
-  rev: v3.2.0
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.2.0
   hooks:
   - id: trailing-whitespace
     exclude: '\.dat$'
@@ -50,21 +50,29 @@ repos:
   - id: mixed-line-ending
     args: ['--fix=no']
 
-- repo: git://github.com/PyCQA/isort
-  rev: 5.5.3
+- repo: https://github.com/PyCQA/isort
+  rev: 5.10.1
   hooks:
   - id: isort
 
-- repo: git://github.com/psf/black
-  rev: stable
+- repo: https://github.com/psf/black
+  rev: 22.3.0
   hooks:
   - id: black
     language_version: python3
 
 - repo: https://gitlab.com/pycqa/flake8
-  rev: 3.8.3
+  rev: 3.9.2
   hooks:
   - id: flake8
     # black-compatible flake-8 config
     args: ['--max-line-length=88',  # black default
            '--extend-ignore=E203']  # E203 is not PEP8 compliant
+
+- repo: local
+  hooks:
+  - id: jupyter-nb-clear-output
+    name: jupyter-nb-clear-output
+    files: \.ipynb$
+    language: system
+    entry: jupyter nbconvert --ClearOutputPreprocessor.enabled=True --inplace

@@ -99,7 +99,7 @@ class RemoveShallowFIFOs(Transformation):
                 # bypass shallow fifos
                 shallow_fifos.append(node)
                 consumers = model.find_consumers(node.output[0])
-                if consumers is None:
+                if consumers == []:
                     producer = model.find_producer(node.input[0])
                     for idx, inp in enumerate(producer.output):
                         if inp == node.input[0]:
@@ -137,7 +137,7 @@ class CapConvolutionFIFODepths(Transformation):
     Background:
     The simulation-based rtlsim_exec tends to overestimate the required depth
     of FIFOs between the ConvolutionInputGenerator (here called SWG) and the
-    StreamingFCLayer (here called MVAU). As the SWG has an internal buffer of 1
+    MatrixVectorActivation (here called MVAU). As the SWG has an internal buffer of 1
     image row, we use this as a rule of thumb to set FIFO depth to be no larger
     than 1 row.
     """
@@ -152,7 +152,7 @@ class CapConvolutionFIFODepths(Transformation):
         # TODO move this to own transformation
         for node in model.graph.node:
             # look for following pattern:
-            # ConvolutionInputGenerator -> StreamingFIFO -> StreamingFCLayer
+            # ConvolutionInputGenerator -> StreamingFIFO -> MatrixVectorActivation
             if node.op_type == "StreamingFIFO":
                 fifo_prod = model.find_producer(node.input[0])
                 fifo_cons = model.find_consumer(node.output[0])
@@ -162,7 +162,7 @@ class CapConvolutionFIFODepths(Transformation):
                     continue
                 if fifo_cons is None:
                     continue
-                if fifo_cons.op_type != "StreamingFCLayer_Batch":
+                if fifo_cons.op_type != "MatrixVectorActivation":
                     continue
                 op_inst = getCustomOp(node)
                 depth = op_inst.get_nodeattr("depth")
@@ -222,7 +222,7 @@ class InsertAndSetFIFODepths(Transformation):
         fpgapart,
         clk_ns=10.0,
         max_qsrl_depth=256,
-        max_depth=2 ** 14,
+        max_depth=2**14,
         swg_exception=True,
         vivado_ram_style="auto",
     ):
@@ -247,7 +247,7 @@ class InsertAndSetFIFODepths(Transformation):
             node = getCustomOp(node)
             node.set_nodeattr("inFIFODepth", self.max_depth)
             node.set_nodeattr("outFIFODepth", self.max_depth)
-            if node.onnx_node.op_type == "StreamingFCLayer_Batch":
+            if node.onnx_node.op_type == "MatrixVectorActivation":
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
                     modified_fc_nodes.append(node.onnx_node.name)
@@ -377,7 +377,7 @@ class InsertAndSetFIFODepths(Transformation):
                 getCustomOp(node).set_nodeattr("outFIFODepth", 0)
                 # for every FC node we changed from external to decoupled,
                 # change back and reset implementation
-                if node.op_type == "StreamingFCLayer_Batch":
+                if node.op_type == "MatrixVectorActivation":
                     if node.name in modified_fc_nodes:
                         node_inst = getCustomOp(node)
                         node_inst.set_nodeattr("mem_mode", "external")

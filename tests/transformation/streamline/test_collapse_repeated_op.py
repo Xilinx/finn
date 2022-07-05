@@ -38,6 +38,7 @@ from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import CollapseRepeatedAdd, CollapseRepeatedMul
 
 
+@pytest.mark.streamline
 def test_collapse_repeated_op():
     top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, [2])
     add_param_0 = oh.make_tensor_value_info("add_param_0", TensorProto.FLOAT, [2])
@@ -74,6 +75,7 @@ def test_collapse_repeated_op():
     assert new_model.graph.node[1].op_type == "Mul"
 
 
+@pytest.mark.streamline
 @pytest.mark.parametrize(
     "test_args",
     [("Add", CollapseRepeatedAdd()), ("Mul", CollapseRepeatedMul())],

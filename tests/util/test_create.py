@@ -32,6 +32,7 @@ import finn.util.create as create
 from finn.core.datatype import DataType
 
 
+@pytest.mark.util
 @pytest.mark.parametrize(
     "bitwidth", [DataType["BIPOLAR"], DataType["INT2"], DataType["INT4"]]
 )

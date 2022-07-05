@@ -143,12 +143,13 @@ def make_model(ch, ifmdim):
 @pytest.mark.parametrize("ch", [16])
 # ifmdim
 @pytest.mark.parametrize("ifmdim", [5])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_convert_to_hls_layers_synthetic(ch, ifmdim, idt):
     model = make_model(ch, ifmdim)
     model.save(export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
+    model = ModelWrapper(export_onnx_path, fix_float64=True)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
