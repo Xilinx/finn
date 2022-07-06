@@ -31,13 +31,13 @@ import os
 import textwrap
 import warnings
 from math import ceil, log2
-
-from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import (
+from qonnx.core.datatype import DataType
+from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
+
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -389,7 +389,7 @@ class Thresholding_Batch(HLSCustomOp):
                     tdt_hls,
                     odt_hls,
                     self.get_nodeattr("ActVal"),
-                    "comp::less_equal<%s>" % tdt_hls,
+                    "comp::less_equal<%s, %s>" % (tdt_hls, tdt_hls),
                 )
             )
             f_thresh.write(thresholds_hls_code)
@@ -465,9 +465,26 @@ class Thresholding_Batch(HLSCustomOp):
             weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
             self.make_weight_file(thresholds, "decoupled_npy", weight_filename_sim)
             # also save weights as Verilog .dat file
-            weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
+            # note that we provide two different .dat files, one for synth
+            # and one for synthesis. this is because URAM-based weights always
+            # need zero weights for synthesis, otherwise they get inferred
+            # as BRAM
+            weight_filename_rtl_synth = "{}/memblock_synth_0.dat".format(code_gen_dir)
+            weight_filename_rtl_sim = "{}/memblock_sim_0.dat".format(code_gen_dir)
+            # sim weights are always the true weights
             self.make_weight_file(
-                thresholds, "decoupled_verilog_dat", weight_filename_rtl
+                thresholds, "decoupled_verilog_dat", weight_filename_rtl_sim
+            )
+            ram_style = self.get_nodeattr("ram_style")
+            if ram_style == "ultra":
+                # UltraRAM must have no memory initializer, or only zeroes
+                # otherwise BRAM will be inferred instead of URAM
+                # as a workaround we provide a zero-weight init here
+                synth_thresholds = np.zeros_like(thresholds, dtype=np.float32)
+            else:
+                synth_thresholds = thresholds
+            self.make_weight_file(
+                synth_thresholds, "decoupled_verilog_dat", weight_filename_rtl_synth
             )
         else:
             raise Exception("Unrecognized mem_mode")
@@ -528,12 +545,10 @@ class Thresholding_Batch(HLSCustomOp):
                 out = context[node.output[0]]
                 out = 2 * out - 1
                 context[node.output[0]] = out
-            assert (
-                context[node.output[0]].shape == self.get_folded_output_shape()
-            ), """Output shape is not as expected"""
-            # reshape output to have expected shape
             oshape = self.get_normal_output_shape()
-            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
+            assert (
+                context[node.output[0]].shape == oshape
+            ), """Output shape is not as expected"""
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -589,7 +604,7 @@ class Thresholding_Batch(HLSCustomOp):
     # TODO check and add whatever missing
     def defines(self, var):
         numInputVectors = list(self.get_nodeattr("numInputVectors"))
-        numReps = numInputVectors[0]
+        numReps = int(np.prod(numInputVectors))
         self.code_gen_dict["$DEFINES$"] = [
             """#define NumChannels1 {}\n #define PE1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("NumChannels"),
@@ -660,34 +675,28 @@ class Thresholding_Batch(HLSCustomOp):
         # TODO: why put some template parameters into defines and not others?
         # should ImgDim be defined or just filled in here like we do now?
         node = self.onnx_node
-        ishape = self.get_folded_input_shape()
-        if len(ishape) == 3:
-            imgdimh = 1
-            imgdimw = 1
-        elif len(ishape) == 5:
-            imgdimh = ishape[1]
-            imgdimw = ishape[2]
-        else:
-            raise Exception("""Unexpected input shape""")
+        inp_vecs = self.get_nodeattr("numInputVectors")
+        total_spatial_size = int(np.prod(inp_vecs))
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<{}, {}, NumChannels1, PE1, {}, {}>
+                """{}<{}, NumChannels1, PE1, {}, {}>
                 (in0, out, threshs, numReps);""".format(
                     node.op_type,
-                    imgdimh,
-                    imgdimw,
+                    total_spatial_size,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                 )
             ]
         elif mem_mode == "decoupled":
+            # note that numReps is set to 1 in the invocation below, since
+            # - for cppsim the repetition comes from the threshold stream reader+input
+            # - for synth the unit runs continuously anyway (ap_ctrl_none)
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<{}, {}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
-                (in0, out, weights, numReps);""".format(
+                """{}<{}, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
+                (in0, out, weights, 1);""".format(
                     "Thresholding_Stream_Batch",
-                    imgdimh,
-                    imgdimw,
+                    total_spatial_size,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                 )
@@ -753,8 +762,12 @@ class Thresholding_Batch(HLSCustomOp):
             raise Exception("Unrecognized mem_mode")
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"] = [
+            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+        ]
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+        )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
@@ -805,7 +818,8 @@ class Thresholding_Batch(HLSCustomOp):
                     )
         elif self.get_nodeattr("mem_mode") == "decoupled":
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=weights"
+                "#pragma HLS INTERFACE axis port=weights name=weights_"
+                + self.hls_sname()
             )
 
     def code_generation_ipi(self):
@@ -815,6 +829,7 @@ class Thresholding_Batch(HLSCustomOp):
         if mem_mode == "decoupled":
             node_name = self.onnx_node.name
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
+            sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
@@ -868,8 +883,8 @@ class Thresholding_Batch(HLSCustomOp):
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-                "[get_bd_intf_pins %s/%s/weights_V_V]"
-                % (node_name, strm_inst, node_name, node_name)
+                "[get_bd_intf_pins %s/%s/weights_%s]"
+                % (node_name, strm_inst, node_name, node_name, sname)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aresetn]"
@@ -940,3 +955,8 @@ class Thresholding_Batch(HLSCustomOp):
         thres_count = out_features * num_steps
         ret_dict[thres_param_type] = thres_count
         return ret_dict
+
+    def ipgen_extra_directives(self):
+        "Return a list of extra tcl directives for HLS synthesis."
+
+        return ["config_compile -pipeline_style frp"]

@@ -28,8 +28,8 @@
 
 
 import warnings
+from qonnx.transformation.base import Transformation
 
-from finn.transformation.base import Transformation
 from finn.transformation.qonnx.qonnx_activation_handlers import QuantActBaseHandler
 
 

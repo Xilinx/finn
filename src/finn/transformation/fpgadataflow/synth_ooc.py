@@ -27,9 +27,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+from qonnx.transformation.base import Transformation
 from shutil import copy2
 
-from finn.transformation.base import Transformation
 from finn.util.basic import make_build_dir
 from finn.util.vivado import out_of_context_synth
 

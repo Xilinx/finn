@@ -32,13 +32,18 @@ import numpy as np
 import os
 import torch
 from brevitas.export import FINNManager
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.make_input_chanlast import MakeInputChannelsLast
 from torch import nn
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.streamline.absorb as absorb
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hls_layers import InferUpsample
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -46,11 +51,6 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.make_input_chanlast import MakeInputChannelsLast
 
 tmpdir = os.environ["FINN_BUILD_DIR"]
 
@@ -125,6 +125,7 @@ class PyTorchTestModel(nn.Module):
 @pytest.mark.parametrize("NumChannels", [4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode):

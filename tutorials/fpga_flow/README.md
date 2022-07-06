@@ -44,12 +44,13 @@ The build should finish in about 10 minutes, and the FINN docker will close on s
 
 ```
    ...
-   Running step: step_create_stitched_ip [11/16]
-   Running step: step_measure_rtlsim_performance [12/16]
-   Running step: step_out_of_context_synthesis [13/16]
-   Running step: step_synthesize_bitfile [14/16]
-   Running step: step_make_pynq_driver [15/16]
-   Running step: step_deployment_package [16/16]
+   Running step: step_create_stitched_ip [12/18]
+   Running step: step_measure_rtlsim_performance [13/18]
+   Running step: step_out_of_context_synthesis [14/18]
+   Running step: step_synthesize_bitfile [15/18]
+   Running step: step_make_pynq_driver [16/18]
+   Running step: step_deployment_package [17/18]
+   Running step: custom_step_gen_tb_and_io [18/18]
    Completed successfully
    The program finished and will be restarted
 ```
@@ -65,49 +66,47 @@ And, open the project:
 
 > vivado finn_vivado_stitch_proj.xpr
 
-Explore the IPI board design and note the interfaces. Keep this design open in Vivado, as we'll be adding the testbench and invoking the simulation here later on.
+Explore the IPI board design and note the interfaces.
+
 
 ### Simulating the Stitched IP with a Verilog Test Bench
 
-The included `testbench.sv` is a very simple test to illustrate how to feed data to the compiled model.
+You may have noticed that the final build step invoked by FINN is `custom_step_gen_tb_and_io`.
+This custom step generates the files we'll need to simulate the FINN design in Vivado, and places
+them under `${FINN_ROOT}/tutorials/fpga_flow/output_tfc_w0a1_fpga/sim`. Let's examine these files.
 
-The image data is 784 bytes per frame, organized as 28x28 unsigned integer bytes.  However, due to the folding optimizations chosen, the input data is transfered to the hardware model 49 bytes at a time over 16 cycles.  Note how this matches PE=49 as selected for the first layer in `folding_config.json`
+* `input.dat` and `expected_output.dat`: text files containing hex data for sample input and its expected
+   output. These are generated from the `input.npy` and `expected_output.npy` files by the FINN compiler.
+   Notice how the structure of the .dat files reflects the parallelization parameters of the first (for input)
+   and last (for output) layers of the hardware. The input is fed 49 bytes at a time, over 19 cycles to finish
+   a sample of 28x28=784 bytes from the MNIST dataset. Note how this matches PE=49 as selected for the first layer in `folding_config.json`. Additionally, note the reversal along each line in the .dat file to align the
+   byte order with what the FINN-generated hardware expects.
 
-Using the following image for coordinate reference where a byte is identified as B\<row\>\_\<column\> we see that B0_0 is the upper leftmost byte, and B27_27 is the lower right most byte:
+* `finn_testbench.sv` : created by filling in a testbench template (under `templates/finn_testbench.template.sv`) with
+   relevant information by the FINN compiler, including the sizes of the input/output streams, folding factors and number of samples in the generated .dat file.
 
-![Image coordinates: 0,0 is the upper left, and 27,27 is the lower right](numeral.png)
+* `make_sim_proj.tcl` : created by filling in a TCL script template (under `templates/make_sim_proj.template.tcl`) by
+   the FINN compiler. Used for launching the testbench simulation.
 
-Thus, the input data for the first cycle is organized as such:
-```
-  s_axis_0_tdata[391:0] = {B1_20,B1_19, ...  ,B1_0,B0_27, ...  ,B0_1,B0_0};
-```
+You can now launch the simulation as follows:
 
-The testbench reads data from a simple text file (data.hex).  The included script `gen_tb_data.py` creates the test data as well as the ground truth expectations (Note: using ground truth is undesirable if the intent is to validate that the HW implementation matches the trained model).  The script takes the liberty of flipping the byte-order such that verilog's `$readmemh` brings B0_0 nicely into the LSB position.
+> cd ${FINN_ROOT}/tutorials/fpga_flow/output_tfc_w0a1_fpga/sim
+> vivado -mode gui -source make_sim_proj.tcl
 
-To generate the test data, you'll need a Python environment with Keras installed since the Python script uses `keras.datasets` to access the MNIST data. Once you have this, you can generate the test data with the following.
-
-> cd ${FINN_ROOT}/tutorials/fpga_flow/output_tfc_w0a1_fpga/stitched_ip
-> mkdir -p finn_vivado_stitch_proj.sim/sim_1/behav/xsim
-> python ../../gen_tb_data.py finn_vivado_stitch_proj.sim/sim_1/behav/xsim/data.hex
-
-If you'd like to, you can examine what the generated .hex file with the test data looks like:
-
-> less finn_vivado_stitch_proj.sim/sim_1/behav/xsim/data.hex
-
-In Vivado, add the testbench as a simulation file by pasting the following into the Tcl Console:
-> add_files -fileset sim_1 -norecurse ../../testbench.sv
-
-
-Then, run the simulation (Flow Navigator -> Simulation -> Run Simulation).   Give the simulator a `run -all`  (click the "play" button in the simulator) to run the sim to its $finish conclusion.  With 20 test points run, it should have 1 mismatch due using the ground-truth as the check source:
+The simulation should complete with:
 
 ```
- ************************************************************
+ # run all
+CHK: Data    match 02 == 02   --> 0
+
+************************************************************
   SIM COMPLETE
-   Validated 20 data points
-   Total error count: ====>  1  <====
+  Validated 1 data points
+  Total error count: ====>  0  <====
 ```
 
-Note that this mismatch is due to the trained neural network not having perfect accuracy on the test dataset (i.e. the trained PyTorch model would have the same behavior).
+You can also use the provided testbench skeleton and the custom step in `build.py` to build your own
+testbench generators.
 
 #### Instantiation in Mission Design
 
@@ -115,4 +114,6 @@ There are any number of ways to bring the stitched IP into larger design.
 
 FINN already packages the stitched IP block design as a standalone IP-XACT component, which you can find under `${FINN_ROOT}/tutorials/fpga_flow/output_tfc_w0a1_fpga/stitched_ip/ip`. You can add this to the list of IP repos and use it in your own Vivado designs. A good reference for this is [UG1119](https://www.xilinx.com/support/documentation/sw_manuals/xilinx2020_1/ug1119-vivado-creating-packaging-ip-tutorial.pdf)
 
-Keep in mind that all of the User IP Repo's included in the Stitched IP project (from `$FINN_HOST_BUILD_DIR` which is normally located under `/tmp/finn_dev_<username>`) need to also be brought in as IP Repo's to any project using the stitched IP.  It would be prudent to copy those IP repos to an appropriate archive location. Alternatively, if you don't want to copy all of the dependencies, you can ask FINN to generate the IP-XACT component with a synthesized .dcp checkpoint by passing the [stitched_ip_gen_dcp=True](https://finn-dev.readthedocs.io/en/latest/source_code/finn.builder.html#finn.builder.build_dataflow_config.DataflowBuildConfig.stitched_ip_gen_dcp) option as part of the build configuration.
+Keep in mind that all of the User IP Repo's included in the Stitched IP project (from `$FINN_HOST_BUILD_DIR` which is normally located under `/tmp/finn_dev_<username>`) need to also be brought in as IP Repo's to any project using the stitched IP.  It would be prudent to copy those IP repos to an appropriate archive location. You should also set the
+`FINN_ROOT` environment variable to point to the compiler installation directory, as some of the build scripts will
+use this to access various components. Alternatively, if you don't want to copy all of the dependencies, you can ask FINN to generate the IP-XACT component with a synthesized .dcp checkpoint by passing the [stitched_ip_gen_dcp=True](https://finn-dev.readthedocs.io/en/latest/source_code/finn.builder.html#finn.builder.build_dataflow_config.DataflowBuildConfig.stitched_ip_gen_dcp) option as part of the build configuration.

@@ -32,17 +32,17 @@ import pytest
 
 import brevitas.onnx as bo
 import numpy as np
-
-import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import (
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
     RemoveStaticGraphInputs,
     RemoveUnusedTensors,
 )
-from finn.transformation.infer_shapes import InferShapes
+from qonnx.transformation.infer_shapes import InferShapes
+
+import finn.core.onnx_exec as oxe
 from finn.transformation.streamline import Streamline
 from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
@@ -50,6 +50,7 @@ from finn.util.test import get_test_model_trained
 export_onnx_path = make_build_dir("test_streamline_cnv_")
 
 
+@pytest.mark.streamline
 # act bits
 @pytest.mark.parametrize("abits", [1, 2])
 # weight bits

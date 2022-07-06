@@ -29,8 +29,8 @@
 import numpy as np
 import os
 import warnings
+from qonnx.core.datatype import DataType
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -76,10 +76,14 @@ class DuplicateStreams_Batch(HLSCustomOp):
         folded_ishape = tuple(vecs + [folds, pe])
         return folded_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
+        # since the output shape of both out streams are the same
+        # return independently from index
         return self.get_normal_input_shape()
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
+        # since the output shape of both out streams are the same
+        # return independently from index
         return self.get_folded_input_shape()
 
     def make_shape_compatible_op(self, model):
@@ -203,7 +207,6 @@ class DuplicateStreams_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
         folded_ishape = self.get_folded_input_shape()
-        folded_oshape = self.get_folded_output_shape()
         n_outputs = self.get_num_output_streams()
 
         if mode == "cppsim":
@@ -237,10 +240,9 @@ class DuplicateStreams_Batch(HLSCustomOp):
             )
             for i in range(n_outputs):
                 assert (
-                    context[node.output[i]].shape == folded_oshape
+                    context[node.output[i]].shape == exp_oshape
                 ), "cppsim \
-                did not produce expected ofolded utput shape"
-                context[node.output[i]] = context[node.output[i]].reshape(*exp_oshape)
+                did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -384,10 +386,13 @@ class DuplicateStreams_Batch(HLSCustomOp):
 
     def pragmas(self):
         n_outputs = self.get_num_output_streams()
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
+        self.code_gen_dict["$PRAGMAS$"] = [
+            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+        ]
         for i in range(n_outputs):
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=out%d" % i
+                "#pragma HLS INTERFACE axis port=out%d name=out%d_%s"
+                % (i, i, self.hls_sname())
             )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
@@ -396,9 +401,10 @@ class DuplicateStreams_Batch(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         n_outputs = self.get_num_output_streams()
+        sname = self.hls_sname()
         intf_names["m_axis"] = []
         for i in range(n_outputs):
             intf_names["m_axis"].append(
-                ("out%d_V_V" % i, self.get_outstream_width_padded())
+                ("out%d_%s" % (i, sname), self.get_outstream_width_padded())
             )
         return intf_names

@@ -30,10 +30,15 @@ import json
 import os
 import subprocess
 from enum import Enum
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import (
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    RemoveUnusedTensors,
+)
 
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -44,11 +49,6 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.general import (
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    RemoveUnusedTensors,
-)
 from finn.util.basic import make_build_dir
 
 from . import templates
@@ -213,11 +213,13 @@ class VitisLink(Transformation):
             # define kernel instances
             # name kernels connected to graph inputs as idmaxx
             # name kernels connected to graph inputs as odmaxx
+            # TODO not a good way of checking for external in/out
+            # check top-level in/out list instead
             if producer is None:
                 instance_names[node.name] = "idma" + str(idma_idx)
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 idma_idx += 1
-            elif consumer is None:
+            elif consumer == []:
                 instance_names[node.name] = "odma" + str(odma_idx)
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 odma_idx += 1

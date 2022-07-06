@@ -13,10 +13,10 @@ finn.util.basic
    :undoc-members:
    :show-inheritance:
 
-finn.util.config
+qonnx.util.config
 ----------------
 
-.. automodule:: finn.util.config
+.. automodule:: qonnx.util.config
   :members:
   :undoc-members:
   :show-inheritance:

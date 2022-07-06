@@ -32,13 +32,97 @@
 # ./run-docker.sh build_custom /path/to/folder
 
 
+import numpy as np
+import os
+from qonnx.custom_op.registry import getCustomOp
+
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
+import finn.util.data_packing as dpk
 
 model_name = "tfc_w1a1"
 platform_name = "fpga"
 
+
+def custom_step_gen_tb_and_io(model, cfg):
+    sim_output_dir = cfg.output_dir + "/sim"
+    os.makedirs(sim_output_dir, exist_ok=True)
+    # load the provided input data
+    inp_data = np.load("input.npy")
+    batchsize = inp_data.shape[0]
+    # permute input image from NCHW -> NHWC format (needed by FINN)
+    # this example (MNIST) only has 1 channel, which means this doesn't
+    # really do anything in terms of data layout changes, but provided for
+    # completeness
+    inp_data = np.transpose(inp_data, (0, 2, 3, 1))
+    # this network is an MLP and takes in flattened input
+    inp_data = inp_data.reshape(batchsize, -1)
+    # query the parallelism-dependent folded input shape from the
+    # node consuming the graph input
+    inp_name = model.graph.input[0].name
+    inp_node = getCustomOp(model.find_consumer(inp_name))
+    inp_shape_folded = list(inp_node.get_folded_input_shape())
+    inp_stream_width = inp_node.get_instream_width_padded()
+    # fix first dimension (N: batch size) to correspond to input data
+    # since FINN model itself always uses N=1
+    inp_shape_folded[0] = batchsize
+    inp_shape_folded = tuple(inp_shape_folded)
+    inp_dtype = model.get_tensor_datatype(inp_name)
+    # now re-shape input data into the folded shape and do hex packing
+    inp_data = inp_data.reshape(inp_shape_folded)
+    inp_data_packed = dpk.pack_innermost_dim_as_hex_string(
+        inp_data, inp_dtype, inp_stream_width, prefix="", reverse_inner=True
+    )
+    np.savetxt(sim_output_dir + "/input.dat", inp_data_packed, fmt="%s", delimiter="\n")
+    # load expected output and calculate folded shape
+    exp_out = np.load("expected_output.npy")
+    out_name = model.graph.output[0].name
+    out_node = getCustomOp(model.find_producer(out_name))
+    out_shape_folded = list(out_node.get_folded_output_shape())
+    out_stream_width = out_node.get_outstream_width_padded()
+    out_shape_folded[0] = batchsize
+    out_shape_folded = tuple(out_shape_folded)
+    out_dtype = model.get_tensor_datatype(out_name)
+    exp_out = exp_out.reshape(out_shape_folded)
+    out_data_packed = dpk.pack_innermost_dim_as_hex_string(
+        exp_out, out_dtype, out_stream_width, prefix="", reverse_inner=True
+    )
+    np.savetxt(
+        sim_output_dir + "/expected_output.dat",
+        out_data_packed,
+        fmt="%s",
+        delimiter="\n",
+    )
+    # fill in testbench template
+    with open("templates/finn_testbench.template.sv", "r") as f:
+        testbench_sv = f.read()
+    testbench_sv = testbench_sv.replace("@N_SAMPLES@", str(batchsize))
+    testbench_sv = testbench_sv.replace("@IN_STREAM_BITWIDTH@", str(inp_stream_width))
+    testbench_sv = testbench_sv.replace("@OUT_STREAM_BITWIDTH@", str(out_stream_width))
+    testbench_sv = testbench_sv.replace(
+        "@IN_BEATS_PER_SAMPLE@", str(np.prod(inp_shape_folded[:-1]))
+    )
+    testbench_sv = testbench_sv.replace(
+        "@OUT_BEATS_PER_SAMPLE@", str(np.prod(out_shape_folded[:-1]))
+    )
+    testbench_sv = testbench_sv.replace("@TIMEOUT_CYCLES@", "1000")
+    with open(sim_output_dir + "/finn_testbench.sv", "w") as f:
+        f.write(testbench_sv)
+    # fill in testbench project creator template
+    with open("templates/make_sim_proj.template.tcl", "r") as f:
+        testbench_tcl = f.read()
+    testbench_tcl = testbench_tcl.replace("@STITCHED_IP_ROOT@", "../stitched_ip")
+    with open(sim_output_dir + "/make_sim_proj.tcl", "w") as f:
+        f.write(testbench_tcl)
+
+    return model
+
+
+build_steps = build_cfg.default_build_dataflow_steps + [custom_step_gen_tb_and_io]
+
+
 cfg = build.DataflowBuildConfig(
+    steps=build_steps,
     board=platform_name,
     output_dir="output_%s_%s" % (model_name, platform_name),
     synth_clk_period_ns=10.0,
@@ -48,11 +132,6 @@ cfg = build.DataflowBuildConfig(
     stitched_ip_gen_dcp=False,
     generate_outputs=[
         build_cfg.DataflowOutputType.STITCHED_IP,
-        # build_cfg.DataflowOutputType.PYNQ_DRIVER,
-        # build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
-        # build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
-        # build_cfg.DataflowOutputType.OOC_SYNTH,
-        # build_cfg.DataflowOutputType.DEPLOYMENT_PACKAGE,
     ],
     verify_steps=[
         build_cfg.VerificationStepType.TIDY_UP_PYTHON,
