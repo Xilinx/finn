@@ -28,21 +28,21 @@
 
 
 import numpy as np
+import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import SortGraph
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import get_by_name
+from qonnx.util.onnx import nchw_to_nhwc
 
-import finn.core.data_layout as DataLayout
-from finn.core.datatype import DataType
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
-from finn.transformation.general import SortGraph
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import get_by_name
-from finn.util.onnx import nchw_to_nhwc
 
 
 class InferConvInpGen(Transformation):
@@ -520,7 +520,7 @@ class InferPool_Batch(Transformation):
                     "Im2Col",
                     [im2col_in],
                     [im2col_out],
-                    domain="finn.custom_op.general",
+                    domain="qonnx.custom_op.general",
                     stride=[sh, sw],
                     kernel_size=[kh, kw],
                     pad_amount=pad,
@@ -578,9 +578,9 @@ class InferPool_Batch(Transformation):
         return (model, graph_modified)
 
 
-class InferBinaryStreamingFCLayer(Transformation):
+class InferBinaryMatrixVectorActivation(Transformation):
     """Convert XnorPopcountMatMul layers to
-    StreamingFCLayer_Batch layers. Any immediately following MultiThreshold
+    MatrixVectorActivation layers. Any immediately following MultiThreshold
     layers will also be absorbed into the MVTU."""
 
     def __init__(self, mem_mode="const"):
@@ -650,9 +650,9 @@ class InferBinaryStreamingFCLayer(Transformation):
                         actval = odt.min()
                     model.set_tensor_shape(mm_input, mm_in_shape)
                     model.set_tensor_shape(mt_output, mt_out_shape)
-                    # create and insert new StreamingFCLayer node
+                    # create and insert new MatrixVectorActivation node
                     new_node = helper.make_node(
-                        "StreamingFCLayer_Batch",
+                        "MatrixVectorActivation",
                         [mm_input, mm_weight, mt_thres],
                         [mt_output],
                         domain="finn.custom_op.fpgadataflow",
@@ -681,9 +681,9 @@ class InferBinaryStreamingFCLayer(Transformation):
                     odt = model.get_tensor_datatype(mm_output)
                     model.set_tensor_shape(mm_input, mm_in_shape)
                     model.set_tensor_shape(mm_output, mm_out_shape)
-                    # create and insert new StreamingFCLayer node
+                    # create and insert new MatrixVectorActivation node
                     new_node = helper.make_node(
-                        "StreamingFCLayer_Batch",
+                        "MatrixVectorActivation",
                         [mm_input, mm_weight],
                         [mm_output],
                         domain="finn.custom_op.fpgadataflow",
@@ -713,9 +713,9 @@ class InferBinaryStreamingFCLayer(Transformation):
         return (model, graph_modified)
 
 
-class InferQuantizedStreamingFCLayer(Transformation):
+class InferQuantizedMatrixVectorActivation(Transformation):
     """Convert MatMul layers with quantized inputs and weights to
-    StreamingFCLayer_Batch layers. Any immediately following MultiThreshold
+    MatrixVectorActivation layers. Any immediately following MultiThreshold
     layers will also be absorbed into the MVTU."""
 
     def __init__(self, mem_mode="const"):
@@ -793,9 +793,9 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             # remove bias for bipolar, since
                             # binary->bipolar is achieved by reinterpretation
                             actval = 0
-                        # create and insert new StreamingFCLayer node
+                        # create and insert new MatrixVectorActivation node
                         new_node = helper.make_node(
-                            "StreamingFCLayer_Batch",
+                            "MatrixVectorActivation",
                             [mm_input, mm_weight, mt_thres],
                             [mt_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -812,7 +812,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             mem_mode=self.mem_mode,
-                            name="StreamingFCLayer_Batch_" + n.name,
+                            name="MatrixVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -824,9 +824,9 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         odt = model.get_tensor_datatype(mm_output)
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mm_output, mm_out_shape)
-                        # create and insert new StreamingFCLayer node
+                        # create and insert new MatrixVectorActivation node
                         new_node = helper.make_node(
-                            "StreamingFCLayer_Batch",
+                            "MatrixVectorActivation",
                             [mm_input, mm_weight],
                             [mm_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -843,7 +843,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             mem_mode=self.mem_mode,
-                            name="StreamingFCLayer_Batch_" + n.name,
+                            name="MatrixVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node
@@ -856,9 +856,9 @@ class InferQuantizedStreamingFCLayer(Transformation):
         return (model, graph_modified)
 
 
-class InferVVAU(Transformation):
+class InferVectorVectorActivation(Transformation):
     """Convert MatMul layers with quantized inputs and weights to
-    Vector_Vector_Activate_Batch layers, if the sparsity annotation
+    VectorVectorActivation layers, if the sparsity annotation
     of the weight matrix indicates that the MatMul layer belongs to
     a depthwise convolution. Any immediately following MultiThreshold
     layers will also be absorbed into the VVAU."""
@@ -908,7 +908,7 @@ class InferVVAU(Transformation):
                     W = W.transpose(0, 3, 1, 2)
                     # now we can extract the values using a for loop over the channels
                     # and fill a zero numpy array in the correct shape
-                    w_tensor = np.zeros((channels, 1, k_h, k_w))
+                    w_tensor = np.zeros((channels, 1, k_h, k_w), dtype=np.float32)
                     for ch in range(channels):
                         w_tensor[ch][0] = W[ch][ch]
                     model.set_initializer(mm_weight, w_tensor)
@@ -945,9 +945,9 @@ class InferVVAU(Transformation):
                         )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
-                        # create and insert new Vector_Vector_Activate_Batch node
+                        # create and insert new VectorVectorActivation node
                         new_node = helper.make_node(
-                            "Vector_Vector_Activate_Batch",
+                            "VectorVectorActivation",
                             [mm_input, mm_weight, mt_thres],
                             [mt_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -962,7 +962,7 @@ class InferVVAU(Transformation):
                             outputDataType=odt.name,
                             ActVal=actval,
                             noActivation=0,
-                            name="Vector_Vector_Activate_Batch_" + n.name,
+                            name="VectorVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -976,7 +976,7 @@ class InferVVAU(Transformation):
                         model.set_tensor_shape(mm_output, mm_out_shape)
                         # create and insert new VVAU node
                         new_node = helper.make_node(
-                            "Vector_Vector_Activate_Batch",
+                            "VectorVectorActivation",
                             [mm_input, mm_weight],
                             [mm_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -991,7 +991,7 @@ class InferVVAU(Transformation):
                             outputDataType=odt.name,
                             ActVal=0,
                             noActivation=1,
-                            name="Vector_Vector_Activate_Batch_" + n.name,
+                            name="VectorVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node
@@ -1156,7 +1156,7 @@ class InferAddStreamsLayer(Transformation):
                 # create node with no parallelization first
                 pe = 1
 
-                # create and insert new StreamingFCLayer node
+                # create and insert new AddStreams_Batch node
                 new_node = helper.make_node(
                     "AddStreams_Batch",
                     [in0, in1],
@@ -1259,7 +1259,7 @@ class InferChannelwiseLinearLayer(Transformation):
     def get_smallest_possible(self, vals):
         """Returns smallest (fewest bits) possible DataType that can represent
         value. Prefers unsigned integers where possible."""
-        vals = np.array(vals)
+        vals = np.array(vals, dtype=np.float64)
         for v in vals:
             assert int(v) == v, "Error float value"
 
@@ -1442,7 +1442,7 @@ class InferLabelSelectLayer(Transformation):
 
                 k = model.get_initializer(k_input)[0]
 
-                # create and insert new StreamingFCLayer node
+                # create and insert new LabelSelect_Batch node
                 new_node = helper.make_node(
                     "LabelSelect_Batch",
                     [fc_input],
@@ -1535,7 +1535,9 @@ class InferGlobalAccPoolLayer(Transformation):
                     model.make_new_valueinfo_name(), TensorProto.FLOAT, [1]
                 )
                 model.graph.value_info.append(mul_value)
-                model.set_initializer(mul_value.name, np.array(1 / (vecs[1] * vecs[2])))
+                model.set_initializer(
+                    mul_value.name, np.array(1 / (vecs[1] * vecs[2]), dtype=np.float32)
+                )
                 new_mul = helper.make_node(
                     "Mul",
                     [pool_out, mul_value.name],

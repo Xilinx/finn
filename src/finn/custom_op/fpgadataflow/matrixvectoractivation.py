@@ -31,14 +31,14 @@ import numpy as np
 import os
 import textwrap
 import warnings
-
-from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import (
+from qonnx.core.datatype import DataType
+from qonnx.util.basic import (
     calculate_matvec_accumulator_range,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
+
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -48,7 +48,7 @@ from finn.util.data_packing import (
 
 from . import templates
 
-# ONNX i/o tensor shape assumptions for StreamingFCLayer:
+# ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
 # input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
 # (optional) input 2 is the thresholds tensor, shape (o_size, n_thres)
@@ -56,8 +56,9 @@ from . import templates
 # the ... here can be any shape (representing groups of vectors)
 
 
-class StreamingFCLayer_Batch(HLSCustomOp):
-    """Class that corresponds to finn-hls StreamingFCLayer_Batch function."""
+class MatrixVectorActivation(HLSCustomOp):
+    """Class that corresponds to finn-hls Matrix_Vector_Activate(_Stream)_Batch
+    function."""
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
@@ -192,7 +193,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append(
-                """The required StreamingFCLayer attributes do not exist."""
+                """The required MatrixVectorActivation attributes do not exist."""
             )
 
         # verify the number of inputs depending on noActivation value
@@ -204,7 +205,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 info_messages.append("The number of inputs is correct")
             else:
                 info_messages.append(
-                    """StreamingFCLayer_Batch needs in no
+                    """MatrixVectorActivation needs in no
                             activation mode 2 inputs (data input and weights)"""
                 )
         elif no_act == 0:
@@ -212,7 +213,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 info_messages.append("The number of inputs is correct")
             else:
                 info_messages.append(
-                    """StreamingFCLayer_Batch needs 3 inputs
+                    """MatrixVectorActivation needs 3 inputs
                             (data input and weights and threshold values)"""
                 )
         else:
@@ -835,7 +836,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     # UltraRAM must have no memory initializer, or only zeroes
                     # otherwise BRAM will be inferred instead of URAM
                     # as a workaround we provide a zero-weight init here
-                    synth_weights = np.zeros_like(weights)
+                    synth_weights = np.zeros_like(weights, dtype=np.float32)
                 else:
                     synth_weights = weights
                 self.make_weight_file(
@@ -940,7 +941,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                     reshaped_input,
                 )
             elif in_ind > 2:
-                raise Exception("Unexpected input found for StreamingFCLayer")
+                raise Exception("Unexpected input found for MatrixVectorActivation")
             in_ind += 1
 
         if mode == "cppsim":
@@ -954,11 +955,8 @@ class StreamingFCLayer_Batch(HLSCustomOp):
                 out = 2 * out - 1
                 context[node.output[0]] = out
             assert (
-                context[node.output[0]].shape == self.get_folded_output_shape()
-            ), """Output shape is not as expected"""
-            # reshape output to have expected shape
-            oshape = self.get_normal_output_shape()
-            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
+                context[node.output[0]].shape == self.get_normal_output_shape()
+            ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -1013,16 +1011,12 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const":
-            # self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
-            pass
-        elif mem_mode == "decoupled" or mem_mode == "external":
-            self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
-        else:
+        if mem_mode not in ["const", "decoupled", "external"]:
             raise Exception(
                 """Please set mem_mode to "const", "decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
+        self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
@@ -1034,7 +1028,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             MW = self.get_nodeattr("MW")
             condition = SIMD >= (MW / 1024)
             msg = (
-                f"HLS synthesis of StreamingFCLayer_Batch requires: "
+                f"HLS synthesis of MatrixVectorActivation requires: "
                 f"SIMD >= MW / 1024. This is not fulfilled with: SIMD={SIMD} "
                 f"and MW={MW} for node: {self.onnx_node.name}."
             )
@@ -1126,11 +1120,9 @@ class StreamingFCLayer_Batch(HLSCustomOp):
         else:
             threshs = "threshs"
         if mem_mode == "const":
-            node = self.onnx_node
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """{}<MW1, MH1, SIMD1, PE1, {}, {}, {}>
+                """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
                 (in0, out, weights, {}, numReps, {});""".format(
-                    node.op_type,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
@@ -1429,7 +1421,7 @@ class StreamingFCLayer_Batch(HLSCustomOp):
             # base class impl sufficient for const/external modes
             return super().code_generation_ipi()
         else:
-            raise Exception("Unrecognized mem_mode for StreamingFCLayer")
+            raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
 
     def get_verilog_top_module_intf_names(self):

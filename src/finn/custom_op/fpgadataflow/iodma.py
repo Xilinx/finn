@@ -29,8 +29,8 @@
 import math
 import numpy as np
 import warnings
+from qonnx.core.datatype import DataType
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 
 # the IODMA inerfaces a memory-mapped AXI interface and an AXI stream

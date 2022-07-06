@@ -31,7 +31,23 @@ import numpy as np
 import os
 from copy import deepcopy
 from distutils.dir_util import copy_tree
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import (
+    ApplyConfig,
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    RemoveStaticGraphInputs,
+    RemoveUnusedTensors,
+)
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.cleanup import cleanup_model
+from qonnx.util.config import extract_model_config_to_json
 from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -53,13 +69,9 @@ from finn.builder.build_dataflow_config import (
     ShellFlowType,
     VerificationStepType,
 )
-from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.core.rtlsim_exec import rtlsim_exec
 from finn.core.throughput_test import throughput_test_rtlsim
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
-from finn.transformation.fold_constants import FoldConstants
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -84,17 +96,6 @@ from finn.transformation.fpgadataflow.set_fifo_depths import (
 from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
-from finn.transformation.general import (
-    ApplyConfig,
-    GiveReadableTensorNames,
-    GiveUniqueNodeNames,
-    RemoveStaticGraphInputs,
-    RemoveUnusedTensors,
-)
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.qonnx.quant_act_to_multithreshold import (
@@ -102,9 +103,10 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 )
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
-from finn.util.basic import get_rtlsim_trace_depth
-from finn.util.config import extract_model_config_to_json
-from finn.util.pyverilator import pyverilate_get_liveness_threshold_cycles
+from finn.util.basic import (
+    get_rtlsim_trace_depth,
+    pyverilate_get_liveness_threshold_cycles,
+)
 from finn.util.test import execute_parent
 
 
@@ -290,9 +292,9 @@ def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
         # doing this first causes all threshold layers to be standalone
         model = model.transform(to_hls.InferThresholdingLayer())
     # needed for bipolar MatMul layers
-    model = model.transform(to_hls.InferBinaryStreamingFCLayer(mem_mode))
+    model = model.transform(to_hls.InferBinaryMatrixVectorActivation(mem_mode))
     # needed for non-bipolar MatMul layers
-    model = model.transform(to_hls.InferQuantizedStreamingFCLayer(mem_mode))
+    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode))
     # TopK to LabelSelect
     model = model.transform(to_hls.InferLabelSelectLayer())
     # input quantization (if any) as standalone threshold

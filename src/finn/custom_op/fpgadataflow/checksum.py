@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Advanced Micro Devices, Inc.
+# Copyright (c) 2022, Xilinx, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -29,13 +29,13 @@
 import numpy as np
 import os
 import warnings
+from qonnx.core.datatype import DataType
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-class checksum(HLSCustomOp):
+class CheckSum(HLSCustomOp):
     """Class that corresponds to custom_hls checksum function."""
 
     def __init__(self, onnx_node):
@@ -254,10 +254,12 @@ class checksum(HLSCustomOp):
             'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append("ap_uint<32> chk;")
+        # set drain = false for cppsim
+        self.code_gen_dict["$STREAMDECLARATIONS$"].append("ap_uint<1> drain = false;")
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0, out, chk);"""
+            """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0, out, chk, drain);"""
         ]
 
     def dataoutstrm(self):
@@ -298,7 +300,7 @@ class checksum(HLSCustomOp):
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0,
-            hls::stream<T> &out, ap_uint<32> &chk)""".format(
+            hls::stream<T> &out, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
                 self.onnx_node.name
             )
         ]
@@ -314,9 +316,15 @@ class checksum(HLSCustomOp):
             "#pragma HLS interface s_axilite port=chk bundle=checksum"
         )
         self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS interface s_axilite port=drain bundle=checksum"
+        )
+        self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS interface ap_ctrl_none port=return"
         )
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow")
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS dataflow disable_start_propagation"
+        )
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

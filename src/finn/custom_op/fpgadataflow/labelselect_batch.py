@@ -29,10 +29,10 @@
 import numpy as np
 import os
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import roundup_to_integer_multiple
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
@@ -182,7 +182,6 @@ class LabelSelect_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
         folded_ishape = self.get_folded_input_shape()
-        folded_oshape = self.get_folded_output_shape()
 
         if mode == "cppsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -212,10 +211,9 @@ class LabelSelect_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             assert (
-                context[node.output[0]].shape == folded_oshape
+                context[node.output[0]].shape == exp_oshape
             ), "cppsim \
-            did not produce expected ofolded utput shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
+            did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()

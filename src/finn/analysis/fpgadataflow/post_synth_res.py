@@ -28,9 +28,9 @@
 
 import os
 import xml.etree.ElementTree as ET
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.registry import getCustomOp
 from finn.transformation.move_reshape import _is_fpgadataflow_node
 
 

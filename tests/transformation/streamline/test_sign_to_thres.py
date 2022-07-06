@@ -33,11 +33,11 @@ import onnx
 import onnx.numpy_helper as nph
 import os
 from pkgutil import get_data
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import ConvertSignToThres
 from finn.util.test import get_test_model_trained
 
@@ -54,7 +54,7 @@ def test_sign_to_thres():
     new_model = model.transform(ConvertSignToThres())
     assert new_model.graph.node[3].op_type == "MultiThreshold"
     # load one of the test vectors
-    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     input_dict = {"0": nph.to_array(input_tensor)}
     assert oxe.compare_execution(model, new_model, input_dict)

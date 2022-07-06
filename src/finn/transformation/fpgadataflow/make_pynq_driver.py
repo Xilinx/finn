@@ -31,19 +31,17 @@ import pkg_resources as pk
 
 import numpy as np
 import os
+import qonnx
 import shutil
 import warnings
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.util.basic import gen_finn_dt_tensor, roundup_to_integer_multiple
 
-import finn.core.datatype as dtp
+import finn.util
 import finn.util.data_packing as dpk
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.util.basic import (
-    gen_finn_dt_tensor,
-    make_build_dir,
-    roundup_to_integer_multiple,
-)
+from finn.util.basic import make_build_dir
 from finn.util.data_packing import (
     hexstring2npbytearray,
     pack_innermost_dim_as_hex_string,
@@ -101,6 +99,33 @@ class MakePYNQDriver(Transformation):
         )
         driver_base_py = pynq_driver_dir + "/driver_base.py"
         shutil.copy(driver_base_template, driver_base_py)
+        # driver depends on qonnx and finn packages
+        # extract individual source files and copy to driver folder
+        qonnx_target_path = pynq_driver_dir + "/qonnx"
+        finn_target_path = pynq_driver_dir + "/finn"
+        os.makedirs(qonnx_target_path + "/core", exist_ok=True)
+        os.makedirs(qonnx_target_path + "/util", exist_ok=True)
+        os.makedirs(finn_target_path + "/util", exist_ok=True)
+        qonnx_path = qonnx.__path__[0]
+        finn_util_path = finn.util.__path__[0]
+        files_to_copy = []
+        files_to_copy.append(
+            (qonnx_path + "/core/datatype.py", qonnx_target_path + "/core/datatype.py")
+        )
+        files_to_copy.append(
+            (qonnx_path + "/core/__init__.py", qonnx_target_path + "/core/__init__.py")
+        )
+        files_to_copy.append(
+            (qonnx_path + "/util/basic.py", qonnx_target_path + "/util/basic.py")
+        )
+        files_to_copy.append(
+            (
+                finn_util_path + "/data_packing.py",
+                finn_target_path + "/util/data_packing.py",
+            )
+        )
+        for (src_file, target_file) in files_to_copy:
+            shutil.copy(src_file, target_file)
         # extract input-output shapes from the graph
         # TODO convert this to an analysis pass?
         idt = []
@@ -264,20 +289,6 @@ class MakePYNQDriver(Transformation):
         )
         shutil.copy(validate_template, validate_py)
 
-        # copy all the dependencies into the driver folder
-        # driver imports utils/data_packing and core/datatype
-        # both of which are in finn-base
-        # e.g. $FINN_ROOT/deps/finn-base/src/finn/util/data_packing.py
-        dpk_root = dpk.__file__
-        # e.g. $FINN_ROOT/deps/finn-base/src/finn/util
-        dpk_root = dpk_root.replace("data_packing.py", "")
-        # e.g. $FINN_ROOT/deps/finn-base/src/finn/core/datatype.py
-        dtp_root = dtp.__file__
-        # e.g. $FINN_ROOT/deps/finn-base/src/finn/core
-        dtp_root = dtp_root.replace("datatype.py", "")
-        shutil.copytree(dpk_root, pynq_driver_dir + "/finn/util")
-        shutil.copytree(dtp_root, pynq_driver_dir + "/finn/core")
-
         # generate weight files for runtime-writable layers
 
         for sdp_ind, sdp_node in enumerate(model.graph.node):
@@ -288,7 +299,7 @@ class MakePYNQDriver(Transformation):
             dataflow_model = ModelWrapper(dataflow_model_filename)
             rt_layer_ind = 0
             for node in dataflow_model.graph.node:
-                if node.op_type in ["StreamingFCLayer_Batch", "Thresholding_Batch"]:
+                if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
                     node_inst = getCustomOp(node)
                     is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
                     if is_rt_weights == 1:

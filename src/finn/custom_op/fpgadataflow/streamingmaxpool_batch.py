@@ -29,10 +29,10 @@
 import numpy as np
 import os
 import warnings
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.custom_op.general.maxpoolnhwc import compute_pool_output_dim
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 # TODO: consider splitting this into separate implementations for 1D and 2D
@@ -342,7 +342,6 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
         folded_ishape = self.get_folded_input_shape()
-        folded_oshape = self.get_folded_output_shape()
 
         # TODO ensure codegen dir exists
         if mode == "cppsim":
@@ -379,10 +378,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             assert (
-                context[node.output[0]].shape == folded_oshape
+                context[node.output[0]].shape == exp_oshape
             ), "cppsim \
-            did not produce expected folded output shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
+            did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()

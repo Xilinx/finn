@@ -26,12 +26,14 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-from finn.core.modelwrapper import ModelWrapper
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.transformation.create_generic_partitions import PartitionFromLambda
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.create_generic_partitions import PartitionFromLambda
+from qonnx.util.basic import get_by_name
+
 from finn.transformation.fpgadataflow.externalize_params import ExternalizeParams
-from finn.util.basic import get_by_name, make_build_dir
+from finn.util.basic import make_build_dir
 
 
 class CreateDataflowPartition(Transformation):

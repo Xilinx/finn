@@ -28,10 +28,9 @@
 
 import numpy as np
 from onnx import TensorProto, helper
-
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 
 def hls_random_mlp_maker(layer_spec):
@@ -117,7 +116,7 @@ def hls_mlp_maker(layer_spec):
             model.graph.output.append(global_out)
 
         # there are two ways to implement bipolar weights and inputs for
-        # StreamingFC:
+        # MatrixVectorActivation:
         # - specify their datatypes as such
         # - specify their datatypes as BINARY as use binaryXnorMode
         if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
@@ -144,7 +143,7 @@ def hls_mlp_maker(layer_spec):
             actval = 0
             no_act = 1
         FCLayer_node = helper.make_node(
-            "StreamingFCLayer_Batch",
+            "MatrixVectorActivation",
             node_inp_list,
             [current_out_name],
             domain="finn.custom_op.fpgadataflow",

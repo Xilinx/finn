@@ -9,7 +9,7 @@ Submodules
    :maxdepth: 2
 
    finn.custom_op.fpgadataflow
-   finn.custom_op.general
+   qonnx.custom_op.general
 
 Custom Op Nodes
 ===============
@@ -25,7 +25,7 @@ Base Class
 finn.custom\_op.registry
 -------------------------
 
-.. automodule:: finn.custom_op.registry
+.. automodule:: qonnx.custom_op.registry
   :members:
   :undoc-members:
   :show-inheritance:

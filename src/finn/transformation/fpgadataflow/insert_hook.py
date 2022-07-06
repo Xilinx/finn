@@ -1,15 +1,43 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def _is_hook_node(node):
-    if node.op_type in ["checksum"]:
+    if node.op_type in ["CheckSum"]:
         return True
     else:
         return False
@@ -54,7 +82,7 @@ class InsertHook(Transformation):
                     if n0_hook in list_supported_hooks:
                         if n0_hook == "checksum":
                             if len(consumers) == 1:
-                                if consumers[0].op_type == "checksum":
+                                if consumers[0].op_type == "CheckSum":
                                     continue
                             n0_normal_oshape = n0.get_normal_output_shape()
                             n0_folded_oshape = n0.get_folded_output_shape()
@@ -72,7 +100,7 @@ class InsertHook(Transformation):
                                 [1],
                             )
                             chk_node = oh.make_node(
-                                "checksum",
+                                "CheckSum",
                                 [output_name],
                                 outputs=[chk_otensor.name, chk_result.name],
                                 domain="finn.custom_op.fpgadataflow",
@@ -94,6 +122,7 @@ class InsertHook(Transformation):
                             else:
                                 model.graph.output.pop()
                                 model.graph.output.append(chk_otensor)
+                                model.graph.value_info.remove(chk_otensor)
                                 model = model.transform(GiveUniqueNodeNames())
                                 model = model.transform(GiveReadableTensorNames())
                             graph_modified = True

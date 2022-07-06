@@ -31,11 +31,14 @@ import pytest
 import numpy as np
 import os
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.util.basic import gen_finn_dt_tensor
 
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
-from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -48,14 +51,7 @@ from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.util.basic import (
-    alveo_default_platform,
-    alveo_part_map,
-    gen_finn_dt_tensor,
-    pynq_part_map,
-)
+from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 from finn.util.pyverilator import pyverilate_stitched_ip
 from finn.util.test import load_test_checkpoint_or_skip
 
@@ -66,7 +62,7 @@ ip_stitch_model_dir = os.environ["FINN_BUILD_DIR"]
 
 
 def create_one_fc_model(mem_mode="const"):
-    # create a model with a StreamingFCLayer instance with no activation
+    # create a model with a MatrixVectorActivation instance with no activation
     # the wider range of the full accumulator makes debugging a bit easier
     wdt = DataType["INT2"]
     idt = DataType["INT32"]
@@ -82,7 +78,7 @@ def create_one_fc_model(mem_mode="const"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "StreamingFCLayer_Batch",
+        "MatrixVectorActivation",
         ["inp", "w0"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -120,7 +116,7 @@ def create_one_fc_model(mem_mode="const"):
 
 
 def create_two_fc_model(mem_mode="decoupled"):
-    # create a model with two StreamingFCLayer instances
+    # create a model with two MatrixVectorActivation instances
     wdt = DataType["INT2"]
     idt = DataType["INT32"]
     odt = DataType["INT32"]
@@ -136,7 +132,7 @@ def create_two_fc_model(mem_mode="decoupled"):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, m])
 
     fc0 = helper.make_node(
-        "StreamingFCLayer_Batch",
+        "MatrixVectorActivation",
         ["inp", "w0"],
         ["mid"],
         domain="finn.custom_op.fpgadataflow",
@@ -155,7 +151,7 @@ def create_two_fc_model(mem_mode="decoupled"):
     )
 
     fc1 = helper.make_node(
-        "StreamingFCLayer_Batch",
+        "MatrixVectorActivation",
         ["mid", "w1"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -215,7 +211,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
-    assert model.graph.node[0].op_type == "StreamingFCLayer_Batch"
+    assert model.graph.node[0].op_type == "MatrixVectorActivation"
     assert model.graph.node[-1].op_type == "TLastMarker"
     model.save(
         ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode
@@ -311,6 +307,7 @@ def test_fpgadataflow_ipstitch_synth_ooc(mem_mode):
     assert ret["BRAM"] == 0
     assert ret["fmax_mhz"] > 100
 
+
 @pytest.mark.fpgadataflow
 def test_fpgadataflow_ipstitch_iodma_floorplan():
     model = create_one_fc_model()
@@ -338,6 +335,8 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.vitis
+# temporarily marked as xfail
+@pytest.mark.xfail
 def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")

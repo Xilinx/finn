@@ -25,26 +25,23 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-# namespace package, extend path
 
 import numpy as np
 import os
 import subprocess
 from abc import abstractmethod
+from pyverilator.util.axi_utils import rtlsim_multi_io
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.base import CustomOp
+from qonnx.util.basic import roundup_to_integer_multiple
 
-from finn.core.datatype import DataType
-from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
     get_rtlsim_trace_depth,
     make_build_dir,
-    roundup_to_integer_multiple,
+    pyverilate_get_liveness_threshold_cycles,
 )
 from finn.util.hls import CallHLS
-from finn.util.pyverilator import (
-    pyverilate_get_liveness_threshold_cycles,
-    rtlsim_multi_io,
-)
 
 from . import templates
 
@@ -114,21 +111,13 @@ class HLSCustomOp(CustomOp):
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
             "output_hook": ("s", False, ""),
-            # HLS version to be used for IP synthesis
-            "hls_version": ("s", False, "vitis_hls", {"vivado_hls", "vitis_hls"}),
         }
 
     def get_verilog_top_module_name(self):
         "Return the Verilog top module name for this node."
 
         node = self.onnx_node
-        hls_version = self.get_nodeattr("hls_version")
-        if hls_version == "vivado_hls":
-            prefixed_top_name = "%s_%s" % (node.name, node.name)
-        elif hls_version == "vitis_hls":
-            prefixed_top_name = node.name
-        else:
-            raise Exception("Unknown hls_version: %s" % hls_version)
+        prefixed_top_name = node.name
 
         return prefixed_top_name
 
@@ -320,25 +309,16 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict.clear()
 
     def ipgen_default_directives(self):
-        """Return list of default HLS synthesis directives, which differ
-        slightly between vivado_hls and vitis_hls"""
+        """Return list of default HLS synthesis directives"""
 
-        hls_version = self.get_nodeattr("hls_version")
-        default_directives = {
-            "vivado_hls": [
-                "config_compile -ignore_long_run_time -disable_unroll_code_size_check",
-                "config_interface -m_axi_addr64",
-                "config_rtl -auto_prefix",
-            ],
-            "vitis_hls": [
-                "set_param hls.enable_hidden_option_error false",
-                "config_compile -disable_unroll_code_size_check",
-                "config_interface -m_axi_addr64",
-                "config_rtl -auto_prefix",
-                "config_export -disable_deadlock_detection",
-            ],
-        }
-        return default_directives[hls_version]
+        default_directives = [
+            "set_param hls.enable_hidden_option_error false",
+            "config_compile -disable_unroll_code_size_check -pipeline_style flp",
+            "config_interface -m_axi_addr64",
+            "config_rtl -module_auto_prefix",
+            "config_rtl -deadlock_detection none",
+        ]
+        return default_directives
 
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
@@ -348,8 +328,7 @@ class HLSCustomOp(CustomOp):
         """Builds the bash script for IP generation using the CallHLS utility."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        hls_version = self.get_nodeattr("hls_version")
-        builder = CallHLS(backend=hls_version)
+        builder = CallHLS()
         builder.append_tcl(code_gen_dir + "/hls_syn_{}.tcl".format(node.name))
         builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
         builder.build(code_gen_dir)
@@ -503,15 +482,10 @@ compilation transformations?
         sim.io.ap_clk = 0
 
     def hls_sname(self):
-        """Get the naming convention used by chosen HLS version for stream signals,
-        decided by the hls_version node attribute.
-        Example: the TDATA for a stream called "out" would be out_V_V_TDATA
-        in vivado_hls and out_V_TDATA in vitis_hls.
+        """Get the naming convention used by Vitis HLS for stream signals
+        Example: the TDATA for a stream called "out" would be out_V_TDATA.
         """
-        hls_version = self.get_nodeattr("hls_version")
-        sname_dict = {"vivado_hls": "V_V", "vitis_hls": "V"}
-        sname = sname_dict[hls_version]
-        return sname
+        return "V"
 
     def rtlsim(self, sim, inp, inp2=None):
         """Runs the pyverilator simulation by passing the input values to the simulation,
@@ -596,7 +570,7 @@ compilation transformations?
     def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
 
-        # signal naming differs slightly between vivado_hls/vitis_hls
+        # signal name
         sname = "_" + self.hls_sname() + "_"
 
         trace_file = self.get_nodeattr("rtlsim_trace")
@@ -604,7 +578,12 @@ compilation transformations?
             trace_file = self.onnx_node.name + ".vcd"
         num_out_values = self.get_number_output_values()
         total_cycle_count = rtlsim_multi_io(
-            sim, io_dict, num_out_values, trace_file, sname=sname
+            sim,
+            io_dict,
+            num_out_values,
+            trace_file=trace_file,
+            sname=sname,
+            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
         )
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 
@@ -656,7 +635,7 @@ compilation transformations?
         be filled by every node.
 
         var: makes it possible to reuse the function for different c++ code generation.
-        I.e. if set to "ipgen" in StreamingFCLayer_Batch additional PRAGMA defines are
+        I.e. if set to "ipgen" in MatrixVectorActivation additional PRAGMA defines are
         added."""
         pass
 

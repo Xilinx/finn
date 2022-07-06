@@ -31,15 +31,18 @@ import pytest
 import numpy as np
 import os
 from onnx import TensorProto, helper
+from pyverilator.util.axi_utils import axilite_read, axilite_write
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.general.multithreshold import multithreshold
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
 from finn.core.rtlsim_exec import rtlsim_exec
-from finn.custom_op.general.multithreshold import multithreshold
-from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -48,9 +51,6 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.general import GiveUniqueNodeNames
-from finn.util.basic import gen_finn_dt_tensor
-from finn.util.pyverilator import axilite_read, axilite_write
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -245,7 +245,7 @@ def test_runtime_thresholds_single_layer():
     # add two copies of the input tensor as the first one is just used to
     # "flush out" the pipeline (as mvau already starts receiving old weights while
     # we read/write new ones and reads seem to cause a disturbance too)
-    in_tensor = np.tile(in_tensor, (2, 1))
+    in_tensor = np.tile(in_tensor, (2, 1, 1, 1))
     exec_ctx = {"inp": in_tensor}
     extracted_weight_stream = []
 
@@ -297,7 +297,10 @@ def test_runtime_thresholds_single_layer():
 
     rtlsim_exec(model, exec_ctx, pre_hook=write_weights)
     y = exec_ctx["outp"][1]
-    expected = multithreshold(in_tensor, new_weights)[1]
+    # multithreshold util fxn wants NCHW input, not NHWC
+    expected = multithreshold(np.transpose(in_tensor, (0, 3, 1, 2)), new_weights)
+    # convert back to NHWC for comparison to hw outputs
+    expected = np.transpose(expected, (0, 2, 3, 1))[1]
     if act == DataType["BIPOLAR"]:
         # binary to bipolar
         expected = 2 * expected - 1
