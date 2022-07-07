@@ -8,7 +8,7 @@ Quickstart
 ==========
 
 1. Install Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2020.1``)
+2. Set up ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables pointing respectively to the Xilinx tools installation directory and version (e.g. ``FINN_XILINX_PATH=/opt/Xilinx`` and ``FINN_XILINX_VERSION=2022.1``)
 3. Clone the FINN compiler from the repo: ``git clone https://github.com/Xilinx/finn/`` and go into the directory where it is cloned
 4. Execute ``./run-docker.sh quicktest`` to verify your installation.
 5. Optionally, follow the instructions on :ref:`PYNQ board first-time setup` or :ref:`Alveo first-time setup` for board setup.
@@ -47,7 +47,7 @@ by using the "advanced mode" described in the :ref:`command_line` section.
 
 Running FINN in Docker
 ======================
-FINN only running inside a Docker container, and comes with a script to easily build and launch the container. If you are not familiar with Docker, there are many excellent `online resources <https://docker-curriculum.com/>`_ to get started.
+FINN runs inside a Docker container, it comes with a script to easily build and launch the container. If you are not familiar with Docker, there are many excellent `online resources <https://docker-curriculum.com/>`_ to get started.
 You may want to review the :ref:`General FINN Docker tips` and :ref:`Environment variables` as well.
 If you want to use prebuilt images, read :ref:`Using a prebuilt image`.
 The ``run-docker.sh`` script that can be launched in the following modes:
@@ -82,9 +82,11 @@ FINN comes with numerous Jupyter notebook tutorials, which you can launch with:
   bash ./run-docker.sh notebook
 
 This will launch the `Jupyter notebook <https://jupyter.org/>`_ server inside a Docker container, and print a link on the terminal that you can open in your browser to run the FINN notebooks or create new ones.
-.. note:: The link will look something like this (the token you get will be different):
-http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc.
-The ``run-docker.sh`` script forwards ports 8888 for Jupyter and 8081 for Netron, and launches the notebook server with appropriate arguments.
+
+.. note::
+  The link will look something like this (the token you get will be different):
+  http://127.0.0.1:8888/?token=f5c6bd32ae93ec103a88152214baedff4ce1850d81065bfc.
+  The ``run-docker.sh`` script forwards ports 8888 for Jupyter and 8081 for Netron, and launches the notebook server with appropriate arguments.
 
 
 Environment variables
@@ -94,7 +96,7 @@ Prior to running the `run-docker.sh` script, there are several environment varia
 These are summarized below:
 
 * (required) ``FINN_XILINX_PATH`` points to your Xilinx tools installation on the host (e.g. ``/opt/Xilinx``)
-* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2020.1``)
+* (required) ``FINN_XILINX_VERSION`` sets the Xilinx tools version to be used (e.g. ``2022.1``)
 * (required for Alveo) ``PLATFORM_REPO_PATHS`` points to the Vitis platform files (DSA).
 * (required for Alveo) ``XRT_DEB_VERSION`` specifies the .deb to be installed for XRT inside the container (see default value in ``run-docker.sh``).
 * (optional) ``NUM_DEFAULT_WORKERS`` (default 4) specifies the degree of parallelization for the transformations that can be run in parallel, potentially reducing build time
@@ -121,7 +123,7 @@ General FINN Docker tips
 ************************
 * Several folders including the root directory of the FINN compiler and the ``FINN_HOST_BUILD_DIR`` will be mounted into the Docker container and can be used to exchange files.
 * Do not use ``sudo`` to launch the FINN Docker. Instead, setup Docker to run `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_.
-* If you want a new terminal on an already-running container, you can do this with `docker exec -it <name_of_container> bash`.
+* If you want a new terminal on an already-running container, you can do this with ``docker exec -it <name_of_container> bash``.
 * The container is spawned with the `--rm` option, so make sure that any important files you created inside the container are either in the finn compiler folder (which is mounted from the host computer) or otherwise backed up.
 
 Using a prebuilt image
@@ -138,8 +140,10 @@ If you are having trouble building the Docker image or need offline access, you 
 
 Supported FPGA Hardware
 =======================
-**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <https://pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
-As of FINN v0.4b we also have preliminary support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis, see instructions below for Alveo setup.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
+
+.. warning::
+  In previous FINN versions (v0.4b - v0.7) we had preliminary support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis 2020.1, see instructions below for Alveo setup that works with older versions. Please note that with the new release with Vitis 2022.1, we do not have support for an automatic deployment on Alveo cards.
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
@@ -163,6 +167,9 @@ Continue on the host side (replace the ``<PYNQ_IP>`` and ``<PYNQ_USERNAME>`` wit
 
 Alveo first-time setup
 **********************
+.. warning::
+  Alveo cards are not automatically supported in the new FINN release with Vitis 2022.1. If you are looking for a build flow for Alveo inside of FINN, you will need to use older FINN versions (v0.4b - v0.7) with Vitis 2020.1.
+
 We use *host* to refer to the PC running the FINN Docker environment, which will build the accelerator+driver and package it up, and *target* to refer to the PC where the Alveo card is installed. These two can be the same PC, or connected over the network -- FINN includes some utilities to make it easier to test on remote PCs too. Prior to first usage, you need to set up both the host and the target in the following manner:
 
 On the target side:
@@ -201,11 +208,10 @@ System Requirements
 
 * Ubuntu 18.04 with ``bash`` installed
 * Docker `without root <https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user>`_
-* A working Vivado 2020.1 installation
+* A working Vitis/Vivado 2022.1 installation
 * ``FINN_XILINX_PATH`` and ``FINN_XILINX_VERSION`` environment variables correctly set, see `Quickstart`_
 * *(optional)* `Vivado/Vitis license`_ if targeting non-WebPack FPGA parts.
 * *(optional)* A PYNQ board with a network connection, see `PYNQ board first-time setup`_
-* *(optional)* An Alveo board, and a working Vitis 2020.1 installation if you want to use Vitis and Alveo (see `Alveo first-time setup`_ )
 
 We also recommend running the FINN compiler on a system with sufficiently
 strong hardware:
