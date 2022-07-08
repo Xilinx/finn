@@ -1,10 +1,10 @@
-## <img src=https://raw.githubusercontent.com/Xilinx/finn/master/docs/img/finn-logo.png width=128/> Fast, Scalable Quantized Neural Network Inference on FPGAs
+## <img src=https://raw.githubusercontent.com/Xilinx/finn/github-pages/docs/img/finn-logo.png width=128/> Fast, Scalable Quantized Neural Network Inference on FPGAs
 
 
 
-<img align="left" src="https://raw.githubusercontent.com/Xilinx/finn/master/docs/img/finn-stack.png" alt="drawing" style="margin-right: 20px" width="250"/>
+<img align="left" src="https://raw.githubusercontent.com/Xilinx/finn/github-pages/docs/img/finn-stack.png" alt="drawing" style="margin-right: 20px" width="250"/>
 
-[![Gitter](https://badges.gitter.im/xilinx-finn/community.svg)](https://gitter.im/xilinx-finn/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+[![GitHub Discussions](https://img.shields.io/github/discussions/Xilinx/finn)](https://github.com/Xilinx/finn/discussions)
 [![ReadTheDocs](https://readthedocs.org/projects/finn/badge/?version=latest&style=plastic)](http://finn.readthedocs.io/)
 
 FINN is an experimental framework from Xilinx Research Labs to explore deep neural network
