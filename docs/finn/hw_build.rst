@@ -99,4 +99,3 @@ Throughput Test
 ---------------
 
 FINN also offers the possibility to measure the network performance directly on the PYNQ board. This can be done by using :py:mod:`finn.core.throughput_test`. When running this function the metrics of the network are returned as dictionary.
-
