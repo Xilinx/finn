@@ -5,7 +5,7 @@ Connect with the FINN community and ask questions on GitHub Discussions here: [!
 ### External Collaborators
 * Paderborn University, Germany: Felix Paul Jentzsch, Marco Platzner
 * TU Munich and BMW Group, Germany: Nael Fasfous, Manoj-Rohit Vemparala, Alexander Frickenstein, Lukas Frickenstein, Walter Stechele
-* TU Delft, Netherlands: Jakoba Petri-Koenig, Mirza Mrahorovic, Zaid Al-Ars
+* TU Delft, Netherlands: Zaid Al-Ars
 * Heidelberg University, Germany: Hendrik Borras, Holger Froening
 * NTNU, Norway: Magnus Jahre, Magnus Sjalander
 * University of Sydney, Australia: Julian Faraone, Philip Leong
