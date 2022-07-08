@@ -8,7 +8,7 @@ Brevitas Export
    :scale: 70%
    :align: center
 
-FINN expects an ONNX model as input. This can be a model trained with `Brevitas <https://github.com/Xilinx/brevitas>`_. Brevitas is a PyTorch library for quantization-aware training and the FINN Docker image comes with several `example Brevitas networks <https://github.com/Xilinx/brevitas/tree/master/brevitas_examples/bnn_pynq>`_. Brevitas provides an export of a quantized network in ONNX representation in several flavors.
+FINN expects an ONNX model as input. This can be a model trained with `Brevitas <https://github.com/Xilinx/brevitas>`_. Brevitas is a PyTorch library for quantization-aware training and the FINN Docker image comes with several `example Brevitas networks <https://github.com/Xilinx/brevitas/tree/master/src/brevitas_examples/bnn_pynq>`_. Brevitas provides an export of a quantized network in ONNX representation in several flavors.
 Two of the Brevitas-exported ONNX variants can be ingested by FINN:
 
    * FINN-ONNX: Quantized weights exported as tensors with additional attributes to mark low-precision datatypes. Quantized activations exported as MultiThreshold nodes.

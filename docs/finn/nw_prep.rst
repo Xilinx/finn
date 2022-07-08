@@ -17,7 +17,7 @@ Various transformations are involved in the network preparation. The following i
 Tidy-up transformations
 =======================
 
-These transformations do not appear in the diagram above, but are applied in many steps in the FINN flow to postprocess the model after a transformation and/or prepare it for the next transformation. They ensure that all information is set and behave like a "tidy-up". These transformations are the following:
+These transformations do not appear in the diagram above, but are applied in many steps in the FINN flow to postprocess the model after a transformation and/or prepare it for the next transformation. They ensure that all information is set and behave like a "tidy-up". These transformations are located in the `QONNX repository <https://github.com/fastmachinelearning/qonnx>`_ and can be imported:
 
 * :py:mod:`qonnx.transformation.general.GiveReadableTensorNames` and :py:mod:`qonnx.transformation.general.GiveUniqueNodeNames`
 
@@ -35,7 +35,7 @@ After this transformation the ONNX model is streamlined and contains now custom 
 Convert to HLS Layers
 =====================
 
-Pairs of binary XNORPopcountMatMul layers are converted to MatrixVectorActivation layers and following Multithreshold layers are absorbed into the Matrix-Vector-Activate-Unit (MVAU). The result is a model consisting of a mixture of HLS and non-HLS layers. For more details, see :py:mod:`finn.transformation.fpgadataflow.convert_to_hls_layers`. The MVAU can be implemented in two different modes, *const* and *decoupled*, see chapter :ref:`mem_mode`.
+In this step standard or custom layers are converted to HLS layers. HLS layers are layers that directly correspond to a finn-hlslib function call. For example pairs of binary XNORPopcountMatMul and MultiThreshold layers are converted to MatrixVectorActivation layers. The result is a model consisting of a mixture of HLS and non-HLS layers. For more details, see :py:mod:`finn.transformation.fpgadataflow.convert_to_hls_layers`. The MatrixVectorActivation layer can be implemented in three different modes, *const*, *decoupled* (see chapter :ref:`mem_mode`) and *external*.
 
 Dataflow Partitioning
 =====================
@@ -47,4 +47,4 @@ Folding
 
 To adjust the folding, the values for PE and SIMD can be increased to achieve also an increase in the performance. The result can be verified using the same simulation flow as for the network with maximum folding (*cppsim* using C++), for details please have a look at chapter :ref:`verification`.
 
-The result is a network of HLS layers with desired folding and it can be passed to :ref:`vivado_synth`.
+The result is a network of HLS layers with desired folding and it can be passed to :ref:`hw_build`.

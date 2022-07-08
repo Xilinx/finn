@@ -84,7 +84,6 @@ The finn.dev image is built and launched as follows:
 
 4. Entrypoint script (docker/finn_entrypoint.sh) upon launching container performs the following:
 
-  * Do `pip install` on the dependency git repos at specified commits.
   * Source Vivado settings64.sh from specified path to make vivado and vivado_hls available.
   * Download PYNQ board files into the finn root directory, unless they already exist.
   * Source Vitits settings64.sh if Vitis is mounted.
@@ -92,7 +91,7 @@ The finn.dev image is built and launched as follows:
 5. Depending on the arguments to run-docker.sh a different application is launched. run-docker.sh notebook launches a Jupyter server for the tutorials, whereas run-docker.sh build_custom and run-docker.sh build_dataflow trigger a dataflow build (see documentation). Running without arguments yields an interactive shell. See run-docker.sh for other options.
 
 (Re-)launching builds outside of Docker
-======================================
+========================================
 
 It is possible to launch builds for FINN-generated HLS IP and stitched-IP folders outside of the Docker container.
 This may be necessary for visual inspection of the generated designs inside the Vivado GUI, if you run into licensing
@@ -122,16 +121,16 @@ The checks are configured in .pre-commit-config.yaml under the repo root.
 Testing
 =======
 
-Tests are vital to keep FINN running.  All the FINN tests can be found at https://github.com/Xilinx/finn/tree/master/tests.
+Tests are vital to keep FINN running.  All the FINN tests can be found at https://github.com/Xilinx/finn/tree/main/tests.
 These tests can be roughly grouped into three categories:
 
- * Unit tests: targeting unit functionality, e.g. a single transformation. Example: https://github.com/Xilinx/finn/blob/master/tests/transformation/streamline/test_sign_to_thres.py tests the expected behavior of the `ConvertSignToThres` transformation pass.
+ * Unit tests: targeting unit functionality, e.g. a single transformation. Example: https://github.com/Xilinx/finn/blob/main/tests/transformation/streamline/test_sign_to_thres.py tests the expected behavior of the `ConvertSignToThres` transformation pass.
 
- * Small-scale integration tests: targeting a group of related classes or functions that to test how they behave together. Example: https://github.com/Xilinx/finn/blob/master/tests/fpgadataflow/test_convert_to_hls_conv_layer.py sets up variants of ONNX Conv nodes that are first lowered and then converted to FINN HLS layers.
+ * Small-scale integration tests: targeting a group of related classes or functions that to test how they behave together. Example: https://github.com/Xilinx/finn/blob/main/tests/fpgadataflow/test_convert_to_hls_conv_layer.py sets up variants of ONNX Conv nodes that are first lowered and then converted to FINN HLS layers.
 
- * End-to-end tests: testing a typical 'end-to-end' compilation flow in FINN, where one end is a trained QNN and the other end is a hardware implementation. These tests can be quite large and are typically broken into several steps that depend on prior ones. Examples: https://github.com/Xilinx/finn/tree/master/tests/end2end
+ * End-to-end tests: testing a typical 'end-to-end' compilation flow in FINN, where one end is a trained QNN and the other end is a hardware implementation. These tests can be quite large and are typically broken into several steps that depend on prior ones. Examples: https://github.com/Xilinx/finn/tree/main/tests/end2end
 
-Additionally, finn-base, brevitas and finn-hlslib also include their own test suites.
+Additionally, qonnx, brevitas and finn-hlslib also include their own test suites.
 The full FINN compiler test suite
 (which will take several hours to run and require a PYNQ board) can be executed
 by:
