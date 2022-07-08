@@ -145,6 +145,12 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             return int(exp_cycles)
         else:
             # TODO: adjust inaccurate formula
+            warnings.warn(
+                """Estimated latency for layer {} can be (2-3x) lower
+                 than actual latency!""".format(
+                    self.onnx_node.name
+                )
+            )
             return int(ifm_dim[1] * (ifm_dim[1] + (ifm_dim[1] / k[1])))
 
     def get_instream_width(self):
