@@ -5,7 +5,7 @@ Core
 Modules
 =======
 
-finn.core.data\_layout
+qonnx.core.data\_layout
 -------------------------
 
 .. automodule:: qonnx.core.data_layout
@@ -21,10 +21,10 @@ qonnx.core.datatype
    :undoc-members:
    :show-inheritance:
 
-finn.core.execute\_custom\_node
+qonnx.core.execute\_custom\_node
 --------------------------------------
 
-.. automodule:: finn.core.execute_custom_node
+.. automodule:: qonnx.core.execute_custom_node
    :members:
    :undoc-members:
    :show-inheritance:
