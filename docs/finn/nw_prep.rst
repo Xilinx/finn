@@ -47,4 +47,4 @@ Folding
 
 To adjust the folding, the values for PE and SIMD can be increased to achieve also an increase in the performance. The result can be verified using the same simulation flow as for the network with maximum folding (*cppsim* using C++), for details please have a look at chapter :ref:`verification`.
 
-The result is a network of HLS layers with desired folding and it can be passed to :ref:`vivado_synth`.
+The result is a network of HLS layers with desired folding and it can be passed to :ref:`hw_build`.
