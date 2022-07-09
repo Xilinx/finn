@@ -163,7 +163,7 @@ def test_fpgadataflow_streamingmaxpool(
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
     else:
-        raise Exception("Unknown exec_mode in test_layer_streaming_maxpool_batch")
+        raise Exception("Unknown exec_mode in test_fpgadataflow_streamingmaxpool")
 
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
