@@ -152,7 +152,7 @@ class MakeZYNQProject(Transformation):
             # define kernel instances
             # name kernels connected to graph inputs as idmaxx
             # name kernels connected to graph outputs as odmaxx
-            if producer is None or consumer is None:
+            if producer is None or not consumer:
                 if producer is None:
                     instance_names[node.name] = "idma" + str(idma_idx)
                     idma_idx += 1

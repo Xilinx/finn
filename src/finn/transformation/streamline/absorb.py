@@ -627,7 +627,7 @@ class AbsorbTransposeIntoResize(Transformation):
                         graph.node.insert(node_ind + 1, new_transpose)
                         # rewire nodes
                         final_t_cands = model.find_consumers(mt_cand.output[0])
-                        if final_t_cands is not None:
+                        if final_t_cands:
                             # rewire next nodes' inputs
                             for final_t_cand in final_t_cands:
                                 final_t_cand.input[0] = trans_output

@@ -218,7 +218,7 @@ class VitisLink(Transformation):
                 instance_names[node.name] = "idma" + str(idma_idx)
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 idma_idx += 1
-            elif consumer is None:
+            elif not consumer:
                 instance_names[node.name] = "odma" + str(odma_idx)
                 config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
                 odma_idx += 1
