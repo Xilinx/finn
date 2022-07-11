@@ -1,6 +1,6 @@
 bitstring==3.1.7
 clize==4.1.1
-dataclasses-json==0.5.2
+dataclasses-json==0.5.7
 docrep==0.2.7
 future==0.18.2
 gspread==3.6.0
