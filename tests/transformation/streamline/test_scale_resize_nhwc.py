@@ -1,7 +1,7 @@
 import pytest
+
 import numpy as np
 import onnx
-import onnx.version_converter as vc
 import onnx.helper as oh
 from onnx import TensorProto
 from qonnx.core.datatype import DataType
@@ -12,6 +12,7 @@ from qonnx.util.basic import gen_finn_dt_tensor
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MakeScaleResizeNHWC
 
+
 def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
     ofm_dim_h = ifm_dim[0] * scales[2]
     ofm_dim_w = ifm_dim[1] * scales[3]
@@ -19,14 +20,10 @@ def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
         "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim[0], ifm_dim[1]]
     )
 
-    param = oh.make_tensor_value_info(
-        "scales", TensorProto.FLOAT, [4]
-    )
+    param = oh.make_tensor_value_info("scales", TensorProto.FLOAT, [4])
 
     # Not actually used, only needed for compliance with the Resize node interface
-    roi = oh.make_tensor_value_info(
-        "roi", TensorProto.FLOAT, [4]
-    )
+    roi = oh.make_tensor_value_info("roi", TensorProto.FLOAT, [4])
 
     outp_up = oh.make_tensor_value_info(
         "outp_up", TensorProto.FLOAT, [1, ifm_ch, ofm_dim_h, ofm_dim_w]
@@ -39,7 +36,7 @@ def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
         "Resize",
         inputs=["inp", "roi", "scales"],
         outputs=["outp_up"],
-        name = "Resize1",
+        name="Resize1",
         mode=mode,
     )
 
@@ -68,6 +65,7 @@ def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
 
     return model
 
+
 def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
     ofm_dim_h = ifm_dim[0] * scales[2]
     ofm_dim_w = ifm_dim[1] * scales[3]
@@ -75,16 +73,12 @@ def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
         "inp", TensorProto.FLOAT, [1, ifm_dim[0], ifm_dim[1], ifm_ch]
     )
 
-    param = oh.make_tensor_value_info(
-        "scales", TensorProto.FLOAT, [4]
-    )
+    param = oh.make_tensor_value_info("scales", TensorProto.FLOAT, [4])
 
     # Not actually used, only needed for compliance with the Resize node interface
-    roi = oh.make_tensor_value_info(
-        "roi", TensorProto.FLOAT, [4]
-    )
+    roi = oh.make_tensor_value_info("roi", TensorProto.FLOAT, [4])
 
-    outp= oh.make_tensor_value_info(
+    outp = oh.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ifm_ch, ofm_dim_h, ofm_dim_w]
     )
     outp_tr = oh.make_tensor_value_info(
@@ -103,7 +97,7 @@ def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
         "Resize",
         inputs=["outp_tr", "roi", "scales"],
         outputs=["outp"],
-        name = "Resize1",
+        name="Resize1",
         mode=mode,
     )
 
@@ -114,7 +108,7 @@ def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
         outputs=[outp],
         value_info=[outp_tr, param, roi],
     )
-    
+
     model = oh.make_model(graph, producer_name="resize_model2")
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
@@ -124,6 +118,7 @@ def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
 
     return model
 
+
 def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
     ofm_dim_h = ifm_dim[0] * scales[2]
     ofm_dim_w = ifm_dim[1] * scales[3]
@@ -131,14 +126,10 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
         "inp", TensorProto.FLOAT, [1, ifm_dim[0], ifm_dim[1], ifm_ch]
     )
 
-    param = oh.make_tensor_value_info(
-        "scales", TensorProto.FLOAT, scales
-    )
+    param = oh.make_tensor_value_info("scales", TensorProto.FLOAT, scales)
 
     # Not actually used, only needed for compliance with the Resize node interface
-    roi = oh.make_tensor_value_info(
-        "roi", TensorProto.FLOAT, [4]
-    )
+    roi = oh.make_tensor_value_info("roi", TensorProto.FLOAT, [4])
 
     outp_tr = oh.make_tensor_value_info(
         "outp_tr", TensorProto.FLOAT, [1, ifm_ch, ifm_dim[0], ifm_dim[1]]
@@ -163,7 +154,7 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
         "Resize",
         inputs=["outp_tr", "roi", "scales"],
         outputs=["outp_up"],
-        name = "Resize1",
+        name="Resize1",
         mode=mode,
     )
 
@@ -195,11 +186,13 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
 
 @pytest.mark.streamline
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[2**i, 2**i] for i in range(3,6)])
+@pytest.mark.parametrize("ifm_dim", [[2**i, 2**i] for i in range(3, 6)])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [3])
 # scales
-@pytest.mark.parametrize("scales", [[1,1,i,j] for i in range(2,5) for j in range(2,5)])
+@pytest.mark.parametrize(
+    "scales", [[1, 1, i, j] for i in range(2, 5) for j in range(2, 5)]
+)
 # mode
 @pytest.mark.parametrize("mode", ["nearest"])
 # input datatype
@@ -208,9 +201,11 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
     # create models
     resize_model1 = create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt)
     resize_model2 = create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt)
-    resize_model3 = create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt)
+    resize_model3 = create_transpose_resize_transpose(
+        ifm_dim, ifm_ch, scales, mode, idt
+    )
 
-    #set initializers
+    # set initializers
     resize_model1.set_initializer("scales", np.array(scales, dtype=np.float32))
     resize_model2.set_initializer("scales", np.array(scales, dtype=np.float32))
     resize_model3.set_initializer("scales", np.array(scales, dtype=np.float32))
@@ -221,7 +216,6 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
     input_dict_nchw = {"inp": input_tensor_nchw}
     input_dict_nhwc = {"inp": input_tensor_nhwc}
 
-    
     # execute first model
     output_dict1 = oxe.execute_onnx(resize_model1, input_dict_nchw)
     expected1 = output_dict1["outp"]
@@ -263,12 +257,12 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
     # transform Resize into ResizeNHWC
     resize_model3 = resize_model3.transform(MakeScaleResizeNHWC())
 
-     # execute transformed model
+    # execute transformed model
     output_node_name3 = resize_model3.graph.output[0].name
     output_dict3 = oxe.execute_onnx(
         resize_model3, input_dict_nhwc, return_full_exec_context=False
     )
     output3 = output_dict3[output_node_name3]
 
-     # compare outputs
+    # compare outputs
     assert (expected3 == output3).all()

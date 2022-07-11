@@ -722,11 +722,13 @@ class MakeMaxPoolNHWC(Transformation):
                         graph_modified = True
         return (model, graph_modified)
 
+
 class MakeScaleResizeNHWC(Transformation):
     """
     Converts the inputs and outputs for all scales Resize and Upsample nodes
     from NCHW to NHWC.
     """
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -738,12 +740,15 @@ class MakeScaleResizeNHWC(Transformation):
                 if n.op_type == "Upsample":
                     scales_ind = 1
                 else:
-                    scales_ind = 2 
+                    scales_ind = 2
                 if producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
                         old_value = model.get_initializer(n.input[scales_ind])
-                        new_value = np.array([old_value[idx] for idx in (0, 2, 3, 1)], dtype=np.dtype('float32'))
+                        new_value = np.array(
+                            [old_value[idx] for idx in (0, 2, 3, 1)],
+                            dtype=np.dtype("float32"),
+                        )
                         model.set_initializer(n.input[scales_ind], new_value)
                         start_name = producer.input[0]
                         mid_name = n.input[0]
@@ -762,7 +767,10 @@ class MakeScaleResizeNHWC(Transformation):
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
                         old_value = model.get_initializer(n.input[scales_ind])
-                        new_value = np.array([old_value[idx] for idx in (0, 2, 3, 1)], dtype=np.dtype('float32'))
+                        new_value = np.array(
+                            [old_value[idx] for idx in (0, 2, 3, 1)],
+                            dtype=np.dtype("float32"),
+                        )
                         model.set_initializer(n.input[scales_ind], new_value)
                         start_name = n.input[0]
                         mid_name = consumer.input[0]
