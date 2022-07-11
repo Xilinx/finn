@@ -61,7 +61,7 @@ def is_external_output(model, node, i):
     # indicate whether output i of node should be made external
     # True only if output is unconnected
     consumers = model.find_consumers(node.output[i])
-    if consumers is None:
+    if not consumers:
         return True
     return False
 

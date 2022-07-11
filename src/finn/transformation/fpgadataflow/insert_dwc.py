@@ -46,7 +46,7 @@ class InsertDWC(Transformation):
             if _suitable_node(n):
                 for output_name in n.output:
                     consumers = model.find_consumers(output_name)
-                    if consumers is None:
+                    if not consumers:
                         continue
                     if len(consumers) > 1:
                         warnings.warn(

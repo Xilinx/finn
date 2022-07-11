@@ -62,7 +62,7 @@ class InsertFIFO(Transformation):
             if _suitable_node(n):
                 for n_output in n.output:
                     consumers = model.find_consumers(n_output)
-                    if consumers is None:
+                    if not consumers:
                         continue
                     if len(consumers) > 1:
                         warnings.warn(
