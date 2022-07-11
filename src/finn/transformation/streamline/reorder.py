@@ -722,6 +722,63 @@ class MakeMaxPoolNHWC(Transformation):
                         graph_modified = True
         return (model, graph_modified)
 
+class MakeScaleResizeNHWC(Transformation):
+    """
+    Converts the inputs and outputs for all scales Resize and Upsample nodes
+    from NCHW to NHWC.
+    """
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "Upsample" or n.op_type == "Resize":
+                consumer = model.find_consumer(n.output[0])
+                producer = model.find_producer(n.input[0])
+                if n.op_type == "Upsample":
+                    scales_ind = 1
+                else:
+                    scales_ind = 2 
+                if producer is not None and producer.op_type == "Transpose":
+                    perms = list(get_by_name(producer.attribute, "perm").ints)
+                    if perms == [0, 3, 1, 2]:
+                        old_value = model.get_initializer(n.input[scales_ind])
+                        new_value = np.array([old_value[idx] for idx in (0, 2, 3, 1)], dtype=np.dtype('float32'))
+                        model.set_initializer(n.input[scales_ind], new_value)
+                        start_name = producer.input[0]
+                        mid_name = n.input[0]
+                        end_name = n.output[0]
+                        (b, hi, wi, c) = model.get_tensor_shape(start_name)
+                        (b, c, ho, wo) = model.get_tensor_shape(end_name)
+                        producer.input[0] = mid_name
+                        producer.output[0] = end_name
+                        n.input[0] = start_name
+                        n.output[0] = mid_name
+                        model.set_tensor_shape(mid_name, (b, ho, wo, c))
+                        model.set_tensor_shape(end_name, (b, c, ho, wo))
+                        graph.node.remove(producer)
+                        graph.node.insert(node_ind, producer)
+                elif consumer is not None and consumer.op_type == "Transpose":
+                    perms = list(get_by_name(consumer.attribute, "perm").ints)
+                    if perms == [0, 2, 3, 1]:
+                        old_value = model.get_initializer(n.input[scales_ind])
+                        new_value = np.array([old_value[idx] for idx in (0, 2, 3, 1)], dtype=np.dtype('float32'))
+                        model.set_initializer(n.input[scales_ind], new_value)
+                        start_name = n.input[0]
+                        mid_name = consumer.input[0]
+                        end_name = consumer.output[0]
+                        (b, c, hi, wi) = model.get_tensor_shape(start_name)
+                        (b, c, ho, wo) = model.get_tensor_shape(mid_name)
+                        consumer.input[0] = start_name
+                        consumer.output[0] = mid_name
+                        n.input[0] = mid_name
+                        n.output[0] = end_name
+                        model.set_tensor_shape(mid_name, (b, hi, wi, c))
+                        model.set_tensor_shape(end_name, (b, ho, wo, c))
+                        graph.node.remove(consumer)
+                        graph.node.insert(node_ind - 1, consumer)
+        return (model, False)
+
 
 class MoveOpPastFork(Transformation):
     """Move node operations past graph forks. Used when a node before a fork
