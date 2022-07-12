@@ -803,7 +803,7 @@ class TestEnd2End:
         ret_str += "\n" + "Raw data:"
 
         ret_str += "\n" + "{:<8} {:<16} {:<16} {:<16} {:<16} {:<16}".format(
-            "N", "runtime[ms]", "fclk[mhz]", "fps", "DRAM rd[Mb/s]", "DRAM wr[Mb/s]"
+            "N", "runtime[ms]", "fclk[mhz]", "fps", "DRAM rd[MB/s]", "DRAM wr[MB/s]"
         )
         for k in bsize_range:
             v = ret[k]
@@ -812,8 +812,8 @@ class TestEnd2End:
                 np.round(v["runtime[ms]"], 4),
                 v["fclk[mhz]"],
                 np.round(v["throughput[images/s]"], 2),
-                np.round(v["DRAM_in_bandwidth[Mb/s]"], 2),
-                np.round(v["DRAM_out_bandwidth[Mb/s]"], 2),
+                np.round(v["DRAM_in_bandwidth[MB/s]"], 2),
+                np.round(v["DRAM_out_bandwidth[MB/s]"], 2),
             )
         ret_str += "\n" + "-----------------------------"
         warnings.warn(ret_str)
