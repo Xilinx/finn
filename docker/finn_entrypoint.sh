@@ -113,5 +113,6 @@ else
   yecho "If you need Vitis HLS, ensure HLS_PATH is set correctly and mounted into the Docker container."
 fi
 
+export PATH=$PATH:$HOME/.local/bin
 # execute the provided command(s) as root
 exec "$@"
