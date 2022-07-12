@@ -57,17 +57,21 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
     "conv_config", [(1, 2, 0), (1, 3, 0), (3, 2, 1), (3, 1, 0), (3, 1, 1), (5, 2, 1)]
 )
 @pytest.mark.parametrize("depthwise", [False, True])
+@pytest.mark.parametrize("use_rtl_swg", [False, True])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
+def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mode):
     kernel_size, stride, pad = conv_config
     np.random.seed(0)
     idt = DataType["UINT4"]
 
     in_feature_dim = 7
     in_chn = 16
+
+    if use_rtl_swg and exec_mode == "cppsim":
+        pytest.skip("cppsim not supported for RTL SWG")
 
     if depthwise is True:
         group = out_chn = in_chn
@@ -122,7 +126,7 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
     model = model.transform(InferDataTypes())
 
     new_model = model.transform(LowerConvsToMatMul())
-    new_model = new_model.transform(to_hls.InferConvInpGen())
+    new_model = new_model.transform(to_hls.InferConvInpGen(use_rtl_variant=use_rtl_swg))
     if depthwise is True:
         new_model = new_model.transform(to_hls.InferVectorVectorActivation())
     else:
@@ -156,10 +160,15 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, exec_mode):
     x = gen_finn_dt_tensor(idt, input_shape)
     inp_dict = {model.graph.input[0].name: x}
     assert oxe.compare_execution(model, new_model, inp_dict)
+
+    if use_rtl_swg:
+        downsampler_op_type = "ConvolutionInputGenerator_rtl"
+    else:
+        downsampler_op_type = "DownSampler"
     if kernel_size == 1 and stride > 1 and pad == 0:
-        assert new_model.graph.node[1].op_type == "DownSampler"
+        assert new_model.graph.node[1].op_type == downsampler_op_type
         if exec_mode == "rtlsim":
-            node = new_model.get_nodes_by_op_type("DownSampler")[0]
+            node = new_model.get_nodes_by_op_type(downsampler_op_type)[0]
             inst = getCustomOp(node)
             cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
             exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)

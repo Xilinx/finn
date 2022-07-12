@@ -18,13 +18,13 @@ parameter MMV_OUT = $MMV_OUT$;
 parameter BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN;
 parameter BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT;
 
+(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V" *)
 input  ap_clk;
+(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V" *)
 input  ap_rst_n;
-(* X_INTERFACE_PARAMETER = "FREQ_HZ 100000000.000000" *) //todo: make configurable or set later
 input  [BUF_IN_WIDTH-1:0] in0_V_TDATA;
 input  in0_V_TVALID;
 output in0_V_TREADY;
-(* X_INTERFACE_PARAMETER = "FREQ_HZ 100000000.000000" *)
 output [BUF_OUT_WIDTH-1:0] out_V_TDATA;
 output out_V_TVALID;
 input  out_V_TREADY;

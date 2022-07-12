@@ -173,10 +173,10 @@ def prepare_inputs(input_tensor):
 
 # input channel parallelism ("SIMD")
 @pytest.mark.parametrize("simd", [1,2,3,6])
+# parallel_window enable (MMV_out = M*K)
+@pytest.mark.parametrize("parallel_window", [0,1])
 # in/out MMV ("M")
 @pytest.mark.parametrize("m", [1])
-# paralle_window enable (MMV_out = M*K)
-@pytest.mark.parametrize("parallel_window", [0])
 
 # Flip dimensions
 @pytest.mark.parametrize("flip", [False,True])
@@ -210,9 +210,9 @@ def test_fpgadataflow_slidingwindow_rtl(
         pytest.skip("SIMD cannot be larger than number of input channels")
     if ifm_ch % simd != 0:
         pytest.skip("SIMD must divide number of input channels")
-    if kernel_width > ifm_dim_h or stride_h > ifm_dim_h:
+    if kernel_height > ifm_dim_h or stride_h > ifm_dim_h:
         pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
-    if kernel_height > ifm_dim_w or stride_w > ifm_dim_w:
+    if kernel_width > ifm_dim_w or stride_w > ifm_dim_w:
         pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
     if (k_h==1 and (stride_h!=1 or dilation_h!=1)) or (k_w==1 and (stride_w!=1 or dilation_w!=1)):
         pytest.skip("Illegal convolution configuration: stride or dilation defined for unitary kernel dim")
