@@ -294,8 +294,8 @@ class CreateStitchedIP(Transformation):
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""
             )
+        # ensure that all nodes are fpgadataflow, and that IPs are generated
         for node in model.graph.node:
-            # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_fpgadataflow_node(
                 node
             ), "All nodes must be FINN fpgadataflow nodes."
@@ -307,7 +307,9 @@ class CreateStitchedIP(Transformation):
             self.connect_clk_rst(node)
             self.connect_axi(node)
             for i in range(len(node.input)):
-                if not is_external_input(model, node, i):
+                if is_external_input(model, node, i):
+                    self.connect_s_axis_external(node, idx=i)
+                else:
                     producer = model.find_producer(node.input[i])
                     if producer is None:
                         continue
@@ -407,10 +409,7 @@ class CreateStitchedIP(Transformation):
             tcl.append("write_verilog -force -mode synth_stub %s.v" % block_name)
             tcl.append("write_checkpoint %s.dcp" % block_name)
             tcl.append("write_xdc %s.xdc" % block_name)
-            tcl.append(
-                "report_utilization -hierarchical -hierarchical_depth 5 "
-                "-file %s_partition_util.rpt" % block_name
-            )
+            tcl.append("report_utilization -file %s_partition_util.rpt" % block_name)
         # export block design itself as an IP core
         block_vendor = "xilinx_finn"
         block_library = "finn"

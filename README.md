@@ -4,7 +4,7 @@
 
 <img align="left" src="https://raw.githubusercontent.com/Xilinx/finn/github-pages/docs/img/finn-stack.png" alt="drawing" style="margin-right: 20px" width="250"/>
 
-[![GitHub Discussions](https://img.shields.io/badge/discussions-join-green)](https://github.com/Xilinx/finn/discussions)
+[![GitHub Discussions](https://img.shields.io/github/discussions/Xilinx/finn)](https://github.com/Xilinx/finn/discussions)
 [![ReadTheDocs](https://readthedocs.org/projects/finn/badge/?version=latest&style=plastic)](http://finn.readthedocs.io/)
 
 FINN is an experimental framework from Xilinx Research Labs to explore deep neural network

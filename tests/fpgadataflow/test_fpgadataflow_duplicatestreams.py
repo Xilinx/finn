@@ -48,32 +48,25 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
-def make_dupstreams_modelwrapper(ch, pe, idim, idt, n_dupl):
+def make_dupstreams_modelwrapper(ch, pe, idim, idt):
     shape = [1, idim, idim, ch]
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
-    out_names = []
-    out_vi = []
-    for i in range(n_dupl):
-        outp_name = "outp%d" % i
-        out_names.append(outp_name)
-        out_vi.append(
-            helper.make_tensor_value_info(outp_name, TensorProto.FLOAT, shape)
-        )
+    outp0 = helper.make_tensor_value_info("outp0", TensorProto.FLOAT, shape)
+    outp1 = helper.make_tensor_value_info("outp1", TensorProto.FLOAT, shape)
 
     dupstrm_node = helper.make_node(
         "DuplicateStreams_Batch",
         ["inp"],
-        out_names,
+        ["outp0", "outp1"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
         NumChannels=ch,
-        NumOutputStreams=n_dupl,
         PE=pe,
         inputDataType=idt.name,
         numInputVectors=[1, idim, idim],
     )
     graph = helper.make_graph(
-        nodes=[dupstrm_node], name="graph", inputs=[inp], outputs=out_vi
+        nodes=[dupstrm_node], name="graph", inputs=[inp], outputs=[outp0, outp1]
     )
 
     model = helper.make_model(graph, producer_name="addstreams-model")
@@ -99,13 +92,11 @@ def prepare_inputs(input_tensor, idt):
 @pytest.mark.parametrize("fold", [-1, 2, 1])
 # image dimension
 @pytest.mark.parametrize("imdim", [7])
-# amount of duplication
-@pytest.mark.parametrize("n_dupl", [2, 3])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode):
+def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, exec_mode):
     if fold == -1:
         pe = 1
     else:
@@ -115,7 +106,7 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode):
     # generate input data
     x = gen_finn_dt_tensor(idt, (1, imdim, imdim, ch))
 
-    model = make_dupstreams_modelwrapper(ch, pe, imdim, idt, n_dupl)
+    model = make_dupstreams_modelwrapper(ch, pe, imdim, idt)
 
     if exec_mode == "cppsim":
         model = model.transform(PrepareCppSim())
@@ -133,11 +124,12 @@ def test_fpgadataflow_duplicatestreams(idt, ch, fold, imdim, n_dupl, exec_mode):
     # prepare input data and execute
     input_dict = prepare_inputs(x, idt)
     output_dict = oxe.execute_onnx(model, input_dict)
-
+    y0 = output_dict["outp0"]
+    y1 = output_dict["outp1"]
     expected_y = x
-    for i in range(n_dupl):
-        y = output_dict["outp%d" % i]
-        assert (y == expected_y).all(), exec_mode + " failed"
+
+    assert (y0 == expected_y).all(), exec_mode + " failed"
+    assert (y1 == expected_y).all(), exec_mode + " failed"
 
     if exec_mode == "rtlsim":
         node = model.get_nodes_by_op_type("DuplicateStreams_Batch")[0]
