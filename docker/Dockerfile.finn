@@ -28,6 +28,9 @@
 
 FROM pytorch/pytorch:1.7.1-cuda11.0-cudnn8-runtime
 LABEL maintainer="Yaman Umuroglu <yamanu@xilinx.com>"
+
+ARG XRT_DEB_VERSION="xrt_202210.2.13.466_18.04-amd64-xrt"
+
 WORKDIR /workspace
 
 # some Vitis deps require a timezone to be specified, which hangs in Docker
@@ -60,7 +63,6 @@ RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
 
 # install XRT
-ARG XRT_DEB_VERSION
 RUN wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb
 RUN apt install -y /tmp/$XRT_DEB_VERSION.deb
 RUN rm /tmp/$XRT_DEB_VERSION.deb
