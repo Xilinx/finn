@@ -31,16 +31,17 @@ import pytest
 import numpy as np
 import onnx.helper as oh
 from onnx import TensorProto
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as ox
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline import (
     MoveScalarAddPastMatMul,
     MoveScalarMulPastMatMul,
 )
 
 
+@pytest.mark.streamline
 def test_move_scalar_mul_past_matmul():
     top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, [1, 2])
     mul_param = oh.make_tensor_value_info("mul_param", TensorProto.FLOAT, [1, 1])
@@ -72,6 +73,7 @@ def test_move_scalar_mul_past_matmul():
     assert new_model.graph.node[0].output[0] == new_model.graph.node[1].input[0]
 
 
+@pytest.mark.streamline
 def test_move_scalar_add_past_matmul():
     top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, [1, 2])
     add_param = oh.make_tensor_value_info("add_param", TensorProto.FLOAT, [1, 1])
@@ -103,6 +105,7 @@ def test_move_scalar_add_past_matmul():
     assert new_model.graph.node[0].output[0] == new_model.graph.node[1].input[0]
 
 
+@pytest.mark.streamline
 @pytest.mark.parametrize(
     "test_args",
     [("Add", MoveScalarAddPastMatMul()), ("Mul", MoveScalarMulPastMatMul())],

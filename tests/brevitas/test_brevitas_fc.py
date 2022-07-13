@@ -35,13 +35,13 @@ import onnx.numpy_helper as nph
 import torch
 from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from pkgutil import get_data
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import RemoveStaticGraphInputs
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import RemoveStaticGraphInputs
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
@@ -49,6 +49,7 @@ from finn.util.test import get_test_model_trained
 export_onnx_path = make_build_dir("test_brevitas_fc_")
 
 
+@pytest.mark.brevitas_export
 # act bits
 @pytest.mark.parametrize("abits", [1, 2])
 # weight bits
@@ -81,7 +82,7 @@ def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits, QONNX_export):
     assert len(model.graph.input) == 1
     assert len(model.graph.output) == 1
     # load one of the test vectors
-    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {model.graph.input[0].name: nph.to_array(input_tensor)}

@@ -24,9 +24,7 @@ Please see the [Getting Started](https://finn.readthedocs.io/en/latest/getting_s
 
 ## What's New in FINN?
 
-* **2021-11-05:** v0.7 is released, introducing QONNX support, three new example networks and many other improvements. Read more on the [v0.7 release blog post](https://xilinx.github.io/finn//2021/11/05/finn-v07-is-released.html).
-* **2021-06-15:** v0.6 is released, with ResNet-50 on U250 and ZCU104 MobileNet-v1 in finn-examples showcasing new features plus a lot more. Read more on the [v0.6 release blog post](https://xilinx.github.io/finn//2021/06/15/finn-v06-is-released.html).
-* **2020-12-17:** v0.5b (beta) is released, with a new [examples repo](https://github.com/Xilinx/finn-examples) including MobileNet-v1. Read more on the <a href="https://xilinx.github.io/finn/2020/12/17/finn-v05b-beta-is-released.html">release blog post</a>.
+* Please find all news under [GitHub discussions Announcements](https://github.com/Xilinx/finn/discussions/categories/announcements).
 
 ## Documentation
 

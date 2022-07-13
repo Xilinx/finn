@@ -29,8 +29,8 @@
 import numpy as np
 import os
 from PIL import Image
+from qonnx.core.data_layout import NCHW, NHWC
 
-from finn.core.data_layout import NCHW, NHWC
 from finn.util.test import crop_center, resize_smaller_side
 
 

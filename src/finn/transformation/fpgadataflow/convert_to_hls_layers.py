@@ -28,21 +28,21 @@
 
 
 import numpy as np
+import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import TensorProto, helper
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import SortGraph
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import get_by_name
+from qonnx.util.onnx import nchw_to_nhwc
 
-import finn.core.data_layout as DataLayout
-from finn.core.datatype import DataType
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
 )
-from finn.transformation.general import SortGraph
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import get_by_name
-from finn.util.onnx import nchw_to_nhwc
 
 
 class InferConvInpGen(Transformation):
@@ -197,15 +197,15 @@ class InferConvInpGen(Transformation):
                             depthwise=depthwise,
                             name="ConvolutionInputGenerator_" + n.name,
                         )
-                    else:  # non-square images and/or kernels
+                    else:  # 1D images and/or kernels
                         assert is_1d_convolution, (
                             "%s: ConvolutionInputGenerator1D works only for 1D convs"
                             % n.name
                         )
                         if dilation_h > 1 or dilation_w > 1:
-                            assert stride_h == 1 and stride_w == 1, (
-                                """%s: Stride value of greater than 1 is not supported for convolutions
-                                with dilation value greater than 1"""
+                            assert depthwise == 1, (
+                                """%s: Dilation value > 1 is only supported for
+                                1D depthwise separable convolutions"""
                                 % n.name
                             )
                         ConvInpGen_node = helper.make_node(
@@ -339,20 +339,27 @@ class InferStreamingMaxPool(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
-        for n in graph.node:
+        for node in graph.node:
             node_ind += 1
-            if n.op_type == "MaxPoolNHWC":
-                mp_input = n.input[0]
-                mp_output = n.output[0]
+            if node.op_type == "MaxPoolNHWC":
+                mp_input = node.input[0]
+                mp_output = node.output[0]
                 mp_in_shape = model.get_tensor_shape(mp_input)
                 # mp_out_shape = model.get_tensor_shape(mp_output)
                 dt = model.get_tensor_datatype(mp_input)
-                mp_inst = getCustomOp(n)
+                mp_inst = getCustomOp(node)
                 k_h, k_w = mp_inst.get_nodeattr("kernel_shape")
                 ifm_ch = mp_in_shape[-1]
                 ifm_dim_h = mp_in_shape[1]
                 ifm_dim_w = mp_in_shape[2]
-                if ifm_dim_h % k_h == 0 and ifm_dim_w % k_w == 0:
+                pe = 1
+                ceil_mode = mp_inst.get_nodeattr("ceil_mode")
+                is_1d = (ifm_dim_h == 1 and k_h == 1) or (ifm_dim_w == 1 and k_w == 1)
+                is_divisable = (ifm_dim_h % k_h == 0) or (ifm_dim_w % k_w == 0)
+                is_bipolar = dt == DataType["BIPOLAR"]
+                pass_1d = is_1d and (not is_bipolar)
+                pass_2d = (not is_1d) and is_divisable
+                if pass_1d or pass_2d:
                     # create equivalent StreamingMaxPool_Batch node
                     new_node = helper.make_node(
                         "StreamingMaxPool_Batch",
@@ -364,12 +371,16 @@ class InferStreamingMaxPool(Transformation):
                         NumChannels=ifm_ch,
                         ImgDim=(ifm_dim_h, ifm_dim_w),
                         dataType=dt.name,
-                        name="StreamingMaxPool_Batch_" + n.name,
+                        PE=pe,
+                        CeilMode=ceil_mode,
+                        name="StreamingMaxPool_Batch_" + node.name,
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old nodes
-                    graph.node.remove(n)
+                    graph.node.remove(node)
                     graph_modified = True
+                else:
+                    warnings.warn(node.name + ": could not convert to HLS")
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
@@ -385,62 +396,57 @@ class InferPool_Batch(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
-        for n in graph.node:
+        for node in graph.node:
             node_ind += 1
-            if n.op_type in ["MaxPool", "QuantAvgPool2d", "MaxPoolNHWC"]:
-                # extract pool parameters
+            if node.op_type in ["MaxPool", "QuantAvgPool2d", "MaxPoolNHWC"]:
+                node_input = node.input[0]
+                ishape = model.get_tensor_shape(node_input)
+                node_output = node.output[0]
+                idt = model.get_tensor_datatype(node_input)
+                oshape = model.get_tensor_shape(node_output)
+                # only support 4D input tensors (1D convs need extra dummy dim)
+                if len(ishape) != 4:
+                    continue
 
-                if n.op_type == "MaxPool":
-                    k = get_by_name(n.attribute, "kernel_shape").ints[-1]
-                    stride = get_by_name(n.attribute, "strides").ints[-1]
-                    # assumed datalayout
+                # extract pool parameters
+                if node.op_type == "MaxPool":
+                    kh, kw = list(get_by_name(node.attribute, "kernel_shape").ints)
+                    sh, sw = list(get_by_name(node.attribute, "strides").ints)
                     dlayout = "NCHW"
-                elif n.op_type == "QuantAvgPool2d":
-                    inst = getCustomOp(n)
-                    k = inst.get_nodeattr("kernel")
-                    stride = inst.get_nodeattr("stride")
+                elif node.op_type == "QuantAvgPool2d":
+                    inst = getCustomOp(node)
+                    # QuantAvgPool2d has a single scalar attribute
+                    # for kernel size and stride (implicit square)
+                    kh = kw = inst.get_nodeattr("kernel")
+                    sh = sw = inst.get_nodeattr("stride")
                     dlayout = inst.get_nodeattr("data_layout")
-                elif n.op_type == "MaxPoolNHWC":
-                    inst = getCustomOp(n)
-                    k_shape = inst.get_nodeattr("kernel_shape")
-                    strides = inst.get_nodeattr("strides")
-                    assert k_shape[0] == k_shape[1]
-                    assert strides[0] == strides[1]
-                    k = k_shape[0]
-                    stride = strides[0]
+                elif node.op_type == "MaxPoolNHWC":
+                    inst = getCustomOp(node)
+                    kh, kw = inst.get_nodeattr("kernel_shape")
+                    sh, sw = inst.get_nodeattr("strides")
                     dlayout = "NHWC"
                 try:
-                    pad = get_by_name(n.attribute, "pads").ints[-1]
+                    pad = list(get_by_name(node.attribute, "pads").ints)
                 except AttributeError:
-                    pad = 0
-
-                node_input = n.input[0]
-                node_output = n.output[0]
-                idt = model.get_tensor_datatype(node_input)
+                    pad = [0, 0, 0, 0]
 
                 if not idt.is_integer():
                     continue
 
-                if k < stride:
+                if (kh < sh) or (kw < sw):
+                    # TODO check/implement swg support
                     continue
-                elif k == stride:
-                    warnings.warn(
-                        n.name
-                        + """: Inferring Pool_Batch node for k == stride.
-                        This case can be optimized.
-                        For example, for MaxPool run InferStreamingMaxPool before
-                        InferPool_Batch """
-                    )
 
                 odt = model.get_tensor_datatype(node_output)
 
                 if dlayout == "NCHW":
-                    ifm_ch = model.get_tensor_shape(n.input[0])[1]
+                    _, ifm_ch, ifm_h, ifm_w = ishape
+                    _, ofm_ch, ofm_h, ofm_w = oshape
+                elif dlayout == "NHWC":
+                    _, ifm_h, ifm_w, ifm_ch = ishape
+                    _, ofm_h, ofm_w, ofm_ch = oshape
                 else:
-                    ifm_ch = model.get_tensor_shape(n.input[0])[-1]
-                ofm_ch = ifm_ch
-                ifm_dim = model.get_tensor_shape(n.input[0])[-2]
-                ofm_dim = model.get_tensor_shape(n.output[0])[-2]
+                    raise Exception("Unknown dlayout: " + str(dlayout))
 
                 # if data layout NCHW, we need transpose nodes surrounding
                 # the hls layer
@@ -449,7 +455,7 @@ class InferPool_Batch(Transformation):
                     inp_trans_out = helper.make_tensor_value_info(
                         model.make_new_valueinfo_name(),
                         TensorProto.FLOAT,
-                        (1, ifm_dim, ifm_dim, ifm_ch),  # NHWC
+                        (1, ifm_h, ifm_w, ifm_ch),  # NHWC
                     )
                     graph.value_info.append(inp_trans_out)
                     inp_trans_out = inp_trans_out.name
@@ -458,7 +464,7 @@ class InferPool_Batch(Transformation):
                     pool_output = helper.make_tensor_value_info(
                         model.make_new_valueinfo_name(),
                         TensorProto.FLOAT,
-                        (1, ofm_dim, ofm_dim, ofm_ch),
+                        (1, ofm_h, ofm_w, ofm_ch),
                     )
                     graph.value_info.append(pool_output)
                     pool_output = pool_output.name
@@ -467,7 +473,7 @@ class InferPool_Batch(Transformation):
                 im2col_out = helper.make_tensor_value_info(
                     model.make_new_valueinfo_name(),
                     TensorProto.FLOAT,
-                    (1, ofm_dim, ofm_dim, ifm_ch * k * k),
+                    (1, ofm_h, ofm_w, ifm_ch * kh * kw),
                 )
                 graph.value_info.append(im2col_out)
                 im2col_out = im2col_out.name
@@ -485,24 +491,28 @@ class InferPool_Batch(Transformation):
                     pool_output = node_output
 
                 accum_bits = 0
-                pool_size_param = k
+                pool_size_param = 0  # will be overridden if neededs
                 pad_value = 0
-                if n.op_type in ["MaxPool", "MaxPoolNHWC"]:
+                if node.op_type in ["MaxPool", "MaxPoolNHWC"]:
                     pool_fxn = "MaxPool"
                     odt = idt
                     pad_value = idt.min()
-                elif n.op_type == "QuantAvgPool2d":
+                elif node.op_type == "QuantAvgPool2d":
                     assert odt.is_integer(), """Output data type for QuantAvgPool2d
                     needs to be integer"""
-                    assert pad == 0, "Padding is not supported for QuantAvgPool2d"
-                    inst = getCustomOp(n)
+                    assert all(
+                        x == 0 for x in pad
+                    ), "Padding is not supported for QuantAvgPool2d"
+                    inst = getCustomOp(node)
                     pool_fxn = "QuantAvgPool"
                     pool_size_param = inst.get_shifts()
                     accum_bits = inst.get_accum_size()
 
                 else:
                     raise Exception(
-                        "pad_value and pool_fxn not configured for {}".format(n.op_type)
+                        "pad_value and pool_fxn not configured for {}".format(
+                            node.op_type
+                        )
                     )
 
                 # format input tensor
@@ -510,14 +520,14 @@ class InferPool_Batch(Transformation):
                     "Im2Col",
                     [im2col_in],
                     [im2col_out],
-                    domain="finn.custom_op.general",
-                    stride=[stride, stride],
-                    kernel_size=[k, k],
-                    pad_amount=[pad, pad, pad, pad],
+                    domain="qonnx.custom_op.general",
+                    stride=[sh, sw],
+                    kernel_size=[kh, kw],
+                    pad_amount=pad,
                     pad_value=pad_value,
                     depthwise=1,
-                    input_shape="(1,{},{},{})".format(ifm_dim, ifm_dim, ifm_ch),
-                    name="Im2Col_" + n.name,
+                    input_shape="(1,{},{},{})".format(ifm_h, ifm_w, ifm_ch),
+                    name="Im2Col_" + node.name,
                 )
 
                 # Warning PE has to be equal to ifm_ch until Im2Col is replaced by
@@ -534,13 +544,13 @@ class InferPool_Batch(Transformation):
                     OutputDataType=odt.name,
                     Channels=ifm_ch,
                     PE=ifm_ch,
-                    KernelSize=k,
+                    KernelSize=[kh, kw],
                     Function=pool_fxn,
-                    OutImgDim=ofm_dim,
+                    OutImgDims=[ofm_h, ofm_w],
                     AccumBits=accum_bits,
                     Size=pool_size_param,
                     BatchSize=1,
-                    name="Pool_Batch_" + n.name,
+                    name="Pool_Batch_" + node.name,
                 )
 
                 if dlayout == "NCHW":
@@ -559,7 +569,7 @@ class InferPool_Batch(Transformation):
                     graph.node.insert(node_ind, im2col_node)
                     graph.node.insert(node_ind + 1, pool_node)
                 # remove old node
-                graph.node.remove(n)
+                graph.node.remove(node)
                 graph_modified = True
 
         if graph_modified:
@@ -568,9 +578,9 @@ class InferPool_Batch(Transformation):
         return (model, graph_modified)
 
 
-class InferBinaryStreamingFCLayer(Transformation):
+class InferBinaryMatrixVectorActivation(Transformation):
     """Convert XnorPopcountMatMul layers to
-    StreamingFCLayer_Batch layers. Any immediately following MultiThreshold
+    MatrixVectorActivation layers. Any immediately following MultiThreshold
     layers will also be absorbed into the MVTU."""
 
     def __init__(self, mem_mode="const"):
@@ -640,9 +650,9 @@ class InferBinaryStreamingFCLayer(Transformation):
                         actval = odt.min()
                     model.set_tensor_shape(mm_input, mm_in_shape)
                     model.set_tensor_shape(mt_output, mt_out_shape)
-                    # create and insert new StreamingFCLayer node
+                    # create and insert new MatrixVectorActivation node
                     new_node = helper.make_node(
-                        "StreamingFCLayer_Batch",
+                        "MatrixVectorActivation",
                         [mm_input, mm_weight, mt_thres],
                         [mt_output],
                         domain="finn.custom_op.fpgadataflow",
@@ -671,9 +681,9 @@ class InferBinaryStreamingFCLayer(Transformation):
                     odt = model.get_tensor_datatype(mm_output)
                     model.set_tensor_shape(mm_input, mm_in_shape)
                     model.set_tensor_shape(mm_output, mm_out_shape)
-                    # create and insert new StreamingFCLayer node
+                    # create and insert new MatrixVectorActivation node
                     new_node = helper.make_node(
-                        "StreamingFCLayer_Batch",
+                        "MatrixVectorActivation",
                         [mm_input, mm_weight],
                         [mm_output],
                         domain="finn.custom_op.fpgadataflow",
@@ -703,9 +713,9 @@ class InferBinaryStreamingFCLayer(Transformation):
         return (model, graph_modified)
 
 
-class InferQuantizedStreamingFCLayer(Transformation):
+class InferQuantizedMatrixVectorActivation(Transformation):
     """Convert MatMul layers with quantized inputs and weights to
-    StreamingFCLayer_Batch layers. Any immediately following MultiThreshold
+    MatrixVectorActivation layers. Any immediately following MultiThreshold
     layers will also be absorbed into the MVTU."""
 
     def __init__(self, mem_mode="const"):
@@ -783,9 +793,9 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             # remove bias for bipolar, since
                             # binary->bipolar is achieved by reinterpretation
                             actval = 0
-                        # create and insert new StreamingFCLayer node
+                        # create and insert new MatrixVectorActivation node
                         new_node = helper.make_node(
-                            "StreamingFCLayer_Batch",
+                            "MatrixVectorActivation",
                             [mm_input, mm_weight, mt_thres],
                             [mt_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -802,7 +812,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             noActivation=0,
                             numInputVectors=list(mm_in_shape[:-1]),
                             mem_mode=self.mem_mode,
-                            name="StreamingFCLayer_Batch_" + n.name,
+                            name="MatrixVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -814,9 +824,9 @@ class InferQuantizedStreamingFCLayer(Transformation):
                         odt = model.get_tensor_datatype(mm_output)
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mm_output, mm_out_shape)
-                        # create and insert new StreamingFCLayer node
+                        # create and insert new MatrixVectorActivation node
                         new_node = helper.make_node(
-                            "StreamingFCLayer_Batch",
+                            "MatrixVectorActivation",
                             [mm_input, mm_weight],
                             [mm_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -833,7 +843,7 @@ class InferQuantizedStreamingFCLayer(Transformation):
                             noActivation=1,
                             numInputVectors=list(mm_in_shape[:-1]),
                             mem_mode=self.mem_mode,
-                            name="StreamingFCLayer_Batch_" + n.name,
+                            name="MatrixVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node
@@ -846,9 +856,9 @@ class InferQuantizedStreamingFCLayer(Transformation):
         return (model, graph_modified)
 
 
-class InferVVAU(Transformation):
+class InferVectorVectorActivation(Transformation):
     """Convert MatMul layers with quantized inputs and weights to
-    Vector_Vector_Activate_Batch layers, if the sparsity annotation
+    VectorVectorActivation layers, if the sparsity annotation
     of the weight matrix indicates that the MatMul layer belongs to
     a depthwise convolution. Any immediately following MultiThreshold
     layers will also be absorbed into the VVAU."""
@@ -898,7 +908,7 @@ class InferVVAU(Transformation):
                     W = W.transpose(0, 3, 1, 2)
                     # now we can extract the values using a for loop over the channels
                     # and fill a zero numpy array in the correct shape
-                    w_tensor = np.zeros((channels, 1, k_h, k_w))
+                    w_tensor = np.zeros((channels, 1, k_h, k_w), dtype=np.float32)
                     for ch in range(channels):
                         w_tensor[ch][0] = W[ch][ch]
                     model.set_initializer(mm_weight, w_tensor)
@@ -935,9 +945,9 @@ class InferVVAU(Transformation):
                         )
                         model.set_tensor_shape(mm_input, mm_in_shape)
                         model.set_tensor_shape(mt_output, mt_out_shape)
-                        # create and insert new Vector_Vector_Activate_Batch node
+                        # create and insert new VectorVectorActivation node
                         new_node = helper.make_node(
-                            "Vector_Vector_Activate_Batch",
+                            "VectorVectorActivation",
                             [mm_input, mm_weight, mt_thres],
                             [mt_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -952,7 +962,7 @@ class InferVVAU(Transformation):
                             outputDataType=odt.name,
                             ActVal=actval,
                             noActivation=0,
-                            name="Vector_Vector_Activate_Batch_" + n.name,
+                            name="VectorVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -966,7 +976,7 @@ class InferVVAU(Transformation):
                         model.set_tensor_shape(mm_output, mm_out_shape)
                         # create and insert new VVAU node
                         new_node = helper.make_node(
-                            "Vector_Vector_Activate_Batch",
+                            "VectorVectorActivation",
                             [mm_input, mm_weight],
                             [mm_output],
                             domain="finn.custom_op.fpgadataflow",
@@ -981,7 +991,7 @@ class InferVVAU(Transformation):
                             outputDataType=odt.name,
                             ActVal=0,
                             noActivation=1,
-                            name="Vector_Vector_Activate_Batch_" + n.name,
+                            name="VectorVectorActivation_" + n.name,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old node
@@ -1146,7 +1156,7 @@ class InferAddStreamsLayer(Transformation):
                 # create node with no parallelization first
                 pe = 1
 
-                # create and insert new StreamingFCLayer node
+                # create and insert new AddStreams_Batch node
                 new_node = helper.make_node(
                     "AddStreams_Batch",
                     [in0, in1],
@@ -1180,8 +1190,9 @@ class InferDuplicateStreamsLayer(Transformation):
         for node in graph.node:
             node_ind += 1
             successors = model.find_consumers(node.output[0])
-            if successors is not None and len(successors) == 2:
+            if successors is not None and len(successors) >= 2:
                 output_tensor = node.output[0]
+                n_outputs = len(successors)
 
                 dt = model.get_tensor_datatype(output_tensor)
 
@@ -1192,7 +1203,7 @@ class InferDuplicateStreamsLayer(Transformation):
                 # create clone tensors
                 out_shape = model.get_tensor_shape(output_tensor)
                 out_tensor_clones = []
-                for i in range(2):
+                for i in range(n_outputs):
                     clone = helper.make_tensor_value_info(
                         model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
                     )
@@ -1215,6 +1226,7 @@ class InferDuplicateStreamsLayer(Transformation):
                     PE=pe,
                     inputDataType=dt.name,
                     numInputVectors=vecs,
+                    NumOutputStreams=n_outputs,
                     name="DuplicateStreams_Batch_" + node.name,
                 )
 
@@ -1247,7 +1259,7 @@ class InferChannelwiseLinearLayer(Transformation):
     def get_smallest_possible(self, vals):
         """Returns smallest (fewest bits) possible DataType that can represent
         value. Prefers unsigned integers where possible."""
-        vals = np.array(vals)
+        vals = np.array(vals, dtype=np.float64)
         for v in vals:
             assert int(v) == v, "Error float value"
 
@@ -1430,7 +1442,7 @@ class InferLabelSelectLayer(Transformation):
 
                 k = model.get_initializer(k_input)[0]
 
-                # create and insert new StreamingFCLayer node
+                # create and insert new LabelSelect_Batch node
                 new_node = helper.make_node(
                     "LabelSelect_Batch",
                     [fc_input],
@@ -1523,7 +1535,9 @@ class InferGlobalAccPoolLayer(Transformation):
                     model.make_new_valueinfo_name(), TensorProto.FLOAT, [1]
                 )
                 model.graph.value_info.append(mul_value)
-                model.set_initializer(mul_value.name, np.array(1 / (vecs[1] * vecs[2])))
+                model.set_initializer(
+                    mul_value.name, np.array(1 / (vecs[1] * vecs[2]), dtype=np.float32)
+                )
                 new_mul = helper.make_node(
                     "Mul",
                     [pool_out, mul_value.name],
@@ -1583,6 +1597,63 @@ class InferLookupLayer(Transformation):
                     EmbeddingType=emb_dtype.name,
                     InputType=ind_dtype.name,
                     InputShape=list(ishape),
+                )
+                graph.node.insert(node_ind, new_node)
+                # remove old node
+                graph.node.remove(node)
+                graph_modified = True
+
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferConcatLayer(Transformation):
+    """Convert suitable Concat nodes (operating on last/-1 axis)
+    into StreamingConcat HLS layers."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Concat":
+                ishape = model.get_tensor_shape(node.input[0])
+                axis = get_by_name(node.attribute, "axis")
+                if (axis is None) or (ishape is None):
+                    continue
+                axis = axis.i
+                last_axis = len(ishape) - 1
+                # skip conversion if not using last axis
+                if (axis != -1) and (axis != last_axis):
+                    continue
+                # check datatype coherence
+                dt0 = model.get_tensor_datatype(node.input[0])
+                if dt0 is None:
+                    continue
+                dt_coherent = all(
+                    [model.get_tensor_datatype(x) == dt0 for x in node.input]
+                )
+                if not dt_coherent:
+                    continue
+                # skip conversion if inputs are not integers
+                if not dt0.is_integer():
+                    continue
+                # ready for conversion
+                elems_per_stream = [model.get_tensor_shape(x)[-1] for x in node.input]
+                inp_vec = list(model.get_tensor_shape(node.input[0])[:-1])
+                new_node = helper.make_node(
+                    "StreamingConcat",
+                    node.input,
+                    node.output,
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    name="Concat_" + node.name,
+                    ElemsPerStream=elems_per_stream,
+                    inputDataType=dt0.name,
+                    numInputVectors=inp_vec,
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node

@@ -38,18 +38,19 @@ from brevitas.core.scaling import ScalingImplType
 from brevitas.core.stats import StatsOp
 from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from brevitas.nn import QuantConv2d
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import gen_finn_dt_tensor
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.util.basic import gen_finn_dt_tensor
 
 export_onnx_path = "test_brevitas_conv.onnx"
 
 
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("dw", [False, True])
 @pytest.mark.parametrize("bias", [True, False])
 @pytest.mark.parametrize("in_channels", [32])

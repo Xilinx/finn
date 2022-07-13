@@ -27,9 +27,9 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+from qonnx.transformation.base import Transformation
 from shutil import copy2
 
-from finn.transformation.base import Transformation
 from finn.util.basic import make_build_dir
 from finn.util.vivado import out_of_context_synth
 
@@ -52,7 +52,7 @@ class SynthOutOfContext(Transformation):
         top_module_name = model.get_metadata_prop("wrapper_filename")
         top_module_name = file_to_basename(top_module_name).strip(".v")
         build_dir = make_build_dir("synth_out_of_context_")
-        verilog_extensions = [".v", ".vh"]
+        verilog_extensions = [".v", ".sv", ".vh"]
         with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
             all_verilog_srcs = f.read().split()
         for file in all_verilog_srcs:

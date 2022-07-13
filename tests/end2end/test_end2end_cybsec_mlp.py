@@ -43,12 +43,12 @@ from brevitas.core.quant import QuantType
 from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from brevitas.nn import QuantIdentity, QuantLinear, QuantReLU
 from brevitas.quant_tensor import QuantTensor
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir
 from finn.util.test import get_build_env, load_test_checkpoint_or_skip
@@ -86,6 +86,7 @@ class CybSecMLPForExport(nn.Module):
 
 
 @pytest.mark.parametrize("QONNX_export", [False, True])
+@pytest.mark.end2end
 def test_end2end_cybsec_mlp_export(QONNX_export):
     assets_dir = pk.resource_filename("finn.qnn-data", "cybsec-mlp/")
     # load up trained net in Brevitas
@@ -180,6 +181,7 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.end2end
 @pytest.mark.parametrize("QONNX_export", [False, True])
 def test_end2end_cybsec_mlp_build(QONNX_export):
     model_file = get_checkpoint_name("export", QONNX_export)
@@ -217,8 +219,8 @@ def test_end2end_cybsec_mlp_build(QONNX_export):
     # examine the report contents
     with open(est_cycles_report, "r") as f:
         est_cycles_dict = json.load(f)
-        assert est_cycles_dict["StreamingFCLayer_Batch_0"] == 80
-        assert est_cycles_dict["StreamingFCLayer_Batch_1"] == 64
+        assert est_cycles_dict["MatrixVectorActivation_0"] == 80
+        assert est_cycles_dict["MatrixVectorActivation_1"] == 64
     with open(est_res_report, "r") as f:
         est_res_dict = json.load(f)
         assert est_res_dict["total"]["LUT"] == 11360.0
@@ -226,6 +228,7 @@ def test_end2end_cybsec_mlp_build(QONNX_export):
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build", QONNX_export))
 
 
+@pytest.mark.end2end
 @pytest.mark.parametrize("QONNX_export", [False, True])
 def test_end2end_cybsec_mlp_run_on_hw(QONNX_export):
     build_env = get_build_env(build_kind, target_clk_ns)

@@ -29,11 +29,14 @@
 import numpy as np
 import os
 import warnings
+from qonnx.core.datatype import DataType
+from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.custom_op.general.im2col import compute_conv_output_dim
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
+
+# TODO: consider splitting this into separate implementations for 1D and 2D
+# similar to what we do for ConvolutionInputGenerator
 
 
 class StreamingMaxPool_Batch(HLSCustomOp):
@@ -44,6 +47,10 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             "ImgDim": ("ints", True, []),  # [H, W] = [Y, X]
             "PoolDim": ("ints", True, []),  # [H, W] = [Y, X]
             "NumChannels": ("i", True, 0),
+            # parallelism control - only supported for 1D maxpool
+            "PE": ("i", False, 0),
+            # round up (instead of down) output size - only supported for 1D maxpool
+            "CeilMode": ("i", False, 0),
             # FINN DataTypes for inputs/outputs
             "dataType": ("s", True, ""),
         }
@@ -82,24 +89,30 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         return ishape
 
     def get_folded_input_shape(self):
-        # even though there is no folding in the current hlslib op,
-        # insert a time multiplexing axis to remain compatible with the
-        # shapes produced by the rest of the dataflow pipeline
-        ret = list(self.get_normal_input_shape())
-        ret.insert(-1, 1)
-        return tuple(ret)
+        ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
+        ifm_ch = self.get_nodeattr("NumChannels")
+        pe = self.get_nodeattr("PE")
+        nf = int(ifm_ch / pe)
+        if self.is_1d():
+            folded_ishape = (1, ifm_dim_h, ifm_dim_w, nf, pe)
+        else:
+            folded_ishape = (1, ifm_dim_h, ifm_dim_w, 1, ifm_ch)
+        return folded_ishape
 
     def get_normal_output_shape(self):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
         k_h, k_w = tuple(self.get_nodeattr("PoolDim"))
         ifm_ch = self.get_nodeattr("NumChannels")
-        stride_h = k_h
-        stride_w = k_w
-        pad = 0
-        assert ifm_dim_h % k_h == 0, "StreamingMaxPool needs ImgDim_h % PoolDim_h == 0"
-        assert ifm_dim_w % k_w == 0, "StreamingMaxPool needs ImgDim_w % PoolDim_w == 0"
-        ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, pad)
-        ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, pad)
+        ceil_mode = self.get_nodeattr("CeilMode")
+        if not self.is_1d():
+            assert (
+                ifm_dim_h % k_h == 0
+            ), "StreamingMaxPool needs ImgDim_h % PoolDim_h == 0"
+            assert (
+                ifm_dim_w % k_w == 0
+            ), "StreamingMaxPool needs ImgDim_w % PoolDim_w == 0"
+        ofm_dim_h = compute_pool_output_dim(ifm_dim_h, k_h, k_h, 0, ceil_mode)
+        ofm_dim_w = compute_pool_output_dim(ifm_dim_w, k_w, k_w, 0, ceil_mode)
         oshape = (1, ofm_dim_h, ofm_dim_w, ifm_ch)
         return oshape
 
@@ -107,8 +120,15 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         # even though there is no folding in the current hlslib op,
         # insert a time multiplexing axis to remain compatible with the
         # shapes produced by the rest of the dataflow pipeline
+        ifm_ch = self.get_nodeattr("NumChannels")
+        pe = self.get_nodeattr("PE")
+        nf = int(ifm_ch / pe)
         ret = list(self.get_normal_output_shape())
-        ret.insert(-1, 1)
+        if self.is_1d():
+            ret[-1] = nf
+            ret.append(pe)
+        else:
+            ret.insert(-1, 1)
         return tuple(ret)
 
     def get_number_output_values(self):
@@ -118,20 +138,35 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def get_exp_cycles(self):
         # derived from StreamingMaxPool_Batch loop nest
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
+
+        warnings.warn(
+            """Estimated latency for layer {} can be lower than
+             actual latency!""".format(
+                self.onnx_node.name
+            )
+        )
         if self.is_1d():
-            return int(ifm_dim[1] + k[1])
+            _, _, _, nf, _ = self.get_folded_output_shape()
+            ceil_mode = self.get_nodeattr("CeilMode")
+            ofm_dim = compute_pool_output_dim(ifm_dim[1], k[1], k[1], 0, ceil_mode)
+            exp_cycles = ofm_dim * nf * (k[1] + 1)
+            return int(exp_cycles)
         else:
             # TODO: adjust inaccurate formula
-            return int(ifm_dim[1] * (ifm_dim[1] + (ifm_dim[1] / k[1])))
+            return int(ifm_dim[1] * ifm_dim[1] * (1 + 1 / (k[1] * k[1])))
 
     def get_instream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()
+        pe = self.get_nodeattr("PE")
         ifm_ch = self.get_nodeattr("NumChannels")
-        in_width = int(dt_bits * ifm_ch)
+        if self.is_1d():
+            in_width = int(dt_bits * pe)
+        else:
+            in_width = int(dt_bits * ifm_ch)
         return in_width
 
     def get_outstream_width(self):
-        """For streaming maxpool out stream with is the same as in stream width"""
+        """For streaming maxpool out stream width is the same as in stream width"""
         return self.get_instream_width()
 
     def make_shape_compatible_op(self, model):
@@ -176,18 +211,34 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         self.code_gen_dict["$GLOBALS$"] = ['#include "maxpool.h"']
 
     def defines(self, var):
-        numReps = 2
+        numReps = 1
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
+        ceil_mode = self.get_nodeattr("CeilMode")
+        output_size = compute_pool_output_dim(ifm_dim[1], k[1], k[1], 0, ceil_mode)
 
-        self.code_gen_dict["$DEFINES$"] = [
-            """#define ImgDim {}\n #define PoolDim {}\n
-            #define NumChannels {}\n #define numReps {}""".format(
-                ifm_dim[1],
-                k[1],
-                self.get_nodeattr("NumChannels"),
-                numReps,
-            )
-        ]
+        if self.is_1d():
+            self.code_gen_dict["$DEFINES$"] = [
+                """#define ImgDim {}\n #define PoolDim {}\n
+                #define NumChannels {}\n #define PE {}\n #define OutputSize {}
+                \n #define numReps {}""".format(
+                    ifm_dim[1],
+                    k[1],
+                    self.get_nodeattr("NumChannels"),
+                    self.get_nodeattr("PE"),
+                    output_size,
+                    numReps,
+                )
+            ]
+        else:
+            self.code_gen_dict["$DEFINES$"] = [
+                """#define ImgDim {}\n #define PoolDim {}\n
+                #define NumChannels {}\n #define numReps {}""".format(
+                    ifm_dim[1],
+                    k[1],
+                    self.get_nodeattr("NumChannels"),
+                    numReps,
+                )
+            ]
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -222,22 +273,27 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             if self.is_1d():
                 raise Exception("Binary 1d MaxPool not implemented on HLS backend")
             else:
-                op = "StreamingMaxPool_Batch"
+                op = "StreamingMaxPool"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels>(in0, out, numReps);" % (op)
+                "%s<ImgDim, PoolDim, NumChannels>(in0, out);" % (op)
             ]
         else:
-            if self.is_1d():
-                op = "StreamingMaxPool_Precision_Batch_1d"
-            else:
-                op = "StreamingMaxPool_Precision_Batch"
             dtype = self.get_input_datatype()
             dtype_hls = dtype.get_hls_datatype_str()
             minval_str = str(int(dtype.min()))
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out, numReps);"
-                % (op, dtype_hls, minval_str)
-            ]
+            if self.is_1d():
+                op = "StreamingMaxPool_Precision_1d"
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    """%s<ImgDim, PoolDim, NumChannels, PE,
+                     OutputSize, %s, %s>(in0, out);"""
+                    % (op, dtype_hls, minval_str)
+                ]
+            else:
+                op = "StreamingMaxPool_Precision"
+                self.code_gen_dict["$DOCOMPUTE$"] = [
+                    "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out);"
+                    % (op, dtype_hls, minval_str)
+                ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -278,8 +334,12 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"] = [
+            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+        ]
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+        )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
@@ -289,7 +349,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
-        folded_oshape = self.get_folded_output_shape()
+        folded_ishape = self.get_folded_input_shape()
 
         # TODO ensure codegen dir exists
         if mode == "cppsim":
@@ -316,9 +376,8 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             export_idt = DataType["BINARY"]
         else:
             export_idt = self.get_input_datatype()
-        # no reshaping for input since assuming no folding on input
-        # make copy before saving array
-        reshaped_input = inp.copy()
+
+        reshaped_input = inp.reshape(folded_ishape)
         np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
 
         if mode == "cppsim":
@@ -327,10 +386,9 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             assert (
-                context[node.output[0]].shape == folded_oshape
+                context[node.output[0]].shape == exp_oshape
             ), "cppsim \
-            did not produce expected ofolded utput shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
+            did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -367,4 +425,4 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         assert (
             context[node.output[0]].shape == exp_oshape
         ), """Output
-        shape doesn't match expected shape (1, ofm_dim, ofm_dim, k*k*ifm_ch)."""
+        shape doesn't match expected shape (1, ofm_dim, ofm_dim, ifm_ch)."""

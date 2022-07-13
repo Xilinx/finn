@@ -9,12 +9,14 @@ Hardware Build and Deployment
    :align: center
 
 A model where all layers have been converted to HLS layers can be processed by
-FINN to build a bitfile targeting either a Zynq or Alveo system.
+FINN to build a bitfile and driver targeting a Zynq system or to generate a Vivado IP Integrator (IPI)
+design with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system.
+
 
 Hardware Build
 ==============
 
-Internally, the hardware build consists of the following steps:
+Internally, the hardware build for Zynq devices consists of the following steps:
 
 1. Driver generation
 2. DMA and DWC node insertion
@@ -22,12 +24,9 @@ Internally, the hardware build consists of the following steps:
 4. FIFO insertion and IP generation
 5. Vivado/Vitis project generation and synthesis
 
-.. note:: **In previous FINN releases it was necessary to step through the
-individual sub-steps for hardware build manually by calling each transformation.
-The hardware build transformations `ZynqBuild` and `VitisBuild` now execute all
-necessary sub-transformations. For more control over the build process, the
-transformations listed below can still be called individually.
-**
+.. note::
+  In previous FINN releases it was necessary to step through the individual sub-steps for hardware build manually by calling each transformation. The hardware build transformations `ZynqBuild` now execute all necessary sub-transformations. For more control over the build process, the transformations listed below can still be called individually.
+
 
 Driver Generation
 ------------------
@@ -60,9 +59,7 @@ This is accomplished by the :py:mod:`finn.transformation.fpgadataflow.floorplan.
 and :py:mod:`finn.transformation.fpgadataflow.create_dataflow_partition.CreateDataflowPartition`
 transformations.
 
-.. note:: **For Vitis, each partition will be compiled as a separate kernel,
-and linked together afterwards. For Zynq, each partition will become an IP
-block. **
+.. note:: For Vitis, each partition will be compiled as a separate kernel, and linked together afterwards. For Zynq, each partition will become an IP block.
 
 
 FIFO Insertion and IP Generation
