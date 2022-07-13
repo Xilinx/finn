@@ -39,6 +39,7 @@ from finn.util.basic import make_build_dir
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.end2end
 def test_end2end_build_dataflow_directory():
     test_dir = make_build_dir("test_build_dataflow_directory_")
     target_dir = test_dir + "/build_dataflow"
