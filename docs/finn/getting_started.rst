@@ -143,7 +143,7 @@ Supported FPGA Hardware
 **Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
 
 .. warning::
-  In previous FINN versions (v0.4b - v0.7) we had preliminary support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis 2020.1, see instructions below for Alveo setup that works with older versions. Please note that with the new release with Vitis 2022.1, we do not have support for an automatic deployment on Alveo cards.
+  In previous FINN versions (v0.4b - v0.7) we had support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis 2020.1, see instructions below for Alveo setup that works with older versions. Please note that with the new release with Vitis 2022.1, we do only have experimental support to automatically deployment for Alveo cards.
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
@@ -167,9 +167,6 @@ Continue on the host side (replace the ``<PYNQ_IP>`` and ``<PYNQ_USERNAME>`` wit
 
 Alveo first-time setup
 **********************
-.. warning::
-  Alveo cards are not automatically supported in the new FINN release with Vitis 2022.1. If you are looking for a build flow for Alveo inside of FINN, you will need to use older FINN versions (v0.4b - v0.7) with Vitis 2020.1.
-
 We use *host* to refer to the PC running the FINN Docker environment, which will build the accelerator+driver and package it up, and *target* to refer to the PC where the Alveo card is installed. These two can be the same PC, or connected over the network -- FINN includes some utilities to make it easier to test on remote PCs too. Prior to first usage, you need to set up both the host and the target in the following manner:
 
 On the target side:
