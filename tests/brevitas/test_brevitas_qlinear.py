@@ -35,18 +35,19 @@ import torch
 from brevitas.core.quant import QuantType
 from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from brevitas.nn import QuantLinear
+from qonnx.core.datatype import DataType
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import gen_finn_dt_tensor
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
-from finn.core.datatype import DataType
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
-from finn.util.basic import gen_finn_dt_tensor
 
 export_onnx_path = "test_brevitas_qlinear.onnx"
 
 
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("bias", [False, True])
 @pytest.mark.parametrize("out_features", [4])
 @pytest.mark.parametrize("in_features", [3])

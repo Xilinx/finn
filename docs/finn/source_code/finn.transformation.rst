@@ -25,147 +25,147 @@ Base Class
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.batchnorm\_to\_affine
+qonnx.transformation.batchnorm\_to\_affine
 ------------------------------------------------
 
-.. automodule:: finn.transformation.batchnorm_to_affine
+.. automodule:: qonnx.transformation.batchnorm_to_affine
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.bipolar\_to\_xnor
+qonnx.transformation.bipolar\_to\_xnor
 --------------------------------------------
 
-.. automodule:: finn.transformation.bipolar_to_xnor
+.. automodule:: qonnx.transformation.bipolar_to_xnor
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.change\_3d\_tensors\_to\_4d
+qonnx.transformation.change\_3d\_tensors\_to\_4d
 ------------------------------------------------
 
-.. automodule:: finn.transformation.change_3d_tensors_to_4d
+.. automodule:: qonnx.transformation.change_3d_tensors_to_4d
   :members:
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.change\_datalayout
+qonnx.transformation.change\_datalayout
 --------------------------------------------
 
-.. automodule:: finn.transformation.change_datalayout
+.. automodule:: qonnx.transformation.change_datalayout
   :members:
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.create\_generic\_partitions
+qonnx.transformation.create\_generic\_partitions
 ------------------------------------------------
 
-.. automodule:: finn.transformation.create_generic_partitions
+.. automodule:: qonnx.transformation.create_generic_partitions
   :members:
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.double\_to\_single\_float
+qonnx.transformation.double\_to\_single\_float
 ----------------------------------------------------
 
-.. automodule:: finn.transformation.double_to_single_float
+.. automodule:: qonnx.transformation.double_to_single_float
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.extend\_partition
+qonnx.transformation.extend\_partition
 ------------------------------------------
 
-.. automodule:: finn.transformation.extend_partition
+.. automodule:: qonnx.transformation.extend_partition
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.extract\_conv\_bias
+qonnx.transformation.extract\_conv\_bias
 ------------------------------------------
 
-.. automodule:: finn.transformation.extract_conv_bias
+.. automodule:: qonnx.transformation.extract_conv_bias
    :members:
    :undoc-members:
    :show-inheritance:
 
 
-finn.transformation.fold\_constants
+qonnx.transformation.fold\_constants
 ------------------------------------------
 
-.. automodule:: finn.transformation.fold_constants
+.. automodule:: qonnx.transformation.fold_constants
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.gemm\_to\_matmul
+qonnx.transformation.gemm\_to\_matmul
 ------------------------------------------
 
-.. automodule:: finn.transformation.gemm_to_matmul
+.. automodule:: qonnx.transformation.gemm_to_matmul
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.general
+qonnx.transformation.general
 ----------------------------------
 
-.. automodule:: finn.transformation.general
+.. automodule:: qonnx.transformation.general
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.infer\_data\_layouts
+qonnx.transformation.infer\_data\_layouts
 -------------------------------------------
 
-.. automodule:: finn.transformation.infer_data_layouts
+.. automodule:: qonnx.transformation.infer_data_layouts
   :members:
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.infer\_datatypes
+qonnx.transformation.infer\_datatypes
 -------------------------------------------
 
-.. automodule:: finn.transformation.infer_datatypes
+.. automodule:: qonnx.transformation.infer_datatypes
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.infer\_shapes
+qonnx.transformation.infer\_shapes
 ----------------------------------------
 
-.. automodule:: finn.transformation.infer_shapes
+.. automodule:: qonnx.transformation.infer_shapes
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.insert\_topk
+qonnx.transformation.insert\_topk
 ---------------------------------------
 
-.. automodule:: finn.transformation.insert_topk
+.. automodule:: qonnx.transformation.insert_topk
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.lower\_convs\_to\_matmul
+qonnx.transformation.lower\_convs\_to\_matmul
 ---------------------------------------------------
 
-.. automodule:: finn.transformation.lower_convs_to_matmul
+.. automodule:: qonnx.transformation.lower_convs_to_matmul
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.make\_input\_chanlast
+qonnx.transformation.make\_input\_chanlast
 ------------------------------------------
 
-.. automodule:: finn.transformation.make_input_chanlast
+.. automodule:: qonnx.transformation.make_input_chanlast
   :members:
   :undoc-members:
   :show-inheritance:
 
-finn.transformation.merge\_onnx\_models
+qonnx.transformation.merge\_onnx\_models
 ----------------------------------------
 
-.. automodule:: finn.transformation.merge_onnx_models
+.. automodule:: qonnx.transformation.merge_onnx_models
   :members:
   :undoc-members:
   :show-inheritance:
@@ -179,10 +179,10 @@ finn.transformation.move\_reshape
    :undoc-members:
    :show-inheritance:
 
-finn.transformation.remove
+qonnx.transformation.remove
 -------------------------------------
 
-.. automodule:: finn.transformation.remove
+.. automodule:: qonnx.transformation.remove
   :members:
   :undoc-members:
   :show-inheritance:

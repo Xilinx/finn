@@ -29,16 +29,17 @@ import pytest
 
 import numpy as np
 from onnx import TensorProto, helper
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.transformation.insert_topk import InsertTopK
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.transformation.insert_topk import InsertTopK
 from finn.transformation.streamline.absorb import AbsorbScalarMulAddIntoTopK
 
 
+@pytest.mark.streamline
 # parameter to indicate if mul parameter is negative or positive
 @pytest.mark.parametrize("mul_positive", [True, False])
 # parameter to indicate if mul parameter is scalar or not

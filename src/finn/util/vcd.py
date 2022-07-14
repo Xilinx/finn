@@ -27,9 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import multiprocessing as mp
+from qonnx.util.basic import get_num_default_workers
 from vcdvcd import VCDVCD
-
-from finn.util.basic import get_num_default_workers
 
 # string patterns to search for to find particular interfaces
 # streaming interfaces

@@ -63,39 +63,42 @@ Docker images
 
 If you want to add new dependencies (packages, repos) to FINN it's
 important to understand how we handle this in Docker.
-There are currently two Docker images used in FINN:
-
-* The finn.dev image, used for deploying and developing the FINN compiler. Details described below.
-* The finn.ci image, which is used for continuous integration testing. Almost identical to finn.dev image, key differences are no user setup and fewer packages installed (e.g. no Jupyter).
 
 The finn.dev image is built and launched as follows:
 
-1. run-docker.sh launches the build of the Docker image with `docker build`
+1. run-docker.sh launches fetch-repos.sh to checkout dependency git repos at correct commit hashes (unless ``FINN_SKIP_DEP_REPOS=1``)
 
-2. Docker image is built from docker/Dockerfile.finn_dev using the following steps:
+2. run-docker.sh launches the build of the Docker image with `docker build` (unless ``FINN_DOCKER_PREBUILT=1``). Docker image is built from docker/Dockerfile.finn using the following steps:
 
   * Base: PyTorch dev image
   * Set up apt dependencies: apt-get install a few packages for verilator and
   * Set up pip dependencies: Python packages FINN depends on are listed in requirements.txt, which is copied into the container and pip-installed. Some additional packages (such as Jupyter and Netron) are also installed.
-  * Do user setup: Switch to the same user running the container to avoid running as root.
-  * Clone dependency repos: These include Brevitas, finn-hlslib, finn-base, pyverilator and oh-my-xilinx. The correct commit version will be checked out by the entrypoint script.
   * Install XRT deps, if needed: For Vitis builds we need to install the extra dependencies for XRT. This is only triggered if the image is built with the INSTALL_XRT_DEPS=1 argument.
 
 3. Docker image is ready, run-docker.sh can now launch a container from this image with `docker run`. It sets up certain environment variables and volume mounts:
 
   * Vivado/Vitis is mounted from the host into the container (on the same path).
-  * The finn root folder is mounted under /workspace/finn. This allows modifying the source code on the host and testing inside the container.
+  * The finn root folder is mounted into the container (on the same path). This allows modifying the source code on the host and testing inside the container.
   * The build folder is mounted under /tmp/finn_dev_username (can be overridden by defining FINN_HOST_BUILD_DIR). This will be used for generated files. Mounting on the host allows easy examination of the generated files, and keeping the generated files after the container exits.
   * Various environment variables are set up for use inside the container. See the run-docker.sh script for a complete list.
 
 4. Entrypoint script (docker/finn_entrypoint.sh) upon launching container performs the following:
 
-  * Update and checkout the dependency repos at specified commits.
   * Source Vivado settings64.sh from specified path to make vivado and vivado_hls available.
   * Download PYNQ board files into the finn root directory, unless they already exist.
   * Source Vitits settings64.sh if Vitis is mounted.
 
 5. Depending on the arguments to run-docker.sh a different application is launched. run-docker.sh notebook launches a Jupyter server for the tutorials, whereas run-docker.sh build_custom and run-docker.sh build_dataflow trigger a dataflow build (see documentation). Running without arguments yields an interactive shell. See run-docker.sh for other options.
+
+(Re-)launching builds outside of Docker
+========================================
+
+It is possible to launch builds for FINN-generated HLS IP and stitched-IP folders outside of the Docker container.
+This may be necessary for visual inspection of the generated designs inside the Vivado GUI, if you run into licensing
+issues during synthesis, or other environmental problems.
+Simply set the ``FINN_ROOT`` environment variable to the location where the FINN compiler is installed on the host
+computer, and you should be able to launch the various .tcl scripts or .xpr project files without using the FINN
+Docker container as well.
 
 Linting
 =======
@@ -118,16 +121,16 @@ The checks are configured in .pre-commit-config.yaml under the repo root.
 Testing
 =======
 
-Tests are vital to keep FINN running.  All the FINN tests can be found at https://github.com/Xilinx/finn/tree/master/tests.
+Tests are vital to keep FINN running.  All the FINN tests can be found at https://github.com/Xilinx/finn/tree/main/tests.
 These tests can be roughly grouped into three categories:
 
- * Unit tests: targeting unit functionality, e.g. a single transformation. Example: https://github.com/Xilinx/finn/blob/master/tests/transformation/streamline/test_sign_to_thres.py tests the expected behavior of the `ConvertSignToThres` transformation pass.
+ * Unit tests: targeting unit functionality, e.g. a single transformation. Example: https://github.com/Xilinx/finn/blob/main/tests/transformation/streamline/test_sign_to_thres.py tests the expected behavior of the `ConvertSignToThres` transformation pass.
 
- * Small-scale integration tests: targeting a group of related classes or functions that to test how they behave together. Example: https://github.com/Xilinx/finn/blob/master/tests/fpgadataflow/test_convert_to_hls_conv_layer.py sets up variants of ONNX Conv nodes that are first lowered and then converted to FINN HLS layers.
+ * Small-scale integration tests: targeting a group of related classes or functions that to test how they behave together. Example: https://github.com/Xilinx/finn/blob/main/tests/fpgadataflow/test_convert_to_hls_conv_layer.py sets up variants of ONNX Conv nodes that are first lowered and then converted to FINN HLS layers.
 
- * End-to-end tests: testing a typical 'end-to-end' compilation flow in FINN, where one end is a trained QNN and the other end is a hardware implementation. These tests can be quite large and are typically broken into several steps that depend on prior ones. Examples: https://github.com/Xilinx/finn/tree/master/tests/end2end
+ * End-to-end tests: testing a typical 'end-to-end' compilation flow in FINN, where one end is a trained QNN and the other end is a hardware implementation. These tests can be quite large and are typically broken into several steps that depend on prior ones. Examples: https://github.com/Xilinx/finn/tree/main/tests/end2end
 
-Additionally, finn-base, brevitas and finn-hlslib also include their own test suites.
+Additionally, qonnx, brevitas and finn-hlslib also include their own test suites.
 The full FINN compiler test suite
 (which will take several hours to run and require a PYNQ board) can be executed
 by:

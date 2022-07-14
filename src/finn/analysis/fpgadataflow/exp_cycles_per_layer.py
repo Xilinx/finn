@@ -26,7 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import finn.custom_op.registry as registry
+import qonnx.custom_op.registry as registry
+
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 

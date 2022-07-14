@@ -27,20 +27,19 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
+import qonnx.core.data_layout as DataLayout
 import warnings
 from onnx import TensorProto
 from onnx import helper as oh
-
-import finn.core.data_layout as DataLayout
-from finn.core.datatype import DataType
-from finn.core.onnx_exec import execute_node
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
-from finn.transformation.general import SortGraph
-from finn.transformation.infer_data_layouts import InferDataLayouts
-from finn.transformation.infer_datatypes import InferDataTypes
-from finn.transformation.infer_shapes import InferShapes
-from finn.util.basic import get_by_name
+from qonnx.core.datatype import DataType
+from qonnx.core.onnx_exec import execute_node
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
+from qonnx.transformation.general import SortGraph
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import get_by_name
 
 
 class MoveAddPastMul(Transformation):
@@ -670,8 +669,15 @@ class MakeMaxPoolNHWC(Transformation):
                 if consumer is not None and consumer.op_type == "Transpose":
                     perms = list(get_by_name(consumer.attribute, "perm").ints)
                     if perms == [0, 2, 3, 1]:
+                        ceil_mode = get_by_name(n.attribute, "ceil_mode")
+                        if ceil_mode is not None:
+                            ceil_mode = ceil_mode.i
+                        else:
+                            ceil_mode = (
+                                0  # default to ceil_mode=0 (equivalent to np.floor)
+                            )
                         n.op_type = "MaxPoolNHWC"
-                        n.domain = "finn.custom_op.general"
+                        n.domain = "qonnx.custom_op.general"
                         start_name = n.input[0]
                         mid_name = consumer.input[0]
                         end_name = consumer.output[0]
@@ -683,14 +689,22 @@ class MakeMaxPoolNHWC(Transformation):
                         n.output[0] = end_name
                         model.set_tensor_shape(mid_name, (b, hi, wi, c))
                         model.set_tensor_shape(end_name, (b, ho, wo, c))
+                        getCustomOp(n).set_nodeattr("ceil_mode", ceil_mode)
                         graph.node.remove(consumer)
                         graph.node.insert(node_ind - 1, consumer)
                         graph_modified = True
                 elif producer is not None and producer.op_type == "Transpose":
                     perms = list(get_by_name(producer.attribute, "perm").ints)
                     if perms == [0, 3, 1, 2]:
+                        ceil_mode = get_by_name(n.attribute, "ceil_mode")
+                        if ceil_mode is not None:
+                            ceil_mode = ceil_mode.i
+                        else:
+                            ceil_mode = (
+                                0  # default to ceil_mode=0 (equivalent to np.floor)
+                            )
                         n.op_type = "MaxPoolNHWC"
-                        n.domain = "finn.custom_op.general"
+                        n.domain = "qonnx.custom_op.general"
                         start_name = producer.input[0]
                         mid_name = n.input[0]
                         end_name = n.output[0]
@@ -702,6 +716,7 @@ class MakeMaxPoolNHWC(Transformation):
                         n.output[0] = mid_name
                         model.set_tensor_shape(mid_name, (b, ho, wo, c))
                         model.set_tensor_shape(end_name, (b, c, ho, wo))
+                        getCustomOp(n).set_nodeattr("ceil_mode", ceil_mode)
                         graph.node.remove(producer)
                         graph.node.insert(node_ind, producer)
                         graph_modified = True
@@ -739,6 +754,7 @@ class MoveOpPastFork(Transformation):
                 # Check case when branches are empty and go
                 # to the same node
                 consumers = model.find_consumers(n.output[0])
+                assert len(consumers) > 1, "Must have >1 consumer"
                 unique_consumer = True
                 for consum_node in consumers[1:]:
                     if consumers[0] != consum_node:

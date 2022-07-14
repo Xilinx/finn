@@ -1,8 +1,8 @@
 .. _internals:
 
-*********
+**********
 Internals
-*********
+**********
 
 Intermediate Representation: QONNX and FINN-ONNX
 ================================================
@@ -14,16 +14,18 @@ FINN uses `ONNX <https://github.com/onnx/onnx>`_ as an intermediate representati
 Custom Quantization Annotations
 ===============================
 
-ONNX does not support datatypes smaller than 8-bit integers, whereas in FINN we are interested in smaller integers down to ternary and bipolar. To make this work, FINN uses the quantization_annotation field in ONNX to annotate tensors with their FINN DataType (:py:mod:`finn.core.datatype.DataType`) information. However, all tensors are expected to use single-precision floating point (float32) storage in FINN. This means we store even a 1-bit value as floating point for the purposes of representation. The FINN compiler flow is responsible for eventually producing a packed representation for the target hardware, where the 1-bit is actually stored as 1-bit.
+ONNX does not support datatypes smaller than 8-bit integers, whereas in FINN we are interested in smaller integers down to ternary and bipolar. To make this work, FINN-ONNX uses the quantization_annotation field in ONNX to annotate tensors with their FINN DataType (:py:mod:`qonnx.core.datatype.DataType`) information. However, all tensors are expected to use single-precision floating point (float32) storage in FINN. This means we store even a 1-bit value as floating point for the purposes of representation. The FINN compiler flow is responsible for eventually producing a packed representation for the target hardware, where the 1-bit is actually stored as 1-bit.
 
 Note that FINN uses floating point tensors as a carrier data type to represent integers. Floating point arithmetic can introduce rounding errors, e.g. (int_num * float_scale) / float_scale is not always equal to int_num.
-When using the custom ONNX execution flow, FINN will attempt to sanitize any rounding errors for integer tensors. See (:py:mod:`finn.util.basic.sanitize_quant_values`) for more information.
+When using the custom ONNX execution flow, FINN will attempt to sanitize any rounding errors for integer tensors. See (:py:mod:`qonnx.util.basic.sanitize_quant_values`) for more information.
 This behavior can be disabled (not recommended!) by setting the environment variable SANITIZE_QUANT_TENSORS=0.
+
+.. note:: In QONNX the quantization is represented differently, for details please check the `QONNX repository <https://github.com/fastmachinelearning/qonnx>`_ .
 
 Custom Operations/Nodes
 =======================
 
-FINN uses many custom operations (op_type in ONNX NodeProto) that are not defined in the ONNX operator schema. These custom nodes are marked with domain="finn.*" in the protobuf to identify them as such. These nodes can represent specific operations that we need for low-bit networks, or operations that are specific to a particular hardware backend. To get more familiar with custom operations and how they are created, please take a look in the Jupyter notebook about CustomOps (see chapter :ref:`tutorials` for details) or directly in the module :py:mod:`finn.custom_op`.
+FINN uses many custom operations (op_type in ONNX NodeProto) that are not defined in the ONNX operator schema. These custom nodes are marked with domain="finn.*" or domain="qonnx.*" in the protobuf to identify them as such. These nodes can represent specific operations that we need for low-bit networks, or operations that are specific to a particular hardware backend. To get more familiar with custom operations and how they are created, please take a look in the Jupyter notebook about CustomOps (see chapter :ref:`tutorials` for details) or directly in the module :py:mod:`finn.custom_op`.
 
 .. note:: See the description of `this PR <https://github.com/Xilinx/finn-base/pull/6>`_ for more on how the operator wrapper library is organized.
 
@@ -39,7 +41,7 @@ To verify correct operation of FINN-ONNX graphs, FINN provides its own ONNX exec
 ModelWrapper
 ============
 
-FINN provides a ModelWrapper class (:py:mod:`finn.core.modelwrapper.ModelWrapper`) as a thin wrapper around ONNX to make it easier to analyze and manipulate ONNX graphs. This wrapper provides many helper functions, while still giving full access to the ONNX protobuf representation.
+FINN provides a ModelWrapper class (:py:mod:`qonnx.core.modelwrapper.ModelWrapper`) as a thin wrapper around ONNX to make it easier to analyze and manipulate ONNX graphs. This wrapper provides many helper functions, while still giving full access to the ONNX protobuf representation.
 
 Some of the helper functions are described in more detail below.
 
@@ -48,7 +50,7 @@ Create a ModelWrapper instance
 The ModelWrapper instance can be created using a model in .onnx format or by directly passing a ModelProto instance to the wrapper. The code block below gives an example of how to use the wrapper on a model in .onnx format.
 ::
 
-  from finn.core.modelwrapper import ModelWrapper
+  from qonnx.core.modelwrapper import ModelWrapper
   model = ModelWrapper("model.onnx")
 
 Access the ONNX GraphProto through ModelWrapper
@@ -116,9 +118,9 @@ As mentioned above there are FINN DataTypes additional to the container datatype
   model.get_tensor_datatype(tensor_list[2])
 
   # set tensor datatype of third tensor in model tensor list
-  from finn.core.datatype import DataType
+  from qonnx.core.datatype import DataType
 
-  finn_dtype = DataType.BIPOLAR
+  finn_dtype = DataType["BIPOLAR"]
   model.set_tensor_datatype(tensor_list[2], finn_dtype)
 
 ModelWrapper contains two helper functions for tensor initializers, one to determine the current initializer and one to set the initializer of a tensor. If there is no initializer, None is returned.
@@ -127,7 +129,7 @@ ModelWrapper contains two helper functions for tensor initializers, one to deter
   # get tensor initializer of third tensor in model tensor list
   model.get_initializer(tensor_list[2])
 
-ModelWrapper contains more useful functions, if you are interested please have a look at the ModelWrapper module (:py:mod:`finn.core.modelwrapper.ModelWrapper`) directly.
+ModelWrapper contains more useful functions, if you are interested please have a look at the ModelWrapper module (:py:mod:`qonnx.core.modelwrapper.ModelWrapper`) directly.
 
 
 .. _analysis_pass:
@@ -146,16 +148,18 @@ A transformation passes changes (transforms) the given model, it gets the model 
 
 .. _mem_mode:
 
-StreamingFCLayer *mem_mode*
-===========================
+MatrixVectorActivation *mem_mode*
+==================================
 
-FINN supports two types of the so-called *mem_mode* attrıbute for the node StreamingFCLayer. This mode controls how the weight values are accessed during the execution. That means the mode setting has direct influence on the resulting circuit. Currently two settings for the *mem_mode* are supported in FINN:
+FINN supports three types of the so-called *mem_mode* attrıbute for the node MatrixVectorActivation. This mode controls how the weight values are accessed during the execution. That means the mode setting has direct influence on the resulting circuit. Currently three settings for the *mem_mode* are supported in FINN:
 
 * "const"
 
 * "decoupled"
 
-The following picture shows the idea behind the two modes.
+* "external"
+
+The following picture shows the idea behind the "const" and "decoupled" mode.
 
 .. image:: img/mem_mode.png
    :scale: 55%
@@ -163,7 +167,7 @@ The following picture shows the idea behind the two modes.
 
 Const mode
 ----------
-In *const* mode the weights are "baked in" into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *const* mode IP block generation the `StreamingFCLayer_Batch function <https://github.com/Xilinx/finn-hlslib/blob/07a8353f6cdfd8bcdd81e309a5581044c2a93d3b/fclayer.h#L94>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
+In *const* mode the weights are "baked in" into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *const* mode IP block generation the `Matrix_Vector_Activate_Batch function <https://github.com/Xilinx/finn-hlslib/blob/19fa1197c09bca24a0f77a7fa04b8d7cb5cc1c1d/mvau.hpp#L93>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
 
 Advantages:
 
@@ -185,7 +189,7 @@ In *decoupled* mode a different variant of the MVAU with three ports is used. Be
 
 Advantages:
 
-* better control over the used memory primivites used (see the ram_style attribute in StreamingFCLayer)
+* better control over the used memory primivites used (see the ram_style attribute in MatrixVectorActivation)
 
 * potentially faster HLS synthesis time since weight array shape is no longer part of HLS synthesis
 

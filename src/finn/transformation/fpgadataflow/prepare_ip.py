@@ -27,10 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import qonnx.custom_op.registry as registry
 import warnings
+from qonnx.transformation.base import Transformation
 
-import finn.custom_op.registry as registry
-from finn.transformation.base import Transformation
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
 

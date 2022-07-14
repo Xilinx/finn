@@ -34,7 +34,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import alveo_part_map, pynq_part_map
+from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 
 
 class ShellFlowType(str, Enum):
@@ -59,7 +59,7 @@ class DataflowOutputType(str, Enum):
 
 class ComputeEngineMemMode(str, Enum):
     """Memory mode for generated compute engines. See
-    https://finn.readthedocs.io/en/latest/internals.html#streamingfclayer-mem-mode
+    https://finn.readthedocs.io/en/latest/internals.html#matrixvectoractivation-mem-mode
     for more information."""
 
     CONST = "const"
@@ -166,7 +166,7 @@ class DataflowBuildConfig:
     #: If the parallelization attributes (PE, SIMD) are part of the config,
     #: this will override the automatically generated parallelization
     #: attributes inferred from target_fps (if any)
-    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
     folding_config_file: Optional[str] = None
 
     #: (Optional) Target inference performance in frames per second.
@@ -209,6 +209,10 @@ class DataflowBuildConfig:
     #: the full list of layer IP build directories. By default, synthesis will not run.
     stitched_ip_gen_dcp: Optional[bool] = False
 
+    #: Insert a signature node to the stitched-IP to read/write information
+    #: to the design: e.g. Customer signature, application signature, version
+    signature: Optional[List[int]] = None
+
     #: (Optional) Control the maximum width of the per-PE MVAU stream while
     #: exploring the parallelization attributes to reach target_fps
     #: Only relevant if target_fps is specified.
@@ -218,8 +222,8 @@ class DataflowBuildConfig:
 
     #: (Optional) Whether thresholding layers (which implement quantized
     #: activations in FINN) will be implemented as stand-alone HLS layers,
-    #: instead of being part of StreamingFCLayer. This gives larger flexibility,
-    #: and makes it possible to have runtime-writable thresholds.
+    #: instead of being part of MatrixVectorActivation layer. This gives larger
+    #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
 
     #: Target board, only needed for generating full bitfiles where the FINN
@@ -257,11 +261,13 @@ class DataflowBuildConfig:
     #: Which Vitis platform will be used.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
     #: e.g. "xilinx_u250_xdma_201830_2"
+    #: If not specified but "board" is specified, will use the FINN
+    #: default (if any) for that Alveo board
     vitis_platform: Optional[str] = None
 
     #: Path to JSON config file assigning each layer to an SLR.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
-    #: Will be applied with :py:mod:`finn.transformation.general.ApplyConfig`
+    #: Will be applied with :py:mod:`qonnx.transformation.general.ApplyConfig`
     vitis_floorplan_file: Optional[str] = None
 
     #: Vitis optimization strategy
@@ -356,6 +362,17 @@ class DataflowBuildConfig:
         }
         return name_to_strategy[self.vitis_opt_strategy]
 
+    def _resolve_vitis_platform(self):
+        if self.vitis_platform is not None:
+            return self.vitis_platform
+        elif (self.vitis_platform is None) and (self.board is not None):
+            return alveo_default_platform[self.board]
+        else:
+            raise Exception(
+                "Could not resolve Vitis platform:"
+                " need either board or vitis_platform specified"
+            )
+
     def _resolve_verification_steps(self):
         if self.verify_steps is None:
             return []
@@ -376,6 +393,6 @@ class DataflowBuildConfig:
             )
             verify_expected_output_npy = np.load(self.verify_expected_output_npy)
             return (
-                verify_input_npy.astype(np.float32),
-                verify_expected_output_npy.astype(np.float32),
+                verify_input_npy,
+                verify_expected_output_npy,
             )

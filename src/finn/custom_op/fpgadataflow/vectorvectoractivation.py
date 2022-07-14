@@ -30,14 +30,14 @@ import math
 import numpy as np
 import os
 import warnings
-
-from finn.core.datatype import DataType
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import (
+from qonnx.core.datatype import DataType
+from qonnx.util.basic import (
     calculate_matvec_accumulator_range,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
+
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -45,7 +45,7 @@ from finn.util.data_packing import (
 )
 
 
-class Vector_Vector_Activate_Batch(HLSCustomOp):
+class VectorVectorActivation(HLSCustomOp):
     """Class that corresponds to finn-hlslib Vector_Vector_Activate_Batch function"""
 
     def __init__(self, onnx_node):
@@ -379,7 +379,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                         tdt_hls,
                         odt_hls,
                         self.get_nodeattr("ActVal"),
-                        "comp::less_equal<%s>" % tdt_hls,
+                        "comp::less_equal<%s, %s>" % (tdt_hls, tdt_hls),
                     )
                 )
                 f_thresh.write(thresholds_hls_code)
@@ -422,9 +422,7 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
                     reshaped_input,
                 )
             elif in_ind > 2:
-                raise Exception(
-                    "Unexpected input found for Vector_Vector_Activate_Unit"
-                )
+                raise Exception("Unexpected input found for VectorVectorActivation")
             in_ind += 1
 
         if mode == "cppsim":
@@ -433,11 +431,8 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             assert (
-                context[node.output[0]].shape == self.get_folded_output_shape()
-            ), """Output shape is not as expected"""
-            # reshape output to have expected shape
-            oshape = self.get_normal_output_shape()
-            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
+                context[node.output[0]].shape == self.get_normal_output_shape()
+            ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -526,11 +521,9 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
             threshs = "PassThroughActivation<%s>()" % odtype_hls_str
         else:
             threshs = "threshs"
-        node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}>
+            """Vector_Vector_Activate_Batch<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}>
             (in0, out, weights, {}, numReps, {});""".format(
-                node.op_type,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
                 tmpl_args["TWeightI"],
@@ -579,8 +572,12 @@ class Vector_Vector_Activate_Batch(HLSCustomOp):
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"] = [
+            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+        ]
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+        )
         in_fifo_depth = self.get_nodeattr("inFIFODepth")
         out_fifo_depth = self.get_nodeattr("outFIFODepth")
         # insert depth pragmas only if specified

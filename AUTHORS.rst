@@ -2,8 +2,9 @@
 Contributors
 ============
 
-* Yaman Umuroglu (@maltanar) (maintainer)
-* Jakoba Petri-Koenig (@auphelia)
+* Jakoba Petri-Koenig (@auphelia) (maintainer)
+* Thomas Preusser (@preusser)
+* Yaman Umuroglu (@maltanar)
 * Andrea Rigoni (@AndreaRigoni)
 * Hendrik Borras (@HenniOVP)
 * Lucian Petrica (@quetric)
@@ -22,3 +23,6 @@ Contributors
 * Javier Duarte (@jmduarte)
 * Uma Maheshwari (@umav1511)
 * José Rosa (@pinxau1000)
+* Aziz Bahri (@azizb-xlnx)
+* Fionn O'Donohoe (@fionnodonohoe-xlnx)
+* Matthias Gehre (@mgehre-amd)

@@ -29,8 +29,8 @@
 import numpy as np
 import os
 import warnings
+from qonnx.core.datatype import DataType
 
-from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
@@ -56,7 +56,7 @@ class AddStreams_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         ishape = tuple(vecs + [ich])
@@ -166,7 +166,6 @@ class AddStreams_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
         folded_ishape = self.get_folded_input_shape()
-        folded_oshape = self.get_folded_output_shape()
 
         if mode == "cppsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -211,9 +210,8 @@ class AddStreams_Batch(HLSCustomOp):
             # load output npy file
             super().npy_to_dynamic_output(context)
             assert (
-                context[node.output[0]].shape == folded_oshape
-            ), "cppsim did not produce expected folded output shape"
-            context[node.output[0]] = context[node.output[0]].reshape(*exp_oshape)
+                context[node.output[0]].shape == exp_oshape
+            ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -340,14 +338,22 @@ class AddStreams_Batch(HLSCustomOp):
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=in1")
-        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
+        self.code_gen_dict["$PRAGMAS$"] = [
+            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+        ]
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=in1 name=in1_" + self.hls_sname()
+        )
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+        )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
-        intf_names["s_axis"].append(("in1_V_V", self.get_instream_width_padded()))
+        sname = self.hls_sname()
+        swidth = self.get_instream_width_padded()
+        intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
         return intf_names

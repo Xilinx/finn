@@ -36,17 +36,18 @@ import os
 import torch
 from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from pkgutil import get_data
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import RemoveStaticGraphInputs
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import RemoveStaticGraphInputs
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.test import get_test_model_trained
 
 
+@pytest.mark.brevitas_export
 @pytest.mark.parametrize("QONNX_export", [False, True])
 @pytest.mark.parametrize("QONNX_FINN_conversion", [False, True])
 def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
@@ -62,7 +63,7 @@ def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
         model = ModelWrapper(finn_onnx)
         dbg_nodes = model.get_nodes_by_op_type("DebugMarker")
         for dbg_node in dbg_nodes:
-            dbg_node.domain = "finn.custom_op.general"
+            dbg_node.domain = "qonnx.custom_op.general"
         model.save(finn_onnx)
         qonnx_cleanup(finn_onnx, out_file=finn_onnx)
         if QONNX_FINN_conversion:
@@ -78,7 +79,7 @@ def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
         #  domain conversion for us?
         dbg_nodes = model.get_nodes_by_op_type("DebugMarker")
         for dbg_node in dbg_nodes:
-            dbg_node.domain = "finn.custom_op.general"
+            dbg_node.domain = "qonnx.custom_op.general"
         model = model.transform(InferShapes())
         model = model.transform(FoldConstants())
         model = model.transform(RemoveStaticGraphInputs())
@@ -87,7 +88,7 @@ def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
     assert len(model.graph.input) == 1
     assert len(model.graph.output) == 1
     # load one of the test vectors
-    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     # run using FINN-based execution
     input_dict = {model.graph.input[0].name: nph.to_array(input_tensor)}

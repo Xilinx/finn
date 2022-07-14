@@ -38,14 +38,14 @@ import onnx
 import onnx.numpy_helper as nph
 import torch
 from pkgutil import get_data
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
+from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup
 from tempfile import TemporaryDirectory
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
-from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.test import get_test_model_trained
 
@@ -53,7 +53,7 @@ from finn.util.test import get_test_model_trained
 def get_brev_model_and_sample_inputs(model_name, wbits, abits):
     if "FC" in model_name:
         in_shape = (1, 1, 28, 28)
-        raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+        raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
         input_tensor = onnx.load_tensor_from_string(raw_i)
         input_tensor = nph.to_array(input_tensor)
         brev_model = get_test_model_trained(model_name, wbits, abits)
@@ -88,6 +88,7 @@ def analysis_testing_for_no_quant_nodes(model):
     return dict()
 
 
+@pytest.mark.transform
 # This test currently takes about 4 min and 20 seconds
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("wbits", [1, 2])
@@ -133,7 +134,7 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
         ).all(), "The output of the Brevitas model and the FINN model should match."
 
     # Get the equivalent QONNX model
-    b_onnx.function.DOMAIN_STRING = "finn.custom_op.general"
+    b_onnx.function.DOMAIN_STRING = "qonnx.custom_op.general"
     _ = b_onnx.manager.BrevitasONNXManager.export(
         brev_model, in_shape, qonnx_base_path.format("raw")
     )

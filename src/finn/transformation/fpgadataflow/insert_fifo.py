@@ -1,10 +1,38 @@
+# Copyright (c) 2020, Xilinx
+# All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# * Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+# * Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+# * Neither the name of FINN nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
 import numpy as np
 import warnings
 from onnx import TensorProto
 from onnx import helper as oh
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
 
-from finn.custom_op.registry import getCustomOp
-from finn.transformation.base import Transformation
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -57,21 +85,21 @@ class InsertFIFO(Transformation):
         graph = model.graph
         node_ind = -1
         graph_modified = False
-        for n in graph.node:
+        for first_node in graph.node:
             node_ind += 1
-            if _suitable_node(n):
-                for n_output in n.output:
+            if _suitable_node(first_node):
+                for n_output in first_node.output:
                     consumers = model.find_consumers(n_output)
-                    if consumers is None:
+                    if consumers == []:
                         continue
                     if len(consumers) > 1:
                         warnings.warn(
-                            n.name
+                            first_node.name
                             + ": HLS node with fan-out higher than 1 cannot be stitched"
                         )
                     consumer = consumers[0]
                     if _suitable_node(consumer) is True:
-                        n0 = getCustomOp(n)
+                        n0 = getCustomOp(first_node)
                         # determine fifo node attributes
                         fld_shape = n0.get_folded_output_shape()
                         dtype = n0.get_output_datatype()
@@ -137,47 +165,54 @@ class InsertFIFO(Transformation):
                             graph_modified = True
 
         if graph_modified is False:
-            # insert FIFO as first node, except when first node is DMA
-            if (
-                graph.node[0].op_type != "StreamingFIFO"
-                and graph.node[0].op_type != "IODMA"
-            ):
-                n = graph.node[0]
-                n_input = n.input[0]
-                n0 = getCustomOp(n)
-                # determine fifo node attributes
-                fld_shape = n0.get_folded_input_shape()
-                dtype = n0.get_input_datatype()
-                fifo_depth = n0.get_nodeattr("inFIFODepth")
+            graph_in_names = [x.name for x in model.graph.input]
+            for graph_in_name in graph_in_names:
+                first_node = model.find_consumer(graph_in_name)
+                # insert FIFO as first node, except when first node is DMA
+                if (
+                    first_node.op_type != "StreamingFIFO"
+                    and first_node.op_type != "IODMA"
+                ):
+                    inp_ind = list(first_node.input).index(graph_in_name)
+                    n_input = first_node.input[inp_ind]
+                    n0 = getCustomOp(first_node)
+                    # determine fifo node attributes
+                    if inp_ind == 0:
+                        fld_shape = n0.get_folded_input_shape()
+                        dtype = n0.get_input_datatype()
+                    else:
+                        fld_shape = n0.get_folded_input_shape(inp_ind)
+                        dtype = n0.get_input_datatype(inp_ind)
+                    fifo_depth = n0.get_nodeattr("inFIFODepth")
 
-                if fifo_depth <= 2:
-                    warnings.warn("Overriding input FIFO depth to 32")
-                    fifo_depth = 32
+                    if fifo_depth <= 2:
+                        warnings.warn("Overriding input FIFO depth to 32")
+                        fifo_depth = 32
 
-                # create fifo node
-                fifo_output_tensor = oh.make_tensor_value_info(
-                    model.make_new_valueinfo_name(),
-                    TensorProto.FLOAT,
-                    n0.get_normal_input_shape(),
-                )
-                graph.value_info.append(fifo_output_tensor)
-                model.set_tensor_datatype(fifo_output_tensor.name, dtype)
+                    # create fifo node
+                    fifo_output_tensor = oh.make_tensor_value_info(
+                        model.make_new_valueinfo_name(),
+                        TensorProto.FLOAT,
+                        n0.get_normal_input_shape(),
+                    )
+                    graph.value_info.append(fifo_output_tensor)
+                    model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
-                fifo_node = oh.make_node(
-                    "StreamingFIFO",
-                    [n_input],
-                    [fifo_output_tensor.name],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    depth=fifo_depth,
-                    folded_shape=fld_shape,
-                    dataType=str(dtype.name),
-                )
-                # insert fifo
-                graph.node.insert(0, fifo_node)
+                    fifo_node = oh.make_node(
+                        "StreamingFIFO",
+                        [n_input],
+                        [fifo_output_tensor.name],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        depth=fifo_depth,
+                        folded_shape=fld_shape,
+                        dataType=str(dtype.name),
+                    )
+                    # insert fifo
+                    graph.node.insert(0, fifo_node)
 
-                # set fifo output tensor as new input tensor of second node
-                n.input[0] = fifo_output_tensor.name
+                    # set fifo output tensor as new input tensor of second node
+                    first_node.input[inp_ind] = fifo_output_tensor.name
 
             # insert FIFO as last node, except when last node is DMA
             graph_out_names = [x.name for x in model.graph.output]

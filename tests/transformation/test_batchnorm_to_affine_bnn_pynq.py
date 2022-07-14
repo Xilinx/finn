@@ -28,23 +28,26 @@
 
 import pkg_resources as pk
 
+import pytest
+
 import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import os
 from pkgutil import get_data
+from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.batchnorm_to_affine import BatchNormToAffine
+from qonnx.transformation.fold_constants import FoldConstants
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
-from finn.core.modelwrapper import ModelWrapper
-from finn.transformation.batchnorm_to_affine import BatchNormToAffine
-from finn.transformation.fold_constants import FoldConstants
-from finn.transformation.infer_shapes import InferShapes
 from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_bn2affine.onnx"
 
 
+@pytest.mark.transform
 def test_batchnorm_to_affine_cnv_w1a1():
     lfc = get_test_model_trained("CNV", 1, 1)
     bo.export_finn_onnx(lfc, (1, 3, 32, 32), export_onnx_path)
@@ -69,6 +72,7 @@ def test_batchnorm_to_affine_cnv_w1a1():
     os.remove(export_onnx_path)
 
 
+@pytest.mark.transform
 def test_batchnorm_to_affine_lfc_w1a1():
     lfc = get_test_model_trained("LFC", 1, 1)
     bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
@@ -77,7 +81,7 @@ def test_batchnorm_to_affine_lfc_w1a1():
     model = model.transform(FoldConstants())
     new_model = model.transform(BatchNormToAffine())
     # load one of the test vectors
-    raw_i = get_data("finn.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
+    raw_i = get_data("qonnx.data", "onnx/mnist-conv/test_data_set_0/input_0.pb")
     input_tensor = onnx.load_tensor_from_string(raw_i)
     input_dict = {"0": nph.to_array(input_tensor)}
     assert oxe.compare_execution(model, new_model, input_dict)

@@ -22,7 +22,7 @@ finn.custom\_op.fpgadataflow.addstreams\_batch
    :show-inheritance:
 
 finn.custom\_op.fpgadataflow.channelwise\_op\_batch
------------------------------------------------
+-----------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.channelwise_op_batch
    :members:
@@ -55,7 +55,7 @@ finn.custom\_op.fpgadataflow.downsampler
    :show-inheritance:
 
 finn.custom\_op.fpgadataflow.duplicatestreams\_batch
------------------------------------------------
+-------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.duplicatestreams_batch
    :members:
@@ -71,7 +71,7 @@ finn.custom\_op.fpgadataflow.fmpadding\_batch
    :show-inheritance:
 
 finn.custom\_op.fpgadataflow.globalaccpool\_batch
------------------------------------------------
+---------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.globalaccpool_batch
    :members:
@@ -127,10 +127,10 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_batch
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.streamingfclayer\_batch
+finn.custom\_op.fpgadataflow.matrixvectoractivation
 -----------------------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.streamingfclayer_batch
+.. automodule:: finn.custom_op.fpgadataflow.matrixvectoractivation
    :members:
    :undoc-members:
    :show-inheritance:
@@ -160,7 +160,7 @@ finn.custom\_op.fpgadataflow.templates
    :show-inheritance:
 
 finn.custom\_op.fpgadataflow.thresholding\_batch
------------------------------------------------
+-------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.thresholding_batch
    :members:
@@ -184,10 +184,10 @@ finn.custom\_op.fpgadataflow.upsampler
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.fpgadataflow.vector\_vector\_activate\_batch
------------------------------------------------
+finn.custom\_op.fpgadataflow.vectorvectoractivation
+-----------------------------------------------------
 
-.. automodule:: finn.custom_op.fpgadataflow.vector_vector_activate_batch
+.. automodule:: finn.custom_op.fpgadataflow.vectorvectoractivation
    :members:
    :undoc-members:
    :show-inheritance:
