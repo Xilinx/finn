@@ -117,7 +117,7 @@ class PyTorchTestModel(nn.Module):
 
 # param datatype
 @pytest.mark.parametrize("dt", [DataType["INT8"]])
-# Width/height of square input feature map
+# spatial dim input feature map
 @pytest.mark.parametrize("IFMDim", [3, 5])
 # upscaling factor
 @pytest.mark.parametrize("scale", [2, 3])
@@ -125,14 +125,19 @@ class PyTorchTestModel(nn.Module):
 @pytest.mark.parametrize("NumChannels", [4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+# whether to use 1D or 2D square testcases
+@pytest.mark.parametrize("is_1d", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode):
+def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d):
     atol = 1e-3
     # Create the test model and inputs for it
     torch_model = PyTorchTestModel(upscale_factor=scale)
-    input_shape = (1, NumChannels, IFMDim, IFMDim)
+    if is_1d:
+        input_shape = (1, NumChannels, IFMDim, 1)
+    else:
+        input_shape = (1, NumChannels, IFMDim, IFMDim)
     test_in = torch.arange(0, np.prod(np.asarray(input_shape)))
     # Limit the input to values valid for the given datatype
     test_in %= dt.max() - dt.min() + 1
