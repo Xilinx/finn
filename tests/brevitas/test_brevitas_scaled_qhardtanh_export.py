@@ -38,17 +38,16 @@ from brevitas.core.restrict_val import RestrictValueType
 from brevitas.core.scaling import ScalingImplType
 from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from brevitas.nn import QuantHardTanh
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
+from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 
 export_onnx_path = "test_brevitas_scaled_QHardTanh_export.onnx"
 
 
-@pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
 @pytest.mark.parametrize("narrow_range", [False, True])
 @pytest.mark.parametrize("min_val", [-1.0, -(1 - 2 ** (-7)), -2])

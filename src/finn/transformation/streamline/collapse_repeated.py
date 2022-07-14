@@ -27,9 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from onnx import helper as oh
-from qonnx.core.datatype import DataType
-from qonnx.transformation.base import Transformation
-from qonnx.transformation.infer_shapes import InferShapes
+
+from finn.core.datatype import DataType
+from finn.transformation.base import Transformation
+from finn.transformation.infer_shapes import InferShapes
 
 
 class CollapseRepeatedOp(Transformation):

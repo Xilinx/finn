@@ -29,11 +29,10 @@
 import copy
 import multiprocessing as mp
 import os
-import qonnx.custom_op.registry as registry
-from qonnx.transformation.base import Transformation
-from qonnx.util.basic import get_num_default_workers
 
-from finn.util.basic import make_build_dir
+import finn.custom_op.registry as registry
+from finn.transformation.base import Transformation
+from finn.util.basic import get_num_default_workers, make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 

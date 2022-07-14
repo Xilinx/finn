@@ -31,24 +31,22 @@ import pytest
 import numpy as np
 import torch
 from brevitas.export import FINNManager
-from qonnx.core.datatype import DataType
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.transformation.infer_datatypes import InferDataTypes
-from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
 from torch import nn
 
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.convert_to_hls_layers import InferLookupLayer
-from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
+from finn.util.basic import gen_finn_dt_tensor
 
 
 def make_lookup_model(embeddings, ishape, idt, edt):
@@ -89,7 +87,6 @@ def make_lookup_model(embeddings, ishape, idt, edt):
 )
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
-@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
@@ -127,57 +124,9 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
         model = model.transform(SetExecMode("cppsim"))
     elif exec_mode == "rtlsim":
         model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP("xczu3eg-sbva484-1-e", 10))
+        model = model.transform(PrepareIP("xc7z020clg400-1", 10))
         model = model.transform(HLSSynthIP())
         model = model.transform(SetExecMode("rtlsim"))
         model = model.transform(PrepareRTLSim())
     ret_sim = execute_onnx(model, {iname: itensor})
     assert (exp_out == ret_sim[oname]).all()
-
-
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-@pytest.mark.slow
-def test_fpgadataflow_lookup_external():
-    fpga_part = "xczu3eg-sbva484-1-e"
-    edt = DataType["INT8"]
-    embedding_cfg = (200000, DataType["UINT32"], 300)
-    ishape = (1, 600)
-    num_embeddings, idt, embedding_dim = embedding_cfg
-    eshape = (num_embeddings, embedding_dim)
-    exp_oshape = tuple(list(ishape) + [embedding_dim])
-    embeddings = gen_finn_dt_tensor(edt, eshape)
-    model = make_lookup_model(embeddings, ishape, idt, edt)
-    assert len(model.graph.node) == 1
-    assert model.graph.node[0].op_type == "Gather"
-    iname = model.graph.input[0].name
-    ename = model.graph.node[0].input[0]
-    oname = model.graph.output[0].name
-    assert model.get_tensor_datatype(iname) == idt
-    assert model.get_tensor_datatype(ename) == edt
-    assert model.get_tensor_datatype(oname) == edt
-    assert tuple(model.get_tensor_shape(ename)) == eshape
-    assert tuple(model.get_tensor_shape(oname)) == exp_oshape
-    assert (model.get_initializer(ename) == embeddings).all()
-    # itensor = gen_finn_dt_tensor(idt, ishape).astype(np.int64)
-    # itensor = np.clip(itensor, 0, num_embeddings - 1)
-    # ret = execute_onnx(model, {iname: itensor})
-    # exp_out = np.take(embeddings, itensor, axis=0)
-    # assert (exp_out == ret[oname]).all()
-    # call transformation to convert to HLS and verify conversion
-    model = model.transform(InferLookupLayer())
-    assert model.graph.node[0].op_type == "Lookup"
-    assert model.graph.node[0].input[0] == iname
-    assert model.graph.node[0].input[1] == ename
-    assert model.graph.node[0].output[0] == oname
-    getCustomOp(model.graph.node[0]).set_nodeattr("mem_mode", "external")
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP(fpga_part, 10))
-    model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP(fpga_part, 10.0))
-    ifnames = eval(model.get_metadata_prop("vivado_stitch_ifnames"))
-    # check some generated files/interfaces for the generated stitched IP
-    assert ifnames["aximm"] == [["m_axi_gmem0", 32]]
-    assert ifnames["s_axis"] == [["s_axis_0", 32]]
-    assert ifnames["m_axis"] == [["m_axis_0", 32]]
-    assert ifnames["axilite"] == ["s_axi_control_0"]

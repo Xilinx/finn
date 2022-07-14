@@ -29,12 +29,13 @@
 
 import math
 from onnx import TensorProto, helper
-from qonnx.core.datatype import DataType
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.base import Transformation
-from qonnx.transformation.infer_datatypes import InferDataTypes
-from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import get_by_name
+
+from finn.core.datatype import DataType
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
+from finn.transformation.infer_datatypes import InferDataTypes
+from finn.transformation.infer_shapes import InferShapes
+from finn.util.basic import get_by_name
 
 
 def _get_signed_from_upstream(model, trunc_node):
@@ -273,7 +274,7 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
                             "QuantAvgPool2d",
                             [act_scale_div_tensor.name],
                             [act_scale_mul_tensor.name],
-                            domain="qonnx.custom_op.general",
+                            domain="finn.custom_op.general",
                             stride=stride,
                             kernel=k_s,
                             ibits=ibits,

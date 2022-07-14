@@ -27,8 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-from qonnx.transformation.base import Transformation
-from qonnx.util.basic import get_by_name
+from finn.transformation.base import Transformation
+from finn.util.basic import get_by_name
 
 
 class ExternalizeParams(Transformation):

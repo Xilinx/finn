@@ -28,13 +28,12 @@
 
 import json
 import warnings
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.base import Transformation
-from qonnx.transformation.general import ApplyConfig
-from qonnx.util.basic import get_by_name
 
 from finn.analysis.fpgadataflow.floorplan_params import floorplan_params
-from finn.util.basic import make_build_dir
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
+from finn.transformation.general import ApplyConfig
+from finn.util.basic import get_by_name, make_build_dir
 
 
 class Floorplan(Transformation):
@@ -152,7 +151,7 @@ class Floorplan(Transformation):
                 partition_cnt += 1
                 continue
             elif not (
-                node.op_type == "MatrixVectorActivation"
+                node.op_type == "StreamingFCLayer_Batch"
                 and node_inst.get_nodeattr("mem_mode") is not None
                 and node_inst.get_nodeattr("mem_mode") == "external"
             ):

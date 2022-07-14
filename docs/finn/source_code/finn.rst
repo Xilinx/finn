@@ -3,7 +3,7 @@ FINN API
 ********
 The FINN sources are divided into different modules. They are listed below.
 
-.. note:: **Some of these functions and modules are located in the `qonnx` repository.**
+.. note:: **Some of these functions and modules are located in the `finn-base` repository.**
 
 Modules
 =======

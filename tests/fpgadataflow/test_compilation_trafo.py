@@ -30,15 +30,14 @@ import pytest
 
 import os
 from onnx import TensorProto, helper
-from qonnx.core.datatype import DataType
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.util.basic import gen_finn_dt_tensor, get_by_name
 
+import finn.util.basic as util
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 
 
-@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_compilation_trafo():
     idt = wdt = odt = DataType["BIPOLAR"]
@@ -51,7 +50,7 @@ def test_compilation_trafo():
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, mh])
     node_inp_list = ["inp", "weights", "thresh"]
     FCLayer_node = helper.make_node(
-        "MatrixVectorActivation",
+        "StreamingFCLayer_Batch",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -77,13 +76,13 @@ def test_compilation_trafo():
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", odt)
     model.set_tensor_datatype("weights", wdt)
-    W = gen_finn_dt_tensor(wdt, (mw, mh))
+    W = util.gen_finn_dt_tensor(wdt, (mw, mh))
     model.set_initializer("weights", W)
 
     model = model.transform(PrepareCppSim())
     model = model.transform(CompileCppSim())
     for node in model.graph.node:
-        compilation_attribute = get_by_name(node.attribute, "executable_path")
+        compilation_attribute = util.get_by_name(node.attribute, "executable_path")
         executable = compilation_attribute.s.decode("UTF-8")
         print(executable)
         assert os.path.isfile(

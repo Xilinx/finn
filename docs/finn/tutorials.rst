@@ -5,7 +5,7 @@ Tutorials
 *********
 
 FINN provides several Jupyter notebooks that can help to get familiar with the basics, the internals and the end-to-end flow in FINN.
-All Jupyter notebooks can be found in the repo in the `notebook folder <https://github.com/Xilinx/finn/tree/main/notebooks>`_.
+All Jupyter notebooks can be found in the repo in the `notebook folder <https://github.com/Xilinx/finn/tree/master/notebooks>`_.
 
 Basics
 ======
@@ -23,7 +23,7 @@ The notebooks in this folder should give a basic insight into FINN, how to get s
 End-to-End Flow
 ===============
 
-There are two groups of notebooks currently available under `the end2end_example directory <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example>`_ :
+There are two groups of notebooks currently available under `the end2end_example directory <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example>`_ :
 
 * ``cybersecurity`` shows how to train a quantized MLP with Brevitas and deploy it with FINN using the :ref:`command_line` build system.
 

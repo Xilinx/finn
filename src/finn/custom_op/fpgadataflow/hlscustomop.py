@@ -25,23 +25,25 @@
 # CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+# namespace package, extend path
 
 import numpy as np
 import os
 import subprocess
 from abc import abstractmethod
-from pyverilator.util.axi_utils import rtlsim_multi_io
-from qonnx.core.datatype import DataType
-from qonnx.custom_op.base import CustomOp
-from qonnx.util.basic import roundup_to_integer_multiple
 
+from finn.custom_op.base import CustomOp
 from finn.util.basic import (
     CppBuilder,
     get_rtlsim_trace_depth,
     make_build_dir,
-    pyverilate_get_liveness_threshold_cycles,
+    roundup_to_integer_multiple,
 )
 from finn.util.hls import CallHLS
+from finn.util.pyverilator import (
+    pyverilate_get_liveness_threshold_cycles,
+    rtlsim_multi_io,
+)
 
 from . import templates
 
@@ -110,15 +112,13 @@ class HLSCustomOp(CustomOp):
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
-            "output_hook": ("s", False, ""),
         }
 
     def get_verilog_top_module_name(self):
         "Return the Verilog top module name for this node."
 
         node = self.onnx_node
-        prefixed_top_name = node.name
-
+        prefixed_top_name = "%s_%s" % (node.name, node.name)
         return prefixed_top_name
 
     def get_verilog_top_module_intf_names(self):
@@ -133,9 +133,8 @@ class HLSCustomOp(CustomOp):
         intf_names = {}
         intf_names["clk"] = ["ap_clk"]
         intf_names["rst"] = ["ap_rst_n"]
-        sname = self.hls_sname()
-        intf_names["s_axis"] = [("in0_" + sname, self.get_instream_width_padded())]
-        intf_names["m_axis"] = [("out_" + sname, self.get_outstream_width_padded())]
+        intf_names["s_axis"] = [("in0_V_V", self.get_instream_width_padded())]
+        intf_names["m_axis"] = [("out_V_V", self.get_outstream_width_padded())]
         intf_names["aximm"] = []
         intf_names["axilite"] = []
         return intf_names
@@ -291,9 +290,10 @@ class HLSCustomOp(CustomOp):
         self.code_gen_dict["$PROJECTNAME$"] = ["project_{}".format(node.name)]
         self.code_gen_dict["$HWSRCDIR$"] = [code_gen_dir]
         self.code_gen_dict["$FPGAPART$"] = [fpgapart]
+        self.code_gen_dict["$FINNHLSLIBDIR$"] = ["/workspace/finn-hlslib"]
+        self.code_gen_dict["$FINNHLSCUSTOMDIR$"] = ["/workspace/finn/custom_hls"]
         self.code_gen_dict["$TOPFXN$"] = [node.name]
         self.code_gen_dict["$CLKPERIOD$"] = [str(clk)]
-        self.code_gen_dict["$DEFAULT_DIRECTIVES$"] = self.ipgen_default_directives()
         self.code_gen_dict["$EXTRA_DIRECTIVES$"] = self.ipgen_extra_directives()
 
         template = self.ipgentcl_template
@@ -308,24 +308,13 @@ class HLSCustomOp(CustomOp):
         f.close()
         self.code_gen_dict.clear()
 
-    def ipgen_default_directives(self):
-        """Return list of default HLS synthesis directives"""
-
-        default_directives = [
-            "set_param hls.enable_hidden_option_error false",
-            "config_compile -disable_unroll_code_size_check -pipeline_style flp",
-            "config_interface -m_axi_addr64",
-            "config_rtl -module_auto_prefix",
-            "config_rtl -deadlock_detection none",
-        ]
-        return default_directives
-
     def ipgen_extra_directives(self):
         "Return a list of extra tcl directives for HLS synthesis."
         return []
 
     def ipgen_singlenode_code(self):
-        """Builds the bash script for IP generation using the CallHLS utility."""
+        """Builds the bash script for ip generation using the CallHLS from
+        finn.util.hls."""
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         builder = CallHLS()
@@ -383,15 +372,15 @@ class HLSCustomOp(CustomOp):
         builder = CppBuilder()
         # to enable additional debug features please uncommand the next line
         # builder.append_includes("-DDEBUG")
-        builder.append_includes("-I$FINN_ROOT/src/finn/qnn-data/cpp")
-        builder.append_includes("-I$FINN_ROOT/deps/cnpy/")
-        builder.append_includes("-I$FINN_ROOT/deps/finn-hlslib")
-        builder.append_includes("-I$FINN_ROOT/custom_hls")
-        builder.append_includes("-I{}/include".format(os.environ["HLS_PATH"]))
-        builder.append_includes("--std=c++14")
+        builder.append_includes("-I/workspace/finn/src/finn/qnn-data/cpp")
+        builder.append_includes("-I/workspace/cnpy/")
+        builder.append_includes("-I/workspace/finn-hlslib")
+        builder.append_includes("-I/workspace/finn/custom_hls")
+        builder.append_includes("-I{}/include".format(os.environ["VIVADO_PATH"]))
+        builder.append_includes("--std=c++11")
         builder.append_includes("-O3")
         builder.append_sources(code_gen_dir + "/*.cpp")
-        builder.append_sources("$FINN_ROOT/deps/cnpy/cnpy.cpp")
+        builder.append_sources("/workspace/cnpy/cnpy.cpp")
         builder.append_includes("-lz")
         builder.set_executable_path(code_gen_dir + "/node_model")
         builder.build(code_gen_dir)
@@ -413,22 +402,10 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
         # assuming dynamic inputs start from 0
         for in_ind in range(count):
             current_input_name = node.input[in_ind]
-            input_array = context[current_input_name]
-            if in_ind == 0:
-                expected_inp_shape = self.get_folded_input_shape()
-                idt = self.get_input_datatype()
-            else:
-                expected_inp_shape = self.get_folded_input_shape(in_ind)
-                idt = self.get_input_datatype(in_ind)
-            reshaped_input = input_array.reshape(expected_inp_shape)
-            if idt == DataType["BIPOLAR"]:
-                # store bipolar activations as binary
-                reshaped_input = (reshaped_input + 1) / 2
-            # make copy before saving the array
-            reshaped_input = reshaped_input.copy()
+            # make copy before saving array
+            input_array = context[current_input_name].copy()
             np.save(
-                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
-                reshaped_input,
+                os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)), input_array
             )
 
     def npy_to_dynamic_output(self, context):
@@ -437,8 +414,7 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         output = np.load("{}/output.npy".format(code_gen_dir))
-        exp_shape = self.get_normal_output_shape()
-        context[node.output[0]] = output.reshape(exp_shape)
+        context[node.output[0]] = output
 
     def npy_to_dynamic_outputs(self, context, npy_list):
         """Reads the output from .npy files generated from cppsim and places
@@ -449,11 +425,7 @@ Found no codegen dir for this node, did you run the prepare_cppsim transformatio
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         for i in range(len(npy_list)):
             output = np.load("{}/{}".format(code_gen_dir, npy_list[i]))
-            if i == 0:
-                exp_shape = self.get_normal_output_shape()
-            else:
-                exp_shape = self.get_normal_output_shape(i)
-            context[node.output[i]] = output.reshape(exp_shape)
+            context[node.output[i]] = output
 
     def exec_precompiled_singlenode_model(self):
         """Executes precompiled executable."""
@@ -481,12 +453,6 @@ compilation transformations?
         sim.io.ap_clk = 1
         sim.io.ap_clk = 0
 
-    def hls_sname(self):
-        """Get the naming convention used by Vitis HLS for stream signals
-        Example: the TDATA for a stream called "out" would be out_V_TDATA.
-        """
-        return "V"
-
     def rtlsim(self, sim, inp, inp2=None):
         """Runs the pyverilator simulation by passing the input values to the simulation,
         toggle the clock and observing the execution time. Function contains also an
@@ -500,18 +466,7 @@ compilation transformations?
             sim.start_vcd_trace(trace_file)
         inputs = inp
         outputs = []
-        sname = self.hls_sname()
-        o_ready = "out_" + sname + "_TREADY"
-        o_valid = "out_" + sname + "_TVALID"
-        o_data = "out_" + sname + "_TDATA"
-        in0_ready = "in0_" + sname + "_TREADY"
-        in0_valid = "in0_" + sname + "_TVALID"
-        in0_data = "in0_" + sname + "_TDATA"
-        in1_ready = "in1_" + sname + "_TREADY"
-        in1_valid = "in1_" + sname + "_TVALID"
-        in1_data = "in1_" + sname + "_TDATA"
-
-        sim.io[o_ready] = 1
+        sim.io.out_V_V_TREADY = 1
 
         # observe if output is completely calculated
         # observation_count will contain the number of cycles the calculation ran
@@ -526,19 +481,19 @@ compilation transformations?
         liveness_threshold = pyverilate_get_liveness_threshold_cycles()
 
         while not (output_observed):
-            sim.io[in0_valid] = 1 if len(inputs) > 0 else 0
-            sim.io[in0_data] = inputs[0] if len(inputs) > 0 else 0
-            if sim.io[in0_ready] == 1 and sim.io[in0_valid] == 1:
+            sim.io.in0_V_V_TVALID = 1 if len(inputs) > 0 else 0
+            sim.io.in0_V_V_TDATA = inputs[0] if len(inputs) > 0 else 0
+            if sim.io.in0_V_V_TREADY == 1 and sim.io.in0_V_V_TVALID == 1:
                 inputs = inputs[1:]
 
             if inp2 is not None:
-                sim.io[in1_valid] = 1 if len(inp2) > 0 else 0
-                sim.io[in1_data] = inp2[0] if len(inp2) > 0 else 0
-                if sim.io[in1_ready] == 1 and sim.io[in1_valid] == 1:
+                sim.io.in1_V_V_TVALID = 1 if len(inp2) > 0 else 0
+                sim.io.in1_V_V_TDATA = inp2[0] if len(inp2) > 0 else 0
+                if sim.io.in1_V_V_TREADY == 1 and sim.io.in1_V_V_TVALID == 1:
                     inp2 = inp2[1:]
 
-            if sim.io[o_valid] == 1 and sim.io[o_ready] == 1:
-                outputs = outputs + [sim.io[o_data]]
+            if sim.io.out_V_V_TVALID == 1 and sim.io.out_V_V_TREADY == 1:
+                outputs = outputs + [sim.io.out_V_V_TDATA]
             sim.io.ap_clk = 1
             sim.io.ap_clk = 0
 
@@ -570,21 +525,11 @@ compilation transformations?
     def rtlsim_multi_io(self, sim, io_dict):
         "Run rtlsim for this node, supports multiple i/o streams."
 
-        # signal name
-        sname = "_" + self.hls_sname() + "_"
-
         trace_file = self.get_nodeattr("rtlsim_trace")
         if trace_file == "default":
             trace_file = self.onnx_node.name + ".vcd"
         num_out_values = self.get_number_output_values()
-        total_cycle_count = rtlsim_multi_io(
-            sim,
-            io_dict,
-            num_out_values,
-            trace_file=trace_file,
-            sname=sname,
-            liveness_threshold=pyverilate_get_liveness_threshold_cycles(),
-        )
+        total_cycle_count = rtlsim_multi_io(sim, io_dict, num_out_values, trace_file)
         self.set_nodeattr("cycles_rtlsim", total_cycle_count)
 
     def execute_node(self, context, graph):
@@ -635,7 +580,7 @@ compilation transformations?
         be filled by every node.
 
         var: makes it possible to reuse the function for different c++ code generation.
-        I.e. if set to "ipgen" in MatrixVectorActivation additional PRAGMA defines are
+        I.e. if set to "ipgen" in StreamingFCLayer_Batch additional PRAGMA defines are
         added."""
         pass
 

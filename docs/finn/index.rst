@@ -33,7 +33,9 @@ More FINN Resources
 
 * `The FINN examples repository <https://github.com/Xilinx/finn-examples>`_
 
-* `List of publications <https://xilinx.github.io/finn/publications>`_
+* `List of publications <https://github.com/Xilinx/finn/blob/master/docs/publications.md>`_
+
+* `Roadmap <https://github.com/Xilinx/finn/projects/1>`_
 
 .. toctree::
    :maxdepth: 5

@@ -29,9 +29,10 @@
 import numpy as np
 from onnx import TensorProto
 from onnx import helper as oh
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.base import Transformation
-from qonnx.util.basic import get_by_name
+
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
+from finn.util.basic import get_by_name
 
 
 class InsertTLastMarker(Transformation):
@@ -96,7 +97,7 @@ class InsertTLastMarker(Transformation):
                 first_node = model.find_consumers(graph_in_name)
                 # skip if no consumers (this may be the case for unused initializers)
                 # TODO: fix this with a cleanup transform
-                if first_node == []:
+                if first_node is None:
                     continue
                 assert len(first_node) == 1, "Input fans out to multiple nodes"
                 first_node = first_node[0]
@@ -105,7 +106,7 @@ class InsertTLastMarker(Transformation):
                 #    the input is in the list of graph inputs because it has an
                 #    initializer (TODO: fix this with a clean-up transform)
                 if (
-                    first_node.op_type == "MatrixVectorActivation"
+                    first_node.op_type == "StreamingFCLayer_Batch"
                     and get_by_name(first_node.attribute, "mem_mode").s.decode("UTF-8")
                     != "external"
                 ):
@@ -122,7 +123,7 @@ class InsertTLastMarker(Transformation):
                     inp_idx = list(first_node.input).index(graph_in_name)
                     if inp_idx > 0:
                         if (
-                            first_node.op_type == "MatrixVectorActivation"
+                            first_node.op_type == "StreamingFCLayer_Batch"
                             and inp_idx == 1
                         ):
                             stream_width = int(custom_op.get_weightstream_width())

@@ -60,7 +60,7 @@ pynq_driver_template = """
 import argparse
 import numpy as np
 import os
-from qonnx.core.datatype import DataType
+from finn.core.datatype import DataType
 from driver_base import FINNExampleOverlay
 
 # dictionary describing the I/O of the FINN-generated accelerator

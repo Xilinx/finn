@@ -29,24 +29,24 @@
 import pytest
 
 import numpy as np
-import qonnx.custom_op.general.xnorpopcount as xp
 from onnx import TensorProto, helper
-from qonnx.core.datatype import DataType
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
+import finn.custom_op.general.xnorpopcount as xp
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
+from finn.custom_op.general.multithreshold import multithreshold
+from finn.custom_op.registry import getCustomOp
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.general import GiveUniqueNodeNames
+from finn.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
 
 
 def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=None):
@@ -56,7 +56,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
     assert mw % simd == 0
 
     # there are two ways to implement bipolar weights and inputs for
-    # MatrixVectorActivation:
+    # StreamingFC:
     # - specify their datatypes as such
     # - specify their datatypes as BINARY as use binaryXnorMode
     if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
@@ -85,7 +85,7 @@ def make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T=None, tdt=Non
         actval = 0
         no_act = 1
     FCLayer_node = helper.make_node(
-        "MatrixVectorActivation",
+        "StreamingFCLayer_Batch",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -146,7 +146,6 @@ def prepare_inputs(input_tensor, idt, wdt):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
-@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
@@ -234,7 +233,6 @@ def test_fpgadataflow_fclayer_cppsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [16])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [16])
-@pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
@@ -307,9 +305,9 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "MatrixVectorActivation_0" in hls_synt_res_est
+    assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
+    node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
@@ -334,7 +332,6 @@ def test_fpgadataflow_fclayer_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
 @pytest.mark.parametrize("mw", [128])
 # HLS matrix height (output features)
 @pytest.mark.parametrize("mh", [128])
-@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     mem_mode, idt, wdt, act, nf, sf, mw, mh
@@ -408,9 +405,9 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     assert (y_produced.reshape(y_expected.shape) == y_expected).all(), "rtlsim failed"
 
     hls_synt_res_est = model.analysis(hls_synth_res_estimation)
-    assert "MatrixVectorActivation_0" in hls_synt_res_est
+    assert "StreamingFCLayer_Batch_0" in hls_synt_res_est
 
-    node = model.get_nodes_by_op_type("MatrixVectorActivation")[0]
+    node = model.get_nodes_by_op_type("StreamingFCLayer_Batch")[0]
     inst = getCustomOp(node)
     cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
     exp_cycles_dict = model.analysis(exp_cycles_per_layer)

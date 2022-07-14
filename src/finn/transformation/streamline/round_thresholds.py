@@ -27,7 +27,8 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-from qonnx.transformation.base import Transformation
+
+from finn.transformation.base import Transformation
 
 
 class RoundAndClipThresholds(Transformation):

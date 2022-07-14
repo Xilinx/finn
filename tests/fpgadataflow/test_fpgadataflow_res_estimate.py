@@ -26,17 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pytest
-
 from onnx import TensorProto, helper
-from qonnx.core.datatype import DataType
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.general import GiveUniqueNodeNames
 
 from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
     res_estimation_complete,
 )
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.general import GiveUniqueNodeNames
 
 
 def check_two_dict_for_equality(dict1, dict2):
@@ -52,7 +50,6 @@ def check_two_dict_for_equality(dict1, dict2):
     return True
 
 
-@pytest.mark.fpgadataflow
 def test_res_estimate():
     mw = mh = 4
     simd = 1
@@ -67,7 +64,7 @@ def test_res_estimate():
     node_inp_list = ["inp", "weights", "thresh"]
 
     FCLayer_node = helper.make_node(
-        "MatrixVectorActivation",
+        "StreamingFCLayer_Batch",
         node_inp_list,
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -97,7 +94,7 @@ def test_res_estimate():
     model = model.transform(GiveUniqueNodeNames())
     prod_resource_estimation = model.analysis(res_estimation)
     expect_resource_estimation = {
-        "MatrixVectorActivation_0": {
+        "StreamingFCLayer_Batch_0": {
             "BRAM_18K": 0,
             "BRAM_efficiency": 1,
             "LUT": 357,
@@ -114,7 +111,7 @@ def test_res_estimate():
 
     prod_resource_estimation = model.analysis(res_estimation_complete)
     expect_resource_estimation = {
-        "MatrixVectorActivation_0": [
+        "StreamingFCLayer_Batch_0": [
             {
                 "BRAM_18K": 0,
                 "BRAM_efficiency": 1,

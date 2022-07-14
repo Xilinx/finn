@@ -28,12 +28,12 @@
 
 import numpy as np
 import warnings
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.base import Transformation
-from qonnx.transformation.general import GiveUniqueNodeNames
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
+from finn.transformation.general import GiveUniqueNodeNames
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
@@ -62,13 +62,13 @@ class SetFolding(Transformation):
 
     Notable exceptions and special behavior:
 
-    * When folding dense convolution/FC compute engines ("MVAU"/MatrixVectorActivation),
+    * When folding dense convolution/FC compute engines (StreamingFCLayer_Batch),
     which have two attributes (PE and SIMD):
         * first increases SIMD while weight stream width per PE is <= mvau_wwidth_max
           (configurable in the SetFolding initializer, defaults to 36)
         * then increases PE until the target is met or max PE reached
 
-    * When folding depthwise convolutions ("VVAU"/VectorVectorActivation)
+    * When folding depthwise convolutions ("VVAU"/Vector_Vector_Activate_Batch)
     or spatial reduction ops (Pool_Batch):
         * the producer of the node is expected to be a ConvolutionInputGenerator
         with depthwise=1, whose SIMD value will be set equal to the PE value of
@@ -107,13 +107,13 @@ class SetFolding(Transformation):
         simd_ops = ["DownSampler", "FMPadding_Batch", "ConvolutionInputGenerator"]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
-        depthwise_op_exceptions = ["VectorVectorActivation", "Pool_Batch"]
+        depthwise_op_exceptions = ["Vector_Vector_Activate_Batch", "Pool_Batch"]
         for node in graph.node:
             if not is_fpgadataflow_node(node):
                 continue
             op_type = node.op_type
             node_inst = getCustomOp(node)
-            if op_type == "MatrixVectorActivation":
+            if op_type == "StreamingFCLayer_Batch":
                 max_simd = node_inst.get_nodeattr("MW")
                 max_pe = node_inst.get_nodeattr("MH")
                 node_inst.set_nodeattr("PE", 1)
@@ -155,7 +155,7 @@ class SetFolding(Transformation):
                     pe = node_inst.get_nodeattr("PE")
                     swu_node_inst.set_nodeattr("SIMD", pe)
                 else:
-                    if op_type == "VectorVectorActivation":
+                    if op_type == "Vector_Vector_Activate_Batch":
                         ksize = np.prod(node_inst.get_nodeattr("Kernel"))
                     elif op_type == "Pool_Batch":
                         ksize = node_inst.get_nodeattr("KernelSize")

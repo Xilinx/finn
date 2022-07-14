@@ -5,23 +5,6 @@ Util
 Utility Modules
 ===============
 
-qonnx.util.basic
-----------------------
-
-.. automodule:: qonnx.util.basic
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-
-qonnx.util.config
---------------------
-
-.. automodule:: qonnx.util.config
-  :members:
-  :undoc-members:
-  :show-inheritance:
-
 finn.util.basic
 ----------------------
 
@@ -30,8 +13,16 @@ finn.util.basic
    :undoc-members:
    :show-inheritance:
 
+finn.util.config
+----------------
+
+.. automodule:: finn.util.config
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
 finn.util.create
-------------------
+----------------
 
 .. automodule:: finn.util.create
   :members:
@@ -72,10 +63,11 @@ finn.util.imagenet
   :undoc-members:
   :show-inheritance:
 
-qonnx.util.onnx
+
+finn.util.onnx
 ---------------------
 
-.. automodule:: qonnx.util.onnx
+.. automodule:: finn.util.onnx
    :members:
    :undoc-members:
    :show-inheritance:

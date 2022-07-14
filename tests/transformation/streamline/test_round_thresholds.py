@@ -26,24 +26,21 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pytest
-
 import numpy as np
 from onnx import TensorProto, helper
-from qonnx.core.datatype import DataType
-from qonnx.core.modelwrapper import ModelWrapper
 
 import finn.core.onnx_exec as oxe
+from finn.core.datatype import DataType
+from finn.core.modelwrapper import ModelWrapper
 from finn.transformation.streamline import RoundAndClipThresholds
 
 
-@pytest.mark.streamline
 def test_round_thresholds():
     v = helper.make_tensor_value_info("v", TensorProto.FLOAT, [1, 4])
     thresholds = helper.make_tensor_value_info("thresholds", TensorProto.FLOAT, [4, 1])
     out = helper.make_tensor_value_info("out", TensorProto.FLOAT, [1, 4])
     node_def = helper.make_node(
-        "MultiThreshold", ["v", "thresholds"], ["out"], domain="qonnx.custom_op.general"
+        "MultiThreshold", ["v", "thresholds"], ["out"], domain="finn.custom_op.general"
     )
     graph_def = helper.make_graph([node_def], "test_model", [v, thresholds], [out])
     model_def = helper.make_model(graph_def)

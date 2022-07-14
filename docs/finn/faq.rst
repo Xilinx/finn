@@ -1,8 +1,8 @@
 .. _faq:
 
-***************************
+***********************
 Frequently Asked Questions
-***************************
+***********************
 
 Can't find the answer to your question here? Check `FINN GitHub Discussions <https://github.com/Xilinx/finn/discussions>`_.
 
@@ -75,7 +75,7 @@ Why does FINN-generated architectures need FIFOs between layers?
     See https://github.com/Xilinx/finn/discussions/383
 
 How do I tell FINN to utilize DSPs instead of LUTs for MAC operations in particular layers?
-    This is done with the ``resType="dsp"`` attribute on ``MatrixVectorActivation`` and ``Vector_Vector_Activate`` instances.
+    This is done with the ``resType="dsp"`` attribute on ``StreamingFCLayer`` and ``Vector_Vector_Activate`` instances.
     When using the ``build_dataflow`` system, this can be specified at a per layer basis by specifying it as part of one or more layers’
     folding config (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.folding_config_file`).
     This is a good idea for layers with more weight/input act bits and high PE*SIMD.
@@ -84,7 +84,7 @@ How do I tell FINN to utilize DSPs instead of LUTs for MAC operations in particu
 
 How do I tell FINN to utilize a particular type of memory resource in particular layers?
     This is done with the ``ram_style`` attribute. Check the particular ``HLSCustomOp`` attribute definition to see
-    which modes are supported (`example for MatrixVectorActivation <https://github.com/Xilinx/finn/blob/dev/src/finn/custom_op/fpgadataflow/matrixvectoractivation.py#L101>`_).
+    which modes are supported (`example for StreamingFCLayer <https://github.com/Xilinx/finn/blob/dev/src/finn/custom_op/fpgadataflow/streamingfclayer_batch.py#L95>`_).
     When using the ``build_dataflow`` system, this can be specified at a per layer basis by specifying it as part of one or more layers’
     folding config (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.folding_config_file`).
     See the `MobileNet-v1 build config for ZCU104 in finn-examples <https://github.com/Xilinx/finn-examples/blob/main/build/mobilenet-v1/folding_config/ZCU104_folding_config.json#L15>`_ for reference.
@@ -100,7 +100,7 @@ Which data layout do FINN-generated accelerators use? Big-endian? Little-endian?
     If you need to do this manually, first examine how the `FINN PYNQ Python drivers <https://github.com/Xilinx/finn-examples/blob/main/finn_examples/driver.py#L379>`_ do this – notice how the input data is
     first reshaped to create the “folded input shape” that reflects the word size of the first layer based on how much it
     was parallelized, then data packing is applied to obtain a raw byte array (with some reversals going on) that can be
-    fed directly to the hardware. Another example of this is the `npy_to_rtlsim_input <https://github.com/Xilinx/finn-base/blob/dev/src/finn/util/data_packing.py#L289>`_ function, which converts npy arrays to lists of Python arbitrary-precision integers that we feed into pyverilator for rtl simulation.
+    fed directly to the hardware. Another example of this is the `npy_to_rtlsim_input <https://github.com/Xilinx/finn-base/blob/dev/src/finn/util/data_packing.py#L289>`_ function, which converts npy arrays to lists of Python arbitrary-precision integers that we feed into pyverilator for rtl simulation:
 
 Why does FIFO sizing take so long for my network? Is something wrong?
     The automatic FIFO sizing in FINN can take quite long. It unfortunately doesn’t really parallelize on multiple cores since

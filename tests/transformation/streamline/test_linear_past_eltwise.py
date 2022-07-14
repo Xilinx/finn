@@ -31,16 +31,15 @@ import pytest
 import numpy as np
 import os
 from onnx import TensorProto, helper
-from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.fold_constants import FoldConstants
-from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
-from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
+from finn.core.modelwrapper import ModelWrapper
+from finn.transformation.fold_constants import FoldConstants
+from finn.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from finn.transformation.infer_shapes import InferShapes
 from finn.transformation.streamline.reorder import MoveLinearPastEltwiseAdd
 
 export_onnx_path = "test_linear_past_eltwise.onnx"
-np_default_dtype = np.float32
 
 # construct a synthetic graph to test:
 # topk insertion, topk conversion to hls, add conversion to hls
@@ -82,15 +81,14 @@ def make_model(shape):
     model = ModelWrapper(model)
 
     # set initializers for scalar add/mul nodes
-    model.set_initializer(add1_node.input[1], np.array([7.0], dtype=np_default_dtype))
-    model.set_initializer(add2_node.input[1], np.array([8.0], dtype=np_default_dtype))
-    model.set_initializer(mul1_node.input[1], np.array([3.0], dtype=np_default_dtype))
-    model.set_initializer(mul2_node.input[1], np.array([3.0], dtype=np_default_dtype))
+    model.set_initializer(add1_node.input[1], np.array([7.0]))
+    model.set_initializer(add2_node.input[1], np.array([8.0]))
+    model.set_initializer(mul1_node.input[1], np.array([3.0]))
+    model.set_initializer(mul2_node.input[1], np.array([3.0]))
 
     return model
 
 
-@pytest.mark.streamline
 # channels
 @pytest.mark.parametrize("ch", [64])
 # ifmdim
@@ -135,7 +133,6 @@ def test_linear_past_eltwise_add(ch, ifmdim):
     os.remove(export_onnx_path)
 
 
-@pytest.mark.streamline
 @pytest.mark.parametrize("ch", [64, 1])
 # ifmdim
 @pytest.mark.parametrize("ifmdim", [-1, 7])

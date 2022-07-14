@@ -192,11 +192,7 @@ end else begin: bypass
 
 reg [MEM_WIDTH-1:0] singleval[0:0];
 initial begin
-    `ifdef SYNTHESIS
-        $readmemh({MEM_INIT,"memblock_synth_0.dat"}, singleval, 0, 0);
-    `else
-        $readmemh({MEM_INIT,"memblock_sim_0.dat"}, singleval, 0, 0);
-    `endif
+    $readmemh({MEM_INIT,"memblock_0.dat"}, singleval, 0, 0);
 end
 
 always @(posedge aclk)

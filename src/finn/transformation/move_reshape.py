@@ -1,7 +1,8 @@
 import warnings
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.base import Transformation
-from qonnx.util.basic import get_by_name, is_finn_op
+
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
+from finn.util.basic import get_by_name, is_finn_op
 
 
 def _is_fpgadataflow_node(node):
@@ -50,7 +51,7 @@ class RemoveCNVtoFCFlatten(Transformation):
                             producer = model.find_producer(transp_node.input[0])
                             if _is_fpgadataflow_node(producer) is True:
                                 consumer = model.find_consumer(n.output[0])
-                                if consumer.op_type == "MatrixVectorActivation":
+                                if consumer.op_type == "StreamingFCLayer_Batch":
                                     fc_inst = getCustomOp(consumer)
                                     mw = fc_inst.get_nodeattr("MW")
                                     mh = fc_inst.get_nodeattr("MH")

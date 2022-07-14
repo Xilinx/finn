@@ -30,8 +30,8 @@ import numpy as np
 import os
 import warnings
 from math import ceil
-from qonnx.core.datatype import DataType
 
+from finn.core.datatype import DataType
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
@@ -51,7 +51,7 @@ from . import templates
 def get_smallest_possible(vals):
     """Returns smallest (fewest bits) possible DataType that can represent
     value. Prefers unsigned integers where possible."""
-    vals = np.array(vals, dtype=np.float64)
+    vals = np.array(vals)
     for v in vals:
         assert int(v) == v, "Error float value"
 
@@ -350,13 +350,13 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         # get desired function
         func = self.get_nodeattr("Func")
         if func == "cmp_le":
-            func_str = "comp::less_equal<%s, %s>" % (idt_hls, pdt_hls)
+            func_str = "comp::less_equal"
         elif func == "cmp_ge":
-            func_str = "comp::greater_equal<%s, %s>" % (idt_hls, pdt_hls)
+            func_str = "std::greater_equal"
         elif func == "add":
-            func_str = "comp::add<%s, %s, %s>" % (odt_hls, odt_hls, odt_hls)
+            func_str = "std::plus"
         elif func == "mul":
-            func_str = "comp::mul<%s, %s, %s>" % (odt_hls, odt_hls, odt_hls)
+            func_str = "std::multiplies"
         else:
             raise Exception(
                 """Invalid value for attribute Func! Is currently set to: {}
@@ -373,7 +373,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
                 idt_hls,
                 pdt_hls,
                 odt_hls,
-                func_str,
+                "%s<%s>" % (func_str, odt_hls),
             )
         )
         f_params.write(parameters_hls_code)
@@ -431,8 +431,11 @@ class ChannelwiseOp_Batch(HLSCustomOp):
                 out = 2 * out - 1
                 context[node.output[0]] = out
             assert (
-                context[node.output[0]].shape == self.get_normal_output_shape()
+                context[node.output[0]].shape == self.get_folded_output_shape()
             ), """Output shape is not as expected"""
+            # reshape output to have expected shape
+            oshape = self.get_normal_output_shape()
+            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -511,15 +514,18 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         # should ImgDim be defined or just filled in here like we do now?
         ishape = self.get_folded_input_shape()
         if len(ishape) == 3:
-            spatial_dim = 1
+            imgdim_h = 1
+            imgdim_w = 1
         elif len(ishape) == 5:
-            spatial_dim = ishape[1] * ishape[2]
+            imgdim_h = ishape[1]
+            imgdim_w = ishape[2]
         else:
             raise Exception("""Unexpeted input shape""")
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """Thresholding_Batch<{}, NumChannels1, PE1, {}, {}>
+            """Thresholding_Batch<{}, {}, NumChannels1, PE1, {}, {}>
             (in0, out, threshs, numReps);""".format(
-                spatial_dim,
+                imgdim_h,
+                imgdim_w,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
             )
@@ -568,12 +574,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         ]
 
     def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
-        )
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )

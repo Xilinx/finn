@@ -103,8 +103,8 @@ create_project finn_zynq_link ./ -part $FPGA_PART
 # set board part repo paths to find PYNQ-Z1/Z2
 set paths_prop [get_property BOARD_PART_REPO_PATHS [current_project]]
 set paths_param [get_param board.repoPaths]
-lappend paths_prop $::env(FINN_ROOT)/deps/board_files
-lappend paths_param $::env(FINN_ROOT)/deps/board_files
+lappend paths_prop /workspace/board_files
+lappend paths_param /workspace/board_files
 set_property BOARD_PART_REPO_PATHS $paths_prop [current_project]
 set_param board.repoPaths $paths_param
 
@@ -113,9 +113,6 @@ if {$BOARD == "ZCU104"} {
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "ZCU102"} {
     set_property board_part xilinx.com:zcu102:part0:3.3 [current_project]
-    set ZYNQ_TYPE "zynq_us+"
-} elseif {$BOARD == "RFSoC2x2"} {
-    set_property board_part xilinx.com:rfsoc2x2:part0:1.1 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Ultra96"} {
     set_property board_part avnet.com:ultra96v1:part0:1.2 [current_project]
@@ -132,7 +129,7 @@ if {$BOARD == "ZCU104"} {
 
 create_bd_design "top"
 if {$ZYNQ_TYPE == "zynq_us+"} {
-    create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.4 zynq_ps
+    create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.3 zynq_ps
     apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset "1" }  [get_bd_cells zynq_ps]
     #activate one slave port, deactivate the second master port
     set_property -dict [list CONFIG.PSU__USE__S_AXI_GP2 {1}] [get_bd_cells zynq_ps]
@@ -185,7 +182,7 @@ proc assign_axi_addr_proc {axi_intf_path} {
     #align base address to range
     set offset [expr ($axi_peripheral_base + ($range-1)) & ~($range-1)]
     #perform assignment
-    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg*] -offset $offset -range $range
+    assign_bd_address [get_bd_addr_segs $axi_intf_path/Reg] -offset $offset -range $range
     #advance base address
     set axi_peripheral_base [expr $offset + $range]
 }

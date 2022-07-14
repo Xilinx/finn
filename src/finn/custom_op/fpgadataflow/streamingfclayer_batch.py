@@ -31,14 +31,14 @@ import numpy as np
 import os
 import textwrap
 import warnings
-from qonnx.core.datatype import DataType
-from qonnx.util.basic import (
+
+from finn.core.datatype import DataType
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.util.basic import (
     calculate_matvec_accumulator_range,
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
-
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     numpy_to_hls_code,
@@ -48,7 +48,7 @@ from finn.util.data_packing import (
 
 from . import templates
 
-# ONNX i/o tensor shape assumptions for MatrixVectorActivation:
+# ONNX i/o tensor shape assumptions for StreamingFCLayer:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
 # input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
 # (optional) input 2 is the thresholds tensor, shape (o_size, n_thres)
@@ -56,9 +56,8 @@ from . import templates
 # the ... here can be any shape (representing groups of vectors)
 
 
-class MatrixVectorActivation(HLSCustomOp):
-    """Class that corresponds to finn-hls Matrix_Vector_Activate(_Stream)_Batch
-    function."""
+class StreamingFCLayer_Batch(HLSCustomOp):
+    """Class that corresponds to finn-hls StreamingFCLayer_Batch function."""
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
@@ -193,7 +192,7 @@ class MatrixVectorActivation(HLSCustomOp):
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append(
-                """The required MatrixVectorActivation attributes do not exist."""
+                """The required StreamingFCLayer attributes do not exist."""
             )
 
         # verify the number of inputs depending on noActivation value
@@ -205,7 +204,7 @@ class MatrixVectorActivation(HLSCustomOp):
                 info_messages.append("The number of inputs is correct")
             else:
                 info_messages.append(
-                    """MatrixVectorActivation needs in no
+                    """StreamingFCLayer_Batch needs in no
                             activation mode 2 inputs (data input and weights)"""
                 )
         elif no_act == 0:
@@ -213,7 +212,7 @@ class MatrixVectorActivation(HLSCustomOp):
                 info_messages.append("The number of inputs is correct")
             else:
                 info_messages.append(
-                    """MatrixVectorActivation needs 3 inputs
+                    """StreamingFCLayer_Batch needs 3 inputs
                             (data input and weights and threshold values)"""
                 )
         else:
@@ -394,16 +393,9 @@ class MatrixVectorActivation(HLSCustomOp):
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
 
-    def get_input_datatype(self, ind=0):
+    def get_input_datatype(self):
         """Returns FINN DataType of input."""
-        # when performing FIFO insertion on an FC layer with ext weights, the ind
-        # parameter can be > 0 (referring to the weights) so handle that here
-        if ind == 0:
-            return DataType[self.get_nodeattr("inputDataType")]
-        elif ind == 1:
-            return DataType[self.get_nodeattr("weightDataType")]
-        else:
-            raise Exception("Undefined input ind for this layer type")
+        return DataType[self.get_nodeattr("inputDataType")]
 
     def get_weight_datatype(self):
         """Returns FINN DataType of weights."""
@@ -819,28 +811,16 @@ class MatrixVectorActivation(HLSCustomOp):
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
-                # note that we provide two different .dat files, one for synth
-                # and one for synthesis. this is because URAM-based weights always
-                # need zero weights for synthesis, otherwise they get inferred
-                # as BRAM
-                weight_filename_rtl_synth = "{}/memblock_synth_0.dat".format(
-                    code_gen_dir
-                )
-                weight_filename_rtl_sim = "{}/memblock_sim_0.dat".format(code_gen_dir)
-                # sim weights are always the true weights
-                self.make_weight_file(
-                    weights, "decoupled_verilog_dat", weight_filename_rtl_sim
-                )
+                weight_filename_rtl = "{}/memblock_0.dat".format(code_gen_dir)
                 ram_style = self.get_nodeattr("ram_style")
                 if ram_style == "ultra":
                     # UltraRAM must have no memory initializer, or only zeroes
                     # otherwise BRAM will be inferred instead of URAM
                     # as a workaround we provide a zero-weight init here
-                    synth_weights = np.zeros_like(weights, dtype=np.float32)
-                else:
-                    synth_weights = weights
+                    # TODO handle this in Verilog with an if statement
+                    weights = np.zeros_like(weights)
                 self.make_weight_file(
-                    synth_weights, "decoupled_verilog_dat", weight_filename_rtl_synth
+                    weights, "decoupled_verilog_dat", weight_filename_rtl
                 )
         else:
             raise Exception(
@@ -891,7 +871,7 @@ class MatrixVectorActivation(HLSCustomOp):
                         tdt_hls,
                         odt_hls,
                         self.get_nodeattr("ActVal"),
-                        "comp::less_equal<%s, %s>" % (tdt_hls, tdt_hls),
+                        "comp::less_equal<%s>" % tdt_hls,
                     )
                 )
                 f_thresh.write(thresholds_hls_code)
@@ -941,7 +921,7 @@ class MatrixVectorActivation(HLSCustomOp):
                     reshaped_input,
                 )
             elif in_ind > 2:
-                raise Exception("Unexpected input found for MatrixVectorActivation")
+                raise Exception("Unexpected input found for StreamingFCLayer")
             in_ind += 1
 
         if mode == "cppsim":
@@ -955,8 +935,11 @@ class MatrixVectorActivation(HLSCustomOp):
                 out = 2 * out - 1
                 context[node.output[0]] = out
             assert (
-                context[node.output[0]].shape == self.get_normal_output_shape()
-            ), "cppsim did not produce expected output shape"
+                context[node.output[0]].shape == self.get_folded_output_shape()
+            ), """Output shape is not as expected"""
+            # reshape output to have expected shape
+            oshape = self.get_normal_output_shape()
+            context[node.output[0]] = context[node.output[0]].reshape(*oshape)
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
@@ -1011,12 +994,16 @@ class MatrixVectorActivation(HLSCustomOp):
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
 
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode not in ["const", "decoupled", "external"]:
+        if mem_mode == "const":
+            # self.code_gen_dict["$GLOBALS$"] += ['#include "params.h"']
+            pass
+        elif mem_mode == "decoupled" or mem_mode == "external":
+            self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
+        else:
             raise Exception(
                 """Please set mem_mode to "const", "decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
-        self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
@@ -1028,7 +1015,7 @@ class MatrixVectorActivation(HLSCustomOp):
             MW = self.get_nodeattr("MW")
             condition = SIMD >= (MW / 1024)
             msg = (
-                f"HLS synthesis of MatrixVectorActivation requires: "
+                f"HLS synthesis of StreamingFCLayer_Batch requires: "
                 f"SIMD >= MW / 1024. This is not fulfilled with: SIMD={SIMD} "
                 f"and MW={MW} for node: {self.onnx_node.name}."
             )
@@ -1120,9 +1107,11 @@ class MatrixVectorActivation(HLSCustomOp):
         else:
             threshs = "threshs"
         if mem_mode == "const":
+            node = self.onnx_node
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
+                """{}<MW1, MH1, SIMD1, PE1, {}, {}, {}>
                 (in0, out, weights, {}, numReps, {});""".format(
+                    node.op_type,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
@@ -1221,12 +1210,8 @@ class MatrixVectorActivation(HLSCustomOp):
     def pragmas(self):
         mem_mode = self.get_nodeattr("mem_mode")
         ram_style_thresholds = self.get_nodeattr("ram_style_thresholds")
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
-        )
+        self.code_gen_dict["$PRAGMAS$"] = ["#pragma HLS INTERFACE axis port=in0"]
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE axis port=out")
         in_fifo_depth = self.get_nodeattr("inFIFODepth")
         out_fifo_depth = self.get_nodeattr("outFIFODepth")
         # insert depth pragmas only if specified
@@ -1254,8 +1239,7 @@ class MatrixVectorActivation(HLSCustomOp):
             )
         elif mem_mode == "decoupled" or mem_mode == "external":
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=weights name=weights_"
-                + self.hls_sname()
+                "#pragma HLS INTERFACE axis port=weights"
             )
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS stream depth=8 variable=weights"
@@ -1318,7 +1302,6 @@ class MatrixVectorActivation(HLSCustomOp):
                     runtime_writable == 1
                 ), "Layer with URAM weights must have runtime_writeable_weights=1"
             node_name = self.onnx_node.name
-            sname = self.hls_sname()
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
             rst_name = self.get_verilog_top_module_intf_names()["rst"][0]
@@ -1372,8 +1355,8 @@ class MatrixVectorActivation(HLSCustomOp):
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/%s/m_axis_0] "
-                "[get_bd_intf_pins %s/%s/weights_%s]"
-                % (node_name, strm_inst, node_name, node_name, sname)
+                "[get_bd_intf_pins %s/%s/weights_V_V]"
+                % (node_name, strm_inst, node_name, node_name)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aresetn]"
@@ -1421,16 +1404,15 @@ class MatrixVectorActivation(HLSCustomOp):
             # base class impl sufficient for const/external modes
             return super().code_generation_ipi()
         else:
-            raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
+            raise Exception("Unrecognized mem_mode for StreamingFCLayer")
         return cmd
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         mem_mode = self.get_nodeattr("mem_mode")
-        sname = self.hls_sname()
         if mem_mode == "external":
             intf_names["s_axis"].append(
-                ("weights_" + sname, self.get_weightstream_width_padded())
+                ("weights_V_V", self.get_weightstream_width_padded())
             )
         if mem_mode == "decoupled":
             # only expose axilite interface if attribute is set

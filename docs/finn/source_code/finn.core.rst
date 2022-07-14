@@ -5,34 +5,34 @@ Core
 Modules
 =======
 
-qonnx.core.data\_layout
+finn.core.data\_layout
 -------------------------
 
-.. automodule:: qonnx.core.data_layout
+.. automodule:: finn.core.data_layout
    :members:
    :undoc-members:
    :show-inheritance:
 
-qonnx.core.datatype
+finn.core.datatype
 -------------------------
 
-.. automodule:: qonnx.core.datatype
+.. automodule:: finn.core.datatype
    :members:
    :undoc-members:
    :show-inheritance:
 
-qonnx.core.execute\_custom\_node
+finn.core.execute\_custom\_node
 --------------------------------------
 
-.. automodule:: qonnx.core.execute_custom_node
+.. automodule:: finn.core.execute_custom_node
    :members:
    :undoc-members:
    :show-inheritance:
 
-qonnx.core.modelwrapper
+finn.core.modelwrapper
 -----------------------------
 
-.. automodule:: qonnx.core.modelwrapper
+.. automodule:: finn.core.modelwrapper
    :members:
    :undoc-members:
    :show-inheritance:

@@ -27,13 +27,14 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import qonnx.core.onnx_exec as oxe
 from onnx import TensorProto, helper
-from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.base import Transformation
-from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.quant_constant_folding import FoldTransposeIntoQuantInit
-from qonnx.transformation.remove import remove_node_and_rewire
+
+import finn.core.onnx_exec as oxe
+from finn.custom_op.registry import getCustomOp
+from finn.transformation.base import Transformation
+from finn.transformation.infer_shapes import InferShapes
+from finn.transformation.remove import remove_node_and_rewire
 
 
 class FoldQuantWeights(Transformation):
@@ -102,7 +103,7 @@ class FoldQuantWeights(Transformation):
                         model.set_initializer(node_out, q_node_output)
                     else:
                         # Check next operator type
-                        mul_like_nodes = ["Mul", "Div", "Conv", "MatMul", "Gather"]
+                        mul_like_nodes = ["Mul", "Div", "Conv", "MatMul"]
                         add_like_nodes = ["Add", "Sub"]
                         all_supported_ops = mul_like_nodes.copy()
                         all_supported_ops.extend(add_like_nodes)
@@ -145,14 +146,11 @@ class FoldQuantWeights(Transformation):
                         model.set_initializer(mul_tensor.name, scale)
 
                         successor = model.find_consumers(node_out)
-                        if successor == []:
+                        if successor is None:
                             raise RuntimeError(
                                 "Can only constant fold scaled Quant weights "
                                 "if a successor exists."
                             )
-                        assert (
-                            len(successor) == 1
-                        ), "Only implemented for a single consumer"
                         successor = successor[0]
                         succ_output_name = successor.output[0]
 
