@@ -178,7 +178,7 @@ if [ "$FINN_DOCKER_PREBUILT" = "0" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
-  docker build -f docker/Dockerfile.finn --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --tag=$FINN_DOCKER_TAG .
+  docker build -f docker/Dockerfile.finn --build-arg XILINX_VERSION=$FINN_XILINX_VERSION --build-arg XRT_DEB_VERSION=$XRT_DEB_VERSION --build-arg xrt_supported_versions=xrt_supported_versions.txt --tag=$FINN_DOCKER_TAG .
   if [ "$?" -ne 0 ]; then
     echo "Error occurred during docker build, exiting"
     exit 1

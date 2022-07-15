@@ -69,6 +69,23 @@ RUN locale-gen "en_US.UTF-8"
 RUN wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb
 RUN apt install -y /tmp/$XRT_DEB_VERSION.deb
 RUN rm /tmp/$XRT_DEB_VERSION.deb
+RUN if [ ! -f "/opt/xilinx/xrt/include/version.h" ]; then \
+    echo "ERROR: XRT not installed. Please install XRT" ; exit 1 ; \
+  fi ;
+
+# Inherit the xrt_supported_versions arg, a file, and copy it to docker
+ARG xrt_supported_versions
+ADD $xrt_supported_versions ./
+ARG XILINX_VERSION
+RUN echo "XRT installed. proceeding to check version compatibility" ; \
+  xrt_build_ver="$XILINX_VERSION:"$(grep 'xrt_build_version_hash\[\]' /opt/xilinx/xrt/include/version.h | sed 's/";//' | sed 's/^.*"//') ; \
+  if grep -Fxq "$xrt_build_ver" $xrt_supported_versions ; then \
+      echo "XRT version $xrt_build_ver is supported." ; \
+      echo "XRT Runtime setup Done" ; \
+    else \
+      echo "ERROR: $xrt_build_ver does not match supported versions" ; \
+      exit 1 ; \
+  fi ;
 
 # versioned Python package requirements for FINN compiler
 # these are given in requirements.txt
