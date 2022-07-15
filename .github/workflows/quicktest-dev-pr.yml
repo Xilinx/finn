@@ -50,4 +50,4 @@ jobs:
 
       - name: DockerRunQuicktest
         run: |
-          docker run --init --hostname finn_gha -w $(pwd) -v $(pwd):$(pwd) -e FINN_BUILD_DIR=/tmp/finn_gha -e FINN_INST_NAME=finn_gha finn_gha quicktest.sh
+          docker run --init --hostname finn_gha -w $(pwd) -v $(pwd):$(pwd) -e FINN_ROOT=$(pwd) -e FINN_BUILD_DIR=/tmp/finn_gha -e FINN_INST_NAME=finn_gha finn_gha quicktest.sh
