@@ -12,10 +12,6 @@ A model where all layers have been converted to HLS layers can be processed by
 FINN to build a bitfile and driver targeting a Zynq system or to generate a Vivado IP Integrator (IPI)
 design with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system.
 
-.. warning::
-    With the new FINN release, we do not offer out-of-the box support for Alveo cards anymore.
-    Please use an older FINN version (v04b - v0.7) and Vitis 2020.1 in case you want to use `VitisBuild`. The description for the `VitisBuild` below is still valid for older versions.
-
 
 Hardware Build
 ==============

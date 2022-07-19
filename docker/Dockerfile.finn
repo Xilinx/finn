@@ -29,8 +29,7 @@
 FROM pytorch/pytorch:1.7.1-cuda11.0-cudnn8-runtime
 LABEL maintainer="Yaman Umuroglu <yamanu@xilinx.com>"
 
-# XRT version to be installed
-ARG XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"
+ARG XRT_DEB_VERSION="xrt_202210.2.13.466_18.04-amd64-xrt"
 
 WORKDIR /workspace
 

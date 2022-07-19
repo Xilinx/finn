@@ -2,7 +2,7 @@ We welcome contributions to FINN.
 
 Please follow the steps below and be sure that your contribution complies with our guidelines.
 
-1. Share your proposal via <a href="https://github.com/Xilinx/finn/issues" target="_blank">Github issues</a>. If you are looking for some issues to get started with, we have a list of <a href="https://github.com/Xilinx/finn/labels/good%20first%20issue">good first issues</a> in the issue tracker. Feel free to ask questions on the <a href="https://gitter.im/xilinx-finn/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge">FINN gitter channel as well</a>.
+1. Share your proposal via <a href="https://github.com/Xilinx/finn/issues" target="_blank">Github issues</a>. If you are looking for some issues to get started with, we have a list of <a href="https://github.com/Xilinx/finn/labels/good%20first%20issue">good first issues</a> in the issue tracker. Feel free to ask questions in the <a href="https://github.com/Xilinx/finn/discussions">FINN GitHub discussions</a> as well.
 
 	We welcome submissions to:
 
@@ -31,4 +31,4 @@ Please follow the steps below and be sure that your contribution complies with o
 
 3. We will review your contribution and, if any additional fixes or modifications are
 necessary, may provide feedback to guide you. When accepted, your pull request will
-be merged to the repository. If you have more questions please contact us via the <a href="https://gitter.im/xilinx-finn/community" target="_blank">FINN gitter channel</a>.
+be merged to the repository. If you have more questions please contact us.
