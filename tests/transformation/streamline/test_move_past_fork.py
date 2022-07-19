@@ -35,14 +35,47 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 
 import finn.core.onnx_exec as oxe
-from finn.transformation.streamline.reorder import MoveLinearPastFork
+from finn.transformation.streamline.reorder import (
+    MoveLinearPastFork,
+    MoveTransposePastFork,
+)
+
+
+@pytest.mark.streamline
+def test_move_past_fork_transpose():
+    shp = [1, 3, 32, 32]
+    shp_str = str(shp)
+    input = f"""
+    <
+        ir_version: 7,
+        opset_import: ["" : 9]
+    >
+    agraph (float{shp_str} in0) => (float{shp_str} out0)
+    {{
+        t0_out = Transpose<perm=[0,2,3,1]>(in0)
+        t1_out = Transpose<perm=[0,3,1,2]>(t0_out)
+        t2_out = Transpose<perm=[0,3,1,2]>(t0_out)
+        out0 = Add(t1_out, t2_out)
+    }}
+    """
+    model = oprs.parse_model(input)
+    model = ModelWrapper(model)
+    model = model.transform(InferShapes())
+    new_model = model.transform(MoveTransposePastFork())
+    new_model = new_model.transform(GiveUniqueNodeNames())
+    nodes = new_model.graph.node
+    assert oxe.compare_execution(
+        model, new_model, {"in0": np.random.rand(*shp).astype(np.float32)}
+    )
+    assert len(nodes) == 5
+    assert not new_model.is_fork_node(get_by_name(nodes, "Transpose_0"))
 
 
 @pytest.mark.streamline
 @pytest.mark.parametrize("ch", [64, 1])
 # ifmdim
 @pytest.mark.parametrize("ifmdim", [-1, 7])
-def test_move_past_fork(ch, ifmdim):
+def test_move_past_fork_linear(ch, ifmdim):
     if ifmdim == -1:
         shp = [1, ch]
     else:
