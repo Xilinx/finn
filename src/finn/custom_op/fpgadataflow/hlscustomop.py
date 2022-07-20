@@ -410,6 +410,7 @@ class HLSCustomOp(CustomOp):
     Found no codegen dir for this node, did you run the prepare_cppsim transformation?
                 """
                 )
+            target_dir = code_gen_dir
         # create a npy file for each input of the node (in_ind is input index)
         # assuming dynamic inputs start from 0
         for in_ind in range(count):
