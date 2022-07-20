@@ -110,11 +110,6 @@ class ConvertQuantActToMultiThreshold(Transformation):
                     predecessor_op_type = predecessor[0].op_type
                 else:
                     predecessor_op_type = predecessor
-                # if model.is_fork_node(n):
-                #     raise ValueError(
-                #         "Forking Quant/BipolarQuant nodes are currently "
-                #         "not supported by FINN."
-                #     )
                 if n.op_type == "Quant" and not model.get_initializer(n.input[2]) == 0:
                     raise ValueError(
                         "Only Quant nodes with zero-point == 0 are currently supported."
