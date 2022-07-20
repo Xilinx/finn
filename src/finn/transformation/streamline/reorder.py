@@ -553,6 +553,8 @@ class MoveLinearPastEltwiseAdd(Transformation):
                 # Other transform should handle that
                 if prod0 is None or prod1 is None or (prod0 == prod1):
                     continue
+                if len(prod0.input) < 2 or len(prod1.input) < 2:
+                    continue
                 init0 = model.get_initializer(prod0.input[1])
                 init1 = model.get_initializer(prod1.input[1])
                 # if either initializer is None, skip
