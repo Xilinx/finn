@@ -126,10 +126,20 @@ class FoldQuantWeights(Transformation):
                         model.set_tensor_datatype(node_out, new_dtype)
 
                         # Reshape scale for Conv if required
+                        target_output_shape = model.get_tensor_shape(
+                            target_node.output[0]
+                        )
                         if target_node.op_type == "Conv" and len(scale.shape) > 0:
-                            bias_shape = [1] * len(scale.shape)
-                            bias_shape[1] = -1
-                            scale = scale.reshape(bias_shape)
+                            conv_out_shape = [1] * len(target_output_shape)
+                            # only support per-output channel scaling
+                            # (i.e. all scale shape elems besides 0th must be 1s)
+                            if len(scale.shape) > 1:
+                                assert (
+                                    np.prod(scale.shape[1:]) == 1
+                                ), "Can't fold scale beyond per-out-channel granularity"
+                            # collect all scaling in channels dim (since we constrain)
+                            conv_out_shape[1] = -1
+                            scale = scale.reshape(conv_out_shape)
 
                         if scale.shape == (1,):
                             scale = scale[0]
