@@ -29,8 +29,7 @@
 import pytest
 
 import numpy as np
-import onnx.helper as oh
-from onnx import TensorProto
+import onnx.parser as oprs
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
 
@@ -41,38 +40,36 @@ from finn.transformation.streamline.absorb import AbsorbConsecutiveTransposes
 @pytest.mark.streamline
 def test_absorb_opposite_transposes():
     np.random.seed(0)
-    input_shape = [1, 3, 4, 2]
-    top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, input_shape)
-    top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, input_shape)
-    value_info = [oh.make_tensor_value_info("add_param_0", TensorProto.FLOAT, [1])]
-    value_info += [oh.make_tensor_value_info("add_param_1", TensorProto.FLOAT, [1])]
-    value_info += [oh.make_tensor_value_info("mul_param_0", TensorProto.FLOAT, [1])]
-    modelproto = oh.make_model(
-        oh.make_graph(
-            name="test",
-            inputs=[top_in],
-            outputs=[top_out],
-            value_info=value_info,
-            nodes=[
-                oh.make_node("Add", ["top_in", "add_param_0"], ["t0"]),
-                oh.make_node("Transpose", ["t0"], ["t1"], perm=[0, 2, 3, 1]),
-                oh.make_node("Transpose", ["t1"], ["t2"], perm=[0, 3, 1, 2]),
-                oh.make_node("Add", ["t2", "add_param_1"], ["t3"]),
-                oh.make_node("Transpose", ["t3"], ["t4"], perm=[0, 2, 3, 1]),
-                oh.make_node("Transpose", ["t4"], ["t5"], perm=[0, 3, 1, 2]),
-                oh.make_node("Add", ["t5", "t2"], ["t6"]),
-                oh.make_node("Mul", ["t6", "mul_param_0"], ["top_out"]),
-            ],
-        )
-    )
-    model = ModelWrapper(modelproto)
+    shp = [1, 3, 4, 2]
+    shp_str = str(shp)
+    input = f"""
+    <
+        ir_version: 7,
+        opset_import: ["" : 9]
+    >
+    agraph (float{shp_str} in0) => (float{shp_str} out0)
+    <
+        float[1] add0_param = {{1.0}},
+        float[1] add1_param = {{3.0}},
+        float[1] mul0_param = {{2.0}}
+    >
+    {{
+        add0_out = Add(in0, add0_param)
+        t0_out = Transpose<perm=[0,2,3,1]>(add0_out)
+        t1_out = Transpose<perm=[0,3,1,2]>(t0_out)
+        add1_out = Add(t1_out, add1_param)
+        t2_out = Transpose<perm=[0,2,3,1]>(add1_out)
+        t3_out = Transpose<perm=[0,3,1,2]>(t2_out)
+        add2_out = Add(t1_out, t3_out)
+        out0 = Mul(add2_out, mul0_param)
+    }}
+    """
+    model = oprs.parse_model(input)
+    model = ModelWrapper(model)
     model = model.transform(InferShapes())
-    model.set_initializer("add_param_0", np.asarray([1], dtype=np.float32))
-    model.set_initializer("add_param_1", np.asarray([3], dtype=np.float32))
-    model.set_initializer("mul_param_0", np.asarray([2], dtype=np.float32))
     new_model = model.transform(AbsorbConsecutiveTransposes())
     new_model = new_model.transform(InferShapes())
-    inp_dict = {"top_in": np.random.rand(*input_shape).astype(np.float32)}
+    inp_dict = {"top_in": np.random.rand(*shp).astype(np.float32)}
     assert ox.compare_execution(model, model, inp_dict)
     assert len(new_model.graph.node) == 4
     for n in new_model.graph.node:
