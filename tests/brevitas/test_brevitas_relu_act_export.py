@@ -41,6 +41,7 @@ from brevitas.nn import QuantReLU
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
+from torch import nn
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
@@ -172,6 +173,86 @@ scaling_impl.learned_value": rand_tensor.type(
             print(
                 "thres:",
                 ", ".join(["{:8.4f}".format(x) for x in b_act.export_thres[0]]),
+            )
+        print("input:", ", ".join(["{:8.4f}".format(x) for x in inp_tensor[0]]))
+        print("prod :", ", ".join(["{:8.4f}".format(x) for x in produced[0]]))
+        print("expec:", ", ".join(["{:8.4f}".format(x) for x in expected[0]]))
+
+    assert np.isclose(produced, expected, atol=1e-3).all()
+    os.remove(export_onnx_path)
+
+
+class PyTorchTestModel(nn.Module):
+    def __init__(self, abits):
+        super(PyTorchTestModel, self).__init__()
+        out_channels = 32
+        self.b_act = QuantReLU(
+            bit_width=abits,
+            quant_type=QuantType.INT,
+            scaling_impl_type=ScalingImplType.PARAMETER,
+            scaling_per_channel=True,
+            restrict_scaling_type=RestrictValueType.LOG_FP,
+            scaling_min_val=2e-16,
+            max_val=6.0,
+            return_quant_tensor=False,
+            per_channel_broadcastable_shape=(1, out_channels, 1, 1),
+        )
+
+    def forward(self, x):
+        act_out = self.b_act(x)
+        y0 = act_out * 2.0
+        y1 = act_out * -1.0
+        y = y0 + y1
+        return y
+
+
+@pytest.mark.brevitas_export
+@pytest.mark.parametrize("abits", [2, 4, 8])
+@pytest.mark.parametrize("max_val", [1.0, 1.5, 1 - 2 ** (-7)])
+@pytest.mark.parametrize("scaling_per_channel", [True])
+@pytest.mark.parametrize("QONNX_export", [True])
+def test_brevitas_act_export_relu_forking(
+    abits, max_val, scaling_per_channel, QONNX_export
+):
+    out_channels = 32
+    ishape = (1, out_channels, 1, 1)
+    min_val = -1.0
+    model_pyt = PyTorchTestModel(abits)
+
+    rand_tensor = (2) * torch.rand((1, out_channels, 1, 1))
+
+    checkpoint = {
+        "b_act.act_quant_proxy.fused_activation_quant_proxy."
+        "tensor_quant.scaling_impl.learned_value": rand_tensor.type(torch.FloatTensor)
+    }
+    model_pyt.load_state_dict(checkpoint)
+
+    if QONNX_export:
+        m_path = export_onnx_path
+        BrevitasONNXManager.export(model_pyt, ishape, m_path)
+        qonnx_cleanup(m_path, out_file=m_path)
+        model = ModelWrapper(m_path)
+        model = model.transform(ConvertQONNXtoFINN())
+        model.save(m_path)
+
+    model = ModelWrapper(export_onnx_path)
+    model = model.transform(InferShapes())
+    inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(
+        np.float32
+    )
+    idict = {model.graph.input[0].name: inp_tensor}
+    odict = oxe.execute_onnx(model, idict, True)
+    produced = odict[model.graph.output[0].name]
+    inp_tensor = torch.from_numpy(inp_tensor).float()
+    model_pyt.eval()
+    expected = model_pyt.forward(inp_tensor).detach().numpy()
+    if not np.isclose(produced, expected, atol=1e-3).all():
+        print(abits, max_val)
+        print("scale: ", model_pyt.quant_act_scale().type(torch.FloatTensor).detach())
+        if abits < 5:
+            print(
+                "thres:",
+                ", ".join(["{:8.4f}".format(x) for x in model_pyt.export_thres[0]]),
             )
         print("input:", ", ".join(["{:8.4f}".format(x) for x in inp_tensor[0]]))
         print("prod :", ", ".join(["{:8.4f}".format(x) for x in produced[0]]))
