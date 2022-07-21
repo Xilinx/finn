@@ -216,7 +216,7 @@ class StreamingEltwise(HLSCustomOp):
         assert (
             inp.shape == exp_ishape
         ), """Input0 shape doesn't match expected shape ."""
-        export_idt = self.get_input_datatype()
+        export_idt0 = self.get_input_datatype(0)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
         # make copy before saving array
@@ -229,7 +229,7 @@ class StreamingEltwise(HLSCustomOp):
         assert (
             inp.shape == exp_ishape
         ), """Input1 shape doesn't match expected shape ."""
-        export_idt = self.get_input_datatype()
+        export_idt1 = self.get_input_datatype(1)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
         # make copy before saving array
@@ -246,12 +246,13 @@ class StreamingEltwise(HLSCustomOp):
             ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
+            nbits0 = self.get_instream_width(0)
+            nbits1 = self.get_instream_width(1)
             rtlsim_inp0 = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+                "{}/input_0.npy".format(code_gen_dir), export_idt0, nbits0
             )
             rtlsim_inp1 = npy_to_rtlsim_input(
-                "{}/input_1.npy".format(code_gen_dir), export_idt, nbits
+                "{}/input_1.npy".format(code_gen_dir), export_idt1, nbits1
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
@@ -283,7 +284,7 @@ class StreamingEltwise(HLSCustomOp):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
             '#include "eltwise.hpp"',
-            '#include "interpret.hpp',
+            '#include "interpret.hpp"',
         ]
 
     def defines(self, var):
@@ -344,7 +345,7 @@ class StreamingEltwise(HLSCustomOp):
             out_hls_type,
         )
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, {}, {}, {}, {}, {}, {}>(in0, in1, out);""".format(
+            """{}<{}, {}, {}, {}, {}, {}>(in0, in1, out, {});""".format(
                 "StreamingEltwise",
                 self.get_nodeattr("NumChannels"),
                 self.get_nodeattr("PE"),
