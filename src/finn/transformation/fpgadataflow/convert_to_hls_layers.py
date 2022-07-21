@@ -1673,9 +1673,9 @@ class InferConcatLayer(Transformation):
         return (model, graph_modified)
 
 
-class InferStreamingEltwiseAbsDiff(Transformation):
-    """Convert eltwise Sub -> Abs to StreamingEltwise layer
-    with AbsDiffEltwise op."""
+class InferStreamingEltwise(Transformation):
+    """Convert eltwise Sub or Sub -> Abs to StreamingEltwise layer
+    with SubEltwise or AbsDiffEltwise op."""
 
     def apply(self, model):
         graph = model.graph
@@ -1701,14 +1701,14 @@ class InferStreamingEltwiseAbsDiff(Transformation):
                 if not (idt0.is_integer() and idt1.is_integer()):
                     continue
 
+                eltwiseOp = "Sub"
+                nodes_to_remove = [node]
                 # look for a downstream Abs node
                 res_consumer = model.find_consumer(result)
-                if res_consumer is None:
-                    continue
-                if res_consumer.op_type != "Abs":
-                    continue
-
-                result = res_consumer.output[0]
+                if (res_consumer is not None) and (res_consumer.op_type == "Abs"):
+                    eltwiseOp = "AbsDiff"
+                    result = res_consumer.output[0]
+                    nodes_to_remove.append(res_consumer)
 
                 # check layout and convert if necessary
                 in0_layout = model.get_tensor_layout(in0)
@@ -1749,14 +1749,14 @@ class InferStreamingEltwiseAbsDiff(Transformation):
                     PE=pe,
                     inputDataType0=idt0.name,
                     inputDataType1=idt1.name,
-                    eltwiseOp="AbsDiff",
+                    eltwiseOp=eltwiseOp,
                     numInputVectors=in0_shape[:-1],
                     name="StreamingEltwise_" + node.name,
                 )
                 graph.node.insert(insert_point, new_node)
                 # remove old nodes
-                graph.node.remove(node)
-                graph.node.remove(res_consumer)
+                for nd in nodes_to_remove:
+                    graph.node.remove(nd)
                 graph_modified = True
 
         # if graph_modified:

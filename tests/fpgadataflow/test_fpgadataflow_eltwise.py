@@ -21,9 +21,17 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
-def build_model(shp, dt0, dt1):
+def build_model(shp, dt0, dt1, do_abs):
     np.random.seed(0)
     shp_str = str(shp)
+    if do_abs:
+        graph = """
+        sub_out = Sub(in0, in1)
+        out0 = Abs(sub_out)
+        """
+    else:
+        graph = "out0 = Sub(in0, in1)"
+
     input = f"""
     <
         ir_version: 7,
@@ -31,8 +39,7 @@ def build_model(shp, dt0, dt1):
     >
     agraph (float{shp_str} in0, float{shp_str} in1) => (float{shp_str} out0)
     {{
-        sub_out = Sub(in0, in1)
-        out0 = Abs(sub_out)
+        {graph}
     }}
     """
     model = oprs.parse_model(input)
@@ -51,11 +58,13 @@ def build_model(shp, dt0, dt1):
 @pytest.mark.parametrize("ch", [1, 64])
 # folding
 @pytest.mark.parametrize("fold", [-1, 2, 1])
+# include Abs output node or not
+@pytest.mark.parametrize("do_abs", [True, False])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fpgadataflow_eltwise(dt0, ch, fold, exec_mode):
+def test_fpgadataflow_eltwise(dt0, ch, fold, do_abs, exec_mode):
     if fold == -1:
         pe = 1
     else:
@@ -63,12 +72,12 @@ def test_fpgadataflow_eltwise(dt0, ch, fold, exec_mode):
     assert ch % pe == 0
     dt1 = DataType["UINT8"]
     shp = [1, 4, 2, ch]
-    model = build_model(shp, dt0, dt1)
+    model = build_model(shp, dt0, dt1, do_abs)
     in0 = gen_finn_dt_tensor(dt0, shp)
     in1 = gen_finn_dt_tensor(dt1, shp)
     idict = {"in0": in0, "in1": in1}
     y_expected = execute_onnx(model, idict)["out0"]
-    model = model.transform(to_hls.InferStreamingEltwiseAbsDiff())
+    model = model.transform(to_hls.InferStreamingEltwise())
     assert len(model.graph.node) == 1
     assert model.graph.node[0].op_type == "StreamingEltwise"
     getCustomOp(model.graph.node[0]).set_nodeattr("PE", pe)
