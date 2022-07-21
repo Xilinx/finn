@@ -28,21 +28,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-buildx-
 
-      - name: fetch repos
-        run: |
-          ./fetch-repos.sh
 
-      - name: Build and push
-        uses: docker/build-push-action@v2
-        with:
-          file: docker/Dockerfile.finn
-          context: .
-          push: false
-          load: true
-          tags: finn_gha
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new
-      -
         # Temp fix
         # https://github.com/docker/build-push-action/issues/252
         # https://github.com/moby/buildkit/issues/1896
@@ -54,4 +40,7 @@ jobs:
 
       - name: DockerRunQuicktest
         run: |
-          docker run --init --hostname finn_gha -w $(pwd) -v $(pwd):$(pwd) -e FINN_ROOT=$(pwd) -e FINN_BUILD_DIR=/tmp/finn_gha -e FINN_INST_NAME=finn_gha finn_gha quicktest.sh
+          export FINN_ROOT=$(pwd)
+          export FINN_BUILD_DIR=/tmp/finn_gha
+          export FINN_INST_NAME=finn_gha 
+          ./run-docker.sh quicktest 
