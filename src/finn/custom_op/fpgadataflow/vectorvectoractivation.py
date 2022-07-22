@@ -670,7 +670,9 @@ class VectorVectorActivation(HLSCustomOp):
                 wei = npy_to_rtlsim_input(
                     "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
                 )
-                num_w_reps = 1
+                dim_h, dim_w = self.get_nodeattr("Dim")
+                num_w_reps = dim_h * dim_w
+
                 io_dict = {
                     "inputs": {"in0": inp, "weights": wei * num_w_reps},
                     "outputs": {"out": []},
