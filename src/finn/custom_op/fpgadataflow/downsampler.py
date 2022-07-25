@@ -36,7 +36,7 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 class DownSampler(HLSCustomOp):
-    """Corresponds to finn-hlslib ConvolutionInputGenerator_kernel1 function.
+    """Corresponds to finn-hlslib ConvolutionInputGenerator_*_kernel1 function.
     Basically performs a down sampling of the image removing rows and columns."""
 
     def __init__(self, onnx_node):
@@ -205,7 +205,7 @@ class DownSampler(HLSCustomOp):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """ConvolutionInputGenerator_kernel1<IFMChannels, Input_precision,
+            """ConvolutionInputGenerator_2D_kernel1<IFMChannels, Input_precision,
             IFMDim, SIMD,Stride> (in0, out, numReps);"""
         ]
 
