@@ -17,17 +17,6 @@ jobs:
       - name: checkout
         uses: actions/checkout@v2
 
-      - name: set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
-
-      - name: cache Docker layers
-        uses: actions/cache@v2
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
-
       - name: DockerRunQuicktest
         run: |
           export FINN_ROOT=$(pwd)
