@@ -111,6 +111,8 @@ def build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=False
 @pytest.mark.parametrize("is_1d", [True, False])
 @pytest.mark.parametrize("flip_1d", [True, False])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.slow
+@pytest.mark.vivado
 def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     if flip_1d and not is_1d:
         pytest.skip("flip_1d only applicable for is_1d")
