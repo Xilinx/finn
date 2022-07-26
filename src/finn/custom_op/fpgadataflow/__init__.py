@@ -45,6 +45,7 @@ from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
 from finn.custom_op.fpgadataflow.lookup import Lookup
 from finn.custom_op.fpgadataflow.matrixvectoractivation import MatrixVectorActivation
 from finn.custom_op.fpgadataflow.pool_batch import Pool_Batch
+from finn.custom_op.fpgadataflow.quantmaxnorm import QuantMaxNorm
 from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
     StreamingDataflowPartition,
 )
@@ -85,3 +86,4 @@ custom_op["UpsampleNearestNeighbour_Batch"] = UpsampleNearestNeighbour_Batch
 custom_op["Lookup"] = Lookup
 custom_op["StreamingConcat"] = StreamingConcat
 custom_op["CheckSum"] = CheckSum
+custom_op["QuantMaxNorm"] = QuantMaxNorm
