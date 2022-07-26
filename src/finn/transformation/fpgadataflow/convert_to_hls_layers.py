@@ -138,17 +138,18 @@ class InferConvInpGen(Transformation):
                 )
 
                 if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
-                    assert is_square_image, (
-                        "%s : DownSampler currently only supports square input images."
-                        % n.name
+                    downsample_1D = (ifm_dim_h == 1) or (ifm_dim_w == 1)
+                    is1D_unitx = ifm_dim_w == 1
+                    downsample_2D = (
+                        (not downsample_1D) and is_square_image and is_equal_stride
                     )
-                    assert is_equal_stride, (
-                        """%s : DownSampler currently only supports equal stride value
-                        along different axes."""
-                        % n.name
-                    )
-                    ConvInpGen_idim = ConvInpGen_idim_h
-                    stride = stride_h
+                    if not (downsample_1D or downsample_2D):
+                        warnings.warn(
+                            f"Couldn't infer Downsample from {n.name}, check config."
+                        )
+                        continue
+                    ConvInpGen_idim = max(ConvInpGen_idim_h, ConvInpGen_idim_w)
+                    stride = max(stride_h, stride_w)
                     # create DownSampler node
                     ConvInpGen_node = helper.make_node(
                         "DownSampler",
@@ -162,6 +163,8 @@ class InferConvInpGen(Transformation):
                         Stride=stride,
                         inputDataType=dt.name,
                         name="DownSampler_" + n.name,
+                        is1D=downsample_1D,
+                        is1D_unitx=is1D_unitx,
                     )
                     graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 else:
