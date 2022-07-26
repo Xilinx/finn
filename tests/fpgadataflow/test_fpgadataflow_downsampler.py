@@ -50,17 +50,24 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
-def build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0):
+def build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=False):
     np.random.seed(0)
     out_dim = compute_conv_output_dim(in_dim, k, stride, 2 * pad_half)
     ifm = 8
     ofm = 16
     if is_1d:
-        shape_in = [1, ifm, in_dim, 1]
-        shape_out = [1, ofm, out_dim, 1]
-        shape_k = [k, 1]
-        shape_s = [stride, 1]
-        shape_p = [pad_half, 0, pad_half, 0]
+        if flip_1d:
+            shape_in = [1, ifm, 1, in_dim]
+            shape_out = [1, ofm, 1, out_dim]
+            shape_k = [1, k]
+            shape_s = [1, stride]
+            shape_p = [0, pad_half, 0, pad_half]
+        else:
+            shape_in = [1, ifm, in_dim, 1]
+            shape_out = [1, ofm, out_dim, 1]
+            shape_k = [k, 1]
+            shape_s = [stride, 1]
+            shape_p = [pad_half, 0, pad_half, 0]
     else:
         shape_in = [1, ifm, in_dim, in_dim]
         shape_out = [1, ofm, out_dim, out_dim]
@@ -101,19 +108,25 @@ def build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0):
     return model
 
 
-@pytest.mark.parametrize("is_1d", [False])
-@pytest.mark.parametrize("exec_mode", ["cppsim"])
-def test_fpgadataflow_downsampler(is_1d, exec_mode):
+@pytest.mark.parametrize("is_1d", [True, False])
+@pytest.mark.parametrize("flip_1d", [True, False])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
+    if flip_1d and not is_1d:
+        pytest.skip("flip_1d only applicable for is_1d")
     in_dim = 32
     k = 1
     stride = 2
     dt_in = DataType["UINT8"]
     dt_w = DataType["INT2"]
-    model = build_model(is_1d, in_dim, k, stride, dt_in, dt_w)
+    model = build_model(
+        is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=flip_1d
+    )
     inp = gen_finn_dt_tensor(dt_in, model.get_tensor_shape("in0"))
     idict = {"in0": inp}
     y_expected = execute_onnx(model, idict)["out0"]
     model = model.transform(to_hls.InferConvInpGen())
+    assert len(model.get_nodes_by_op_type("DownSampler")) == 1
     if exec_mode == "cppsim":
         model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())
@@ -127,14 +140,18 @@ def test_fpgadataflow_downsampler(is_1d, exec_mode):
     else:
         raise Exception("Unknown exec_mode")
     y_produced = execute_onnx(model, idict)["out0"]
-    assert len(model.get_nodes_by_op_type("DownSampler")) == 1
     assert (y_produced == y_expected).all()
-
     if exec_mode == "rtlsim":
         node = model.get_nodes_by_op_type("DownSampler")[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
+        # small adjustment for 2D testcase due to how rtlsim works:
+        # output is finished before all pixels are read, since last
+        # row is dropped (rtlsim finishes based on # of expected
+        # pixels)
+        if not is_1d:
+            exp_cycles = exp_cycles - in_dim
         assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
         assert exp_cycles != 0
