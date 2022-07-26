@@ -30,6 +30,7 @@ import pytest
 
 import numpy as np
 import os
+import shutil
 import torch
 from brevitas.export import FINNManager
 from qonnx.core.datatype import DataType
@@ -51,6 +52,7 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.util.basic import make_build_dir
 
 tmpdir = os.environ["FINN_BUILD_DIR"]
 
@@ -117,7 +119,7 @@ class PyTorchTestModel(nn.Module):
 
 # param datatype
 @pytest.mark.parametrize("dt", [DataType["INT8"]])
-# Width/height of square input feature map
+# spatial dim input feature map
 @pytest.mark.parametrize("IFMDim", [3, 5])
 # upscaling factor
 @pytest.mark.parametrize("scale", [2, 3])
@@ -125,14 +127,22 @@ class PyTorchTestModel(nn.Module):
 @pytest.mark.parametrize("NumChannels", [4])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+# whether to use 1D or 2D square testcases
+@pytest.mark.parametrize("is_1d", [False, True])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode):
+def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode, is_1d):
+    tmpdir = make_build_dir("upsample_export_")
     atol = 1e-3
+    if is_1d:
+        input_shape = (1, NumChannels, IFMDim, 1)
+        upscale_factor = (scale, 1)
+    else:
+        input_shape = (1, NumChannels, IFMDim, IFMDim)
+        upscale_factor = (scale, scale)
     # Create the test model and inputs for it
-    torch_model = PyTorchTestModel(upscale_factor=scale)
-    input_shape = (1, NumChannels, IFMDim, IFMDim)
+    torch_model = PyTorchTestModel(upscale_factor=upscale_factor)
     test_in = torch.arange(0, np.prod(np.asarray(input_shape)))
     # Limit the input to values valid for the given datatype
     test_in %= dt.max() - dt.min() + 1
@@ -200,3 +210,4 @@ def test_fpgadataflow_upsampler(dt, IFMDim, scale, NumChannels, exec_mode):
         assert output_matches, "Cppsim output doesn't match ONNX/PyTorch."
     elif exec_mode == "rtlsim":
         assert output_matches, "Rtlsim output doesn't match ONNX/PyTorch."
+    shutil.rmtree(tmpdir, ignore_errors=True)
