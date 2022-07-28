@@ -134,7 +134,7 @@ class QuantMaxNorm(HLSCustomOp):
         self.code_gen_dict["$DEFINES$"] += ["#define Output_precision {}".format(obits)]
 
         idim = self.get_nodeattr("IFMDim")
-        self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(idim)]
+        self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(np.prod(idim))]
 
         normax = self.get_nodeattr("NorMax")
         self.code_gen_dict["$DEFINES$"] += ["#define NorMax {}".format(normax)]
@@ -219,6 +219,9 @@ class QuantMaxNorm(HLSCustomOp):
         )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
+        )
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS dataflow disable_start_propagation"
         )
 
     def execute_node(self, context, graph):
