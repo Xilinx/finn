@@ -111,6 +111,8 @@ class HLSCustomOp(CustomOp):
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
             "output_hook": ("s", False, ""),
+            # characterization of stream input-output behavior per cycle
+            "io_characteristic": ("ints", False, []),
         }
 
     def get_verilog_top_module_name(self):
