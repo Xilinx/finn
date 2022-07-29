@@ -42,6 +42,7 @@ import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.analysis.fpgadataflow.hls_synth_res_estimation import hls_synth_res_estimation
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -417,3 +418,55 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
     exp_cycles = exp_cycles_dict[node.name]
     assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
     assert exp_cycles != 0
+
+
+# mem_mode: const or decoupled
+@pytest.mark.parametrize("mem_mode", ["const"])
+# activation: None or DataType
+@pytest.mark.parametrize("act", [DataType["INT4"]])
+# weight datatype
+@pytest.mark.parametrize("wdt", [DataType["INT4"]])
+# input datatype
+@pytest.mark.parametrize("idt", [DataType["INT4"]])
+# neuron folding, -1 is maximum possible
+@pytest.mark.parametrize("nf", [8])
+# synapse folding, -1 is maximum possible
+@pytest.mark.parametrize("sf", [8])
+# HLS matrix width (input features)
+@pytest.mark.parametrize("mw", [128])
+# HLS matrix height (output features)
+@pytest.mark.parametrize("mh", [128])
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+def test_fclayer_fifocharacterize(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+    if nf == -1:
+        nf = mh
+    if sf == -1:
+        sf = mw
+    pe = mh // nf
+    simd = mw // sf
+    assert mh % pe == 0
+    assert mw % sf == 0
+    # generate weights
+    W = gen_finn_dt_tensor(wdt, (mw, mh))
+
+    # no activation, produce accumulators
+    T = None
+    tdt = None
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+        odt = DataType["UINT32"]
+    else:
+        odt = DataType["INT32"]
+
+    model = make_single_fclayer_modelwrapper(W, pe, simd, wdt, idt, odt, T, tdt)
+    for node in model.graph.node:
+        # lookup op_type in registry of CustomOps
+        inst = getCustomOp(node)
+        inst.set_nodeattr("mem_mode", mem_mode)
+
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+    model = model.transform(DeriveCharacteristic(1000))
