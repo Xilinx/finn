@@ -32,28 +32,39 @@ import numpy as np
 import onnx.parser as oprs
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import gen_finn_dt_tensor
 
-# from qonnx.util.basic import gen_finn_dt_tensor
-
-# import finn.core.onnx_exec as oxe
+import finn.core.onnx_exec as oxe
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.convert_to_hls_layers import InferQuantizedMaxNorm
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
+# python and hls code behaviour is not the same, so temporarily marked as xfail
+@pytest.mark.xfail
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["UINT8"]])
 # output datatype
 @pytest.mark.parametrize("odt", [DataType["UINT8"]])
 # input and output shape
 @pytest.mark.parametrize("shp", [[1, 1024, 1, 1]])
-def test_fpgadataflow_quantmaxnorm(idt, odt, shp):
+# max thresholds
+@pytest.mark.parametrize("thresh_max", [0.8, 1.0, 1.8])
+def test_fpgadataflow_quantmaxnorm(idt, odt, shp, thresh_max):
     np.random.seed(0)
     shp_str = str(shp)
     n_steps = idt.get_num_possible_values() - 1
-    T = np.random.uniform(0, 1.0, (shp[3], n_steps)).astype(np.float32)
+    T = np.random.uniform(0, thresh_max, (shp[3], n_steps)).astype(np.float64)
     T = np.sort(T, axis=1)
-    odt_str = str(odt)
     input = f"""
     <
         ir_version: 7,
@@ -66,7 +77,7 @@ def test_fpgadataflow_quantmaxnorm(idt, odt, shp):
     {{
         redmax_out = ReduceMax(in0)
         div_out = Div(in0, redmax_out)
-        out0 = qonnx.custom_op.general.MultiThreshold<out_dtype=odt_str,
+        out0 = qonnx.custom_op.general.MultiThreshold<out_dtype="{odt.name}",
             data_layout="NHWC">(div_out, thresh_param)
     }}
     """
@@ -75,29 +86,33 @@ def test_fpgadataflow_quantmaxnorm(idt, odt, shp):
     model.set_tensor_datatype("in0", idt)
     model.set_initializer("thresh_param", T)
     model = model.transform(InferShapes())
-    model.save("maxnorm_before.onnx")
-
-    idt_str = str(idt)
-    input = f"""
-    <
-        ir_version: 7,
-        opset_import: ["" : 9]
-    >
-    agraph (float{shp_str} in0) => (float{shp_str} out0)
-    {{
-        out0 = finn.custom_op.fpgadataflow.QuantMaxNorm<IFMDim=[1024,1],
-            NorMax=0,inputDataType={idt_str},outputDataType={odt_str}>(in0)
-    }}
-    """
-
-    new_model = oprs.parse_model(input)
-    new_model = ModelWrapper(new_model)
-    new_model = new_model.transform(InferShapes())
-    new_model.save("maxnorm_after.onnx")
+    model = model.transform(InferDataTypes())
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
 
     # generate input data
-    # x = gen_finn_dt_tensor(idt, shp)
+    x = gen_finn_dt_tensor(idt, shp)
     # package input data as dictionary
-    # input_dict = {"inp": x}
-    # y_expected = oxe.execute_onnx(model, input_dict)
-    # y_produced = oxe.execute_onnx(new_model, input_dict)
+    input_dict = {"global_in": x}
+    y_python = oxe.execute_onnx(model, input_dict)
+
+    # convert to hls
+    model = model.transform(InferQuantizedMaxNorm())
+    # cppsim
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveReadableTensorNames())
+    model = model.transform(SetExecMode("cppsim"))
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    y_cppsim = oxe.execute_onnx(model, input_dict)
+
+    # rtlsim
+    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    y_rtlsim = oxe.execute_onnx(model, input_dict)
+
+    assert (y_cppsim["global_out"] == y_rtlsim["global_out"]).all()
+    assert (y_cppsim["global_out"] == y_python["global_out"]).all()
