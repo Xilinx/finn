@@ -29,7 +29,7 @@
 
 import numpy as np
 import qonnx.custom_op.registry as registry
-from pyverilator.axi_utils import _read_signal, rtlsim_multi_io
+from pyverilator.util.axi_utils import _read_signal, rtlsim_multi_io
 from qonnx.transformation.base import NodeLocalTransformation
 
 from finn.util.fpgadataflow import is_fpgadataflow_node
@@ -84,9 +84,13 @@ class DeriveCharacteristic(NodeLocalTransformation):
                     # try to come up with an optimistic estimate
                     exp_cycles = min(n_inps, n_outs)
                 assert (
-                    self.period < exp_cycles
-                ), "Period %d too short to characterize %s" % (self.period, node.name)
-                sim = inst.get_rtlsim
+                    exp_cycles < self.period
+                ), "Period %d too short to characterize %s : expects min %d cycles" % (
+                    self.period,
+                    node.name,
+                    exp_cycles,
+                )
+                sim = inst.get_rtlsim()
                 # signal name
                 sname = "_" + inst.hls_sname() + "_"
                 io_dict = {
