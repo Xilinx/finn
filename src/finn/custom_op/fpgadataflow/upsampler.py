@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import os
 import warnings
 from qonnx.core.datatype import DataType
 
@@ -57,6 +56,8 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
             "inputDataType": ("s", True, ""),
             # Batch size
             "numInputVectors": ("i", False, 1),
+            # Dimensionality mode: 0 = 2D square, 1 = 1D in H dim
+            "DimMode": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -64,21 +65,34 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
     def get_exp_cycles(self):
         OFMDim = self.get_nodeattr("OFMDim")
         batch_size = self.get_nodeattr("numInputVectors")
-        exp_cycles = OFMDim * OFMDim * batch_size
+        is_2d = self.get_nodeattr("DimMode") == 0
+        reps = 1
+        if is_2d:
+            OFMDim = OFMDim * OFMDim
+            reps = batch_size
+        exp_cycles = OFMDim * reps
         return int(exp_cycles)
 
     def get_normal_input_shape(self):
         IFMDim = self.get_nodeattr("IFMDim")
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
-        ishape = (batch, IFMDim, IFMDim, num_ch)
+        is_2d = self.get_nodeattr("DimMode") == 0
+        if is_2d:
+            ishape = (batch, IFMDim, IFMDim, num_ch)
+        else:
+            ishape = (batch, IFMDim, 1, num_ch)
         return ishape
 
     def get_normal_output_shape(self):
         OFMDim = self.get_nodeattr("OFMDim")
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
-        oshape = (batch, OFMDim, OFMDim, num_ch)
+        is_2d = self.get_nodeattr("DimMode") == 0
+        if is_2d:
+            oshape = (batch, OFMDim, OFMDim, num_ch)
+        else:
+            oshape = (batch, OFMDim, 1, num_ch)
         return oshape
 
     def get_folded_input_shape(self):
@@ -187,10 +201,19 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         )
 
     def docompute(self):
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
-            ap_uint<Input_precision> > (in0, out, numReps);"""
-        ]
+        is_2d = self.get_nodeattr("DimMode") == 0
+        batch = self.get_nodeattr("numInputVectors")
+        if is_2d:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
+                ap_uint<Input_precision> > (in0, out, numReps);"""
+            ]
+        else:
+            assert batch == 1, "1D upsampler currently needs numReps=1"
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """UpsampleNearestNeighbour_1D<OFMDim, IFMDim, IFMChannels,
+                ap_uint<Input_precision> > (in0, out);"""
+            ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -246,7 +269,6 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
-        folded_ishape = self.get_folded_input_shape()
         folded_oshape = self.get_folded_output_shape()
 
         if mode == "cppsim":
@@ -268,9 +290,7 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         ), """Input shape doesn't
         match expected shape (numInputVectors, ImgDim, ImgDim, NumChannels)."""
         export_idt = self.get_input_datatype()
-
-        reshaped_input = inp.reshape(folded_ishape)
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
+        self.dynamic_input_to_npy(context, 1, target_dir=code_gen_dir)
 
         if mode == "cppsim":
             # execute the precompiled model
