@@ -72,10 +72,8 @@ def test_absorb_opposite_transposes():
     model = oprs.parse_model(input)
     model = ModelWrapper(model)
     model = model.transform(InferShapes())
-    model.save("dbg.onnx")
     new_model = model.transform(AbsorbConsecutiveTransposes())
     new_model = new_model.transform(InferShapes())
-    new_model.save("newdbg.onnx")
     inp_dict = {"top_in": np.random.rand(*shp).astype(np.float32)}
     assert ox.compare_execution(model, model, inp_dict)
     assert len(new_model.graph.node) == 6
