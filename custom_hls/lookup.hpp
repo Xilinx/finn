@@ -26,14 +26,15 @@
 * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
- *******************************************************************************/
+*******************************************************************************/
+#ifndef LOOKUP_HPP
+#define LOOKUP_HPP
 
 #include <ap_int.h>
 #include <hls_stream.h>
 
-#ifndef LOOKUP_HPP
-#define LOOKUP_HPP
+#include "utils.hpp"
+
 
 template <
     unsigned NumEmbeddings,
@@ -57,4 +58,37 @@ void StreamingLookup(
     }
 }
 
+/**
+ * Lookup implementation over a table stored in AXI-accessible memory.
+ */
+template <
+	unsigned  EmbeddingSize,                            // Number of memory words per embedding
+	unsigned  EmbeddingAlign = clog2(EmbeddingSize),    // Alignment of entries = number of word index bits
+	typename  T_SRC,
+	typename  T_DST
+>
+void StreamingLookup_ext(
+	hls::stream<T_SRC> &in0,
+	hls::stream<T_DST> &out,
+	T_DST const *const  mem,
+	unsigned  const     size,
+	unsigned           &oob_count
+) {
+#pragma HLS pipeline II=EmbeddingSize+8 style=flp
+	if(!in0.empty()) {
+		T_SRC const  x = in0.read();
+
+		// Map out-of-bounds inputs to an offset of zero and increment counter
+		bool  const  oob = x >= T_SRC(size);
+		ap_uint<T_SRC::width+EmbeddingAlign> const  ofs =
+			((oob? T_SRC(0) : x), ap_uint<EmbeddingAlign>(0));
+		oob_count += oob;
+
+		// Stream lookup data (burst inferred)
+		for(unsigned  i = 0; i < EmbeddingSize; i++) {
+#pragma HLS pipeline II=1 style=flp
+			out.write(mem[ofs+i]);
+		}
+	}
+}
 #endif
