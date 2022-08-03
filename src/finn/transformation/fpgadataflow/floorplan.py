@@ -167,11 +167,14 @@ class Floorplan(Transformation):
                 pre_slr = pre_inst.get_nodeattr("slr")
                 axilite_intf_name = pre_inst.get_verilog_top_module_intf_names()["axilite"]
                 if node_slr == pre_slr:
-                    partition_id = pre_inst.get_nodeattr("partition_id")
-                    node_inst.set_nodeattr("partition_id", partition_id)
                     if len(axilite_intf_name) != '0':
+                        node_inst.set_nodeattr("partition_id", partition_cnt)
                         partition_cnt += 1
-                    break
+                    else:
+                        partition_id = pre_inst.get_nodeattr("partition_id")
+                        node_inst.set_nodeattr("partition_id", partition_id)
+
+                    
             else:
                 # no matching, new partition
                 node_inst.set_nodeattr("partition_id", partition_cnt)
