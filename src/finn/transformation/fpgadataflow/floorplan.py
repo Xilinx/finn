@@ -151,7 +151,7 @@ class Floorplan(Transformation):
                 node_inst.set_nodeattr("partition_id", partition_cnt)
                 partition_cnt += 1
                 continue
-            
+
             elif not (
                 node.op_type == "MatrixVectorActivation"
                 and node_inst.get_nodeattr("mem_mode") is not None
@@ -166,7 +166,9 @@ class Floorplan(Transformation):
                 pre_inst = getCustomOp(pre_node)
                 pre_slr = pre_inst.get_nodeattr("slr")
                 if node_slr == pre_slr:
-                    axilite_intf_name = pre_inst.get_verilog_top_module_intf_names()["axilite"]
+                    axilite_intf_name = pre_inst.get_verilog_top_module_intf_names()[
+                        "axilite"
+                    ]
                     if len(axilite_intf_name) != 0:
                         node_inst.set_nodeattr("partition_id", partition_cnt)
                         partition_cnt += 1
@@ -175,7 +177,6 @@ class Floorplan(Transformation):
                         node_inst.set_nodeattr("partition_id", partition_id)
                 break
 
-                    
             else:
                 # no matching, new partition
                 node_inst.set_nodeattr("partition_id", partition_cnt)
