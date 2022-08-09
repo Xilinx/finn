@@ -433,9 +433,9 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
 # synapse folding, -1 is maximum possible
 @pytest.mark.parametrize("sf", [8])
 # HLS matrix width (input features)
-@pytest.mark.parametrize("mw", [128])
+@pytest.mark.parametrize("mw", [32])
 # HLS matrix height (output features)
-@pytest.mark.parametrize("mh", [128])
+@pytest.mark.parametrize("mh", [32])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_fclayer_fifocharacterize(mem_mode, idt, wdt, act, nf, sf, mw, mh):
@@ -463,10 +463,21 @@ def test_fclayer_fifocharacterize(mem_mode, idt, wdt, act, nf, sf, mw, mh):
         # lookup op_type in registry of CustomOps
         inst = getCustomOp(node)
         inst.set_nodeattr("mem_mode", mem_mode)
-
+    total_fold = nf * sf
+    exp_total_cycles = total_fold + 10
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
     model = model.transform(PrepareRTLSim())
-    model = model.transform(DeriveCharacteristic(1000))
+    model = model.transform(DeriveCharacteristic(exp_total_cycles))
+    node_inst = getCustomOp(model.graph.node[0])
+    period_attr = node_inst.get_nodeattr("io_characteristic_period")
+    assert period_attr == exp_total_cycles
+    chrc = node_inst.get_nodeattr("io_characteristic")
+    assert len(chrc) == 2 * exp_total_cycles
+    chrc = np.asarray(chrc, dtype=np.uint8).reshape(2, -1)
+    # first sf cycles should read input continuously
+    assert (chrc[0, :sf] == 1).all()
+    # all outputs should be produced within the exp n of cycles
+    assert sum(chrc[1]) == nf
