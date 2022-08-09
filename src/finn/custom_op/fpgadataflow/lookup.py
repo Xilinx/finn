@@ -299,10 +299,10 @@ class Lookup(HLSCustomOp):
             my_pragmas.append("#pragma HLS INTERFACE m_axi offset=slave port=mem")
             my_pragmas.append("#pragma HLS INTERFACE s_axilite port=mem bundle=control")
             my_pragmas.append(
-                "#pragma HLS_INTERFACE s_axilite port=size bundle=control"
+                "#pragma HLS INTERFACE s_axilite port=size bundle=control"
             )
             my_pragmas.append(
-                "#pragma HLS_INTERFACE s_axilite port=oob_count bundle=control"
+                "#pragma HLS INTERFACE s_axilite port=oob_count bundle=control"
             )
         else:
             raise Exception("Unrecognized mem_mode: " + mem_mode)
