@@ -113,6 +113,8 @@ class HLSCustomOp(CustomOp):
             "output_hook": ("s", False, ""),
             # characterization of stream input-output behavior per cycle
             "io_characteristic": ("ints", False, []),
+            # the period for which the characterization was run
+            "io_characteristic_period": ("i", False, 0),
         }
 
     def get_verilog_top_module_name(self):
