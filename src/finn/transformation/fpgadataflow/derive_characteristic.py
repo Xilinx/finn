@@ -29,7 +29,7 @@
 
 import numpy as np
 import qonnx.custom_op.registry as registry
-from pyverilator.util.axi_utils import _read_signal, rtlsim_multi_io
+from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io
 from qonnx.transformation.base import NodeLocalTransformation
 
 from finn.util.fpgadataflow import is_fpgadataflow_node
@@ -77,6 +77,11 @@ class DeriveCharacteristic(NodeLocalTransformation):
                 assert (
                     node.op_type not in multistream_optypes
                 ), f"{node.name} unsupported"
+                try:
+                    mem_mode = inst.get_nodeattr("mem_mode")
+                    assert mem_mode == "const", "Only mem_mode=const supported for now"
+                except AttributeError:
+                    pass
                 exp_cycles = inst.get_exp_cycles()
                 n_inps = np.prod(inst.get_folded_input_shape()[:-1])
                 n_outs = np.prod(inst.get_folded_output_shape()[:-1])
@@ -121,6 +126,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
                         else:
                             txns_out.append(0)
 
+                reset_rtlsim(sim)
                 total_cycle_count = rtlsim_multi_io(
                     sim,
                     io_dict,
