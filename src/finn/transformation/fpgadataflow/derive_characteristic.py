@@ -89,7 +89,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
                     # try to come up with an optimistic estimate
                     exp_cycles = min(n_inps, n_outs)
                 assert (
-                    exp_cycles < self.period
+                    exp_cycles <= self.period
                 ), "Period %d too short to characterize %s : expects min %d cycles" % (
                     self.period,
                     node.name,
