@@ -421,7 +421,7 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
 
 
 # mem_mode: const or decoupled
-@pytest.mark.parametrize("mem_mode", ["const"])
+@pytest.mark.parametrize("mem_mode", ["decoupled", "const"])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [DataType["INT4"]])
 # weight datatype

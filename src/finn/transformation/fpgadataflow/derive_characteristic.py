@@ -77,11 +77,6 @@ class DeriveCharacteristic(NodeLocalTransformation):
                 assert (
                     node.op_type not in multistream_optypes
                 ), f"{node.name} unsupported"
-                try:
-                    mem_mode = inst.get_nodeattr("mem_mode")
-                    assert mem_mode == "const", "Only mem_mode=const supported for now"
-                except AttributeError:
-                    pass
                 exp_cycles = inst.get_exp_cycles()
                 n_inps = np.prod(inst.get_folded_input_shape()[:-1])
                 n_outs = np.prod(inst.get_folded_output_shape()[:-1])
@@ -106,25 +101,38 @@ class DeriveCharacteristic(NodeLocalTransformation):
                     "outputs": {"out": []},
                 }
 
-                txns_in = []
-                txns_out = []
+                txns_in = {"in0": []}
+                txns_out = {"out": []}
+
+                try:
+                    # fill out weight stream for decoupled-mode components
+                    mem_mode = inst.get_nodeattr("mem_mode")
+                    if mem_mode in ["decoupled", "external"]:
+                        if op_type == "Thresholding_Batch":
+                            n_weight_inps = inst.calc_tmem()
+                        else:
+                            n_weight_inps = inst.calc_wmem()
+                        io_dict["inputs"]["weights"] = [0 for i in range(n_weight_inps)]
+                        txns_in["weights"] = []
+                except AttributeError:
+                    pass
 
                 def monitor_txns(sim_obj):
                     for inp in io_dict["inputs"]:
                         in_ready = _read_signal(sim, inp + sname + "TREADY") == 1
                         in_valid = _read_signal(sim, inp + sname + "TVALID") == 1
                         if in_ready and in_valid:
-                            txns_in.append(1)
+                            txns_in[inp].append(1)
                         else:
-                            txns_in.append(0)
+                            txns_in[inp].append(0)
                     for outp in io_dict["outputs"]:
                         if (
                             _read_signal(sim, outp + sname + "TREADY") == 1
                             and _read_signal(sim, outp + sname + "TVALID") == 1
                         ):
-                            txns_out.append(1)
+                            txns_out[outp].append(1)
                         else:
-                            txns_out.append(0)
+                            txns_out[outp].append(0)
 
                 reset_rtlsim(sim)
                 total_cycle_count = rtlsim_multi_io(
@@ -136,6 +144,9 @@ class DeriveCharacteristic(NodeLocalTransformation):
                     hook_preclk=monitor_txns,
                 )
                 assert total_cycle_count <= self.period
+                # restrict to single input-output stream only for now
+                txns_in = txns_in["in0"]
+                txns_out = txns_out["out"]
                 if len(txns_in) < self.period:
                     txns_in += [0 for x in range(self.period - len(txns_in))]
                 if len(txns_out) < self.period:
