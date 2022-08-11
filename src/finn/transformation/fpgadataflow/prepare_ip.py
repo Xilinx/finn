@@ -46,7 +46,11 @@ def _codegen_single_node(node, model, fpgapart, clk):
         # get the path of the code generation directory
         code_gen_dir = inst.get_nodeattr("code_gen_dir_ipgen")
         # ensure that there is a directory
-        if code_gen_dir == "" or not os.path.isdir(code_gen_dir) or not str(node.name) in code_gen_dir:
+        if (
+            code_gen_dir == ""
+            or not os.path.isdir(code_gen_dir)
+            or not str(node.name) in code_gen_dir
+        ):
             code_gen_dir = make_build_dir(
                 prefix="code_gen_ipgen_" + str(node.name) + "_"
             )
