@@ -475,9 +475,9 @@ def test_fclayer_fifocharacterize(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     period_attr = node_inst.get_nodeattr("io_characteristic_period")
     assert period_attr == exp_total_cycles
     chrc = node_inst.get_nodeattr("io_characteristic")
-    assert len(chrc) == 2 * exp_total_cycles
+    assert len(chrc) == 4 * exp_total_cycles
     chrc = np.asarray(chrc, dtype=np.uint8).reshape(2, -1)
     # first sf cycles should read input continuously
-    assert (chrc[0, :sf] == 1).all()
+    assert (chrc[0, :sf] == range(1, sf + 1)).all()
     # all outputs should be produced within the exp n of cycles
-    assert sum(chrc[1]) == nf
+    assert chrc[1, exp_total_cycles] == nf

@@ -111,7 +111,7 @@ class HLSCustomOp(CustomOp):
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
             "output_hook": ("s", False, ""),
-            # characterization of stream input-output behavior per cycle
+            # accumulated characteristic function over two periods
             "io_characteristic": ("ints", False, []),
             # the period for which the characterization was run
             "io_characteristic_period": ("i", False, 0),

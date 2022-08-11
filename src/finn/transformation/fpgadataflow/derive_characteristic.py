@@ -140,6 +140,19 @@ class DeriveCharacteristic(NodeLocalTransformation):
                     txns_in += [0 for x in range(self.period - len(txns_in))]
                 if len(txns_out) < self.period:
                     txns_out += [0 for x in range(self.period - len(txns_out))]
+
+                def accumulate_char_fxn(chrc):
+                    p = len(chrc)
+                    ret = []
+                    for t in range(2 * p):
+                        if t == 0:
+                            ret.append(chrc[0])
+                        else:
+                            ret.append(ret[-1] + chrc[t % p])
+                    return ret
+
+                txns_in = accumulate_char_fxn(txns_in)
+                txns_out = accumulate_char_fxn(txns_out)
                 io_characteristic = txns_in + txns_out
                 inst.set_nodeattr("io_characteristic", io_characteristic)
                 inst.set_nodeattr("io_characteristic_period", self.period)
