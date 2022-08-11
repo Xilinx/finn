@@ -29,6 +29,7 @@
 
 import numpy as np
 import qonnx.custom_op.registry as registry
+import warnings
 from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io
 from qonnx.transformation.base import NodeLocalTransformation
 
@@ -68,6 +69,11 @@ class DeriveCharacteristic(NodeLocalTransformation):
                 assert inst.get_nodeattr("rtlsim_so") != "", (
                     "rtlsim not ready for " + node.name
                 )
+                if inst.get_nodeattr("io_characteristic_period") > 0:
+                    warnings.warn(
+                        "Skipping node %s: already has FIFO characteristic" % node.name
+                    )
+                    return (node, False)
                 # restricted to single input and output nodes for now
                 multistream_optypes = [
                     "AddStreams_Batch",
