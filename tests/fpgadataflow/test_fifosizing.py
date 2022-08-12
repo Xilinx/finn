@@ -26,12 +26,11 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
 import json
 import shutil
+from brevitas.export.onnx.generic.manager import BrevitasONNXManager
 from qonnx.transformation.general import GiveUniqueNodeNames
 
 import finn.builder.build_dataflow as build
@@ -46,6 +45,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import make_build_dir
+from finn.util.test import get_trained_network_and_ishape
 
 
 def custom_step_fifosize(model, cfg):
@@ -62,11 +62,18 @@ def custom_step_fifosize(model, cfg):
     return model
 
 
+def fetch_test_model(topology, wbits=2, abits=2):
+    tmp_output_dir = make_build_dir("build_fifosizing_%s_" % topology)
+    (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
+    chkpt_name = tmp_output_dir + "/model.onnx"
+    BrevitasONNXManager.export(model, ishape, chkpt_name)
+    return tmp_output_dir
+
+
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fifosizing():
-    chkpt_name = pk.resource_filename("finn.qnn-data", "build_dataflow/model.onnx")
-    tmp_output_dir = make_build_dir("build_fifosizing_")
+    tmp_output_dir = fetch_test_model("tfc")
     steps = build_cfg.default_build_dataflow_steps
     steps.insert(10, custom_step_fifosize)
     cfg = build_cfg.DataflowBuildConfig(
@@ -85,7 +92,7 @@ def test_fifosizing():
         steps=steps,
         default_mem_mode=build_cfg.ComputeEngineMemMode.DECOUPLED,
     )
-    build.build_dataflow_cfg(chkpt_name, cfg)
+    build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
     with open(tmp_output_dir + "/report/estimate_network_performance.json") as f:
         est_data = json.load(f)
     with open(tmp_output_dir + "/report/rtlsim_performance.json") as f:
