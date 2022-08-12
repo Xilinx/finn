@@ -31,15 +31,16 @@ import pkg_resources as pk
 import pytest
 
 import json
-import numpy as np
 import shutil
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.transformation.fpgadataflow.derive_characteristic import DeriveCharacteristic
+from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveCharacteristic,
+    DeriveFIFOSizes,
+)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -48,41 +49,6 @@ from finn.util.basic import make_build_dir
 
 
 def custom_step_fifosize(model, cfg):
-    # TODO convert to NodeLocalTransformation
-    # TODO handle chrc for input and output nodes
-    all_act_tensors = [x.name for x in model.graph.value_info]
-    for tensor_nm in all_act_tensors:
-        # generate accumulated characteristic functions
-        prod = model.find_producer(tensor_nm)
-        cons = model.find_consumer(tensor_nm)
-        if prod is None or cons is None:
-            continue
-        prod = getCustomOp(prod)
-        period = prod.get_nodeattr("io_characteristic_period")
-        prod_chrc = prod.get_nodeattr("io_characteristic")
-        prod_chrc = np.asarray(prod_chrc).reshape(2, -1)[1]
-        cons = getCustomOp(cons)
-        cons_chrc = cons.get_nodeattr("io_characteristic")
-        cons_chrc = np.asarray(cons_chrc).reshape(2, -1)[0]
-        # find minimum phase shift satisfying the constraint
-        pshift_min = period
-        for pshift_cand in range(period):
-            pshift_condition = [
-                (prod_chrc[i + pshift_cand] >= cons_chrc[i])
-                for i in range(period - pshift_cand)
-            ]
-            if all(pshift_condition):
-                pshift_min = pshift_cand
-                break
-        fifo_depth = max(
-            [(prod_chrc[i + pshift_cand] - cons_chrc[i]) for i in range(pshift_min)]
-        )
-        prod.set_nodeattr("outFIFODepth", fifo_depth)
-        cons.set_nodeattr("inFIFODepth", fifo_depth)
-    return model
-
-
-def custom_step_fifocharacterize(model, cfg):
     model = model.transform(InsertDWC())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(
@@ -92,6 +58,7 @@ def custom_step_fifocharacterize(model, cfg):
     model = model.transform(PrepareRTLSim())
     period = model.analysis(dataflow_performance)["max_cycles"] + 10
     model = model.transform(DeriveCharacteristic(period))
+    model = model.transform(DeriveFIFOSizes())
     return model
 
 
@@ -101,8 +68,7 @@ def test_fifosizing():
     chkpt_name = pk.resource_filename("finn.qnn-data", "build_dataflow/model.onnx")
     tmp_output_dir = make_build_dir("build_fifosizing_")
     steps = build_cfg.default_build_dataflow_steps
-    steps.insert(10, custom_step_fifocharacterize)
-    steps.insert(11, custom_step_fifosize)
+    steps.insert(10, custom_step_fifosize)
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         auto_fifo_depths=False,
