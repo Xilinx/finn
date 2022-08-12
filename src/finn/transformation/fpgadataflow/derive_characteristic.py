@@ -179,3 +179,71 @@ class DeriveCharacteristic(NodeLocalTransformation):
                     "Custom op_type %s is currently not supported." % op_type
                 )
         return (node, False)
+
+
+class DeriveFIFOSizes(NodeLocalTransformation):
+    """Prerequisite: DeriveCharacteristic already called on graph.
+    For each node in the graph, use the accumulated I/O characteristic function
+    to perform FIFO sizing, setting the in/outFIFODepth attributes of HLSCustomOp
+    nodes.
+
+    * num_workers (int or None) number of parallel workers, see documentation in
+      NodeLocalTransformation for more details.
+    """
+
+    def __init__(self, num_workers=None):
+        super().__init__(num_workers=num_workers)
+
+    def applyNodeLocal(self, node):
+        op_type = node.op_type
+        if is_fpgadataflow_node(node) is True:
+            try:
+                # lookup op_type in registry of CustomOps
+                prod = registry.getCustomOp(node)
+                assert op_type != "StreamingFIFO", "Found existing FIFOs"
+                period = prod.get_nodeattr("io_characteristic_period")
+                prod_chrc = prod.get_nodeattr("io_characteristic")
+                assert (
+                    len(prod_chrc) == 4 * period
+                ), "Found unexpected characterization attribute"
+                if prod.get_nodeattr("outFIFODepth") > 2:
+                    # FIFO depth already set, can skip this node
+                    return (node, False)
+                prod_chrc = np.asarray(prod_chrc).reshape(2, -1)[1]
+                # find consumers
+                model = self.ref_input_model
+                consumers = model.find_consumers(node.output[0])
+                # compute FIFO depth for each consumer
+                out_fifo_depth = 0
+                for cons_node in consumers:
+                    cons = registry.getCustomOp(cons_node)
+                    cons_chrc = cons.get_nodeattr("io_characteristic")
+                    cons_chrc = np.asarray(cons_chrc).reshape(2, -1)[0]
+                    # find minimum phase shift satisfying the constraint
+                    pshift_min = period
+                    for pshift_cand in range(period):
+                        pshift_condition = [
+                            (prod_chrc[i + pshift_cand] >= cons_chrc[i])
+                            for i in range(period - pshift_cand)
+                        ]
+                        if all(pshift_condition):
+                            pshift_min = pshift_cand
+                            break
+                    fifo_depth = max(
+                        [
+                            (prod_chrc[i + pshift_cand] - cons_chrc[i])
+                            for i in range(pshift_min)
+                        ]
+                    )
+                    out_fifo_depth = max(out_fifo_depth, fifo_depth)
+                # set output FIFO depth for this (producing) node
+                # InsertFIFO looks at the max of (outFIFODepth, inFIFODepth)
+                # for each tensor
+                prod.set_nodeattr("outFIFODepth", out_fifo_depth)
+
+            except KeyError:
+                # exception if op_type is not supported
+                raise Exception(
+                    "Custom op_type %s is currently not supported." % op_type
+                )
+        return (node, False)
