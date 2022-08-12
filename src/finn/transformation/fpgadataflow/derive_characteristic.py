@@ -118,7 +118,10 @@ class DeriveCharacteristic(NodeLocalTransformation):
                             n_weight_inps = inst.calc_tmem()
                         else:
                             n_weight_inps = inst.calc_wmem()
-                        io_dict["inputs"]["weights"] = [0 for i in range(n_weight_inps)]
+                        num_w_reps = np.prod(inst.get_nodeattr("numInputVectors"))
+                        io_dict["inputs"]["weights"] = [
+                            0 for i in range(num_w_reps * n_weight_inps)
+                        ]
                         txns_in["weights"] = []
                 except AttributeError:
                     pass
