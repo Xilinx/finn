@@ -735,6 +735,12 @@ class MakeScaleResizeNHWC(Transformation):
         for n in graph.node:
             node_ind += 1
             if n.op_type == "Upsample" or n.op_type == "Resize":
+                if model.get_tensor_layout(n.input[0]) != DataLayout.NCHW:
+                    warnings.warn(
+                        "%s: Input not NCHW. Can't operate transformation on node."
+                        % n.name
+                    )
+                    continue
                 consumer = model.find_consumer(n.output[0])
                 producer = model.find_producer(n.input[0])
                 if n.op_type == "Upsample":
