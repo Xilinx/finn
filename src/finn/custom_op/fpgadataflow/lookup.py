@@ -259,8 +259,8 @@ class Lookup(HLSCustomOp):
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """StreamingLookup_ext<EmbeddingSize>
-                   (in0, out, mem, size, oob_count);"""
+                """StreamingLookup_ext<EmbeddingSize>(in0, out, mem, size, oob_count);
+                oob_irq = oob_count != 0;"""
             ]
 
     def blackboxfunction(self):
@@ -279,7 +279,8 @@ class Lookup(HLSCustomOp):
                 "void "
                 + self.onnx_node.name
                 + "(hls::stream<T_SRC> &in0, hls::stream<T_DST> &out, "
-                + "T_DST const *const  mem, unsigned const size, unsigned &oob_count)"
+                + "T_DST const *const  mem, unsigned const size, "
+                + "unsigned &oob_count, bool &oob_irq)"
             ]
 
     def pragmas(self):
@@ -304,6 +305,7 @@ class Lookup(HLSCustomOp):
             my_pragmas.append(
                 "#pragma HLS INTERFACE s_axilite port=oob_count bundle=control"
             )
+            my_pragmas.append("#pragma HLS INTERFACE ap_none port=oob_irq")
         else:
             raise Exception("Unrecognized mem_mode: " + mem_mode)
         self.code_gen_dict["$PRAGMAS$"] = my_pragmas
@@ -474,4 +476,5 @@ class Lookup(HLSCustomOp):
         if mem_mode == "external":
             intf_names["axilite"] = ["s_axi_control"]
             intf_names["aximm"] = [("m_axi_gmem", self.get_nodeattr("ext_mem_width"))]
+            intf_names["ap_none"] = ["oob_irq"]
         return intf_names
