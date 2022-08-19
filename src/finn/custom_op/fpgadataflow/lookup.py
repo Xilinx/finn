@@ -279,7 +279,8 @@ class Lookup(HLSCustomOp):
                 "void "
                 + self.onnx_node.name
                 + "(hls::stream<T_SRC> &in0, hls::stream<T_DST> &out, "
-                + "T_DST const *const  mem, unsigned const size, unsigned &oob_count, bool &oob_irq)"
+                + "T_DST const *const  mem, unsigned const size, "
+                + "unsigned &oob_count, bool &oob_irq)"
             ]
 
     def pragmas(self):
@@ -298,8 +299,12 @@ class Lookup(HLSCustomOp):
         elif mem_mode == "external":
             my_pragmas.append("#pragma HLS INTERFACE m_axi offset=slave port=mem")
             my_pragmas.append("#pragma HLS INTERFACE s_axilite port=mem bundle=control")
-            my_pragmas.append("#pragma HLS INTERFACE s_axilite port=size bundle=control")
-            my_pragmas.append("#pragma HLS INTERFACE s_axilite port=oob_count bundle=control")
+            my_pragmas.append(
+                "#pragma HLS INTERFACE s_axilite port=size bundle=control"
+            )
+            my_pragmas.append(
+                "#pragma HLS INTERFACE s_axilite port=oob_count bundle=control"
+            )
             my_pragmas.append("#pragma HLS INTERFACE ap_none port=oob_irq")
         else:
             raise Exception("Unrecognized mem_mode: " + mem_mode)
@@ -471,5 +476,5 @@ class Lookup(HLSCustomOp):
         if mem_mode == "external":
             intf_names["axilite"] = ["s_axi_control"]
             intf_names["aximm"] = [("m_axi_gmem", self.get_nodeattr("ext_mem_width"))]
-            intf_names["oob_irq"] = ["ap_none"]
+            intf_names["ap_none"] = ["oob_irq"]
         return intf_names
