@@ -132,7 +132,7 @@ class InferConvInpGen(Transformation):
                     )
                     graph.node.insert(node_ind, padding_node)
 
-                if self.use_rtl_variant:
+                if self.use_rtl_variant and (not depthwise):
                     ConvInpGen_node = helper.make_node(
                         "ConvolutionInputGenerator_rtl",
                         [ConvInpGen_input],
