@@ -37,6 +37,13 @@ from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 
 
+class AutoFIFOSizingMethod(str, Enum):
+    "Select the type of automatic FIFO sizing strategy."
+
+    CHARACTERIZE = "characterize"
+    LARGEFIFO_RTLSIM = "largefifo_rtlsim"
+
+
 class ShellFlowType(str, Enum):
     """For builds that produce a bitfile, select the shell flow that will integrate
     the FINN-generated accelerator."""
@@ -245,6 +252,12 @@ class DataflowBuildConfig:
     #: If set to False, the folding_config_file can be used to specify sizes
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
+
+    #: When `auto_fifo_depths = True`, select which method will be used for
+    #: setting the FIFO sizes.
+    auto_fifo_strategy: Optional[
+        AutoFIFOSizingMethod
+    ] = AutoFIFOSizingMethod.CHARACTERIZE
 
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`
