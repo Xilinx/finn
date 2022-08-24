@@ -74,8 +74,9 @@ def pyverilate_stitched_ip(
     # are identical but in multiple directories (regslice_core.v)
 
     # remove duplicates from list by doing list -> set -> list
-    all_verilog_files = list(set(filter(lambda x: x.endswith(".v") or x.endswith(".sv"),
-                                        all_verilog_srcs)))
+    all_verilog_files = list(
+        set(filter(lambda x: x.endswith(".v") or x.endswith(".sv"), all_verilog_srcs))
+    )
 
     # remove all but one instances of regslice_core.v
     filtered_verilog_files = []

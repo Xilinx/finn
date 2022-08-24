@@ -17,12 +17,12 @@ Custom Op Nodes
 Base Class
 ----------
 
-.. automodule:: finn.custom_op.base
+.. automodule:: qonnx.custom_op.base
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.registry
+qonnx.custom\_op.registry
 -------------------------
 
 .. automodule:: qonnx.custom_op.registry

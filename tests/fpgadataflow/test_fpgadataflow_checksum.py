@@ -133,6 +133,7 @@ def create_two_fc_model():
     return model
 
 
+@pytest.mark.vivado
 @pytest.mark.fpgadataflow
 def test_fpgadataflow_checksum():
     # use a graph consisting of two fc layers to test

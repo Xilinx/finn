@@ -29,8 +29,7 @@
 FROM pytorch/pytorch:1.7.1-cuda11.0-cudnn8-runtime
 LABEL maintainer="Yaman Umuroglu <yamanu@xilinx.com>"
 
-# XRT version to be installed
-ARG XRT_DEB_VERSION="xrt_202010.2.7.766_18.04-amd64-xrt"
+ARG XRT_DEB_VERSION="xrt_202210.2.13.466_18.04-amd64-xrt"
 
 WORKDIR /workspace
 
@@ -47,7 +46,6 @@ RUN apt-get update && \
     libsm6 \
     libxext6 \
     libxrender-dev \
-    verilator \
     nano \
     zsh \
     rsync \
@@ -62,6 +60,16 @@ RUN apt-get update && \
     lsb-core
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
+
+# install Verilator from source to get the right version
+RUN apt-get install -y git perl python3 make autoconf g++ flex bison ccache libgoogle-perftools-dev numactl perl-doc libfl2 libfl-dev zlibc zlib1g zlib1g-dev
+RUN git clone https://github.com/verilator/verilator
+RUN cd verilator && \
+    git checkout v4.012 && \
+    autoconf && \
+    ./configure && \
+    make -j4 && \
+    make install
 
 # install XRT
 RUN wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb
@@ -80,7 +88,7 @@ RUN pip install jupyter==1.0.0
 RUN pip install markupsafe==2.0.1
 RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1
-RUN pip install sphinx==3.1.2
+RUN pip install sphinx==5.0.2
 RUN pip install sphinx_rtd_theme==0.5.0
 RUN pip install pytest-xdist[setproctitle]==2.4.0
 RUN pip install pytest-parallel==0.1.0

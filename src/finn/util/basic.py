@@ -61,7 +61,7 @@ alveo_part_map["U280"] = "xcu280-fsvh2892-2L-e"
 alveo_default_platform = dict()
 alveo_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_201920_3"
 alveo_default_platform["U200"] = "xilinx_u200_xdma_201830_2"
-alveo_default_platform["U250"] = "xilinx_u250_xdma_201830_2"
+alveo_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
 alveo_default_platform["U280"] = "xilinx_u280_xdma_201920_3"
 
 

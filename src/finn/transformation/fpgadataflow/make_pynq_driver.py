@@ -119,9 +119,18 @@ class MakePYNQDriver(Transformation):
             (qonnx_path + "/util/basic.py", qonnx_target_path + "/util/basic.py")
         )
         files_to_copy.append(
+            (qonnx_path + "/util/__init__.py", qonnx_target_path + "/util/__init__.py")
+        )
+        files_to_copy.append(
             (
                 finn_util_path + "/data_packing.py",
                 finn_target_path + "/util/data_packing.py",
+            )
+        )
+        files_to_copy.append(
+            (
+                finn_util_path + "/__init__.py",
+                finn_target_path + "/util/__init__.py",
             )
         )
         for (src_file, target_file) in files_to_copy:

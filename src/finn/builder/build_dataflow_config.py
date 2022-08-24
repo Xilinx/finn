@@ -211,7 +211,7 @@ class DataflowBuildConfig:
 
     #: Insert a signature node to the stitched-IP to read/write information
     #: to the design: e.g. Customer signature, application signature, version
-    signature: Optional[tuple] = ()
+    signature: Optional[List[int]] = None
 
     #: (Optional) Control the maximum width of the per-PE MVAU stream while
     #: exploring the parallelization attributes to reach target_fps
@@ -288,6 +288,10 @@ class DataflowBuildConfig:
 
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
+
+    #: When True, all warnings and compiler output will be printed in stdout.
+    #: Otherwise, these will be suppressed and only appear in the build log.
+    verbose: Optional[bool] = False
 
     #: If given, only run the steps in the list. If not, run default steps.
     #: See `default_build_dataflow_steps` for the default list of steps.

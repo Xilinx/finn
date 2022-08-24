@@ -32,6 +32,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
@@ -74,46 +75,6 @@ def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_
     )
 
     model = helper.make_model(graph, producer_name="mp-model")
-    model = ModelWrapper(model)
-
-    model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype("outp", odt)
-
-    return model
-
-
-def make_single_streamingmaxpool_modelwrapper(
-    k, ifm_ch, pe, ifm_dim, ofm_dim, idt, ceil_mode
-):
-    k_h, k_w = k
-    ifm_dim_h, ifm_dim_w = ifm_dim
-    ofm_dim_h, ofm_dim_w = ofm_dim
-    odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, ifm_ch]
-    )
-
-    smp_node = helper.make_node(
-        "StreamingMaxPool_Batch",
-        ["inp"],
-        ["outp"],
-        domain="finn.custom_op.fpgadataflow",
-        backend="fpgadataflow",
-        PoolDim=[k_h, k_w],
-        NumChannels=ifm_ch,
-        PE=pe,
-        ImgDim=[ifm_dim_h, ifm_dim_w],
-        CeilMode=ceil_mode,
-        dataType=idt.name,
-    )
-    graph = helper.make_graph(
-        nodes=[smp_node], name="smp_graph", inputs=[inp], outputs=[outp]
-    )
-
-    model = helper.make_model(graph, producer_name="smp-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -187,6 +148,10 @@ def test_fpgadataflow_streamingmaxpool(
 
     assert model.graph.node[0].op_type == "StreamingMaxPool_Batch"
 
+    # Ensure PE value is set
+    streamingmaxpool_node = model.get_nodes_by_op_type("StreamingMaxPool_Batch")[0]
+    getCustomOp(streamingmaxpool_node).set_nodeattr("PE", pe)
+
     if exec_mode == "cppsim":
         model = model.transform(SetExecMode("cppsim"))
         model = model.transform(PrepareCppSim())
@@ -198,7 +163,7 @@ def test_fpgadataflow_streamingmaxpool(
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
     else:
-        raise Exception("Unknown exec_mode in test_layer_streaming_maxpool_batch")
+        raise Exception("Unknown exec_mode in test_fpgadataflow_streamingmaxpool")
 
     # execute model
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
@@ -211,6 +176,7 @@ def test_fpgadataflow_streamingmaxpool(
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)
         exp_cycles = exp_cycles_dict[node.name]
         # FIXME: maxpool cycles prediction needs a fix
-        # mostl likely due to some loops not flattening
+        # most likely due to inaccurate cycle prediction of
+        # nested for-loops
         # assert np.isclose(exp_cycles, cycles_rtlsim, atol=15)
         assert exp_cycles != 0

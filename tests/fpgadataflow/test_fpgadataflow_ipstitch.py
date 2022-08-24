@@ -335,8 +335,6 @@ def test_fpgadataflow_ipstitch_iodma_floorplan():
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.vitis
-# temporarily marked as xfail
-@pytest.mark.xfail
 def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
     if "VITIS_PATH" not in os.environ:
         pytest.skip("VITIS_PATH not set")
@@ -348,6 +346,8 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
         assert sdp_node.__class__.__name__ == "StreamingDataflowPartition"
         assert os.path.isfile(sdp_node.get_nodeattr("model"))
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP(fpga_part, period_ns))
     model = model.transform(VitisBuild(fpga_part, period_ns, platform))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_vitis.onnx")
     assert model.get_metadata_prop("platform") == "alveo"

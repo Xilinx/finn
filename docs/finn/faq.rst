@@ -1,8 +1,8 @@
 .. _faq:
 
-***********************
+***************************
 Frequently Asked Questions
-***********************
+***************************
 
 Can't find the answer to your question here? Check `FINN GitHub Discussions <https://github.com/Xilinx/finn/discussions>`_.
 
@@ -100,7 +100,7 @@ Which data layout do FINN-generated accelerators use? Big-endian? Little-endian?
     If you need to do this manually, first examine how the `FINN PYNQ Python drivers <https://github.com/Xilinx/finn-examples/blob/main/finn_examples/driver.py#L379>`_ do this – notice how the input data is
     first reshaped to create the “folded input shape” that reflects the word size of the first layer based on how much it
     was parallelized, then data packing is applied to obtain a raw byte array (with some reversals going on) that can be
-    fed directly to the hardware. Another example of this is the `npy_to_rtlsim_input <https://github.com/Xilinx/finn-base/blob/dev/src/finn/util/data_packing.py#L289>`_ function, which converts npy arrays to lists of Python arbitrary-precision integers that we feed into pyverilator for rtl simulation:
+    fed directly to the hardware. Another example of this is the `npy_to_rtlsim_input <https://github.com/Xilinx/finn-base/blob/dev/src/finn/util/data_packing.py#L289>`_ function, which converts npy arrays to lists of Python arbitrary-precision integers that we feed into pyverilator for rtl simulation.
 
 Why does FIFO sizing take so long for my network? Is something wrong?
     The automatic FIFO sizing in FINN can take quite long. It unfortunately doesn’t really parallelize on multiple cores since

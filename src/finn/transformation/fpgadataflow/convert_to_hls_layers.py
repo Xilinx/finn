@@ -312,20 +312,25 @@ class InferUpsample(Transformation):
                 )
 
                 # Assumes nhwc layout for scales and input
-                assert scales[1] == scales[2], (
-                    "%s: Upsampling is only supported for quadratic scales." % n.name
+                is_scale_square_2d = scales[1] == scales[2]
+                is_scale_1d = scales[1] > 1 and scales[2] == 1
+                assert is_scale_square_2d or is_scale_1d, (
+                    "%s: Upsampling only supported for 1D H, or 2D square scaling"
+                    % n.name
                 )
                 assert scales[0] == scales[3] == 1, (
                     n.name + ": Upsampling is only supported for scales with "
-                    "the first and last dimensions being 1."
+                    "the first and last dimensions being 1 in NHWC."
                 )
                 spatial_scale = scales[1]
                 assert spatial_scale == int(spatial_scale), (
                     "%s: Upsampling is only supported for integer scales." % n.name
                 )
+                is_shape_square_2d = in_shape[1] == in_shape[2]
+                is_shape_1d = in_shape[1] > 1 and in_shape[2] == 1
 
-                assert in_shape[1] == in_shape[2], (
-                    "%s: Upsampling is only supported for quadratic input shapes."
+                assert is_shape_square_2d or is_shape_1d, (
+                    "%s: Upsampling is only supported for 1D H or 2D square inputs."
                     % n.name
                 )
 
@@ -335,6 +340,7 @@ class InferUpsample(Transformation):
                 NumChannels = in_shape[-1]
                 numInputVectors = in_shape[0]
                 inputDataType = dt.name
+                dim_mode = 0 if is_shape_square_2d else 1
 
                 # Insert the HLSCustomOp node
                 Upsample_HLS_node = helper.make_node(
@@ -348,6 +354,7 @@ class InferUpsample(Transformation):
                     NumChannels=NumChannels,
                     inputDataType=inputDataType,
                     numInputVectors=numInputVectors,
+                    DimMode=dim_mode,
                     name="UpsampleNearestNeighbour_Batch_" + n.name,
                 )
 
