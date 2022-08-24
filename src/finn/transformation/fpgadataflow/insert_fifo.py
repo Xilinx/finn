@@ -70,16 +70,26 @@ class InsertFIFO(Transformation):
     node attribute 'outFIFODepth' of the previous and node attribute 'inFIFODepth'
     of the subsequent node. max() of these two values sets the FIFO depth.
 
-    Normally, shallow-depth (<=2) FIFOs won't be created since HLS streaming
-    interfaces already have a degree of buffering. You can set
-    create_shallow_fifos=True to override this default behavior.
+    Constructor arguments:
+    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
+                       Verilog FIFOs (Q_srl.v)
+    - vivado_ram_style : the StreamingFIFO.ram_style attribute to be used for
+                          large FIFOs implemented by Vivado
+    - create_shallow_fifos : Normally, shallow-depth (<=2) FIFOs won't be created since
+                            HLS streaming interfaces already have a degree of buffering.
+                            Override with this parameter.
+
 
     The other node attributes necessary to create a FIFO node are taken from the
     node the FIFO node is inserted after: 'folded_shape' and 'dtype'"""
 
-    def __init__(self, create_shallow_fifos=False):
+    def __init__(
+        self, create_shallow_fifos=False, max_qsrl_depth=256, vivado_ram_style="auto"
+    ):
         super().__init__()
         self.create_shallow_fifos = create_shallow_fifos
+        self.max_qsrl_depth = max_qsrl_depth
+        self.vivado_ram_style = vivado_ram_style
 
     def apply(self, model):
         graph = model.graph
@@ -142,7 +152,9 @@ class InsertFIFO(Transformation):
                             )
                             graph.value_info.append(fifo_output_tensor)
                             model.set_tensor_datatype(fifo_output_tensor.name, dtype)
-
+                            impl_style = (
+                                "vivado" if fifo_depth > self.max_qsrl_depth else "rtl"
+                            )
                             fifo_node = oh.make_node(
                                 "StreamingFIFO",
                                 [n_output],
@@ -152,6 +164,8 @@ class InsertFIFO(Transformation):
                                 depth=fifo_depth,
                                 folded_shape=fld_shape,
                                 dataType=str(dtype.name),
+                                impl_style=impl_style,
+                                ram_style=self.vivado_ram_style,
                             )
                             # insert fifo
                             graph.node.insert(node_ind + 1, fifo_node)
@@ -197,6 +211,7 @@ class InsertFIFO(Transformation):
                     )
                     graph.value_info.append(fifo_output_tensor)
                     model.set_tensor_datatype(fifo_output_tensor.name, dtype)
+                    impl_style = "vivado" if fifo_depth > self.max_qsrl_depth else "rtl"
 
                     fifo_node = oh.make_node(
                         "StreamingFIFO",
@@ -207,6 +222,8 @@ class InsertFIFO(Transformation):
                         depth=fifo_depth,
                         folded_shape=fld_shape,
                         dataType=str(dtype.name),
+                        impl_style=impl_style,
+                        ram_style=self.vivado_ram_style,
                     )
                     # insert fifo
                     graph.node.insert(0, fifo_node)
@@ -244,7 +261,7 @@ class InsertFIFO(Transformation):
                     )
                     graph.value_info.append(fifo_input_tensor)
                     model.set_tensor_datatype(fifo_input_tensor.name, dtype)
-
+                    impl_style = "vivado" if fifo_depth > self.max_qsrl_depth else "rtl"
                     fifo_node = oh.make_node(
                         "StreamingFIFO",
                         [fifo_input_tensor.name],
@@ -254,6 +271,8 @@ class InsertFIFO(Transformation):
                         depth=fifo_depth,
                         folded_shape=fld_shape,
                         dataType=str(dtype.name),
+                        impl_style=impl_style,
+                        ram_style=self.vivado_ram_style,
                     )
                     # insert fifo
                     graph.node.append(fifo_node)
