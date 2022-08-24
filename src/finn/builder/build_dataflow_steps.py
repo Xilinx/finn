@@ -64,7 +64,6 @@ from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation_complete,
 )
 from finn.builder.build_dataflow_config import (
-    AutoFIFOSizingStrategy,
     DataflowBuildConfig,
     DataflowOutputType,
     ShellFlowType,
@@ -463,7 +462,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
 
     if cfg.auto_fifo_depths:
-        if cfg.auto_fifo_strategy == AutoFIFOSizingStrategy.CHARACTERIZE:
+        if cfg.auto_fifo_strategy == "characterize":
             model = model.transform(InsertDWC())
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(
@@ -478,7 +477,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(
                 InsertFIFO(vivado_ram_style=cfg.large_fifo_mem_style)
             )
-        elif cfg.auto_fifo_strategy == AutoFIFOSizingStrategy.LARGEFIFO_RTLSIM:
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveReadableTensorNames())
+        elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
             model = model.transform(
                 InsertAndSetFIFODepths(
                     cfg._resolve_fpga_part(),
@@ -486,6 +487,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     vivado_ram_style=cfg.large_fifo_mem_style,
                 )
             )
+        else:
+            assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
     else:
         # assume folding cfg json contains FIFO sizes too
         # insert DWCs, FIFOs and run ApplyConfig once more
