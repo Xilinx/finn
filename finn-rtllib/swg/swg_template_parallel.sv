@@ -3,13 +3,15 @@
 module $TOP_MODULE_NAME$_controller
 (
     CLK,
-    cycle,
+    RST,
+    advance,
     cmd_read,
     cmd_write
 );
 
 input CLK;
-input [31:0] cycle; //todo: minimize width or switch to single bit flag
+input RST;
+input advance;
 output cmd_read;
 output cmd_write;
 
@@ -39,10 +41,6 @@ integer counter_loop_inter;
 assign cmd_read = READ_CMD_MAP[state_next]; //read command indicates read in *upcoming* cycle, due to how schedule is constructed
 assign cmd_write = WRITE_CMD_MAP[state];
 
-reg cycle_last;
-wire cycle_advance;
-assign cycle_advance = !(cycle == cycle_last);
-
 //combinational next state logic
 always @ (state, counter_current, counter_loop_main, counter_loop_inter) begin
     state_next = state; //default
@@ -67,7 +65,7 @@ always @ (state, counter_current, counter_loop_main, counter_loop_inter) begin
                         if (LOOP_END_1_COUNTER != 0)
                             state_next = STATE_END_1;
                         else
-                            state_next = STATE_START;
+                            state_next = STATE_LOOP_MAIN_2; //wait in current state until reset
                     end
                 end
             end
@@ -91,49 +89,46 @@ always @ (state, counter_current, counter_loop_main, counter_loop_inter) begin
                 if (LOOP_END_2_COUNTER != 0)
                     state_next = STATE_END_2;
                 else
-                    state_next = STATE_START;
+                    state_next = STATE_END_1; //wait in current state until reset
             end
         end
 
         STATE_END_2:
             if (counter_current == LOOP_END_2_COUNTER-1)
-                state_next = STATE_START;
+                state_next = STATE_END_2; //wait in current state until reset
     endcase
 end
 
 //sequential logic
 always @ (posedge CLK) begin
-    if (cycle == 0) begin
-        counter_current <= 0;
+    if (RST) begin
+        counter_current <= -1;
         counter_loop_main <= 0;
         counter_loop_inter <= 0;
-        cycle_last <= 0;
         state <= STATE_START;
     end else begin
-        cycle_last <= cycle;
-        state <= state_next;
-
-        if (cycle_advance) begin
+        if (advance) begin
             counter_current <= counter_current+1;
-        end
+            state <= state_next;
 
-        if (state != state_next) begin
-            counter_current <= 0;
+            if (state != state_next) begin
+                counter_current <= 0;
 
-            //count up main loop upon re-entering this loop (not on first enter from start)
-            if ((state_next == STATE_LOOP_MAIN_1) && (state != STATE_START)) begin
-                if (counter_loop_main == LOOP_MAIN_COUNTER-1) begin
-                    counter_loop_main <= 0;
-                end else begin
-                    counter_loop_main <= counter_loop_main+1;
+                //count up main loop upon re-entering this loop (not on first enter from start)
+                if ((state_next == STATE_LOOP_MAIN_1) && (state != STATE_START)) begin
+                    if (counter_loop_main == LOOP_MAIN_COUNTER-1) begin
+                        counter_loop_main <= 0;
+                    end else begin
+                        counter_loop_main <= counter_loop_main+1;
+                    end
                 end
-            end
 
-            if (state_next == STATE_LOOP_INTER_1) begin
-                if (counter_loop_inter == LOOP_INTER_COUNTER) begin //no -1 because this counter marks the currently active iteration, not finished iterations
-                    counter_loop_inter <= 0;
-                end else begin
-                    counter_loop_inter <= counter_loop_inter+1;
+                if (state_next == STATE_LOOP_INTER_1) begin
+                    if (counter_loop_inter == LOOP_INTER_COUNTER) begin //no -1 because this counter marks the currently active iteration, not finished iterations
+                        counter_loop_inter <= 0;
+                    end else begin
+                        counter_loop_inter <= counter_loop_inter+1;
+                    end
                 end
             end
         end
@@ -169,8 +164,8 @@ output [WIDTH*DEPTH-1:0] data_out;
 // File: shift_registers_1.v
 //
 //module shift_registers_1 (clk, clken, SI, SO);
-//parameter WIDTH = 32; 
-//input clk, clken, SI; 
+//parameter WIDTH = 32;
+//input clk, clken, SI;
 //output SO;
 //reg [WIDTH-1:0] shreg;
 //
@@ -181,7 +176,7 @@ output [WIDTH*DEPTH-1:0] data_out;
 //    begin
 //    for (i = 0; i < WIDTH-1; i = i+1)
 //        shreg[i+1] <= shreg[i];
-//      shreg[0] <= SI; 
+//      shreg[0] <= SI;
 //    end
 //end
 //assign SO = shreg[WIDTH-1];
@@ -227,7 +222,7 @@ integer addr_w, addr_r; //todo: minimize width (as reg), make r addr depend on w
 
 $RAM_STYLE$ reg [WIDTH-1:0] ram [DEPTH-1:0];
 
-always @(posedge CLK) begin 
+always @(posedge CLK) begin
     if (RST == 1'b0) begin
         addr_w <= 0;
         addr_r <= 1;
@@ -349,11 +344,15 @@ wire read_cmd;
 wire write_cmd;
 reg write_done; //keep track if W of current cycle was already completed, but we still wait on a R in the same cycle
 
+wire controller_reset;
+wire controller_advance;
+
 $TOP_MODULE_NAME$_controller
 controller_inst
 (
     .CLK(ap_clk),
-    .cycle(cycle),
+    .RST(controller_reset),
+    .advance(controller_advance),
     .cmd_read(read_cmd),
     .cmd_write(write_cmd)
 );
@@ -378,6 +377,9 @@ assign advance =      read_ok        ||   (!read_cmd && write_ok)    || (!read_c
 //assign buffer control
 //todo: if mmv_out < k: might not shift and/or write for multiple read_cmd cycles
 assign window_buffer_shift_enable = advance;
+
+assign controller_reset = !ap_rst_n || ((cycle == CYCLES_TOTAL-1) && advance);
+assign controller_advance = advance;
 
 //assign I/O ports
 assign window_buffer_in = in0_V_V_TDATA;
