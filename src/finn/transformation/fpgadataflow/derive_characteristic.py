@@ -223,21 +223,16 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                     cons_chrc = cons.get_nodeattr("io_characteristic")
                     cons_chrc = np.asarray(cons_chrc).reshape(2, -1)[0]
                     # find minimum phase shift satisfying the constraint
-                    pshift_min = period
+                    pshift_min = period - 1
                     for pshift_cand in range(period):
-                        pshift_condition = [
-                            (prod_chrc[i + pshift_cand] >= cons_chrc[i])
-                            for i in range(period - pshift_cand)
-                        ]
-                        if all(pshift_condition):
+                        prod_chrc_part = prod_chrc[pshift_cand:period]
+                        cons_chrc_part = cons_chrc[: period - pshift_cand]
+                        if (prod_chrc_part >= cons_chrc_part).all():
                             pshift_min = pshift_cand
                             break
-                    fifo_depth = max(
-                        [
-                            (prod_chrc[i + pshift_cand] - cons_chrc[i])
-                            for i in range(pshift_min)
-                        ]
-                    )
+                    prod_chrc_part = prod_chrc[pshift_min : (pshift_min + period)]
+                    cons_chrc_part = cons_chrc[:period]
+                    fifo_depth = (prod_chrc_part - cons_chrc_part).max()
                     out_fifo_depth = max(out_fifo_depth, fifo_depth)
                 # set output FIFO depth for this (producing) node
                 # InsertFIFO looks at the max of (outFIFODepth, inFIFODepth)
