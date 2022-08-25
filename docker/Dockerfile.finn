@@ -65,7 +65,7 @@ RUN locale-gen "en_US.UTF-8"
 RUN apt-get install -y git perl python3 make autoconf g++ flex bison ccache libgoogle-perftools-dev numactl perl-doc libfl2 libfl-dev zlibc zlib1g zlib1g-dev
 RUN git clone https://github.com/verilator/verilator
 RUN cd verilator && \
-    git checkout v4.224 && \
+    git checkout v4.012 && \
     autoconf && \
     ./configure && \
     make -j4 && \
