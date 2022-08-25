@@ -84,11 +84,14 @@ class InsertFIFO(Transformation):
     node the FIFO node is inserted after: 'folded_shape' and 'dtype'"""
 
     def __init__(
-        self, create_shallow_fifos=False, max_qsrl_depth=256, vivado_ram_style="auto"
+        self, create_shallow_fifos=False, max_qsrl_depth=None, vivado_ram_style="auto"
     ):
         super().__init__()
         self.create_shallow_fifos = create_shallow_fifos
-        self.max_qsrl_depth = max_qsrl_depth
+        if max_qsrl_depth is None:
+            self.max_qsrl_depth = 1000000
+        else:
+            self.max_qsrl_depth = max_qsrl_depth
         self.vivado_ram_style = vivado_ram_style
 
     def apply(self, model):
