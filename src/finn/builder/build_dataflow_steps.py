@@ -479,7 +479,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(DeriveCharacteristic(period))
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
-                InsertFIFO(vivado_ram_style=cfg.large_fifo_mem_style)
+                InsertFIFO(
+                    vivado_ram_style=cfg.large_fifo_mem_style, max_qsrl_depth=256
+                )
             )
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
