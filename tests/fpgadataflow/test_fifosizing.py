@@ -72,7 +72,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
 
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fifosizing():
+def test_fifosizing_linear():
     tmp_output_dir = fetch_test_model("tfc")
     steps = build_cfg.default_build_dataflow_steps
     steps.insert(10, custom_step_fifosize)
@@ -103,3 +103,26 @@ def test_fifosizing():
         > 0.9
     )
     shutil.rmtree(tmp_output_dir)
+
+
+def test_fifosizing_residual():
+    steps = build_cfg.default_build_dataflow_steps[8:]
+    tmp_output_dir = make_build_dir("build_fifosizing_residual")
+    cfg = build_cfg.DataflowBuildConfig(
+        output_dir=tmp_output_dir,
+        auto_fifo_depths=True,
+        auto_fifo_strategy="characterize",
+        synth_clk_period_ns=10.0,
+        board="Pynq-Z1",
+        verbose=True,
+        rtlsim_batch_size=10,
+        verify_save_rtlsim_waveforms=True,
+        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
+        generate_outputs=[
+            build_cfg.DataflowOutputType.STITCHED_IP,
+            build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
+        ],
+        steps=steps,
+        default_mem_mode=build_cfg.ComputeEngineMemMode.DECOUPLED,
+    )
+    build.build_dataflow_cfg("residual_testcase.onnx", cfg)
