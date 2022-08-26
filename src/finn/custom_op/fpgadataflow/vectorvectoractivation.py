@@ -1225,6 +1225,12 @@ class VectorVectorActivation(HLSCustomOp):
         else:
             return 0
 
+    def get_weightstream_width_padded(self):
+        """Returns weight stream width padded to a multiple of 8. This is required
+        by the AXI Stream spec. Used in decoupled mode."""
+        weight_width = self.get_weightstream_width()
+        return roundup_to_integer_multiple(weight_width, 8)
+
     def get_op_and_param_counts(self):
         k_h, k_w = self.get_nodeattr("Kernel")
         fm = self.get_nodeattr("Channels")
