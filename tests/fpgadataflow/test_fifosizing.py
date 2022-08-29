@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pkg_resources as pk
+
 import pytest
 
 import json
@@ -106,16 +108,19 @@ def test_fifosizing_linear():
 
 
 def test_fifosizing_residual():
+    model_fname = pk.resource_filename(
+        "finn.qnn-data", "testcase/residual_testcase.onnx"
+    )
     steps = build_cfg.default_build_dataflow_steps[8:]
     tmp_output_dir = make_build_dir("build_fifosizing_residual")
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         auto_fifo_depths=True,
-        auto_fifo_strategy="characterize",
+        auto_fifo_strategy="largefifo_rtlsim",
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
         verbose=True,
-        rtlsim_batch_size=10,
+        rtlsim_batch_size=1,
         verify_save_rtlsim_waveforms=True,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
@@ -124,5 +129,7 @@ def test_fifosizing_residual():
         ],
         steps=steps,
         default_mem_mode=build_cfg.ComputeEngineMemMode.DECOUPLED,
+        # start_step="step_set_fifo_depths",
+        # stop_step="step_set_fifo_depths"
     )
-    build.build_dataflow_cfg("residual_testcase.onnx", cfg)
+    build.build_dataflow_cfg(model_fname, cfg)
