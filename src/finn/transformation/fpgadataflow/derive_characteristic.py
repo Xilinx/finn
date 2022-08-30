@@ -111,6 +111,9 @@ class DeriveCharacteristic(NodeLocalTransformation):
                     del io_dict["outputs"]["out"]
                     io_dict["outputs"]["out0"] = []
                     io_dict["outputs"]["out1"] = []
+                    # n_outs is total of output streams
+                    # so multiply expected by 2
+                    n_outs *= 2
                 elif node.op_type == "AddStreams_Batch":
                     io_dict["inputs"]["in1"] = [0 for i in range(n_inps)]
 
@@ -280,10 +283,14 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 prod_chrc = np.asarray(prod_chrc).reshape(2, -1)[1]
                 # find consumers
                 model = self.ref_input_model
-                consumers = model.find_consumers(node.output[0])
-                # compute FIFO depth for each consumer
                 out_fifo_depths = []
-                for cons_node in consumers:
+                for output_name in node.output:
+                    cons_node = model.find_consumer(output_name)
+                    if cons_node is None:
+                        # could be final node, will be overridden if so
+                        # need an entry in the list anyway
+                        out_fifo_depths.append(2)
+                        continue
                     cons = registry.getCustomOp(cons_node)
                     cons_chrc = cons.get_nodeattr("io_characteristic")
                     cons_chrc = np.asarray(cons_chrc).reshape(2, -1)[0]
@@ -302,8 +309,9 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 # set output FIFO depth for this (producing) node
                 # InsertFIFO looks at the max of (outFIFODepth, inFIFODepth)
                 # for each tensor
-                prod.set_nodeattr("outFIFODepth", out_fifo_depths[0])
-                # used only for multi-consumer. nodes
+                if len(out_fifo_depths) > 0:
+                    prod.set_nodeattr("outFIFODepth", out_fifo_depths[0])
+                # used only for multi-producer nodes
                 prod.set_nodeattr("outFIFODepths", out_fifo_depths)
 
             except KeyError:
