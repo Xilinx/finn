@@ -282,7 +282,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 model = self.ref_input_model
                 consumers = model.find_consumers(node.output[0])
                 # compute FIFO depth for each consumer
-                out_fifo_depth = 0
+                out_fifo_depths = []
                 for cons_node in consumers:
                     cons = registry.getCustomOp(cons_node)
                     cons_chrc = cons.get_nodeattr("io_characteristic")
@@ -298,11 +298,13 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                     prod_chrc_part = prod_chrc[pshift_min : (pshift_min + period)]
                     cons_chrc_part = cons_chrc[:period]
                     fifo_depth = (prod_chrc_part - cons_chrc_part).max()
-                    out_fifo_depth = max(out_fifo_depth, fifo_depth)
+                    out_fifo_depths.append(fifo_depth)
                 # set output FIFO depth for this (producing) node
                 # InsertFIFO looks at the max of (outFIFODepth, inFIFODepth)
                 # for each tensor
-                prod.set_nodeattr("outFIFODepth", out_fifo_depth)
+                prod.set_nodeattr("outFIFODepth", out_fifo_depths[0])
+                # used only for multi-consumer. nodes
+                prod.set_nodeattr("outFIFODepths", out_fifo_depths)
 
             except KeyError:
                 # exception if op_type is not supported
