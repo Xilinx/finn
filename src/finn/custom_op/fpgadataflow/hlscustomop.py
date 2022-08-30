@@ -110,11 +110,16 @@ class HLSCustomOp(CustomOp):
             # input and output FIFO depths
             "inFIFODepth": ("i", False, 2),
             "outFIFODepth": ("i", False, 2),
+            # input and output FIFO depths for multi-I/O nodes
+            "inFIFODepths": ("ints", False, []),
+            "outFIFODepths": ("ints", False, []),
             "output_hook": ("s", False, ""),
             # accumulated characteristic function over two periods
             "io_characteristic": ("ints", False, []),
             # the period for which the characterization was run
             "io_characteristic_period": ("i", False, 0),
+            # amount of zero padding inserted during chrc.
+            "io_characteristic_pads": ("ints", False, []),
         }
 
     def get_verilog_top_module_name(self):
