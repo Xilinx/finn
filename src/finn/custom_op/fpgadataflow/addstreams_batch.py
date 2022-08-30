@@ -42,18 +42,21 @@ class AddStreams_Batch(HLSCustomOp):
         super().__init__(onnx_node)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            "NumChannels": ("i", True, ""),
-            "PE": ("i", True, ""),
-            # FINN DataTypes for inputs; output datatype inferred from input
-            "inputDataType": ("s", True, ""),
-            # number of input vectors, examples:
-            # [1] is a single vector (like a FC layer with batch=1)
-            # [4] is four vectors (like a FC layer with batch=4)
-            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
-            "numInputVectors": ("ints", False, [1]),
-        }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs = super().get_nodeattr_types()
+        my_attrs.update(
+            {
+                "NumChannels": ("i", True, ""),
+                "PE": ("i", True, ""),
+                # FINN DataTypes for inputs; output datatype inferred from input
+                "inputDataType": ("s", True, ""),
+                # number of input vectors, examples:
+                # [1] is a single vector (like a FC layer with batch=1)
+                # [4] is four vectors (like a FC layer with batch=4)
+                # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
+                "numInputVectors": ("ints", False, [1]),
+                "inFIFODepths": ("ints", False, [2, 2]),
+            }
+        )
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):
