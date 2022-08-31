@@ -26,42 +26,17 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
 
 import pytest
 
 import json
 import shutil
 from brevitas.export.onnx.generic.manager import BrevitasONNXManager
-from qonnx.transformation.general import GiveUniqueNodeNames
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
-from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
-from finn.transformation.fpgadataflow.derive_characteristic import (
-    DeriveCharacteristic,
-    DeriveFIFOSizes,
-)
-from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.util.basic import make_build_dir
 from finn.util.test import get_trained_network_and_ishape
-
-
-def custom_step_fifosize(model, cfg):
-    model = model.transform(InsertDWC())
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(
-        PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-    )
-    model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
-    period = model.analysis(dataflow_performance)["max_cycles"] + 10
-    model = model.transform(DeriveCharacteristic(period))
-    model = model.transform(DeriveFIFOSizes())
-    return model
 
 
 def fetch_test_model(topology, wbits=2, abits=2):
@@ -76,11 +51,10 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.vivado
 def test_fifosizing_linear():
     tmp_output_dir = fetch_test_model("tfc")
-    steps = build_cfg.default_build_dataflow_steps
-    steps.insert(10, custom_step_fifosize)
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
-        auto_fifo_depths=False,
+        auto_fifo_depths=True,
+        auto_fifo_strategy="characterize",
         target_fps=10000,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
@@ -91,7 +65,6 @@ def test_fifosizing_linear():
             build_cfg.DataflowOutputType.STITCHED_IP,
             build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
         ],
-        steps=steps,
         default_mem_mode=build_cfg.ComputeEngineMemMode.DECOUPLED,
     )
     build.build_dataflow_cfg(tmp_output_dir + "/model.onnx", cfg)
@@ -105,31 +78,3 @@ def test_fifosizing_linear():
         > 0.9
     )
     shutil.rmtree(tmp_output_dir)
-
-
-def test_fifosizing_residual():
-    model_fname = pk.resource_filename(
-        "finn.qnn-data", "testcase/residual_testcase.onnx"
-    )
-    steps = build_cfg.default_build_dataflow_steps[8:]
-    tmp_output_dir = make_build_dir("build_fifosizing_residual")
-    cfg = build_cfg.DataflowBuildConfig(
-        output_dir=tmp_output_dir,
-        auto_fifo_depths=True,
-        auto_fifo_strategy="largefifo_rtlsim",
-        synth_clk_period_ns=10.0,
-        board="Pynq-Z1",
-        verbose=True,
-        rtlsim_batch_size=1,
-        verify_save_rtlsim_waveforms=True,
-        shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-        generate_outputs=[
-            build_cfg.DataflowOutputType.STITCHED_IP,
-            build_cfg.DataflowOutputType.RTLSIM_PERFORMANCE,
-        ],
-        steps=steps,
-        default_mem_mode=build_cfg.ComputeEngineMemMode.DECOUPLED,
-        # start_step="step_set_fifo_depths",
-        # stop_step="step_set_fifo_depths"
-    )
-    build.build_dataflow_cfg(model_fname, cfg)
