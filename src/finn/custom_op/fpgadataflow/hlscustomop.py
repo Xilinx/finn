@@ -115,11 +115,13 @@ class HLSCustomOp(CustomOp):
             "outFIFODepths": ("ints", False, []),
             "output_hook": ("s", False, ""),
             # accumulated characteristic function over two periods
-            "io_characteristic": ("ints", False, []),
+            "io_chrc_in": ("t", False, np.asarray([], dtype=np.int32)),
+            "io_chrc_out": ("t", False, np.asarray([], dtype=np.int32)),
             # the period for which the characterization was run
-            "io_characteristic_period": ("i", False, 0),
+            "io_chrc_period": ("i", False, 0),
             # amount of zero padding inserted during chrc.
-            "io_characteristic_pads": ("ints", False, []),
+            "io_chrc_pads_in": ("ints", False, []),
+            "io_chrc_pads_out": ("ints", False, []),
         }
 
     def get_verilog_top_module_name(self):
