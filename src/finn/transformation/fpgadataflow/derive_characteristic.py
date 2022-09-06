@@ -182,8 +182,12 @@ class DeriveCharacteristic(NodeLocalTransformation):
                             ret.append(ret[-1] + chrc[t % p])
                     return np.asarray(ret, dtype=np.int32)
 
-                all_txns_in = np.empty((len(txns_in.keys()), 2 * self.period))
-                all_txns_out = np.empty((len(txns_out.keys()), 2 * self.period))
+                all_txns_in = np.empty(
+                    (len(txns_in.keys()), 2 * self.period), dtype=np.int32
+                )
+                all_txns_out = np.empty(
+                    (len(txns_out.keys()), 2 * self.period), dtype=np.int32
+                )
                 all_pad_in = []
                 all_pad_out = []
                 for in_idx, in_strm_nm in enumerate(txns_in.keys()):
