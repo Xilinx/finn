@@ -360,3 +360,14 @@ class AddStreams_Batch(HLSCustomOp):
         swidth = self.get_instream_width_padded()
         intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
         return intf_names
+
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+                "in1": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

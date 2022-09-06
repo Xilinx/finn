@@ -408,3 +408,13 @@ class DuplicateStreams_Batch(HLSCustomOp):
                 ("out%d_%s" % (i, sname), self.get_outstream_width_padded())
             )
         return intf_names
+
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out0": [], "out1": []},
+        }
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

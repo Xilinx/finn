@@ -29,8 +29,9 @@
 import numpy as np
 import os
 import subprocess
+import warnings
 from abc import abstractmethod
-from pyverilator.util.axi_utils import rtlsim_multi_io
+from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import roundup_to_integer_multiple
@@ -744,3 +745,116 @@ compilation transformations?
             "AP_INT_MAX_W=%d is larger than allowed maximum of 32768" % ret
         )
         return ret
+
+    def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
+        """Return the unconstrained characteristic functions for this node."""
+        # ensure rtlsim is ready
+        assert self.get_nodeattr("rtlsim_so") != "", (
+            "rtlsim not ready for " + self.onnx_node.name
+        )
+        if self.get_nodeattr("io_chrc_period") > 0:
+            warnings.warn(
+                "Skipping node %s: already has FIFO characteristic"
+                % self.onnx_node.name
+            )
+            return
+        exp_cycles = self.get_exp_cycles()
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        n_outs = np.prod(self.get_folded_output_shape()[:-1])
+        if exp_cycles == 0:
+            # try to come up with an optimistic estimate
+            exp_cycles = min(n_inps, n_outs)
+        assert (
+            exp_cycles <= period
+        ), "Period %d too short to characterize %s : expects min %d cycles" % (
+            period,
+            self.onnx_node.name,
+            exp_cycles,
+        )
+        sim = self.get_rtlsim()
+        # signal name
+        sname = "_" + self.hls_sname() + "_"
+        if override_rtlsim_dict is not None:
+            io_dict = override_rtlsim_dict
+        else:
+            io_dict = {
+                "inputs": {
+                    "in0": [0 for i in range(n_inps)],
+                    # "weights": wei * num_w_reps
+                },
+                "outputs": {"out": []},
+            }
+
+        # extra dicts to keep track of cycle-by-cycle transaction behavior
+        # note that we restrict key names to filter out weight streams etc
+        txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
+        txns_out = {
+            key: [] for (key, value) in io_dict["outputs"].items() if "out" in key
+        }
+
+        def monitor_txns(sim_obj):
+            for inp in txns_in:
+                in_ready = _read_signal(sim, inp + sname + "TREADY") == 1
+                in_valid = _read_signal(sim, inp + sname + "TVALID") == 1
+                if in_ready and in_valid:
+                    txns_in[inp].append(1)
+                else:
+                    txns_in[inp].append(0)
+            for outp in txns_out:
+                if (
+                    _read_signal(sim, outp + sname + "TREADY") == 1
+                    and _read_signal(sim, outp + sname + "TVALID") == 1
+                ):
+                    txns_out[outp].append(1)
+                else:
+                    txns_out[outp].append(0)
+
+        reset_rtlsim(sim)
+        total_cycle_count = rtlsim_multi_io(
+            sim,
+            io_dict,
+            n_outs,
+            sname=sname,
+            liveness_threshold=period,
+            hook_preclk=monitor_txns,
+        )
+        assert total_cycle_count <= period
+        self.set_nodeattr("io_chrc_period", period)
+
+        def accumulate_char_fxn(chrc):
+            p = len(chrc)
+            ret = []
+            for t in range(2 * p):
+                if t == 0:
+                    ret.append(chrc[0])
+                else:
+                    ret.append(ret[-1] + chrc[t % p])
+            return np.asarray(ret, dtype=np.int32)
+
+        all_txns_in = np.empty((len(txns_in.keys()), 2 * period), dtype=np.int32)
+        all_txns_out = np.empty((len(txns_out.keys()), 2 * period), dtype=np.int32)
+        all_pad_in = []
+        all_pad_out = []
+        for in_idx, in_strm_nm in enumerate(txns_in.keys()):
+            txn_in = txns_in[in_strm_nm]
+            if len(txn_in) < period:
+                pad_in = period - len(txn_in)
+                txn_in += [0 for x in range(pad_in)]
+            txn_in = accumulate_char_fxn(txn_in)
+            all_txns_in[in_idx, :] = txn_in
+            all_pad_in.append(pad_in)
+
+        for out_idx, out_strm_nm in enumerate(txns_out.keys()):
+            txn_out = txns_out[out_strm_nm]
+            if len(txn_out) < period:
+                pad_out = period - len(txn_out)
+                txn_out += [0 for x in range(pad_out)]
+            txn_out = accumulate_char_fxn(txn_out)
+            all_txns_out[out_idx, :] = txn_out
+            all_pad_out.append(pad_out)
+
+        # TODO specialize here for DuplicateStreams and AddStreams
+        self.set_nodeattr("io_chrc_in", all_txns_in)
+        self.set_nodeattr("io_chrc_out", all_txns_out)
+        self.set_nodeattr("io_chrc_pads_in", all_pad_in)
+        self.set_nodeattr("io_chrc_pads_out", all_pad_out)
