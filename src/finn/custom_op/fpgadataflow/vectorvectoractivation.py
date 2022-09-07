@@ -54,6 +54,7 @@ class VectorVectorActivation(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
             "PE": ("i", True, 0),
+            "SIMD": ("i", False, 1),
             "Dim": ("ints", True, []),  # [H, W]
             "Channels": ("i", True, 0),
             "Kernel": ("ints", True, []),  # [H, W]
@@ -142,7 +143,8 @@ class VectorVectorActivation(HLSCustomOp):
         ch = self.get_nodeattr("Channels")
         k_h, k_w = self.get_nodeattr("Kernel")
         pe = self.get_nodeattr("PE")
-        wmem = k_h * k_w * ch // pe
+        simd = self.get_nodeattr("SIMD")
+        wmem = (k_h * k_w * ch // pe) // simd
         return wmem
 
     def calc_tmem(self):
@@ -190,7 +192,12 @@ class VectorVectorActivation(HLSCustomOp):
 
     def get_instream_width(self):
         i_bits = self.get_input_datatype().bitwidth()
-        in_width = i_bits * self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        if simd > 1:
+            pe = self.get_nodeattr("Channels")
+        else:
+            pe = self.get_nodeattr("PE")
+        in_width = i_bits * simd * pe
         return in_width
 
     def get_outstream_width(self):
@@ -200,12 +207,16 @@ class VectorVectorActivation(HLSCustomOp):
 
     def get_folded_input_shape(self):
         k_h, k_w = self.get_nodeattr("Kernel")
-        sf = k_h * k_w
         dim_h, dim_w = self.get_nodeattr("Dim")
         ch = self.get_nodeattr("Channels")
-        pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
+        if simd > 1:
+            pe = self.get_nodeattr("Channels")
+        else:
+            pe = self.get_nodeattr("PE")
+        sf = k_h * k_w // simd
         nf = ch // pe
-        folded_input_shape = tuple([1, dim_h, dim_w, sf * nf, pe])
+        folded_input_shape = tuple([1, dim_h, dim_w, sf * nf, simd * pe])
         return folded_input_shape
 
     def get_folded_output_shape(self):
@@ -235,6 +246,7 @@ class VectorVectorActivation(HLSCustomOp):
 
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
         ch = self.get_nodeattr("Channels")
         dim_h, dim_w = self.get_nodeattr("Dim")
         k_h, k_w = self.get_nodeattr("Kernel")
@@ -242,7 +254,7 @@ class VectorVectorActivation(HLSCustomOp):
         batch_size = 1
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
-        exp_cycles = ((ch * k_h * k_w) / pe) * batch_size * (dim_h * dim_w) / mmv
+        exp_cycles = ((ch * k_h * k_w) / pe / simd) * batch_size * (dim_h * dim_w) / mmv
         return int(exp_cycles)
 
     def get_template_param_values(self):
@@ -268,6 +280,7 @@ class VectorVectorActivation(HLSCustomOp):
 
     def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
         pe = self.get_nodeattr("PE")
+        simd = self.get_nodeattr("SIMD")
         ch = self.get_nodeattr("Channels")
         k_h, k_w = self.get_nodeattr("Kernel")
         wmem = self.calc_wmem()
@@ -282,7 +295,7 @@ class VectorVectorActivation(HLSCustomOp):
         ret = ret.reshape(ch, k_h * k_w)
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        ret = ret.reshape(1, pe, wmem, 1)
+        ret = ret.reshape(1, pe, wmem, simd)
         return ret
 
     def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
@@ -334,7 +347,8 @@ class VectorVectorActivation(HLSCustomOp):
 
         if wdt.bitwidth() != 1:
             f_weights.write(
-                "const FixedPointWeights<1,{},{},{}> weights = ".format(
+                "const FixedPointWeights<{},{},{},{}> weights = ".format(
+                    self.get_nodeattr("SIMD"),
                     wdt.get_hls_datatype_str(),
                     self.get_nodeattr("PE"),
                     self.calc_wmem(),
@@ -342,8 +356,8 @@ class VectorVectorActivation(HLSCustomOp):
             )
         else:
             f_weights.write(
-                "const BinaryWeights<1,{},{}> weights = ".format(
-                    self.get_nodeattr("PE"), self.calc_wmem()
+                "const BinaryWeights<{},{},{}> weights = ".format(
+                    self.get_nodeattr("SIMD"), self.get_nodeattr("PE"), self.calc_wmem()
                 )
             )
         f_weights.write(weight_hls_code)
@@ -476,9 +490,10 @@ class VectorVectorActivation(HLSCustomOp):
         innerProdDim = k_h * k_w
         self.code_gen_dict["$DEFINES$"] = [
             """#define Channels1 {}\n #define InnerProdDim {}\n
-            #define SIMD1 1\n #define PE1 {}\n #define numReps {}""".format(
+            #define SIMD1 {}\n #define PE1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("Channels"),
                 innerProdDim,
+                self.get_nodeattr("SIMD"),
                 self.get_nodeattr("PE"),
                 numReps,
             )
