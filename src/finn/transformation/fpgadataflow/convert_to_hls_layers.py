@@ -132,7 +132,7 @@ class InferConvInpGen(Transformation):
                     )
                     graph.node.insert(node_ind, padding_node)
 
-                if (self.use_rtl_variant):
+                if self.use_rtl_variant:
                     ConvInpGen_node = helper.make_node(
                         "ConvolutionInputGenerator_rtl",
                         [ConvInpGen_input],
@@ -166,12 +166,13 @@ class InferConvInpGen(Transformation):
 
                     if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
                         assert is_square_image, (
-                            "%s : DownSampler currently only supports square input images."
+                            """%s : DownSampler currently only supports square
+                            input images."""
                             % n.name
                         )
                         assert is_equal_stride, (
-                            """%s : DownSampler currently only supports equal stride value
-                            along different axes."""
+                            """%s : DownSampler currently only supports equal stride
+                            value along different axes."""
                             % n.name
                         )
                         ConvInpGen_idim = ConvInpGen_idim_h
@@ -226,7 +227,8 @@ class InferConvInpGen(Transformation):
                             )
                         else:  # 1D images and/or kernels
                             assert is_1d_convolution, (
-                                "%s: ConvolutionInputGenerator1D works only for 1D convs"
+                                """%s: ConvolutionInputGenerator1D works only
+                                for 1D convs"""
                                 % n.name
                             )
                             if dilation_h > 1 or dilation_w > 1:
