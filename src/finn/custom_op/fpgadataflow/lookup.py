@@ -259,8 +259,8 @@ class Lookup(HLSCustomOp):
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """StreamingLookup_ext<EmbeddingSize>(in0, out, mem, size, oob_count);
-                oob_irq = oob_count != 0;"""
+                """StreamingLookup_ext<EmbeddingSize>(in0, out, mem, size, oob_count,
+                oob_irq);"""
             ]
 
     def blackboxfunction(self):

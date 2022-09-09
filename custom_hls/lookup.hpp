@@ -72,9 +72,20 @@ void StreamingLookup_ext(
 	hls::stream<T_DST> &out,
 	T_DST const *const  mem,
 	unsigned  const     size,
-	unsigned           &oob_count
+	unsigned           &oob_count,
+	bool               &oob_irq
 ) {
-#pragma HLS pipeline II=EmbeddingSize+8 style=flp
+#pragma HLS pipeline II=EmbeddingSize+9 style=flp
+
+	static unsigned  oob_count_li;
+	static unsigned  oob_count_int;
+#pragma HLS reset variable=oob_count_li
+#pragma HLS reset variable=oob_count_int
+
+	if(oob_count != oob_count_li) {
+		oob_count_int -= oob_count_li;
+		oob_count_li   = oob_count;
+	}
 	if(!in0.empty()) {
 		T_SRC const  x = in0.read();
 
@@ -82,7 +93,7 @@ void StreamingLookup_ext(
 		bool  const  oob = x >= T_SRC(size);
 		ap_uint<T_SRC::width+EmbeddingAlign> const  ofs =
 			((oob? T_SRC(0) : x), ap_uint<EmbeddingAlign>(0));
-		oob_count += oob;
+		oob_count_int += oob;
 
 		// Stream lookup data (burst inferred)
 		for(unsigned  i = 0; i < EmbeddingSize; i++) {
@@ -90,5 +101,7 @@ void StreamingLookup_ext(
 			out.write(mem[ofs+i]);
 		}
 	}
+	oob_count =  oob_count_int;
+	oob_irq   = (oob_count_int != 0);
 }
 #endif
