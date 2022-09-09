@@ -73,6 +73,9 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mod
     if use_rtl_swg and exec_mode == "cppsim":
         pytest.skip("cppsim not supported for RTL SWG")
 
+    if use_rtl_swg and kernel_size == 1:
+        pytest.skip("1x1 kernel not supported by current RTL SWG")
+
     if depthwise is True:
         group = out_chn = in_chn
         conv_param_shape = [out_chn, 1, kernel_size, kernel_size]

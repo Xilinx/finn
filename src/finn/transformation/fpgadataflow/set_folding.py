@@ -109,6 +109,7 @@ class SetFolding(Transformation):
             "FMPadding_Batch",
             "ConvolutionInputGenerator",
             "ConvolutionInputGenerator1D",
+            "ConvolutionInputGenerator_rtl",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
@@ -174,6 +175,7 @@ class SetFolding(Transformation):
                 if op_type in [
                     "ConvolutionInputGenerator",
                     "ConvolutionInputGenerator1D",
+                    "ConvolutionInputGenerator_rtl",
                 ]:
                     depthwise = node_inst.get_nodeattr("depthwise")
                     if depthwise == 0:

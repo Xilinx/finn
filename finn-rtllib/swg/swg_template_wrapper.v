@@ -11,10 +11,13 @@ module $TOP_MODULE_NAME$ (
         out_V_TREADY
 );
 
+// top-level parameters (set via code-generation)
 parameter BIT_WIDTH = $BIT_WIDTH$;
 parameter SIMD = $SIMD$;
 parameter MMV_IN = $MMV_IN$;
 parameter MMV_OUT = $MMV_OUT$;
+
+// derived constants
 parameter BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN;
 parameter BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT;
 
@@ -30,7 +33,12 @@ output out_V_TVALID;
 input  out_V_TREADY;
 
 $TOP_MODULE_NAME$_impl
-#()
+#(
+    .BIT_WIDTH(BIT_WIDTH),
+    .SIMD(SIMD),
+    .MMV_IN(MMV_IN),
+    .MMV_OUT(MMV_OUT)
+)
 impl
 (
     .ap_clk(ap_clk),

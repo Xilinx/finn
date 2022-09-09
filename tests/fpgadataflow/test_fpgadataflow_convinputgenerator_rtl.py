@@ -28,17 +28,14 @@
 
 import pytest
 
-import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
-from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -133,11 +130,6 @@ def make_single_slidingwindow_modelwrapper(
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", odt)
 
-    # DEBUG
-    # swg_node = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0]
-    # swg_inst = getCustomOp(swg_node)
-    # swg_inst.set_nodeattr("rtlsim_trace", "/home/felixj/WD/finn/finn-rtllib/swg/swg_test_trace.vcd")
-
     return model
 
 
@@ -147,38 +139,24 @@ def prepare_inputs(input_tensor):
 
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["UINT4"]])
-
-# @pytest.mark.parametrize(
-#     "conv_config",
-#     [
-#         [[12,12], [3, 3], [1, 1], [1, 1]],
-#         [[13,13], [3, 3], [1, 1], [1, 1]],
-#         [[12,12], [3, 3], [2, 2], [1, 1]],
-#         [[13,13], [3, 3], [2, 2], [1, 1]],
-#     ],
-# )
 # kernel size
-@pytest.mark.parametrize("k", [[1, 1], [2, 2], [3, 3], [1, 2], [1, 3]])
+@pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 3]])
 # input dimension
-@pytest.mark.parametrize(
-    "ifm_dim", [[8, 8], [13, 13], [1, 11], [1, 12], [1, 13], [1, 14]]
-)
+@pytest.mark.parametrize("ifm_dim", [[24, 24], [13, 13], [1, 14]])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [6])
 # Stride
-@pytest.mark.parametrize("stride", [[1, 1], [2, 2], [1, 2]])
+@pytest.mark.parametrize("stride", [[1, 1], [2, 2]])
 # Dilation
-@pytest.mark.parametrize("dilation", [[1, 1], [2, 2], [1, 3]])
+@pytest.mark.parametrize("dilation", [[1, 1], [2, 2]])
 # depthwise
 @pytest.mark.parametrize("dw", [0, 1])
-
 # input channel parallelism ("SIMD")
 @pytest.mark.parametrize("simd", [1, 2, 3, 6])
 # parallel_window enable (MMV_out = M*K)
-@pytest.mark.parametrize("parallel_window", [0, 1])
+@pytest.mark.parametrize("parallel_window", [0])
 # in/out MMV ("M")
 @pytest.mark.parametrize("m", [1])
-
 # Flip dimensions
 @pytest.mark.parametrize("flip", [False])
 @pytest.mark.slow
@@ -186,11 +164,6 @@ def prepare_inputs(input_tensor):
 def test_fpgadataflow_slidingwindow_rtl(
     idt, k, ifm_dim, ifm_ch, stride, dilation, dw, simd, m, parallel_window, flip
 ):
-    # ifm_dim = conv_config[0]
-    # k = conv_config[1]
-    # stride = conv_config[2]
-    # dilation= conv_config[3]
-
     if flip:
         if (
             ifm_dim[0] == ifm_dim[1]
@@ -228,7 +201,8 @@ def test_fpgadataflow_slidingwindow_rtl(
         k_w == 1 and (stride_w != 1 or dilation_w != 1)
     ):
         pytest.skip(
-            "Illegal convolution configuration: stride or dilation defined for unitary kernel dim"
+            """Illegal convolution configuration:
+            stride or dilation defined for unitary kernel dim"""
         )
     if k_h == 1 and k_w == 1 and simd != ifm_ch:
         pytest.skip("1x1 Kernel only supported in parallel mode (SIMD=C)")
@@ -274,17 +248,6 @@ def test_fpgadataflow_slidingwindow_rtl(
     )
     y_expected = oxe.execute_onnx(golden, input_dict)["outp"]
 
-    # DEBUG
-    print("-------expected:")
-    print(y_expected)
-    print("--------produced:")
-    print(y_produced)
-
-    node = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0]
-    inst = getCustomOp(node)
-    cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
-    print("RTLSIM cycles: %d" % cycles_rtlsim)
-
     if dw == 0:
         assert (y_produced == y_expected).all()
     else:
@@ -294,9 +257,3 @@ def test_fpgadataflow_slidingwindow_rtl(
         y_expected = y_expected.transpose(0, 1, 2, 4, 3, 5)
         y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, ifm_ch * k_h * k_w)
         assert (y_produced == y_expected).all()
-
-
-#     exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-#     exp_cycles = exp_cycles_dict[node.name]
-#     assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
-#     assert exp_cycles != 0
