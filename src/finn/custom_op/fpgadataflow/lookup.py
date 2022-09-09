@@ -259,20 +259,7 @@ class Lookup(HLSCustomOp):
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """
-    static unsigned  oob_count_li;
-    static unsigned  oob_count_int;
-#pragma HLS reset variable=oob_count_li
-#pragma HLS reset variable=oob_count_int
-
-    if(oob_count != oob_count_li) {
-        oob_count_int -= oob_count_li;
-        oob_count_li   = oob_count;
-    }
-    StreamingLookup_ext<EmbeddingSize>(in0, out, mem, size, oob_count_int);
-    oob_count =  oob_count_int;
-    oob_irq   = (oob_count_int != 0);
-            """
+                "StreamingLookup_ext<EmbeddingSize>(in0, out, mem, size, oob_count, oob_irq);"
             ]
 
     def blackboxfunction(self):
