@@ -74,7 +74,7 @@ void StreamingLookup_ext(
 	unsigned  const     size,
 	unsigned           &oob_count
 ) {
-#pragma HLS pipeline II=EmbeddingSize+8 style=flp
+#pragma HLS pipeline II=EmbeddingSize+9 style=flp
 	if(!in0.empty()) {
 		T_SRC const  x = in0.read();
 
