@@ -203,11 +203,11 @@ class QuantMaxNorm(HLSCustomOp):
         self.code_gen_dict["$SAVEASCNPY$"] = []
 
     def blackboxfunction(self):
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
+        packed_hls_type_in = "ap_uint<%d>" % self.get_instream_width()
+        packed_hls_type_out = "ap_uint<%d>" % self.get_outstream_width()
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+            % (self.onnx_node.name, packed_hls_type_in, packed_hls_type_out)
         ]
 
     def pragmas(self):
