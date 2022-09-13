@@ -75,7 +75,19 @@ def _calculate_dot_prod_range(dt_a, dt_b, len):
 
 
 def _make_single_vvau_modelwrapper(
-    W, pe, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T=None, tdt=None
+    W,
+    pe,
+    k_h,
+    k_w,
+    channels,
+    dim_h,
+    dim_w,
+    wdt,
+    idt,
+    odt,
+    T=None,
+    tdt=None,
+    mem_mode="const",
 ):
     in_shape = [1, dim_h, dim_w, k_h * k_w * channels]  # [N, H, W, K*K*CH]
     out_shape = [
@@ -113,6 +125,7 @@ def _make_single_vvau_modelwrapper(
         weightDataType=wdt.name,
         outputDataType=odt.name,
         noActivation=no_act,
+        mem_mode=mem_mode,
     )
 
     graph = helper.make_graph(
@@ -156,13 +169,15 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("k_w", [3, 1])
 # Number of input and output channels
 @pytest.mark.parametrize("channels", [3, 4])
+# memory mode
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_vvau(
-    idt, wdt, act, pe, dim_h, dim_w, k_h, k_w, channels, exec_mode
+    idt, wdt, act, pe, dim_h, dim_w, k_h, k_w, channels, mem_mode, exec_mode
 ):
     if pe == "channels":
         pe = channels
@@ -198,7 +213,7 @@ def test_fpgadataflow_vvau(
         tdt = DataType["INT32"]
 
     model = _make_single_vvau_modelwrapper(
-        W, pe, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt
+        W, pe, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt, mem_mode
     )
 
     if exec_mode == "cppsim":
