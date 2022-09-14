@@ -29,6 +29,7 @@
 import json
 import numpy as np
 import os
+import shutil
 from copy import deepcopy
 from distutils.dir_util import copy_tree
 from qonnx.core.modelwrapper import ModelWrapper
@@ -194,6 +195,11 @@ def verify_step(
                 res_str,
             )
             np.save(verification_output_fn, out_npy)
+        if cfg.verify_save_rtlsim_waveforms:
+            vcd_path = model.get_metadata_prop("rtlsim_trace")
+            if vcd_path is not None and os.path.isfile(vcd_path):
+                new_vcd_path = vcd_path.replace(".vcd", "_%d.vcd" % b)
+                shutil.move(vcd_path, new_vcd_path)
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
 
