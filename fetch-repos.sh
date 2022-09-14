@@ -37,6 +37,7 @@ OMX_COMMIT="d1065a788219ca0eb54d5e57600b1f9d7f67d4cc"
 AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
 EXP_BOARD_FILES_MD5="30eecc497c31050bd46d10ea20eba232"
+# TODO: KV260 ADD commit version 
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
@@ -47,6 +48,8 @@ HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
 OMX_URL="https://github.com/maltanar/oh-my-xilinx.git"
 AVNET_BDF_URL="https://github.com/Avnet/bdf.git"
 XIL_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
+# TODO: KV260 ADD KV260 board downloads
+
 
 QONNX_DIR="qonnx"
 FINN_EXP_DIR="finn-experimental"
