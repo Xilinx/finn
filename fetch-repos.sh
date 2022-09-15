@@ -59,7 +59,7 @@ HLSLIB_DIR="finn-hlslib"
 OMX_DIR="oh-my-xilinx"
 AVNET_BDF_DIR="avnet-bdf"
 XIL_BDF_DIR="xil-bdf"
-KV260_SOM_BDF_DIR="KV260-SOM-bdf"
+KV260_SOM_BDF_DIR="kv260-som-bdf"
 
 # absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
