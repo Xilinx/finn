@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2022, Xilinx
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -72,7 +72,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "OFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "SIMD": ("i", True, 0),
             "M": ("i", False, 1),
-            "parallel_window": ("i", False, 0, {0, 1}),
+            "parallel_window": ("i", False, 0, {0}),
             "Stride": ("ints", True, []),  # [H, W] = [Y, X]
             "Dilation": ("ints", True, []),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
@@ -212,6 +212,49 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         return (ifm_ch, ifm_dim, ofm_dim, k, stride, dilation)
 
+    def get_buffer_depth(self):
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        stride = self.get_nodeattr("Stride")
+        dilation = self.get_nodeattr("Dilation")
+        simd = self.get_nodeattr("SIMD")
+
+        k_h, k_w = k
+        h, w = ifm_dim
+        stride_h, stride_w = stride
+        dilation_h, dilation_w = dilation
+        mmv_in = 1
+        mmv_out = 1
+        channel_factor = int(ifm_ch / simd)
+
+        impl_style = self.select_impl_style()
+        if impl_style == "default":
+            # compute minimal buffer length (assuming it holds 1 complete window)
+            buffer_min_size = (
+                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
+            ) * channel_factor
+
+            # add additional buffer space in case of stride > 1
+            # this minimizes cycle count as it allows an earlier pre-load of inputs
+            buffer_depth = (
+                buffer_min_size
+                + max(
+                    0,
+                    ((stride_w - 1) - (int(mmv_out * k_h * k_w / mmv_in)))
+                    * channel_factor,
+                )
+                + max(
+                    0,
+                    ((stride_h - 1) * w - (int(mmv_out * k_h * k_w / mmv_in)))
+                    * channel_factor,
+                )
+            )
+        else:
+            buffer_depth = 0
+            raise Exception("Requested impl. style not implemented")
+        return buffer_depth
+
     def get_exp_cycles(self):
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -268,17 +311,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     def bram_estimation(self):
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
-        impl_style = self.select_impl_style()
-        # call codegen preparation to populate self.buffer_depth
-        if impl_style == "default":
-            self.prepare_codegen_default()
-        else:
-            raise Exception("Requested impl. style not implemented")
 
         # NOTE: Actual BRAM usage might be lower in some cases.
         # This does not account for the exact Vivado behavior yet.
         buffer_width = simd * self.get_input_datatype().bitwidth()
-        buffer_depth = self.buffer_depth
+        buffer_depth = self.get_buffer_depth()
         if ram_style == "block" or ram_style == "auto":
             if buffer_depth <= 512:
                 ram_width = 36
@@ -321,15 +358,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     def lut_estimation(self):
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
-        impl_style = self.select_impl_style()
-        # call codegen preparation to populate self.buffer_depth
-        if impl_style == "default":
-            self.prepare_codegen_default()
-        else:
-            raise Exception("Requested impl. style not implemented")
-
         buffer_width = simd * self.get_input_datatype().bitwidth()
-        buffer_depth = self.buffer_depth
+        buffer_depth = self.get_buffer_depth()
         if ram_style == "distributed":
             ram_luts = int(buffer_width * math.ceil(buffer_depth / 38))
         else:
@@ -339,15 +369,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     def uram_estimation(self):
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
-        impl_style = self.select_impl_style()
-        # call codegen preparation to populate self.buffer_depth
-        if impl_style == "default":
-            self.prepare_codegen_default()
-        else:
-            raise Exception("Requested impl. style not implemented")
-
         buffer_width = simd * self.get_input_datatype().bitwidth()
-        buffer_depth = self.buffer_depth
+        buffer_depth = self.get_buffer_depth()
 
         if ram_style == "ultra":
             ram_depth = 4096
@@ -460,21 +483,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
         ) * channel_factor
 
-        # add additional buffer space in case of stride > 1
-        # this minimizes cycle count as it allows an earlier pre-load of input elements
-        buffer_actual_size = (
-            buffer_min_size
-            + max(
-                0,
-                ((stride_w - 1) - (int(mmv_out * k_h * k_w / mmv_in))) * channel_factor,
-            )
-            + max(
-                0,
-                ((stride_h - 1) * w - (int(mmv_out * k_h * k_w / mmv_in)))
-                * channel_factor,
-            )
-        )
-        self.buffer_depth = buffer_actual_size  # for resource estimation
+        buffer_actual_size = self.get_buffer_depth()
         code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_actual_size)]
 
         # compute some intermediate values, e.g., kernel "width" = k_w incl. dilation
@@ -642,9 +651,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             and stride_h <= ifm_dim_h
             and stride_w <= ifm_dim_w
         ), "Illegal conv configuration: kernel or stride > FM dimension"
-
-        if k_h == 1 and k_w == 1:
-            assert simd == ifm_ch, "1x1 Kernel only supported in parallel mode (SIMD=C)"
 
         # init folding config
         if self.get_nodeattr("parallel_window"):

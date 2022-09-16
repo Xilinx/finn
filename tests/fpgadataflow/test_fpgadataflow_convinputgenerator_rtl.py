@@ -142,7 +142,7 @@ def prepare_inputs(input_tensor):
 # kernel size
 @pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 3]])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[24, 24], [13, 13], [1, 14]])
+@pytest.mark.parametrize("ifm_dim", [[24, 24], [15, 6], [13, 13], [1, 14]])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [6])
 # Stride

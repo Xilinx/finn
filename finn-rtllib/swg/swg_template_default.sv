@@ -36,28 +36,19 @@ module $TOP_MODULE_NAME$_controller #(
     logic signed [$clog2(LOOP_KW_ITERATIONS  +2)+1-1:0]  Counter_loop_kw   = LOOP_KW_ITERATIONS-1;
     logic signed [$clog2(LOOP_SIMD_ITERATIONS+2)+1-1:0]  Counter_loop_simd = LOOP_SIMD_ITERATIONS-1;
 
-    logic [INCR_BITWIDTH-1:0]  tail_incr_reg = 'x;
     assign  addr_incr = ADDR_INCREMENT_MAP[State];
-    assign  tail_incr = tail_incr_reg;
 
     // combinational logic for tail_incr generation
-    uwire tail_incr_inner_condition;
-    generate
-        if (IS_DEPTHWISE)
-            assign tail_incr_inner_condition = (Counter_loop_kh >= 0);
-        else
-            assign tail_incr_inner_condition = 0;
-    endgenerate
-
-    always @ (tail_incr_inner_condition, Counter_loop_w, Counter_loop_h) begin
+    uwire  tail_incr_inner_condition = IS_DEPTHWISE? (Counter_loop_kh >= 0) : 0;
+    always_comb begin : blkTail
         if (tail_incr_inner_condition)
-            tail_incr_reg = 1;
+            tail_incr = 1;
         else if (Counter_loop_w >= 0)
-            tail_incr_reg = $TAIL_INCR_W$;
+            tail_incr = $TAIL_INCR_W$;
         else if (Counter_loop_h >= 0)
-            tail_incr_reg = $TAIL_INCR_H$;
+            tail_incr = $TAIL_INCR_H$;
         else
-            tail_incr_reg = $TAIL_INCR_LAST$;
+            tail_incr = $TAIL_INCR_LAST$;
     end
 
     // combinational next state logic
@@ -132,13 +123,8 @@ module $TOP_MODULE_NAME$_cyclic_buffer_addressable #(
     $RAM_STYLE$ logic [WIDTH-1:0] Ram[DEPTH];
     logic [WIDTH-1:0]  Out = 'x;
     always_ff @(posedge clk) begin
-        if (!rst_n) begin
-            Out       <= 'x;
-        end
-        else begin
-            if (read_enable)  Out <= Ram[read_addr];
-            if (write_enable) Ram[write_addr] <= data_in;
-        end
+        if (read_enable)  Out <= Ram[read_addr];
+        if (write_enable) Ram[write_addr] <= data_in;
     end
     assign  data_out = Out;
 
@@ -213,7 +199,7 @@ module $TOP_MODULE_NAME$_impl #(
     logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1;
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = 0;
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  First_elem_next_window = 0;
-    logic        [$clog2(ELEM_PER_WINDOW)   -1:0]  K = 0;
+    logic        [$clog2(ELEM_PER_WINDOW)   -1:0]  Position_in_window = 0;
     logic        [$clog2(BUF_ELEM_TOTAL)+1  -1:0]  Window_buffer_read_addr_reg = 0;
     logic        [$clog2(BUF_ELEM_TOTAL)-1:0]      Window_buffer_write_addr_reg = 0;
 
@@ -255,7 +241,7 @@ module $TOP_MODULE_NAME$_impl #(
             Newest_buffered_elem <= -1;
             Current_elem <= 0;
             First_elem_next_window <= 0;
-            K <= 0;
+            Position_in_window <= 0;
             Window_buffer_read_addr_reg <= 0;
             Window_buffer_write_addr_reg <= 0;
             Fetching_done <= 0;
@@ -295,10 +281,10 @@ module $TOP_MODULE_NAME$_impl #(
                 Window_buffer_read_addr_reg <= ra + ra_correct;
 
                 //keep track where we are within a window
-                K <= (K != ELEM_PER_WINDOW - 1)? K+1 : 0;
+                Position_in_window <= (Position_in_window != ELEM_PER_WINDOW - 1)? Position_in_window+1 : 0;
 
                 //update first element of next window to allow buffer overwrite up until that point
-                if (K == 0)
+                if (Position_in_window == 0)
                     First_elem_next_window <= First_elem_next_window + tail_incr;
 
                 //check if this is the last write cycle (Writing_done will be true afterwards)

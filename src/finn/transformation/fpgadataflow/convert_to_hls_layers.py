@@ -132,7 +132,26 @@ class InferConvInpGen(Transformation):
                     )
                     graph.node.insert(node_ind, padding_node)
 
-                if self.use_rtl_variant:
+                is_kernel_pointwise = k_h == 1 and k_w == 1
+                is_square_image = ConvInpGen_idim_h == ConvInpGen_idim_w
+                is_square_kernel = k_h == k_w
+                is_equal_stride = stride_h == stride_w
+                is_1d_convolution = (k_h == 1 and k_w > 1 and ifm_dim_h == 1) or (
+                    k_h > 1 and k_w == 1 and ifm_dim_w == 1
+                )
+
+                # Ensure that RTL variant is not inserted for unsupported configuration
+                is_rtl_variant_compatible = True
+                if is_kernel_pointwise:
+                    is_rtl_variant_compatible = False
+                    if self.use_rtl_variant:
+                        warnings.warn(
+                            """%s : RTL ConvInpGen requested for unsupported
+                                configuration. Falling back to HLS implementation."""
+                            % n.name
+                        )
+
+                if self.use_rtl_variant and is_rtl_variant_compatible:
                     ConvInpGen_node = helper.make_node(
                         "ConvolutionInputGenerator_rtl",
                         [ConvInpGen_input],
@@ -151,19 +170,11 @@ class InferConvInpGen(Transformation):
                         inputDataType=dt.name,
                         outputDataType=dt.name,
                         depthwise=depthwise,
-                        name="ConvolutionInputGenerator_rtl" + n.name,
+                        name="ConvolutionInputGenerator_rtl_" + n.name,
                     )
                     graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 else:
                     # Ensure that only supported HLS nodes are inserted
-                    is_square_image = ConvInpGen_idim_h == ConvInpGen_idim_w
-                    is_square_kernel = k_h == k_w
-                    is_kernel_pointwise = k_h == 1 and k_w == 1
-                    is_equal_stride = stride_h == stride_w
-                    is_1d_convolution = (k_h == 1 and k_w > 1 and ifm_dim_h == 1) or (
-                        k_h > 1 and k_w == 1 and ifm_dim_w == 1
-                    )
-
                     if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
                         assert is_square_image, (
                             """%s : DownSampler currently only supports square
