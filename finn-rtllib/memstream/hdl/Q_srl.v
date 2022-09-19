@@ -69,7 +69,7 @@
 `define Q_srl
 
 
-module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count);
+module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count, maxcount);
 
    parameter depth = 16;   // - greatest #items in queue  (2 <= depth <= 256)
    parameter width = 16;   // - width of data (i_d, o_d)
@@ -90,7 +90,9 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count);
    wire               o_b;	// - output stream back-pressure
 
    output [addrwidth:0] count;  // - output number of elems in queue
+   output [addrwidth:0] maxcount;  // - maximum observed count since reset
 
+   reg [addrwidth:0] maxcount_reg;  // - maximum count seen until now
    reg    [addrwidth-1:0] addr, addr_, a_;		// - SRL16 address
 							//     for data output
    reg 			  shift_en_;			// - SRL16 shift enable
@@ -124,6 +126,7 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count);
    assign o_d = srlo;				// - output data from queue
    assign o_v = o_v_reg;			// - output valid if non-empty
    assign i_b = i_b_reg;			// - input bp if full
+   assign maxcount = maxcount_reg;
 
    assign i_r = !i_b;
    assign o_b = !o_r;
@@ -140,6 +143,7 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count);
          addr_full <= 0;
 	 o_v_reg   <= 0;
 	 i_b_reg   <= 1;
+	 maxcount_reg <= '0;
       end
       else begin
 	 state     <= state_;
@@ -147,6 +151,7 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count);
          addr_full <= addr_full_;
 	 o_v_reg   <= o_v_reg_;
 	 i_b_reg   <= i_b_reg_;
+	 maxcount_reg <= (count > maxcount_reg ? count : maxcount_reg);
       end
    end // always @ (posedge clock)
 
