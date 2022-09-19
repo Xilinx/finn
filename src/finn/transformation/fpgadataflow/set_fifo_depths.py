@@ -267,13 +267,15 @@ class InsertAndSetFIFODepths(Transformation):
 
         # gather FIFO names, check they are of expected depth
         fifos = {}
-        for node in model.graph.node:
-            if node.op_type == "StreamingFIFO":
-                fifos[node.name] = 0
-                node = getCustomOp(node)
-                # check depths and fix as necessary
-                if node.get_nodeattr("depth") != self.max_depth:
-                    node.set_nodeattr("depth", self.max_depth)
+        fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")
+        for node in fifo_nodes:
+            fifos[node.name] = 0
+            node = getCustomOp(node)
+            node.set_nodeattr("depth_monitor", 1)
+            node.set_nodeattr("impl_style", "rtl")
+            # check depths and fix as necessary
+            if node.get_nodeattr("depth") != self.max_depth:
+                node.set_nodeattr("depth", self.max_depth)
 
         # insert FIFOs and do all transformations for RTLsim
         model = model.transform(AnnotateCycles())
@@ -324,21 +326,6 @@ class InsertAndSetFIFODepths(Transformation):
             else:
                 set_signal(sim, "tvalid", 0)
 
-            # check/update all fifo counts
-            for key in fifos:
-                current_state = sim.internals["finn_design_i"][key]["inst"][
-                    key + "_" + key
-                ]["state"]
-                current_addr = sim.internals["finn_design_i"][key]["inst"][
-                    key + "_" + key
-                ]["addr"]
-                if current_state == 2:
-                    current_count = current_addr + 2
-                else:
-                    current_count = current_state
-                if current_count > fifos[key]:
-                    fifos[key] = current_count
-
             # since latency estimation is very pessimistic, detect first output
             # and fast-forward the sim
             if get_signal(sim, "tvalid") != 0 and not output_detected:
@@ -352,6 +339,12 @@ class InsertAndSetFIFODepths(Transformation):
                 "No output detected, calculated FIFO depths may not be correct"
             )
 
+        for ind, node in enumerate(fifo_nodes):
+            maxcount_name = "maxcount_%d" % ind
+            if ind == 0:
+                maxcount_name = "maxcount"
+            fifos[node.name] = sim[maxcount_name]
+
         # Apply depths back into the model;
         # also set in/outFIFODepth to zero for non-FIFO
         # nodes, preventing further FIFO insertion
@@ -364,6 +357,7 @@ class InsertAndSetFIFODepths(Transformation):
                 depth = optimize_depth(fifos[node.name])
                 node_inst = getCustomOp(node)
                 node_inst.set_nodeattr("depth", depth)
+                node_inst.set_nodeattr("depth_monitor", 0)
                 # Set FIFO implementation/ram styles
                 if depth > self.max_qsrl_depth:
                     node_inst.set_nodeattr("impl_style", "vivado")
