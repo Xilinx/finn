@@ -192,10 +192,11 @@ class InsertAndSetFIFODepths(Transformation):
     - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
                        Verilog FIFOs (Q_srl.v)
     - max_depth : how deep the "max"-sized FIFOs initially inserted will be
+                   if set to None, use the tensor size as the depth
     - swg_exception : call CapConvolutionFIFODepths to make convolution FIFOs
                         smaller where appropriate
     - vivado_ram_style : the StreamingFIFO.ram_style attribute to be used for
-                          large FIFOs implemented by Vivado
+                          large FIFOs implemented by Vivado afterwards
 
     Assumed input graph properties:
     - all nodes are fpgadataflow nodes
@@ -210,7 +211,7 @@ class InsertAndSetFIFODepths(Transformation):
     necessary to insert FIFOs between them to prevent stalls due to bursty
     behavior. The sizes of those FIFOs are hard to predict analytically, so
     we do the following:
-    - insert very deep (default 16k deep) FIFOs between all fpgadataflow nodes
+    - insert deep (=tensor size) FIFOs between all fpgadataflow nodes
     - create stitched design
     - run through rtlsim with stream of multiple random input images (to fill pipeline)
     - keep track of observed maximum occupancy for each FIFO during rtlsim
@@ -223,7 +224,7 @@ class InsertAndSetFIFODepths(Transformation):
         fpgapart,
         clk_ns=10.0,
         max_qsrl_depth=256,
-        max_depth=2**14,
+        max_depth=None,
         swg_exception=True,
         vivado_ram_style="auto",
     ):
@@ -236,6 +237,9 @@ class InsertAndSetFIFODepths(Transformation):
         self.vivado_ram_style = vivado_ram_style
 
     def apply(self, model):
+        # these optypes may potentially use external weights
+        # we'll temporarily change them to use decoupled mode for FIFO sizing
+        extw_optypes = ["MatrixVectorActivation", "VectorVectorActivation"]
         # change external to decoupled and warn user
         # this way we are sure we have exactly one input/output
         modified_fc_nodes = []
@@ -246,9 +250,15 @@ class InsertAndSetFIFODepths(Transformation):
             )
             assert node.op_type != "StreamingFIFO", "Found existing StreamingFIFO node"
             node = getCustomOp(node)
-            node.set_nodeattr("inFIFODepth", self.max_depth)
-            node.set_nodeattr("outFIFODepth", self.max_depth)
-            if node.onnx_node.op_type == "MatrixVectorActivation":
+            if self.max_depth is not None:
+                node.set_nodeattr("inFIFODepth", self.max_depth)
+                node.set_nodeattr("outFIFODepth", self.max_depth)
+            else:
+                i_depth = np.prod(node.get_folded_input_shape()[:-1])
+                o_depth = np.prod(node.get_folded_output_shape()[:-1])
+                node.set_nodeattr("inFIFODepth", i_depth)
+                node.set_nodeattr("outFIFODepth", o_depth)
+            if node.onnx_node.op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
                     modified_fc_nodes.append(node.onnx_node.name)
@@ -274,7 +284,9 @@ class InsertAndSetFIFODepths(Transformation):
             node.set_nodeattr("depth_monitor", 1)
             node.set_nodeattr("impl_style", "rtl")
             # check depths and fix as necessary
-            if node.get_nodeattr("depth") != self.max_depth:
+            if (self.max_depth is not None) and (
+                node.get_nodeattr("depth") != self.max_depth
+            ):
                 node.set_nodeattr("depth", self.max_depth)
 
         # insert FIFOs and do all transformations for RTLsim
@@ -370,9 +382,9 @@ class InsertAndSetFIFODepths(Transformation):
             else:
                 getCustomOp(node).set_nodeattr("inFIFODepth", 0)
                 getCustomOp(node).set_nodeattr("outFIFODepth", 0)
-                # for every FC node we changed from external to decoupled,
+                # for every extw node we changed from external to decoupled,
                 # change back and reset implementation
-                if node.op_type == "MatrixVectorActivation":
+                if node.op_type in extw_optypes:
                     if node.name in modified_fc_nodes:
                         node_inst = getCustomOp(node)
                         node_inst.set_nodeattr("mem_mode", "external")
