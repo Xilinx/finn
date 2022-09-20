@@ -157,8 +157,8 @@ def throughput_test_rtlsim(model, batchsize=100):
     res["cycles"] = cycles
     res["runtime[ms]"] = runtime_s * 1000
     res["throughput[images/s]"] = batchsize / runtime_s
-    res["DRAM_in_bandwidth[Mb/s]"] = i_bytes * 0.000001 / runtime_s
-    res["DRAM_out_bandwidth[Mb/s]"] = o_bytes * 0.000001 / runtime_s
+    res["DRAM_in_bandwidth[MB/s]"] = i_bytes * 0.000001 / runtime_s
+    res["DRAM_out_bandwidth[MB/s]"] = o_bytes * 0.000001 / runtime_s
     res["fclk[mhz]"] = fclk_mhz
     res["N"] = batchsize
 

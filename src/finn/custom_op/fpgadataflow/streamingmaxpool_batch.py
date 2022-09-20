@@ -138,14 +138,22 @@ class StreamingMaxPool_Batch(HLSCustomOp):
     def get_exp_cycles(self):
         # derived from StreamingMaxPool_Batch loop nest
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
-        _, _, ofm_dim_w, nf, _ = self.get_folded_output_shape()
 
+        warnings.warn(
+            """Estimated latency for layer {} can be lower than
+             actual latency!""".format(
+                self.onnx_node.name
+            )
+        )
         if self.is_1d():
-            exp_cycles = ofm_dim_w * nf * (k[1] + 1)
+            _, _, _, nf, _ = self.get_folded_output_shape()
+            ceil_mode = self.get_nodeattr("CeilMode")
+            ofm_dim = compute_pool_output_dim(ifm_dim[1], k[1], k[1], 0, ceil_mode)
+            exp_cycles = ofm_dim * nf * (k[1] + 1)
             return int(exp_cycles)
         else:
             # TODO: adjust inaccurate formula
-            return int(ifm_dim[1] * (ifm_dim[1] + (ifm_dim[1] / k[1])))
+            return int(ifm_dim[1] * ifm_dim[1] * (1 + 1 / (k[1] * k[1])))
 
     def get_instream_width(self):
         dt_bits = self.get_input_datatype().bitwidth()
