@@ -132,16 +132,25 @@ class Thresholding_Bin_Search(HLSCustomOp):
         return 0
 
     def get_folded_input_shape(self):
-        return tuple([] + [])
+        fold = self.calc_tmem()
+        pe = self.get_nodeattr("PE")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        folded_input_shape = tuple(vecs + [fold, pe])
+        return folded_input_shape
 
     def get_folded_output_shape(self):
-        return tuple([] + [])
+        # same shape as input
+        return self.get_folded_input_shape()
 
     def get_normal_input_shape(self):
-        return tuple([] + [])
+        num_channels = self.get_nodeattr("NumChannels")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+        normal_input_shape = tuple(vecs + [num_channels])
+        return normal_input_shape
 
     def get_normal_output_shape(self):
-        return tuple([] + [])
+        # same shape as input
+        return self.get_normal_input_shape()
 
     def get_number_output_values(self):
         return 0
