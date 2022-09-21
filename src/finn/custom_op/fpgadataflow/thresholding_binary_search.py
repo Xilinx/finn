@@ -88,7 +88,9 @@ class Thresholding_Bin_Search(HLSCustomOp):
         return my_attrs
 
     def calc_tmem(self):
-        return 0
+        num_channels = self.get_nodeattr("NumChannels")
+        pe = self.get_nodeattr("PE")
+        return num_channels // pe
 
     def make_shape_compatible_op(self, model):
         return []
