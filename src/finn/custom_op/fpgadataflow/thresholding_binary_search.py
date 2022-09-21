@@ -26,6 +26,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+from qonnx.core.datatype import DataType
+
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 
 """@package thresholding_binary_search
@@ -108,13 +110,14 @@ class Thresholding_Bin_Search(HLSCustomOp):
         return 0
 
     def get_input_datatype(self):
-        return None
+        return DataType[self.get_nodeattr("inputDataType")]
 
     def get_output_datatype(self):
-        return None
+        return DataType[self.get_nodeattr("outputDataType")]
 
     def get_weight_datatype(self):
-        return None
+        """The term 'weights' and 'thresholds' are used interchangably in this class."""
+        return DataType[self.get_nodeattr("weightDataType")]
 
     def minimize_accumulator_width(self, model):
         return None
