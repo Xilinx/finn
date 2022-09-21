@@ -47,7 +47,45 @@ class Thresholding_Bin_Search(HLSCustomOp):
         super().__init__(onnx_node)
 
     def get_nodeattr_types(self):
-        return {}
+        my_attrs = {
+            # parallelization; channels thresholded per cycle
+            "PE": ("i", True, 0),
+            # number of channels (each may have different thresholds)
+            "NumChannels": ("i", True, 0),
+            # number of steps in thresholding function. Used only in decoupled mode
+            "numSteps": ("i", True, 1),
+            # string defining memory type
+            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
+            # FINN DataTypes for inputs, outputs
+            "inputDataType": ("s", True, ""),
+            "weightDataType": ("s", True, ""),
+            "outputDataType": ("s", True, ""),
+            # input and output FIFO depths
+            "inFIFODepth": ("i", False, 0),
+            "outFIFODepth": ("i", False, 0),
+            # number of input vectors, examples:
+            # [1] is a single vector (like a FC layer with batch=1)
+            # [4] is four vectors (like a FC layer with batch=4)
+            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
+            "numInputVectors": ("ints", False, [1]),
+            # memory mode for the thresholds
+            # const -- embedded thresholds, default
+            # decoupled -- streaming thresholds with streamer packaged inside IP
+            "mem_mode": ("s", False, "const", {"const", "decoupled"}),
+            # (mem_mode = decoupled only) whether weights (thresholds) will be
+            # writable through an AXI-lite interface during runtime
+            # 1 for enabled, 0 for disabled.
+            # see finn-rtllib/memstream/doc/README for more about the memory
+            # address map used for writable weights
+            # IMPORTANT: After using AXI lite to either read or write the weights,
+            # always "flush" the accelerator by first passing a dummy input
+            # vector through the accelerator. This will get rid of any old
+            # weight data from the weight FIFOs.
+            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+            "gen_top_module": ("s", False, ""),
+        }
+        my_attrs.update(super().get_nodeattr_types())
+        return my_attrs
 
     def calc_tmem(self):
         return 0
