@@ -150,6 +150,7 @@ class HLSCustomOp(CustomOp):
         intf_names["m_axis"] = [("out_" + sname, self.get_outstream_width_padded())]
         intf_names["aximm"] = []
         intf_names["axilite"] = []
+        intf_names["ap_none"] = []
         return intf_names
 
     def get_verilog_top_filename(self):
