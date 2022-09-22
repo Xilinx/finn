@@ -1662,6 +1662,7 @@ class InferConcatLayer(Transformation):
                     ElemsPerStream=elems_per_stream,
                     inputDataType=dt0.name,
                     numInputVectors=inp_vec,
+                    inFIFODepths=[2] * len(node.input),
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
