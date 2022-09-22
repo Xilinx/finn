@@ -73,21 +73,21 @@ class DownSampler(HLSCustomOp):
         exp_cycles = channels / simd * batch_size * idim * idim
         return int(exp_cycles)
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         idim = self.get_nodeattr("ImgDim")
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
         ishape = (batch, idim, idim, num_ch)
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         odim = self.get_downsampled_odim()
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
         oshape = (batch, odim, odim, num_ch)
         return oshape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         normal_ishape = list(self.get_normal_input_shape())
         ifm_ch = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
@@ -96,7 +96,7 @@ class DownSampler(HLSCustomOp):
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         normal_oshape = list(self.get_normal_output_shape())
         ifm_ch = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
@@ -129,21 +129,21 @@ class DownSampler(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]
         return ret
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output. (Same as input datatype)"""
         return self.get_input_datatype()
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
         return ibits * simd
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         obits = self.get_output_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
         return obits * simd

@@ -73,10 +73,10 @@ class AddStreams_Batch(HLSCustomOp):
         ishape = tuple(vecs + [ich // pe, pe])
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
     def make_shape_compatible_op(self, model):
@@ -127,11 +127,11 @@ class AddStreams_Batch(HLSCustomOp):
 
         return info_messages
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         # we need to set output datatype to the next larger int or uint
         # enhancement: consider specifying w/ explicit outputDataType attribute
@@ -142,14 +142,14 @@ class AddStreams_Batch(HLSCustomOp):
         else:
             return DataType.get_smallest_possible(2 * idt.max())
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         """Returns input stream width."""
         ibits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns output stream width."""
         obits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")

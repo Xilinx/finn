@@ -409,16 +409,16 @@ class MatrixVectorActivation(HLSCustomOp):
         """Returns FINN DataType of weights."""
         return DataType[self.get_nodeattr("weightDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         in_width = i_bits * self.get_nodeattr("SIMD")
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         out_width = o_bits * self.get_nodeattr("PE")
         return out_width
@@ -474,7 +474,7 @@ class MatrixVectorActivation(HLSCustomOp):
 
         return folded_input_shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         nf = mh // pe
@@ -482,13 +482,13 @@ class MatrixVectorActivation(HLSCustomOp):
         folded_output_shape = tuple(vecs + [nf, pe])
         return folded_output_shape
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         mw = self.get_nodeattr("MW")
         vecs = list(self.get_nodeattr("numInputVectors"))
         normal_input_shape = tuple(vecs + [mw])
         return normal_input_shape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         mh = self.get_nodeattr("MH")
         vecs = list(self.get_nodeattr("numInputVectors"))
         normal_output_shape = tuple(vecs + [mh])

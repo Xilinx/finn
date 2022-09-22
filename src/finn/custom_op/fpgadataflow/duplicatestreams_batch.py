@@ -61,13 +61,13 @@ class DuplicateStreams_Batch(HLSCustomOp):
     def get_num_output_streams(self):
         return self.get_nodeattr("NumOutputStreams")
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ch = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         ishape = tuple(vecs + [ch])
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ch = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         vecs = list(self.get_nodeattr("numInputVectors"))
@@ -138,22 +138,22 @@ class DuplicateStreams_Batch(HLSCustomOp):
 
         return info_messages
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         """Returns input stream width."""
         ibits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns output stream width."""
         obits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")

@@ -106,10 +106,10 @@ class IODMA(HLSCustomOp):
         ishape = tuple(vecs + [num_ch])
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         if self.get_nodeattr("direction") == "in":
             raise ValueError("Folded input shape not defined for input IODMA")
         else:
@@ -126,7 +126,7 @@ class IODMA(HLSCustomOp):
             shape.append(elems_per_word)
             return tuple(shape)
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         if self.get_nodeattr("direction") == "out":
             raise ValueError("Folded output shape not defined for output IODMA")
         else:
@@ -166,15 +166,15 @@ class IODMA(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("dataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output. (Same as input datatype)"""
         return self.get_input_datatype()
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         if self.get_nodeattr("direction") == "in":
             return self.get_nodeattr("intfWidth")
         elif self.get_nodeattr("direction") == "out":
@@ -182,7 +182,7 @@ class IODMA(HLSCustomOp):
         else:
             raise ValueError("Invalid IODMA direction, please set to in or out")
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         if self.get_nodeattr("direction") == "out":
             return self.get_nodeattr("intfWidth")
         elif self.get_nodeattr("direction") == "in":

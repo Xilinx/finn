@@ -206,7 +206,7 @@ class StreamingFIFO(HLSCustomOp):
         self.set_nodeattr("ip_vlnv", vlnv)
         self.code_gen_dict.clear()
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         depth = self.get_adjusted_depth()
         # depth has to be between 2 and 256 with the current
         # StreamingFIFO implementation
@@ -237,22 +237,22 @@ class StreamingFIFO(HLSCustomOp):
 
         return normal_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()

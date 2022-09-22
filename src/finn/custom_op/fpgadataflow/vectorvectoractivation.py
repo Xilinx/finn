@@ -176,7 +176,7 @@ class VectorVectorActivation(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
@@ -184,21 +184,21 @@ class VectorVectorActivation(HLSCustomOp):
         """Returns FINN DataType of weights."""
         return DataType[self.get_nodeattr("weightDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         in_width = i_bits * self.get_nodeattr("PE")
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         out_width = o_bits * self.get_nodeattr("PE")
         return out_width
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         k_h, k_w = self.get_nodeattr("Kernel")
         sf = k_h * k_w
         dim_h, dim_w = self.get_nodeattr("Dim")
@@ -208,7 +208,7 @@ class VectorVectorActivation(HLSCustomOp):
         folded_input_shape = tuple([1, dim_h, dim_w, sf * nf, pe])
         return folded_input_shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
         nf = ch // pe
@@ -216,14 +216,14 @@ class VectorVectorActivation(HLSCustomOp):
         folded_output_shape = tuple([1, dim_h, dim_w, nf, pe])
         return folded_output_shape
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         dim_h, dim_w = self.get_nodeattr("Dim")
         ch = self.get_nodeattr("Channels")
         k_h, k_w = self.get_nodeattr("Kernel")
         normal_input_shape = tuple([1, dim_h, dim_w, k_h * k_w * ch])
         return normal_input_shape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         ch = self.get_nodeattr("Channels")
         dim_h, dim_w = self.get_nodeattr("Dim")
         normal_output_shape = tuple([1, dim_h, dim_w, ch])
