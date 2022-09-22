@@ -203,12 +203,8 @@ class InsertFIFO(Transformation):
                     n_input = first_node.input[inp_ind]
                     n0 = getCustomOp(first_node)
                     # determine fifo node attributes
-                    if inp_ind == 0:
-                        fld_shape = n0.get_folded_input_shape()
-                        dtype = n0.get_input_datatype()
-                    else:
-                        fld_shape = n0.get_folded_input_shape(inp_ind)
-                        dtype = n0.get_input_datatype(inp_ind)
+                    fld_shape = n0.get_folded_input_shape(inp_ind)
+                    dtype = n0.get_input_datatype(inp_ind)
                     fifo_depth = n0.get_nodeattr("inFIFODepths")[inp_ind]
 
                     if fifo_depth <= 2:
