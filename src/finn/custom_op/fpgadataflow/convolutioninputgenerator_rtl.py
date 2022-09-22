@@ -453,7 +453,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # Default implementation style for MMV_out = 1: addressable cyclic buffer
         # Computing incremental addressing scheme directly..
         template_path = (
-            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_default.sv"
+            os.environ["FINN_ROOT"]
+            + "/finn-rtllib/swg/swg_template_default_dynamic.sv"
+            # TODO: add switch
         )
         code_gen_dict = {}
 
@@ -585,11 +587,24 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_SIMD"]
             loop_simd_iterations -= 1  # -1 because state is initial state
 
-        code_gen_dict["$LOOP_H_ITERATIONS$"] = [str(loop_h_iterations - 1)]
-        code_gen_dict["$LOOP_W_ITERATIONS$"] = [str(loop_w_iterations - 1)]
-        code_gen_dict["$LOOP_KH_ITERATIONS$"] = [str(loop_kh_iterations - 1)]
-        code_gen_dict["$LOOP_KW_ITERATIONS$"] = [str(loop_kw_iterations - 1)]
-        code_gen_dict["$LOOP_SIMD_ITERATIONS$"] = [str(loop_simd_iterations - 1)]
+        code_gen_dict["$LOOP_H_ITERATIONS$"] = [str(loop_h_iterations - 2)]
+        code_gen_dict["$LOOP_W_ITERATIONS$"] = [str(loop_w_iterations - 2)]
+        code_gen_dict["$LOOP_KH_ITERATIONS$"] = [str(loop_kh_iterations - 2)]
+        code_gen_dict["$LOOP_KW_ITERATIONS$"] = [str(loop_kw_iterations - 2)]
+        code_gen_dict["$LOOP_SIMD_ITERATIONS$"] = [str(loop_simd_iterations - 2)]
+
+        cntr_bitwidth = math.ceil(
+            math.log2(
+                max(
+                    loop_h_iterations - 2 + 1,
+                    loop_w_iterations - 2 + 1,
+                    loop_kh_iterations - 2 + 1,
+                    loop_kw_iterations - 2 + 1,
+                    loop_simd_iterations - 2 + 1,
+                )
+            )
+        )
+        code_gen_dict["$CNTR_BITWIDTH$"] = [str(cntr_bitwidth)]
 
         incr_bitwidth = 1 + math.ceil(
             math.log2(
@@ -621,6 +636,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 abs(addr_incr_end_row),
             )
         ]
+        code_gen_dict["$INCR_HEAD_SIMD$"] = [str(addr_incr_end_simd)]
+        code_gen_dict["$INCR_HEAD_KW$"] = [str(addr_incr_end_window_elem)]
+        code_gen_dict["$INCR_HEAD_KH$"] = [str(addr_incr_end_window_row)]
+        code_gen_dict["$INCR_HEAD_W$"] = [str(addr_incr_end_window)]
+        code_gen_dict["$INCR_HEAD_H$"] = [str(addr_incr_end_row)]
 
         code_gen_dict["$ELEM_PER_WINDOW$"] = [str(elem_per_window)]
         code_gen_dict["$SIMD$"] = [str(simd)]
@@ -700,14 +720,21 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         with open(template_path, "r") as f:
             template = f.read()
         with open(
-            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_wrapper.v", "r"
+            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_wrapper_dynamic.v",
+            "r"
+            # TODO: add switch
         ) as f:
             template_wrapper = f.read()
+        with open(
+            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_axilite.v", "r"
+        ) as f:
+            template_axilite = f.read()
         for key in code_gen_dict:
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(code_gen_dict[key])
             template = template.replace(key, code_gen_line)
             template_wrapper = template_wrapper.replace(key, code_gen_line)
+            template_axilite = template_axilite.replace(key, code_gen_line)
         with open(
             os.path.join(
                 code_gen_dir, self.get_nodeattr("gen_top_module") + "_impl.sv"
@@ -722,6 +749,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "w",
         ) as f:
             f.write(template_wrapper)
+        with open(
+            os.path.join(
+                code_gen_dir, self.get_nodeattr("gen_top_module") + "_axilite.v"
+            ),
+            "w",
+        ) as f:
+            f.write(template_axilite)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -742,6 +776,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         verilog_files = [
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
+            self.get_nodeattr("gen_top_module") + "_axilite.v",
         ]
 
         # build the Verilator emu library
@@ -773,11 +808,86 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     code_gen_dir, self.get_nodeattr("gen_top_module") + "_impl.sv"
                 )
             ),
+            "add_files -norecurse %s"
+            % (
+                os.path.join(
+                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_axilite.v"
+                )
+            ),
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name),
         ]
 
         return cmd
+
+    def get_verilog_top_module_intf_names(self):
+        # Overload default HLSCustomOp implementation to add axilite control IF
+        """Return a dict of names of input and output interfaces.
+        The keys reflect the protocols each interface implements:
+        'clk', 'rst', 'm_axis', 's_axis', 'aximm', 'axilite'.
+        Values are lists of tuples (axis, aximm) or names (axilite):
+        'axis' tuples correspond to the list of node inputs in order,
+        each tuple is (interface_name, interface_width_bits).
+        axilite always assumed to be 32 bits and is not tuple (name only).
+        Each block must have at most one aximm and one axilite."""
+        intf_names = {}
+        intf_names["clk"] = ["ap_clk"]
+        intf_names["rst"] = ["ap_rst_n"]
+        sname = self.hls_sname()
+        intf_names["s_axis"] = [("in0_" + sname, self.get_instream_width_padded())]
+        intf_names["m_axis"] = [("out_" + sname, self.get_outstream_width_padded())]
+        intf_names["aximm"] = []
+        intf_names["axilite"] = ["s_axi_cfg"]
+        return intf_names
+
+    def get_dynamic_config(self, ifm_dim, stride=None, dilation=None):
+        """Returns a configuration dict to re-configure FM dimension during
+        runtime. Stride and dilation can also be changed. Certain restrictions
+        apply (e.g. component must be synthesized for largest buffer size)."""
+        # TODO: Make a standalone version to call from Python driver?
+        # TODO: Add more safeguards
+
+        k = self.get_nodeattr("ConvKernelDim")
+        if stride is None:
+            stride = self.get_nodeattr("Stride")
+        if dilation is None:
+            dilation = self.get_nodeattr("Dilation")
+
+        k_h, k_w = k
+        stride_h, stride_w = stride
+        dilation_h, dilation_w = dilation
+        ifm_dim_h, ifm_dim_w = ifm_dim
+        ofm_dim_h = compute_conv_output_dim(ifm_dim_h, k_h, stride_h, 0, dilation_h)
+        ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
+        ofm_dim = [ofm_dim_h, ofm_dim_w]
+
+        # update attributes
+        self.set_nodeattr("IFMDim", ifm_dim)
+        self.set_nodeattr("OFMDim", ofm_dim)
+        self.set_nodeattr("Stride", stride)
+        self.set_nodeattr("Dilation", dilation)
+
+        # (re-)call codegen and extract new values
+        # each setting is mapped to an axi-lite register address
+        template_path, code_gen_dict = self.prepare_codegen_default()
+        config = {
+            "cfg_cntr_simd": (1 * 4, int(code_gen_dict["$LOOP_SIMD_ITERATIONS$"][0])),
+            "cfg_cntr_kw": (2 * 4, int(code_gen_dict["$LOOP_KW_ITERATIONS$"][0])),
+            "cfg_cntr_kh": (3 * 4, int(code_gen_dict["$LOOP_KH_ITERATIONS$"][0])),
+            "cfg_cntr_w": (4 * 4, int(code_gen_dict["$LOOP_W_ITERATIONS$"][0])),
+            "cfg_cntr_h": (5 * 4, int(code_gen_dict["$LOOP_H_ITERATIONS$"][0])),
+            "cfg_incr_head_simd": (6 * 4, int(code_gen_dict["$INCR_HEAD_SIMD$"][0])),
+            "cfg_incr_head_kw": (7 * 4, int(code_gen_dict["$INCR_HEAD_KW$"][0])),
+            "cfg_incr_head_kh": (8 * 4, int(code_gen_dict["$INCR_HEAD_KH$"][0])),
+            "cfg_incr_head_w": (9 * 4, int(code_gen_dict["$INCR_HEAD_W$"][0])),
+            "cfg_incr_head_h": (10 * 4, int(code_gen_dict["$INCR_HEAD_H$"][0])),
+            "cfg_incr_tail_w": (11 * 4, int(code_gen_dict["$TAIL_INCR_W$"][0])),
+            "cfg_incr_tail_h": (12 * 4, int(code_gen_dict["$TAIL_INCR_H$"][0])),
+            "cfg_incr_tail_last": (13 * 4, int(code_gen_dict["$TAIL_INCR_LAST$"][0])),
+            "cfg_last_read": (14 * 4, int(code_gen_dict["$LAST_READ_ELEM$"][0])),
+            "cfg_last_write": (15 * 4, int(code_gen_dict["$LAST_WRITE_ELEM$"][0])),
+        }
+        return config
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Normally: Generates C++ code and tcl script for IP generation.

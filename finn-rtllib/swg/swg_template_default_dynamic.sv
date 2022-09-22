@@ -5,7 +5,9 @@ module $TOP_MODULE_NAME$_controller #(
     int unsigned  LOOP_KW_ITERATIONS   = $LOOP_KW_ITERATIONS$,
     int unsigned  LOOP_SIMD_ITERATIONS = $LOOP_SIMD_ITERATIONS$,
 
-    int unsigned  INCR_BITWIDTH = $INCR_BITWIDTH$,
+    int unsigned  CNTR_BITWIDTH,
+    int unsigned  INCR_BITWIDTH,
+
     bit [INCR_BITWIDTH-1:0]  ADDR_INCREMENT_MAP[6] = $ADDR_INCREMENT_MAP$,
 
     bit IS_DEPTHWISE = $IS_DEPTHWISE$
@@ -15,8 +17,57 @@ module $TOP_MODULE_NAME$_controller #(
 
     input   logic  advance,
     output  logic [INCR_BITWIDTH-1:0]  addr_incr,
-    output  logic [INCR_BITWIDTH-1:0]  tail_incr
+    output  logic [INCR_BITWIDTH-1:0]  tail_incr,
+
+    input logic                     cfg_valid,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_simd,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_kw,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_kh,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_w,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_h,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_simd,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_kw,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_kh,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_w,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_h,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_tail_w,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_tail_h,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_tail_last
 );
+
+    // (dynamic) configuration registers
+    logic [CNTR_BITWIDTH-1:0] Cfg_cntr_simd      = LOOP_SIMD_ITERATIONS;
+    logic [CNTR_BITWIDTH-1:0] Cfg_cntr_kw        = LOOP_KW_ITERATIONS;
+    logic [CNTR_BITWIDTH-1:0] Cfg_cntr_kh        = LOOP_KH_ITERATIONS;
+    logic [CNTR_BITWIDTH-1:0] Cfg_cntr_w         = LOOP_W_ITERATIONS;
+    logic [CNTR_BITWIDTH-1:0] Cfg_cntr_h         = LOOP_H_ITERATIONS;
+    logic [INCR_BITWIDTH-1:0] Cfg_incr_head_simd = ADDR_INCREMENT_MAP[1];
+    logic [INCR_BITWIDTH-1:0] Cfg_incr_head_kw   = ADDR_INCREMENT_MAP[2];
+    logic [INCR_BITWIDTH-1:0] Cfg_incr_head_kh   = ADDR_INCREMENT_MAP[3];
+    logic [INCR_BITWIDTH-1:0] Cfg_incr_head_w    = ADDR_INCREMENT_MAP[4];
+    logic [INCR_BITWIDTH-1:0] Cfg_incr_head_h    = ADDR_INCREMENT_MAP[5];
+    logic [INCR_BITWIDTH-1:0] Cfg_incr_tail_w    = $TAIL_INCR_W$;
+    logic [INCR_BITWIDTH-1:0] Cfg_incr_tail_h    = $TAIL_INCR_H$;
+    logic [INCR_BITWIDTH-1:0] Cfg_incr_tail_last = $TAIL_INCR_LAST$;
+
+    // configuration reset/set logic
+    always_ff @ (posedge clk) begin
+        if(cfg_valid) begin
+            Cfg_cntr_simd      <= cfg_cntr_simd;
+            Cfg_cntr_kw        <= cfg_cntr_kw;
+            Cfg_cntr_kh        <= cfg_cntr_kh;
+            Cfg_cntr_w         <= cfg_cntr_w;
+            Cfg_cntr_h         <= cfg_cntr_h;
+            Cfg_incr_head_simd <= cfg_incr_head_simd;
+            Cfg_incr_head_kw   <= cfg_incr_head_kw;
+            Cfg_incr_head_kh   <= cfg_incr_head_kh;
+            Cfg_incr_head_w    <= cfg_incr_head_w;
+            Cfg_incr_head_h    <= cfg_incr_head_h;
+            Cfg_incr_tail_w    <= cfg_incr_tail_w;
+            Cfg_incr_tail_h    <= cfg_incr_tail_h;
+            Cfg_incr_tail_last <= cfg_incr_tail_last;
+        end
+    end
 
     // state and counters
     typedef enum logic [2:0] {
@@ -36,7 +87,17 @@ module $TOP_MODULE_NAME$_controller #(
     logic signed [$clog2(LOOP_KW_ITERATIONS  +2)+1-1:0]  Counter_loop_kw   = LOOP_KW_ITERATIONS;
     logic signed [$clog2(LOOP_SIMD_ITERATIONS+2)+1-1:0]  Counter_loop_simd = LOOP_SIMD_ITERATIONS;
 
-    assign  addr_incr = ADDR_INCREMENT_MAP[State];
+    //assign  addr_incr = ADDR_INCREMENT_MAP[State];
+    always_comb begin : blkHead
+        case (State)
+            0 : addr_incr = 0;
+            1 : addr_incr = Cfg_incr_head_simd;
+            2 : addr_incr = Cfg_incr_head_kw;
+            3 : addr_incr = Cfg_incr_head_kh;
+            4 : addr_incr = Cfg_incr_head_w;
+            5 : addr_incr = Cfg_incr_head_h;
+        endcase
+    end
 
     // combinational logic for tail_incr generation
     uwire  tail_incr_inner_condition = IS_DEPTHWISE? (Counter_loop_kh >= 0) : 0;
@@ -44,11 +105,11 @@ module $TOP_MODULE_NAME$_controller #(
         if (tail_incr_inner_condition)
             tail_incr = 1;
         else if (Counter_loop_w >= 0)
-            tail_incr = $TAIL_INCR_W$;
+            tail_incr = Cfg_incr_tail_w;
         else if (Counter_loop_h >= 0)
-            tail_incr = $TAIL_INCR_H$;
+            tail_incr = Cfg_incr_tail_h;
         else
-            tail_incr = $TAIL_INCR_LAST$;
+            tail_incr = Cfg_incr_tail_last;
     end
 
     // combinational next state logic
@@ -71,29 +132,29 @@ module $TOP_MODULE_NAME$_controller #(
     always_ff @ (posedge clk) begin
         if(!rst_n) begin
             State <= $INNERMOST_STATE$;
-            Counter_loop_h    <= LOOP_H_ITERATIONS;
-            Counter_loop_w    <= LOOP_W_ITERATIONS;
-            Counter_loop_kh   <= LOOP_KH_ITERATIONS;
-            Counter_loop_kw   <= LOOP_KW_ITERATIONS;
-            Counter_loop_simd <= LOOP_SIMD_ITERATIONS;
+            Counter_loop_h    <= Cfg_cntr_h;
+            Counter_loop_w    <= Cfg_cntr_w;
+            Counter_loop_kh   <= Cfg_cntr_kh;
+            Counter_loop_kw   <= Cfg_cntr_kw;
+            Counter_loop_simd <= Cfg_cntr_simd;
         end
         else if(advance) begin
             State <= state_next;
             if (State == $INNERMOST_STATE$) begin
                 if(Counter_loop_simd >= 0)  Counter_loop_simd <= Counter_loop_simd-1;
                 else begin
-                    Counter_loop_simd <= LOOP_SIMD_ITERATIONS;
+                    Counter_loop_simd <= Cfg_cntr_simd;
                     if(Counter_loop_kw >= 0)  Counter_loop_kw <= Counter_loop_kw-1;
                     else begin
-                        Counter_loop_kw <= LOOP_KW_ITERATIONS;
+                        Counter_loop_kw <= Cfg_cntr_kw;
                         if(Counter_loop_kh >= 0)  Counter_loop_kh <= Counter_loop_kh-1;
                         else begin
-                            Counter_loop_kh <= LOOP_KH_ITERATIONS;
+                            Counter_loop_kh <= Cfg_cntr_kh;
                             if(Counter_loop_w >= 0)  Counter_loop_w <= Counter_loop_w-1;
                             else begin
-                                Counter_loop_w <= LOOP_W_ITERATIONS;
+                                Counter_loop_w <= Cfg_cntr_w;
                                 if(Counter_loop_h >= 0)  Counter_loop_h <= Counter_loop_h-1;
-                                else  Counter_loop_h <= LOOP_H_ITERATIONS;
+                                else  Counter_loop_h <= Cfg_cntr_h;
                             end
                         end
                     end
@@ -139,7 +200,9 @@ module $TOP_MODULE_NAME$_impl #(
     int  LAST_WRITE_ELEM = $LAST_WRITE_ELEM$,
     int  BUF_ELEM_TOTAL = $BUF_ELEM_TOTAL$,
     int  ELEM_PER_WINDOW = $ELEM_PER_WINDOW$,
-    int  INCR_BITWIDTH = $INCR_BITWIDTH$
+
+    int unsigned  CNTR_BITWIDTH,
+    int unsigned  INCR_BITWIDTH
 )(
     input   logic  ap_clk,
     input   logic  ap_rst_n,
@@ -150,12 +213,41 @@ module $TOP_MODULE_NAME$_impl #(
 
     output  logic  out_V_V_TVALID,
     input   logic  out_V_V_TREADY,
-    output  logic [BIT_WIDTH * SIMD * MMV_OUT-1:0]  out_V_V_TDATA
+    output  logic [BIT_WIDTH * SIMD * MMV_OUT-1:0]  out_V_V_TDATA,
+
+    input logic                     cfg_valid,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_simd,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_kw,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_kh,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_w,
+    input logic [CNTR_BITWIDTH-1:0] cfg_cntr_h,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_simd,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_kw,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_kh,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_w,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_head_h,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_tail_w,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_tail_h,
+    input logic [INCR_BITWIDTH-1:0] cfg_incr_tail_last,
+    input logic [31:0]              cfg_last_read, //todo: reduce bitwidth to $clog2(LAST_READ_ELEM+1)
+    input logic [31:0]              cfg_last_write
 );
     // derived Constants
     localparam int unsigned  BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN;
     localparam int unsigned  BUF_OUT_ELEM_WIDTH = BIT_WIDTH * SIMD;
     localparam int unsigned  BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT;
+
+    // (dynamic) configuration registers
+    logic [31:0] Cfg_last_read  = LAST_READ_ELEM;
+    logic [31:0] Cfg_last_write = LAST_WRITE_ELEM;
+
+    // configuration reset/set logic
+    always_ff @ (posedge ap_clk) begin
+        if(cfg_valid) begin
+            Cfg_last_read  <= cfg_last_read;
+            Cfg_last_write <= cfg_last_write;
+        end
+    end
 
    // main buffer instantiation
     uwire [BUF_IN_WIDTH -1:0]  window_buffer_in;
@@ -184,12 +276,30 @@ module $TOP_MODULE_NAME$_impl #(
     uwire  advance_controller;
     uwire signed [INCR_BITWIDTH-1:0]  addr_incr;
     uwire        [INCR_BITWIDTH-1:0]  tail_incr;
-    $TOP_MODULE_NAME$_controller controller_inst (
+    $TOP_MODULE_NAME$_controller #(
+        .CNTR_BITWIDTH(CNTR_BITWIDTH),
+        .INCR_BITWIDTH(INCR_BITWIDTH)
+    ) controller_inst (
         .clk(ap_clk),
         .rst_n(ap_rst_n),
         .advance(advance_controller),
         .addr_incr(addr_incr),
-        .tail_incr(tail_incr)
+        .tail_incr(tail_incr),
+
+        .cfg_valid(cfg_valid),
+        .cfg_cntr_simd(cfg_cntr_simd),
+        .cfg_cntr_kw(cfg_cntr_kw),
+        .cfg_cntr_kh(cfg_cntr_kh),
+        .cfg_cntr_w(cfg_cntr_w),
+        .cfg_cntr_h(cfg_cntr_h),
+        .cfg_incr_head_simd(cfg_incr_head_simd),
+        .cfg_incr_head_kw(cfg_incr_head_kw),
+        .cfg_incr_head_kh(cfg_incr_head_kh),
+        .cfg_incr_head_w(cfg_incr_head_w),
+        .cfg_incr_head_h(cfg_incr_head_h),
+        .cfg_incr_tail_w(cfg_incr_tail_w),
+        .cfg_incr_tail_h(cfg_incr_tail_h),
+        .cfg_incr_tail_last(cfg_incr_tail_last)
     );
 
     // Counters/address registers
@@ -212,7 +322,7 @@ module $TOP_MODULE_NAME$_impl #(
             ) // (over-)write to buffer if oldest buffered element will no longer be needed
         );
     uwire  read_ok      = read_cmd && in0_V_V_TVALID;
-    uwire  reading_done = Newest_buffered_elem == LAST_READ_ELEM;
+    uwire  reading_done = Newest_buffered_elem == Cfg_last_read;
 
     uwire  fetch_cmd = !($signed(Current_elem) > Newest_buffered_elem) && !write_blocked && !Fetching_done;
     logic  Fetching_done = 0;
@@ -253,11 +363,11 @@ module $TOP_MODULE_NAME$_impl #(
                 Window_buffer_write_addr_reg <= (Window_buffer_write_addr_reg == BUF_ELEM_TOTAL-1)? 0 : Window_buffer_write_addr_reg + 1;
                 Newest_buffered_elem <= Newest_buffered_elem+1;
 
-                if (Newest_buffered_elem == LAST_READ_ELEM-1) begin
+                if (Newest_buffered_elem == Cfg_last_read-1) begin
                     Window_buffer_write_addr_reg <= 0;
                 end
                 //check if this is the last read cycle (reading_done will be true afterwards)
-                if ((Newest_buffered_elem == LAST_READ_ELEM-1) && Writing_done) begin
+                if ((Newest_buffered_elem == Cfg_last_read-1) && Writing_done) begin
                     //start processing of next FM if writing is done already (possible due to unused input elements at the tail end)
                     //todo: allow for read overlapping between feature maps (i.e., reading first elements from next FM while still writing last window of current FM)
                     Newest_buffered_elem <= -1;
@@ -288,7 +398,7 @@ module $TOP_MODULE_NAME$_impl #(
                     First_elem_next_window <= First_elem_next_window + tail_incr;
 
                 //check if this is the last write cycle (Writing_done will be true afterwards)
-                if (Current_elem == LAST_WRITE_ELEM)
+                if (Current_elem == Cfg_last_write)
                     Fetching_done <= 1;
                 else
                     Current_elem <= $signed(Current_elem) + addr_incr;
@@ -305,7 +415,7 @@ module $TOP_MODULE_NAME$_impl #(
 
             if (write_ok && Fetching_done) begin
                 //check if this is the last write cycle (Writing_done will be true afterwards)
-                if (reading_done || (read_ok && (Newest_buffered_elem == LAST_READ_ELEM - 1))) begin
+                if (reading_done || (read_ok && (Newest_buffered_elem == Cfg_last_read - 1))) begin
                     //start processing of next FM if reading is done already, or completes in the same cycle
                     Newest_buffered_elem <= -1;
                     Current_elem <= 0;
