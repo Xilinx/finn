@@ -569,8 +569,8 @@ class TestEnd2End:
         for node in hls_layers:
             if node.op_type != "StreamingFIFO":
                 op_inst = getCustomOp(node)
-                assert op_inst.get_nodeattr("inFIFODepth") == 0
-                assert op_inst.get_nodeattr("outFIFODepth") == 0
+                assert op_inst.get_nodeattr("inFIFODepths") == [0]
+                assert op_inst.get_nodeattr("outFIFODepths") == [0]
         model.save(
             get_checkpoint_name(
                 topology, wbits, abits, QONNX_export, "fifodepth_" + kind

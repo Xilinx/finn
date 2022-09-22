@@ -257,7 +257,7 @@ class DataflowBuildConfig:
     #: setting the FIFO sizes.
     auto_fifo_strategy: Optional[
         AutoFIFOSizingMethod
-    ] = AutoFIFOSizingMethod.CHARACTERIZE
+    ] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
 
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`

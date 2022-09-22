@@ -108,12 +108,9 @@ class HLSCustomOp(CustomOp):
             # ID of FPGA device to which this Op is allocated, in
             # a multi-FPGA setting
             "device_id": ("i", False, 0),
-            # input and output FIFO depths
-            "inFIFODepth": ("i", False, 2),
-            "outFIFODepth": ("i", False, 2),
             # input and output FIFO depths for multi-I/O nodes
-            "inFIFODepths": ("ints", False, []),
-            "outFIFODepths": ("ints", False, []),
+            "inFIFODepths": ("ints", False, [2]),
+            "outFIFODepths": ("ints", False, [2]),
             "output_hook": ("s", False, ""),
             # accumulated characteristic function over two periods
             "io_chrc_in": ("t", False, np.asarray([], dtype=np.int32)),

@@ -138,14 +138,8 @@ class InsertFIFO(Transformation):
 
                         # check if outFIFOdepth attribute of first node
                         # and inFIFOdepth attribute of consumer node is equal
-                        if idx_out == 0:
-                            n0_depth = n0.get_nodeattr("outFIFODepth")
-                        else:
-                            n0_depth = n0.get_nodeattr("outFIFODepths")[idx_out]
-                        if idx_inp == 0:
-                            n1_depth = n1.get_nodeattr("inFIFODepth")
-                        else:
-                            n1_depth = n1.get_nodeattr("inFIFODepths")[idx_inp]
+                        n0_depth = n0.get_nodeattr("outFIFODepths")[idx_out]
+                        n1_depth = n1.get_nodeattr("inFIFODepths")[idx_inp]
 
                         if n0_depth == n1_depth:
                             fifo_depth = n0_depth
@@ -187,18 +181,12 @@ class InsertFIFO(Transformation):
                                 if inp == output_name:
                                     consumer.input[idx] = fifo_output_tensor.name
                             # ensure created FIFO depth is reflected on both sides
-                            if idx_out == 0:
-                                n0.set_nodeattr("outFIFODepth", fifo_depth)
-                            else:
-                                odepths = n0.get_nodeattr("outFIFODepths")
-                                odepths[idx_out] = fifo_depth
-                                n0.set_nodeattr("outFIFODepths", odepths)
-                            if idx_inp == 0:
-                                n1.set_nodeattr("inFIFODepth", fifo_depth)
-                            else:
-                                idepths = n1.get_nodeattr("inFIFODepths")
-                                idepths[idx_inp] = fifo_depth
-                                n1.set_nodeattr("inFIFODepths", idepths)
+                            odepths = n0.get_nodeattr("outFIFODepths")
+                            odepths[idx_out] = fifo_depth
+                            n0.set_nodeattr("outFIFODepths", odepths)
+                            idepths = n1.get_nodeattr("inFIFODepths")
+                            idepths[idx_inp] = fifo_depth
+                            n1.set_nodeattr("inFIFODepths", idepths)
 
                             graph_modified = True
 
@@ -221,7 +209,7 @@ class InsertFIFO(Transformation):
                     else:
                         fld_shape = n0.get_folded_input_shape(inp_ind)
                         dtype = n0.get_input_datatype(inp_ind)
-                    fifo_depth = n0.get_nodeattr("inFIFODepth")
+                    fifo_depth = n0.get_nodeattr("inFIFODepths")[inp_ind]
 
                     if fifo_depth <= 2:
                         warnings.warn("Overriding input FIFO depth to 32")

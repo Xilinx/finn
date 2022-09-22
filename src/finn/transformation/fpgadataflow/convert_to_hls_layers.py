@@ -1234,6 +1234,7 @@ class InferDuplicateStreamsLayer(Transformation):
                     inputDataType=dt.name,
                     numInputVectors=vecs,
                     NumOutputStreams=n_outputs,
+                    outFIFODepths=[2] * n_outputs,
                     name="DuplicateStreams_Batch_" + node.name,
                 )
 
