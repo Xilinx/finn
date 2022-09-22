@@ -149,7 +149,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 assert (
                     len(prod_chrc) == 2 * period
                 ), "Found unexpected characterization attribute"
-                if prod.get_nodeattr("outFIFODepth") > 2:
+                if any({[x > 2 for x in prod.get_nodeattr("outFIFODepths")]}):
                     # FIFO depth already set, can skip this node
                     return (node, False)
 
@@ -180,9 +180,6 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 # set output FIFO depth for this (producing) node
                 # InsertFIFO looks at the max of (outFIFODepth, inFIFODepth)
                 # for each tensor
-                if len(out_fifo_depths) > 0:
-                    prod.set_nodeattr("outFIFODepth", out_fifo_depths[0])
-                # used only for multi-producer nodes
                 prod.set_nodeattr("outFIFODepths", out_fifo_depths)
 
             except KeyError:

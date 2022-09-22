@@ -256,10 +256,11 @@ class InsertFIFO(Transformation):
                     ), """Insert tlast marker should be done
                         after inserting the FIFOs"""
                     n0 = getCustomOp(final_node)
+                    out_ind = list(final_node.output).index(graph_out_name)
                     # determine fifo node attributes
-                    fld_shape = n0.get_folded_output_shape()
-                    dtype = n0.get_output_datatype()
-                    fifo_depth = n0.get_nodeattr("outFIFODepth")
+                    fld_shape = n0.get_folded_output_shape(out_ind)
+                    dtype = n0.get_output_datatype(out_ind)
+                    fifo_depth = n0.get_nodeattr("outFIFODepths")[out_ind]
 
                     if fifo_depth <= 2:
                         warnings.warn("Overriding output FIFO depth to 32")
