@@ -98,7 +98,7 @@ class CheckSum(HLSCustomOp):
     def get_folded_input_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
     def get_normal_input_shape(self, ind=0):
