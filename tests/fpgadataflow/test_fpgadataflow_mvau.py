@@ -438,7 +438,7 @@ def test_fpgadataflow_fclayer_large_depth_decoupled_mode_rtlsim(
 @pytest.mark.parametrize("mh", [32])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_fclayer_fifocharacterize(mem_mode, idt, wdt, act, nf, sf, mw, mh):
+def test_fclayer_fifocharacterize_rtlsim(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     if nf == -1:
         nf = mh
     if sf == -1:
@@ -472,12 +472,13 @@ def test_fclayer_fifocharacterize(mem_mode, idt, wdt, act, nf, sf, mw, mh):
     model = model.transform(PrepareRTLSim())
     model = model.transform(DeriveCharacteristic(exp_total_cycles))
     node_inst = getCustomOp(model.graph.node[0])
-    period_attr = node_inst.get_nodeattr("io_characteristic_period")
+    period_attr = node_inst.get_nodeattr("io_chrc_period")
     assert period_attr == exp_total_cycles
-    chrc = node_inst.get_nodeattr("io_characteristic")
-    assert len(chrc) == 4 * exp_total_cycles
-    chrc = np.asarray(chrc, dtype=np.uint8).reshape(2, -1)
+    chrc_in = node_inst.get_nodeattr("io_chrc_in")
+    chrc_out = node_inst.get_nodeattr("io_chrc_out")
+    assert chrc_in.shape == (1, 2 * exp_total_cycles)
+    assert chrc_out.shape == (1, 2 * exp_total_cycles)
     # first sf cycles should read input continuously
-    assert (chrc[0, :sf] == range(1, sf + 1)).all()
+    assert (chrc_in[0, :sf] == range(1, sf + 1)).all()
     # all outputs should be produced within the exp n of cycles
-    assert chrc[1, exp_total_cycles] == nf
+    assert chrc_out[0, exp_total_cycles] == nf
