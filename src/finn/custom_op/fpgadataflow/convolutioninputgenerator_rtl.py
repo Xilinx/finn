@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Xilinx
+# Copyright (C) 2022, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -59,7 +59,7 @@ except ModuleNotFoundError:
 class ConvolutionInputGenerator_rtl(HLSCustomOp):
     """Class that does not correspond to one of the finn-hlslib ConvolutionInputGenerator
     (sliding window) function variants. Generates an RTL ConvolutionInputGenerator
-    implementation based on (System-)Verilog templates."""
+    implementation based on (System-)Verilog templates, defined in finn-rtllib/swg."""
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
@@ -389,7 +389,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         folded_ishape = self.get_folded_input_shape()
 
         if mode == "cppsim":
-            raise Exception("cppsim not possible for RTL SWG")
+            raise Exception(
+                "cppsim not possible for RTL SWG, please set exec_mode to rtlsim"
+            )
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
