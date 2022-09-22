@@ -149,7 +149,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 assert (
                     len(prod_chrc) == 2 * period
                 ), "Found unexpected characterization attribute"
-                if any({[x > 2 for x in prod.get_nodeattr("outFIFODepths")]}):
+                if any([x > 2 for x in prod.get_nodeattr("outFIFODepths")]):
                     # FIFO depth already set, can skip this node
                     return (node, False)
 
