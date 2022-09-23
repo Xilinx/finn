@@ -5,7 +5,7 @@ Custom Op - General
 General Custom Ops
 ===================
 
-finn.custom\_op.general.bipolar_quant
+qonnx.custom\_op.general.bipolar_quant
 --------------------------------------
 
 .. automodule:: qonnx.custom_op.general.bipolar_quant
@@ -13,15 +13,15 @@ finn.custom\_op.general.bipolar_quant
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.general.debugmarker
------------------------------------
+qonnx.custom\_op.general.debugmarker
+------------------------------------
 
 .. automodule:: qonnx.custom_op.general.debugmarker
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.general.genericpartition
+qonnx.custom\_op.general.genericpartition
 -----------------------------------------
 
 .. automodule:: qonnx.custom_op.general.genericpartition
@@ -29,15 +29,15 @@ finn.custom\_op.general.genericpartition
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.general.im2col
-------------------------------
+qonnx.custom\_op.general.im2col
+-------------------------------
 
 .. automodule:: qonnx.custom_op.general.im2col
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.general.maxpoolnhwc
+qonnx.custom\_op.general.maxpoolnhwc
 ------------------------------------
 
 .. automodule:: qonnx.custom_op.general.maxpoolnhwc
@@ -45,7 +45,7 @@ finn.custom\_op.general.maxpoolnhwc
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.general.multithreshold
+qonnx.custom\_op.general.multithreshold
 ---------------------------------------
 
 .. automodule:: qonnx.custom_op.general.multithreshold
@@ -53,7 +53,7 @@ finn.custom\_op.general.multithreshold
    :undoc-members:
    :show-inheritance:
 
-finn.custom\_op.general.quant
+qonnx.custom\_op.general.quant
 ------------------------------
 
 .. automodule:: qonnx.custom_op.general.quant
@@ -61,15 +61,15 @@ finn.custom\_op.general.quant
   :undoc-members:
   :show-inheritance:
 
-finn.custom\_op.general.quantavgpool2d
---------------------------------------
+qonnx.custom\_op.general.quantavgpool2d
+---------------------------------------
 
 .. automodule:: qonnx.custom_op.general.quantavgpool2d
   :members:
   :undoc-members:
   :show-inheritance:
 
-finn.custom\_op.general.trunc
+qonnx.custom\_op.general.trunc
 ------------------------------
 
 .. automodule:: qonnx.custom_op.general.trunc
@@ -77,7 +77,7 @@ finn.custom\_op.general.trunc
   :undoc-members:
   :show-inheritance:
 
-finn.custom\_op.general.xnorpopcount
+qonnx.custom\_op.general.xnorpopcount
 -------------------------------------
 
 .. automodule:: qonnx.custom_op.general.xnorpopcount
