@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Xilinx
+# Copyright (C) 2022, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -59,7 +59,7 @@ except ModuleNotFoundError:
 class ConvolutionInputGenerator_rtl(HLSCustomOp):
     """Class that does not correspond to one of the finn-hlslib ConvolutionInputGenerator
     (sliding window) function variants. Generates an RTL ConvolutionInputGenerator
-    implementation based on (System-)Verilog templates."""
+    implementation based on (System-)Verilog templates, defined in finn-rtllib/swg."""
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
@@ -71,7 +71,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "IFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "OFMDim": ("ints", True, []),  # [H, W] = [Y, X]
             "SIMD": ("i", True, 0),
+            # additional parallelization parameter - not yet implemented
             "M": ("i", False, 1),
+            # alternative implementation style - not yet implemented
             "parallel_window": ("i", False, 0, {0}),
             "Stride": ("ints", True, []),  # [H, W] = [Y, X]
             "Dilation": ("ints", True, []),  # [H, W] = [Y, X]
@@ -93,6 +95,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 "auto",
                 {"auto", "block", "distributed", "ultra"},
             ),
+            # attribute to save top module name - not user configurable
             "gen_top_module": ("s", False, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
@@ -392,7 +395,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         folded_ishape = self.get_folded_input_shape()
 
         if mode == "cppsim":
-            raise Exception("cppsim not possible for RTL SWG")
+            raise Exception(
+                "cppsim not possible for RTL SWG, please set exec_mode to rtlsim"
+            )
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
@@ -573,7 +578,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dict["$TAIL_INCR_H$"] = [str(tail_incr_h)]
         code_gen_dict["$TAIL_INCR_LAST$"] = [str(tail_incr_last_window)]
 
-        # support SIMD = C and k_w = 1 cases
+        # support SIMD = IFMChannels and k_w = 1 cases
         # for k = [k_h, k_w] = [1, k_w], no adjustment is needed
         # for k = [k_h, k_w] = [1, 1], do not use this impl. style (mmv_out=K=1)
         # innermost loop is executed at least once -> adjust if needed
@@ -679,16 +684,22 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         if self.get_nodeattr("parallel_window"):
             # mmv_in = M * 1
             mmv_out = M * k_h * k_w
-            assert ifm_ch == simd, "Constraint violated: SIMD must be equal to C"
+            assert (
+                ifm_ch == simd
+            ), "Constraint violated: SIMD must be equal to IFMChannels"
         else:
             # mmv_in = 1
             mmv_out = 1
-            assert ifm_ch % simd == 0, "Constraint violated: SIMD must divide C"
+            assert (
+                ifm_ch % simd == 0
+            ), "Constraint violated: SIMD must divide IFMChannels"
 
         # choose implementation style
         if mmv_out > 1 or (k_h == 1 and k_w == 1):
             impl_style = "parallel"
-            assert ifm_ch == simd, "Constraint violated: SIMD must be equal to C"
+            assert (
+                ifm_ch == simd
+            ), "Constraint violated: SIMD must be equal to IFMChannels"
         else:
             impl_style = "default"
 

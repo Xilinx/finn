@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Xilinx
+# Copyright (C) 2022, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -161,6 +161,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("flip", [False])
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.fpgadataflow
 def test_fpgadataflow_slidingwindow_rtl(
     idt, k, ifm_dim, ifm_ch, stride, dilation, dw, simd, m, parallel_window, flip
 ):
