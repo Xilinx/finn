@@ -79,6 +79,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             "depthwise": ("i", False, 0, {0, 1}),
+            # Enable reprogrammable implementation to change FM dimensions,
+            # stride, or dilation during runtime
+            "dynamic_mode": ("i", False, 0, {0, 1}),
             # FPGA resource type for ConvolutionInputGenerator input buffer
             # auto -- let Vivado decide
             # block -- use BRAM
@@ -452,11 +455,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     def prepare_codegen_default(self):
         # Default implementation style for MMV_out = 1: addressable cyclic buffer
         # Computing incremental addressing scheme directly..
-        template_path = (
-            os.environ["FINN_ROOT"]
-            + "/finn-rtllib/swg/swg_template_default_dynamic.sv"
-            # TODO: add switch
-        )
+        if self.get_nodeattr("dynamic_mode"):
+            template_select = "/finn-rtllib/swg/swg_template_default_dynamic.sv"
+        else:
+            template_select = "/finn-rtllib/swg/swg_template_default.sv"
+        template_path = os.environ["FINN_ROOT"] + template_select
         code_gen_dict = {}
 
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -719,11 +722,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         with open(template_path, "r") as f:
             template = f.read()
-        with open(
-            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_wrapper_dynamic.v",
-            "r"
-            # TODO: add switch
-        ) as f:
+        if self.get_nodeattr("dynamic_mode"):
+            template_select = "/finn-rtllib/swg/swg_template_wrapper_dynamic.v"
+        else:
+            template_select = "/finn-rtllib/swg/swg_template_wrapper.v"
+        with open(os.environ["FINN_ROOT"] + template_select, "r") as f:
             template_wrapper = f.read()
         with open(
             os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_axilite.v", "r"
@@ -749,13 +752,16 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "w",
         ) as f:
             f.write(template_wrapper)
-        with open(
-            os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + "_axilite.v"
-            ),
-            "w",
-        ) as f:
-            f.write(template_axilite)
+
+        # AXI-Lite reg. file component is only needed for dynamic mode
+        if self.get_nodeattr("dynamic_mode"):
+            with open(
+                os.path.join(
+                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_axilite.v"
+                ),
+                "w",
+            ) as f:
+                f.write(template_axilite)
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -776,8 +782,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         verilog_files = [
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
-            self.get_nodeattr("gen_top_module") + "_axilite.v",
         ]
+        if self.get_nodeattr("dynamic_mode"):
+            verilog_files.append(self.get_nodeattr("gen_top_module") + "_axilite.v")
 
         # build the Verilator emu library
         sim = PyVerilator.build(
@@ -795,29 +802,23 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         """Constructs and returns the TCL for node instantiation in Vivado IPI."""
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
-        cmd = [
-            "add_files -norecurse %s"
-            % (
-                os.path.join(
-                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
-                )
-            ),
-            "add_files -norecurse %s"
-            % (
-                os.path.join(
-                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_impl.sv"
-                )
-            ),
-            "add_files -norecurse %s"
-            % (
-                os.path.join(
-                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_axilite.v"
-                )
-            ),
-            "create_bd_cell -type module -reference %s %s"
-            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name),
+        sourcefiles = [
+            self.get_nodeattr("gen_top_module") + "_wrapper.v",
+            self.get_nodeattr("gen_top_module") + "_impl.sv",
         ]
 
+        if self.get_nodeattr("dynamic_mode"):
+            sourcefiles += [self.get_nodeattr("gen_top_module") + "_axilite.v"]
+
+        sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
+
+        cmd = []
+        for f in sourcefiles:
+            cmd += ["add_files -norecurse %s" % (f)]
+        cmd += [
+            "create_bd_cell -type module -reference %s %s"
+            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
+        ]
         return cmd
 
     def get_verilog_top_module_intf_names(self):
@@ -837,15 +838,18 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         intf_names["s_axis"] = [("in0_" + sname, self.get_instream_width_padded())]
         intf_names["m_axis"] = [("out_" + sname, self.get_outstream_width_padded())]
         intf_names["aximm"] = []
-        intf_names["axilite"] = ["s_axi_cfg"]
+        if self.get_nodeattr("dynamic_mode"):
+            intf_names["axilite"] = ["s_axi_cfg"]
+        else:
+            intf_names["axilite"] = []
         return intf_names
 
     def get_dynamic_config(self, ifm_dim, stride=None, dilation=None):
         """Returns a configuration dict to re-configure FM dimension during
         runtime. Stride and dilation can also be changed. Certain restrictions
         apply (e.g. component must be synthesized for largest buffer size)."""
-        # TODO: Make a standalone version to call from Python driver?
-        # TODO: Add more safeguards
+        # NOTE: For better driver integration, this functionality could be packaged
+        # as a standalone function in the future
 
         k = self.get_nodeattr("ConvKernelDim")
         if stride is None:
@@ -861,11 +865,16 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         ofm_dim_w = compute_conv_output_dim(ifm_dim_w, k_w, stride_w, 0, dilation_w)
         ofm_dim = [ofm_dim_h, ofm_dim_w]
 
-        # update attributes
+        # update attributes and perform sanity check
+        original_buffer_depth = self.get_buffer_depth()
         self.set_nodeattr("IFMDim", ifm_dim)
         self.set_nodeattr("OFMDim", ofm_dim)
         self.set_nodeattr("Stride", stride)
         self.set_nodeattr("Dilation", dilation)
+        assert (
+            self.get_buffer_depth() <= original_buffer_depth
+        ), """Error: requested
+            dynamic configuration does not fit in generated buffer implementation."""
 
         # (re-)call codegen and extract new values
         # each setting is mapped to an axi-lite register address

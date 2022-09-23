@@ -120,6 +120,7 @@ def make_single_slidingwindow_modelwrapper(
         inputDataType=idt.name,
         outputDataType=odt.name,
         depthwise=dw,
+        dynamic_mode=1,
     )
     graph = helper.make_graph(
         nodes=[SlidingWindow_node],
@@ -235,16 +236,13 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
 
         def write_swg_config(sim):
             axi_name = "s_axi_cfg_0_"
-            # Write config registers to the SWG, dict defines (addr, value) tuples
+            # 1. Write config registers to the SWG, dict defines (addr, value) tuples
             for config_entry in config.values():
                 axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
-            axilite_write(
-                sim, 0, 1, basename=axi_name
-            )  # 1. set cfg_valid flag (>= 1 cycle)
-            reset_rtlsim(sim)  # 2. reset SWG (>= 1 cycle)
-            axilite_write(
-                sim, 0, 0, basename=axi_name
-            )  # 3. unset cfg_valid flag (not required)
+            # 2. Set cfg_valid flag (>= 1 cycle)
+            axilite_write(sim, 0, 1, basename=axi_name)
+            # 3. Reset component (>= 1 cycle)
+            reset_rtlsim(sim)
 
         return write_swg_config
 
