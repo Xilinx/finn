@@ -66,11 +66,12 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
     ],
 )
 @pytest.mark.parametrize("depthwise", [False, True])
+@pytest.mark.parametrize("use_rtl_swg", [False, True])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, exec_mode):
+def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mode):
     pad, kernel_size, stride, dilation = conv_config
     np.random.seed(0)
     idt = DataType["UINT4"]
@@ -83,6 +84,9 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, exec_mode):
     dilation_h, dilation_w = dilation
     pad_h = pad[0] + pad[2]
     pad_w = pad[1] + pad[3]
+
+    if use_rtl_swg and exec_mode == "cppsim":
+        pytest.skip("cppsim not supported for RTL SWG")
 
     if depthwise is True:
         group = out_chn = in_chn
@@ -139,7 +143,7 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, exec_mode):
     model = model.transform(InferDataTypes())
 
     new_model = model.transform(LowerConvsToMatMul())
-    new_model = new_model.transform(to_hls.InferConvInpGen())
+    new_model = new_model.transform(to_hls.InferConvInpGen(use_rtl_variant=use_rtl_swg))
     if depthwise is True:
         new_model = new_model.transform(to_hls.InferVectorVectorActivation())
     else:
