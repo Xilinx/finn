@@ -126,6 +126,9 @@ if {$BOARD == "ZCU104"} {
 } elseif {$BOARD == "Pynq-Z1"} {
     set ZYNQ_TYPE "zynq_7000"
     set_property board_part www.digilentinc.com:pynq-z1:part0:1.0 [current_project]
+} elseif {$BOARD == "KV260_SOM"} {
+    set ZYNQ_TYPE "zynq_us+"
+    set_property board_part xilinx.com:kv260_som:part0:1.3 [current_project]    
 } else {
     puts "Unrecognized board"
 }
