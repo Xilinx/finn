@@ -153,7 +153,7 @@ def prepare_inputs(input_tensor):
     return {"inp": input_tensor}
 
 
-# mem_mode: const or decoupled
+# input datatype
 @pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["INT4"]])
