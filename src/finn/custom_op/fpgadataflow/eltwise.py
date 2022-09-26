@@ -59,6 +59,24 @@ class StreamingEltwise(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
+    def get_eltwise_op_lambda(self):
+        eltwise_op = self.get_nodeattr("eltwiseOp")
+        idt0 = self.get_input_datatype(0)
+        idt1 = self.get_input_datatype(1)
+        odt = self.get_output_datatype()
+        tin0 = idt0.get_hls_datatype_str()
+        tin1 = idt1.get_hls_datatype_str()
+        tout = odt.get_hls_datatype_str()
+        eltwise_ops = {
+            # "Add": "[](auto a, auto b) { return  a + b; }",
+            # "Sub": "[](auto a, auto b) { return  a - b; }",
+            # "AbsDiff": "[](auto a, auto b) { return  a>b? a-b : b-a; }",
+            "Add": f"add<{tin0}, {tin1}, {tout}>()",
+            "Sub": f"sub<{tin0}, {tin1}, {tout}>()",
+            "AbsDiff": f"absdiff<{tin0}, {tin1}, {tout}>()",
+        }
+        return eltwise_ops[eltwise_op]
+
     def get_normal_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
@@ -133,7 +151,7 @@ class StreamingEltwise(HLSCustomOp):
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append(
-                """The required LabelSelect_Batch attributes do not exist."""
+                """The required StreamingEltwise attributes do not exist."""
             )
 
         return info_messages
@@ -287,6 +305,32 @@ class StreamingEltwise(HLSCustomOp):
             '#include "interpret.hpp"',
         ]
 
+        self.code_gen_dict["$GLOBALS$"].extend(
+            [
+                "template<typename TI1, typename TI2, typename TO>",
+                "struct absdiff {",
+                "TO operator()(TI1 const &a, TI2 const &b) const {",
+                "#pragma HLS inline",
+                "return  a>b? a-b : b-a;",
+                "}",
+                "};",
+                "template<typename TI1, typename TI2, typename TO>",
+                "struct sub {",
+                "TO operator()(TI1 const &a, TI2 const &b) const {",
+                "#pragma HLS inline",
+                "return  a-b;",
+                "}",
+                "};",
+                "template<typename TI1, typename TI2, typename TO>",
+                "struct add {",
+                "TO operator()(TI1 const &a, TI2 const &b) const {",
+                "#pragma HLS inline",
+                "return  a+b;",
+                "}",
+                "};",
+            ]
+        )
+
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
 
@@ -338,7 +382,8 @@ class StreamingEltwise(HLSCustomOp):
         slice_in0 = "Slice<%s>" % elem_hls_type_0
         slice_in1 = "Slice<%s>" % elem_hls_type_1
         slice_out = "Slice<%s>" % out_hls_type
-        eltwise_op_str = "%sEltwiseFunction<%s, %s, %s>()" % (
+        eltwise_op_str = self.get_eltwise_op_lambda()
+        "%sEltwiseFunction<%s, %s, %s>()" % (
             op,
             elem_hls_type_0,
             elem_hls_type_1,

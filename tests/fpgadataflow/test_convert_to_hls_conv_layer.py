@@ -73,6 +73,9 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mod
     if use_rtl_swg and exec_mode == "cppsim":
         pytest.skip("cppsim not supported for RTL SWG")
 
+    if use_rtl_swg and kernel_size == 1:
+        pytest.skip("1x1 kernel not supported by current RTL SWG")
+
     if depthwise is True:
         group = out_chn = in_chn
         conv_param_shape = [out_chn, 1, kernel_size, kernel_size]
@@ -161,14 +164,10 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mod
     inp_dict = {model.graph.input[0].name: x}
     assert oxe.compare_execution(model, new_model, inp_dict)
 
-    if use_rtl_swg:
-        downsampler_op_type = "ConvolutionInputGenerator_rtl"
-    else:
-        downsampler_op_type = "DownSampler"
     if kernel_size == 1 and stride > 1 and pad == 0:
-        assert new_model.graph.node[1].op_type == downsampler_op_type
+        assert new_model.graph.node[1].op_type == "DownSampler"
         if exec_mode == "rtlsim":
-            node = new_model.get_nodes_by_op_type(downsampler_op_type)[0]
+            node = new_model.get_nodes_by_op_type("DownSampler")[0]
             inst = getCustomOp(node)
             cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
             exp_cycles_dict = new_model.analysis(exp_cycles_per_layer)
