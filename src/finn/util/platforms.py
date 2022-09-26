@@ -467,7 +467,6 @@ class Alveo_NxU280_Platform(Platform):
         ]
 
 
-# TODO: ADD KV260 to platform list
 platforms = dict()
 platforms["U50"] = Alveo_NxU50_Platform
 platforms["U200"] = Alveo_NxU200_Platform
@@ -479,4 +478,3 @@ platforms["Ultra96"] = ZU3EG_Platform
 platforms["ZCU104"] = ZU7EV_Platform
 platforms["ZCU102"] = ZU9EG_Platform
 platforms["ZCU111"] = ZU28DR_Platform
-# platforms["kv260_som"] = # TODO kv260 platform... xck26_
