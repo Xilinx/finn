@@ -228,6 +228,22 @@ class CreateStitchedIP(Transformation):
             )
             self.s_axis_idx += 1
 
+    def connect_ap_none_external(self, node):
+        inst_name = node.name
+        node_inst = getCustomOp(node)
+        input_intf_names = node_inst.get_verilog_top_module_intf_names()["ap_none"]
+        # make external
+        for i in range(len(input_intf_names)):
+            input_intf_name = input_intf_names[i]
+            self.connect_cmds.append(
+                "make_bd_pins_external [get_bd_pins %s/%s]"
+                % (inst_name, input_intf_name)
+            )
+            self.connect_cmds.append(
+                "set_property name %s [get_bd_ports %s_0]"
+                % (input_intf_name, input_intf_name)
+            )
+
     def insert_signature(self, checksum_count):
         signature_vlnv = "AMD:user:axi_info_top:1.0"
         signature_name = "axi_info_top0"
@@ -305,6 +321,7 @@ class CreateStitchedIP(Transformation):
             ip_dirs += [ip_dir_value]
             self.create_cmds += node_inst.code_generation_ipi()
             self.connect_clk_rst(node)
+            self.connect_ap_none_external(node)
             self.connect_axi(node)
             for i in range(len(node.input)):
                 if not is_external_input(model, node, i):
