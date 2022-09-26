@@ -143,7 +143,7 @@ module Q_srl (clock, reset, i_d, i_v, i_r, o_d, o_v, o_r, count, maxcount);
          addr_full <= 0;
 	 o_v_reg   <= 0;
 	 i_b_reg   <= 1;
-	 maxcount_reg <= '0;
+	 maxcount_reg <= 0;
       end
       else begin
 	 state     <= state_;
