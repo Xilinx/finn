@@ -329,5 +329,5 @@ class CheckSum(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         # expose axilite interface
-        intf_names["axilite"] = ["s_axilite_checksum"]
+        intf_names["axilite"] = ["s_axi_checksum"]
         return intf_names
