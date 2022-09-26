@@ -275,7 +275,7 @@ class CreateStitchedIP(Transformation):
             "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi]" % signature_name
         )
         self.connect_cmds.append(
-            "set_property name s_axis_info [get_bd_intf_ports s_axi_0]"
+            "set_property name s_axilite_info [get_bd_intf_ports s_axi_0]"
         )
         self.connect_cmds.append("assign_bd_address")
 
