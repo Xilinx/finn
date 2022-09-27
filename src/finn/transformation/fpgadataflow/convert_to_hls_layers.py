@@ -910,6 +910,10 @@ class InferVectorVectorActivation(Transformation):
     a depthwise convolution. Any immediately following MultiThreshold
     layers will also be absorbed into the VVAU."""
 
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -1010,6 +1014,7 @@ class InferVectorVectorActivation(Transformation):
                             ActVal=actval,
                             noActivation=0,
                             name="VectorVectorActivation_" + n.name,
+                            mem_mode=self.mem_mode,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
