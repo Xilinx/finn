@@ -49,12 +49,13 @@ def fetch_test_model(topology, wbits=2, abits=2):
 
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fifosizing_linear():
+@pytest.mark.parametrize("method", ["largefifo_rtlsim", "characterize"])
+def test_fifosizing_linear(method):
     tmp_output_dir = fetch_test_model("tfc")
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         auto_fifo_depths=True,
-        auto_fifo_strategy="characterize",
+        auto_fifo_strategy=method,
         target_fps=10000,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
