@@ -258,6 +258,10 @@ class DataflowBuildConfig:
     #: Which memory mode will be used for compute layers
     default_mem_mode: Optional[ComputeEngineMemMode] = ComputeEngineMemMode.DECOUPLED
 
+    #: Force inference of RTL ConvolutionInputGenerator over HLS implementation
+    #: If set to False, falls back to the default behavior of InferConvInpGen()
+    force_rtl_conv_inp_gen: Optional[bool] = False
+
     #: Which Vitis platform will be used.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
     #: e.g. "xilinx_u250_xdma_201830_2"
@@ -284,6 +288,10 @@ class DataflowBuildConfig:
 
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
+
+    #: When True, all warnings and compiler output will be printed in stdout.
+    #: Otherwise, these will be suppressed and only appear in the build log.
+    verbose: Optional[bool] = False
 
     #: If given, only run the steps in the list. If not, run default steps.
     #: See `default_build_dataflow_steps` for the default list of steps.
