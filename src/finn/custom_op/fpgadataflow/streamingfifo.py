@@ -75,6 +75,22 @@ class StreamingFIFO(HLSCustomOp):
 
         return my_attrs
 
+    def get_adjusted_depth(self):
+        impl = self.get_nodeattr("impl_style")
+        depth = self.get_nodeattr("depth")
+        if impl == "vivado":
+            old_depth = depth
+            # round up depth to nearest power-of-2
+            # Vivado FIFO impl may fail otherwise
+            depth = (1 << (depth - 1).bit_length()) if impl == "vivado" else depth
+            if old_depth != depth:
+                warnings.warn(
+                    "%s: rounding-up FIFO depth from %d to %d for impl_style=vivado"
+                    % (self.onnx_node.name, old_depth, depth)
+                )
+
+        return depth
+
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
@@ -190,8 +206,8 @@ class StreamingFIFO(HLSCustomOp):
         self.set_nodeattr("ip_vlnv", vlnv)
         self.code_gen_dict.clear()
 
-    def get_normal_input_shape(self):
-        depth = self.get_nodeattr("depth")
+    def get_normal_input_shape(self, ind=0):
+        depth = self.get_adjusted_depth()
         # depth has to be between 2 and 256 with the current
         # StreamingFIFO implementation
         assert depth >= 2, """Depth is too low"""
@@ -221,22 +237,22 @@ class StreamingFIFO(HLSCustomOp):
 
         return normal_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()
@@ -338,7 +354,7 @@ class StreamingFIFO(HLSCustomOp):
         elif impl_style == "vivado":
             cmd = []
             node_name = self.onnx_node.name
-            depth = self.get_nodeattr("depth")
+            depth = self.get_adjusted_depth()
             ram_style = self.get_nodeattr("ram_style")
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
@@ -403,7 +419,7 @@ class StreamingFIFO(HLSCustomOp):
         """Calculates resource estimation for BRAM"""
         impl = self.get_nodeattr("impl_style")
         ram_type = self.get_nodeattr("ram_style")
-        depth = self.get_nodeattr("depth")
+        depth = self.get_adjusted_depth()
         W = self.get_instream_width()
 
         if impl == "rtl" or (impl == "vivado" and ram_type != "block"):
@@ -428,7 +444,7 @@ class StreamingFIFO(HLSCustomOp):
 
         impl = self.get_nodeattr("impl_style")
         ram_type = self.get_nodeattr("ram_style")
-        depth = self.get_nodeattr("depth")
+        depth = self.get_adjusted_depth()
         W = self.get_instream_width()
 
         if impl == "rtl" or (impl == "vivado" and ram_type != "ultra"):
@@ -438,7 +454,7 @@ class StreamingFIFO(HLSCustomOp):
             return (math.ceil(depth / 4096)) * (math.ceil(W / 72))
 
     def bram_efficiency_estimation(self):
-        depth = self.get_nodeattr("depth")
+        depth = self.get_adjusted_depth()
         W = self.get_instream_width()
         bram16_est = self.bram_estimation()
         if bram16_est == 0:
@@ -451,7 +467,7 @@ class StreamingFIFO(HLSCustomOp):
         """Calculates resource estimations for LUTs"""
         impl = self.get_nodeattr("impl_style")
         ram_type = self.get_nodeattr("ram_style")
-        depth = self.get_nodeattr("depth")
+        depth = self.get_adjusted_depth()
         W = self.get_instream_width()
 
         address_luts = 2 * math.ceil(math.log(depth, 2))

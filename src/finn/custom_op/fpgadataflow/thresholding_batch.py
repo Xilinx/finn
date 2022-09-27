@@ -76,8 +76,8 @@ class Thresholding_Batch(HLSCustomOp):
             "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             # input and output FIFO depths
-            "inFIFODepth": ("i", False, 0),
-            "outFIFODepth": ("i", False, 0),
+            "inFIFODepths": ("ints", False, [0]),
+            "outFIFODepths": ("ints", False, [0]),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -185,11 +185,11 @@ class Thresholding_Batch(HLSCustomOp):
         # total cost
         return comparator_cost + lutram_cost
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
@@ -221,11 +221,11 @@ class Thresholding_Batch(HLSCustomOp):
         self.set_nodeattr("weightDataType", tdt.name)
         return DataType[self.get_nodeattr("weightDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         return i_bits * self.get_nodeattr("PE")
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
@@ -251,7 +251,7 @@ class Thresholding_Batch(HLSCustomOp):
         weightstream = self.get_weightstream_width()
         return max([weightstream, temp_value])
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         fold = ich // pe
@@ -259,17 +259,17 @@ class Thresholding_Batch(HLSCustomOp):
         folded_input_shape = tuple(vecs + [fold, pe])
         return folded_input_shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         # same shape as input
         return self.get_folded_input_shape()
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         normal_input_shape = tuple(vecs + [ich])
         return normal_input_shape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         # same shape as input
         return self.get_normal_input_shape()
 
@@ -960,3 +960,20 @@ class Thresholding_Batch(HLSCustomOp):
         "Return a list of extra tcl directives for HLS synthesis."
 
         return ["config_compile -pipeline_style frp"]
+
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["decoupled", "external"]:
+            n_weight_inps = self.calc_tmem()
+            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            io_dict["inputs"]["weights"] = [
+                0 for i in range(num_w_reps * n_weight_inps)
+            ]
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

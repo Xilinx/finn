@@ -208,7 +208,7 @@ class VectorVectorActivation(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
@@ -216,16 +216,16 @@ class VectorVectorActivation(HLSCustomOp):
         """Returns FINN DataType of weights."""
         return DataType[self.get_nodeattr("weightDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         in_width = i_bits * self.get_nodeattr("PE")
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         out_width = o_bits * self.get_nodeattr("PE")
         return out_width
@@ -249,7 +249,7 @@ class VectorVectorActivation(HLSCustomOp):
 
         return folded_input_shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
         nf = ch // pe
@@ -257,14 +257,14 @@ class VectorVectorActivation(HLSCustomOp):
         folded_output_shape = tuple([1, dim_h, dim_w, nf, pe])
         return folded_output_shape
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         dim_h, dim_w = self.get_nodeattr("Dim")
         ch = self.get_nodeattr("Channels")
         k_h, k_w = self.get_nodeattr("Kernel")
         normal_input_shape = tuple([1, dim_h, dim_w, k_h * k_w * ch])
         return normal_input_shape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         ch = self.get_nodeattr("Channels")
         dim_h, dim_w = self.get_nodeattr("Dim")
         normal_output_shape = tuple([1, dim_h, dim_w, ch])
@@ -901,8 +901,11 @@ class VectorVectorActivation(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
         )
-        in_fifo_depth = self.get_nodeattr("inFIFODepth")
-        out_fifo_depth = self.get_nodeattr("outFIFODepth")
+        # TODO can we deprecate this entirely? this looks like legacy code
+        # that does not really serve a purpose - FIFO sizes are not typically
+        # allocated at this point; at best they are set to 2 as the default
+        in_fifo_depth = 2
+        out_fifo_depth = 2
         # insert depth pragmas only if specified
         if in_fifo_depth != 0:
             self.code_gen_dict["$PRAGMAS$"].append(
@@ -1254,3 +1257,20 @@ class VectorVectorActivation(HLSCustomOp):
             thres_count = fm
             ret_dict[thres_param_type] = thres_count
         return ret_dict
+
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["decoupled", "external"]:
+            n_weight_inps = self.calc_wmem()
+            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            io_dict["inputs"]["weights"] = [
+                0 for i in range(num_w_reps * n_weight_inps)
+            ]
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

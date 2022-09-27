@@ -70,16 +70,29 @@ class InsertFIFO(Transformation):
     node attribute 'outFIFODepth' of the previous and node attribute 'inFIFODepth'
     of the subsequent node. max() of these two values sets the FIFO depth.
 
-    Normally, shallow-depth (<=2) FIFOs won't be created since HLS streaming
-    interfaces already have a degree of buffering. You can set
-    create_shallow_fifos=True to override this default behavior.
+    Constructor arguments:
+    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
+                       Verilog FIFOs (Q_srl.v)
+    - vivado_ram_style : the StreamingFIFO.ram_style attribute to be used for
+                          large FIFOs implemented by Vivado
+    - create_shallow_fifos : Normally, shallow-depth (<=2) FIFOs won't be created since
+                            HLS streaming interfaces already have a degree of buffering.
+                            Override with this parameter.
+
 
     The other node attributes necessary to create a FIFO node are taken from the
     node the FIFO node is inserted after: 'folded_shape' and 'dtype'"""
 
-    def __init__(self, create_shallow_fifos=False):
+    def __init__(
+        self, create_shallow_fifos=False, max_qsrl_depth=None, vivado_ram_style="auto"
+    ):
         super().__init__()
         self.create_shallow_fifos = create_shallow_fifos
+        if max_qsrl_depth is None:
+            self.max_qsrl_depth = 1000000
+        else:
+            self.max_qsrl_depth = max_qsrl_depth
+        self.vivado_ram_style = vivado_ram_style
 
     def apply(self, model):
         graph = model.graph
@@ -88,8 +101,8 @@ class InsertFIFO(Transformation):
         for first_node in graph.node:
             node_ind += 1
             if _suitable_node(first_node):
-                for n_output in first_node.output:
-                    consumers = model.find_consumers(n_output)
+                for idx_out, output_name in enumerate(first_node.output):
+                    consumers = model.find_consumers(output_name)
                     if consumers == []:
                         continue
                     if len(consumers) > 1:
@@ -107,12 +120,15 @@ class InsertFIFO(Transformation):
                         # check if folded_shape of output of first node and
                         # input of the second node is equal
                         n1 = getCustomOp(consumer)
+                        idx_inp = 0
                         for idx, inp in enumerate(consumer.input):
-                            if inp == n_output:
+                            if inp == output_name:
                                 if idx == 0:
                                     fld_shape_2 = n1.get_folded_input_shape()
+                                    idx_inp = 0
                                 else:
                                     fld_shape_2 = n1.get_folded_input_shape(ind=idx)
+                                    idx_inp = idx
                         assert _suitable_folded_shapes(
                             fld_shape, fld_shape_2
                         ), """The
@@ -122,8 +138,9 @@ class InsertFIFO(Transformation):
 
                         # check if outFIFOdepth attribute of first node
                         # and inFIFOdepth attribute of consumer node is equal
-                        n0_depth = n0.get_nodeattr("outFIFODepth")
-                        n1_depth = n1.get_nodeattr("inFIFODepth")
+                        n0_depth = n0.get_nodeattr("outFIFODepths")[idx_out]
+                        n1_depth = n1.get_nodeattr("inFIFODepths")[idx_inp]
+
                         if n0_depth == n1_depth:
                             fifo_depth = n0_depth
                         elif n0_depth != n1_depth:
@@ -142,26 +159,35 @@ class InsertFIFO(Transformation):
                             )
                             graph.value_info.append(fifo_output_tensor)
                             model.set_tensor_datatype(fifo_output_tensor.name, dtype)
-
+                            impl_style = (
+                                "vivado" if fifo_depth > self.max_qsrl_depth else "rtl"
+                            )
                             fifo_node = oh.make_node(
                                 "StreamingFIFO",
-                                [n_output],
+                                [output_name],
                                 [fifo_output_tensor.name],
                                 domain="finn.custom_op.fpgadataflow",
                                 backend="fpgadataflow",
                                 depth=fifo_depth,
                                 folded_shape=fld_shape,
                                 dataType=str(dtype.name),
+                                impl_style=impl_style,
+                                ram_style=self.vivado_ram_style,
                             )
                             # insert fifo
                             graph.node.insert(node_ind + 1, fifo_node)
                             # set fifo output tensor as new input tensor of second node
                             for idx, inp in enumerate(consumer.input):
-                                if inp == n_output:
+                                if inp == output_name:
                                     consumer.input[idx] = fifo_output_tensor.name
                             # ensure created FIFO depth is reflected on both sides
-                            n0.set_nodeattr("outFIFODepth", fifo_depth)
-                            n1.set_nodeattr("inFIFODepth", fifo_depth)
+                            odepths = n0.get_nodeattr("outFIFODepths")
+                            odepths[idx_out] = fifo_depth
+                            n0.set_nodeattr("outFIFODepths", odepths)
+                            idepths = n1.get_nodeattr("inFIFODepths")
+                            idepths[idx_inp] = fifo_depth
+                            n1.set_nodeattr("inFIFODepths", idepths)
+
                             graph_modified = True
 
         if graph_modified is False:
@@ -177,13 +203,9 @@ class InsertFIFO(Transformation):
                     n_input = first_node.input[inp_ind]
                     n0 = getCustomOp(first_node)
                     # determine fifo node attributes
-                    if inp_ind == 0:
-                        fld_shape = n0.get_folded_input_shape()
-                        dtype = n0.get_input_datatype()
-                    else:
-                        fld_shape = n0.get_folded_input_shape(inp_ind)
-                        dtype = n0.get_input_datatype(inp_ind)
-                    fifo_depth = n0.get_nodeattr("inFIFODepth")
+                    fld_shape = n0.get_folded_input_shape(inp_ind)
+                    dtype = n0.get_input_datatype(inp_ind)
+                    fifo_depth = n0.get_nodeattr("inFIFODepths")[inp_ind]
 
                     if fifo_depth <= 2:
                         warnings.warn("Overriding input FIFO depth to 32")
@@ -197,6 +219,7 @@ class InsertFIFO(Transformation):
                     )
                     graph.value_info.append(fifo_output_tensor)
                     model.set_tensor_datatype(fifo_output_tensor.name, dtype)
+                    impl_style = "vivado" if fifo_depth > self.max_qsrl_depth else "rtl"
 
                     fifo_node = oh.make_node(
                         "StreamingFIFO",
@@ -207,6 +230,8 @@ class InsertFIFO(Transformation):
                         depth=fifo_depth,
                         folded_shape=fld_shape,
                         dataType=str(dtype.name),
+                        impl_style=impl_style,
+                        ram_style=self.vivado_ram_style,
                     )
                     # insert fifo
                     graph.node.insert(0, fifo_node)
@@ -227,10 +252,11 @@ class InsertFIFO(Transformation):
                     ), """Insert tlast marker should be done
                         after inserting the FIFOs"""
                     n0 = getCustomOp(final_node)
+                    out_ind = list(final_node.output).index(graph_out_name)
                     # determine fifo node attributes
-                    fld_shape = n0.get_folded_output_shape()
-                    dtype = n0.get_output_datatype()
-                    fifo_depth = n0.get_nodeattr("outFIFODepth")
+                    fld_shape = n0.get_folded_output_shape(out_ind)
+                    dtype = n0.get_output_datatype(out_ind)
+                    fifo_depth = n0.get_nodeattr("outFIFODepths")[out_ind]
 
                     if fifo_depth <= 2:
                         warnings.warn("Overriding output FIFO depth to 32")
@@ -244,7 +270,7 @@ class InsertFIFO(Transformation):
                     )
                     graph.value_info.append(fifo_input_tensor)
                     model.set_tensor_datatype(fifo_input_tensor.name, dtype)
-
+                    impl_style = "vivado" if fifo_depth > self.max_qsrl_depth else "rtl"
                     fifo_node = oh.make_node(
                         "StreamingFIFO",
                         [fifo_input_tensor.name],
@@ -254,6 +280,8 @@ class InsertFIFO(Transformation):
                         depth=fifo_depth,
                         folded_shape=fld_shape,
                         dataType=str(dtype.name),
+                        impl_style=impl_style,
+                        ram_style=self.vivado_ram_style,
                     )
                     # insert fifo
                     graph.node.append(fifo_node)

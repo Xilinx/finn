@@ -103,8 +103,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             "paramDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
             # input and output FIFO depths
-            "inFIFODepth": ("i", False, 0),
-            "outFIFODepth": ("i", False, 0),
+            "inFIFODepths": ("ints", False, [0]),
+            "outFIFODepths": ("ints", False, [0]),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -221,23 +221,23 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         # total cost
         return comparator_cost + lutram_cost
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         return i_bits * self.get_nodeattr("PE")
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         fold = ich // pe
@@ -245,17 +245,17 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         folded_input_shape = tuple(vecs + [fold, pe])
         return folded_input_shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         # same shape as input
         return self.get_folded_input_shape()
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         normal_input_shape = tuple(vecs + [ich])
         return normal_input_shape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         # same shape as input
         return self.get_normal_input_shape()
 

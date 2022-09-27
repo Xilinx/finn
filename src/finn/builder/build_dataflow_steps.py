@@ -78,6 +78,10 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveCharacteristic,
+    DeriveFIFOSizes,
+)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -85,6 +89,7 @@ from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
@@ -162,44 +167,40 @@ def verify_step(
 
 
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
-    if not cfg.rtlsim_use_vivado_comps:
-        need_restitch = False
-        # switch impl_style=vivado components to rtl/hls
-        # StreamingFIFO must have impl_style=rtl
-        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
-            inst = getCustomOp(fifo_layer)
-            if inst.get_nodeattr("impl_style") != "rtl":
-                inst.set_nodeattr("impl_style", "rtl")
-                inst.set_nodeattr("code_gen_dir_ipgen", "")
-                inst.set_nodeattr("ipgen_path", "")
-                need_restitch = True
-        # StreamingDataWidthConverter must have impl_style=hls
-        for dwc_layer in verify_model.get_nodes_by_op_type(
-            "StreamingDataWidthConverter_Batch"
-        ):
-            inst = getCustomOp(dwc_layer)
-            if inst.get_nodeattr("impl_style") != "hls":
-                inst.set_nodeattr("impl_style", "hls")
-                inst.set_nodeattr("code_gen_dir_ipgen", "")
-                inst.set_nodeattr("ipgen_path", "")
-                need_restitch = True
-        # if we've made alterations to the model, need to do some re-prep
-        if need_restitch:
-            print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
-            verify_model = verify_model.transform(
-                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+    need_restitch = False
+    # rtlsim only supports certain impl_style for some nodes
+    # StreamingFIFO must have impl_style=rtl
+    for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
+        inst = getCustomOp(fifo_layer)
+        if inst.get_nodeattr("impl_style") != "rtl":
+            inst.set_nodeattr("impl_style", "rtl")
+            inst.set_nodeattr("code_gen_dir_ipgen", "")
+            inst.set_nodeattr("ipgen_path", "")
+            need_restitch = True
+    # StreamingDataWidthConverter must have impl_style=hls
+    for dwc_layer in verify_model.get_nodes_by_op_type(
+        "StreamingDataWidthConverter_Batch"
+    ):
+        inst = getCustomOp(dwc_layer)
+        if inst.get_nodeattr("impl_style") != "hls":
+            inst.set_nodeattr("impl_style", "hls")
+            inst.set_nodeattr("code_gen_dir_ipgen", "")
+            inst.set_nodeattr("ipgen_path", "")
+            need_restitch = True
+    # if we've made alterations to the model, need to do some re-prep
+    if need_restitch:
+        print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
+        verify_model = verify_model.transform(
+            PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
+        )
+        verify_model = verify_model.transform(HLSSynthIP())
+        verify_model = verify_model.transform(
+            CreateStitchedIP(
+                cfg._resolve_fpga_part(),
+                cfg.synth_clk_period_ns,
+                vitis=False,
             )
-            verify_model = verify_model.transform(HLSSynthIP())
-            verify_model = verify_model.transform(
-                CreateStitchedIP(
-                    cfg._resolve_fpga_part(),
-                    cfg.synth_clk_period_ns,
-                    vitis=False,
-                )
-            )
-    else:
-        print("rtlsim_use_vivado_comps is enabled, may yield incorrect results")
-
+        )
     # set top-level prop for stitched-ip rtlsim and launch
     verify_model.set_metadata_prop("exec_mode", "rtlsim")
     # TODO make configurable
@@ -453,9 +454,9 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     Depending on the auto_fifo_depths setting, do one of the following:
-    * if auto_fifo_depths=True:  Run the `InsertAndSetFIFODepths` transformation
-    to attempt to determine the FIFO sizes that provide full throughput. Involves
-    running stitched-IP rtlsim and may take a long time.
+    * if auto_fifo_depths=True:  Run the appropriate auto-sizing transformation
+    to attempt to determine the FIFO sizes that provide full throughput.
+    May take a long time.
     * if auto_fifo_depths=False:  Assume the folding config file contains FIFO
     sizes as well. Runs the `InsertFIFO` transformation, then
     `ApplyConfig(cfg.folding_config_file)`, and finally `RemoveShallowFIFOs`.
@@ -464,13 +465,36 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
 
     if cfg.auto_fifo_depths:
-        model = model.transform(
-            InsertAndSetFIFODepths(
-                cfg._resolve_fpga_part(),
-                cfg._resolve_hls_clk_period(),
-                vivado_ram_style=cfg.large_fifo_mem_style,
+        if cfg.auto_fifo_strategy == "characterize":
+            model = model.transform(InsertDWC())
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(
+                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
-        )
+            model = model.transform(HLSSynthIP())
+            model = model.transform(PrepareRTLSim())
+            model = model.transform(AnnotateCycles())
+            period = model.analysis(dataflow_performance)["max_cycles"] + 10
+            model = model.transform(DeriveCharacteristic(period))
+            model = model.transform(DeriveFIFOSizes())
+            model = model.transform(
+                InsertFIFO(
+                    vivado_ram_style=cfg.large_fifo_mem_style, max_qsrl_depth=256
+                )
+            )
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveReadableTensorNames())
+        elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
+            model = model.transform(
+                InsertAndSetFIFODepths(
+                    cfg._resolve_fpga_part(),
+                    cfg._resolve_hls_clk_period(),
+                    vivado_ram_style=cfg.large_fifo_mem_style,
+                    force_python_sim=cfg.force_python_rtlsim,
+                )
+            )
+        else:
+            assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
     else:
         # assume folding cfg json contains FIFO sizes too
         # insert DWCs, FIFOs and run ApplyConfig once more
