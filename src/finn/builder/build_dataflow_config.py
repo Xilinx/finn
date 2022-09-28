@@ -337,6 +337,10 @@ class DataflowBuildConfig:
     #: Override the number of inputs for rtlsim performance measurement.
     rtlsim_batch_size: Optional[int] = 1
 
+    #: If set to True, FIFOs and DWCs with impl_style=vivado will be kept during
+    #: rtlsim, otherwise they will be replaced by HLS implementations.
+    rtlsim_use_vivado_comps: Optional[bool] = True
+
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:
             # use same clk for synth and hls if not explicitly specified
