@@ -1753,7 +1753,7 @@ class InferQuantizedMaxNorm(Transformation):
             # get scale
             thresh = model.get_initializer(mt.input[1])
             diff = np.diff(thresh)
-            scale = (1 / (2 ^ odt.bitwidth() - 1)) * np.mean(diff)
+            scale = 1.0 / ((2 ** odt.bitwidth() - 1) * np.mean(diff))
             new_node = helper.make_node(
                 "QuantMaxNorm",
                 [rm_input],
