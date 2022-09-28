@@ -1743,21 +1743,17 @@ class InferQuantizedMaxNorm(Transformation):
         pattern = self._find_pattern(model)
         if len(pattern) >= 1:
             rm, rm_id, div, mt = pattern
-            # to instantiate quantmaxnor we need in/out tensor, IFMDim, NorMax,idt,odt
+            # to instantiate quantmaxnor we need in/out tensor, IFMDim, scale, idt, odt
             rm_input = rm.input[0]
             mt_output = mt.output[0]
             rm_input_shape = model.get_tensor_shape(rm_input)
             ifm_dim = [rm_input_shape[1], rm_input_shape[2]]
             idt = model.get_tensor_datatype(rm_input)
             odt = model.get_tensor_datatype(mt_output)
-            # get NorMax
+            # get scale
             thresh = model.get_initializer(mt.input[1])
-            if (thresh <= 1.0).all():
-                nor_max = 0
-            else:
-                # output of Div node can only be between 0.0 and 1.0
-                # get index of threshold that is just below 1.0
-                nor_max = np.argmax(thresh > 1.0) - 1
+            diff = np.diff(thresh)
+            scale = np.mean(diff)
             new_node = helper.make_node(
                 "QuantMaxNorm",
                 [rm_input],
@@ -1765,7 +1761,7 @@ class InferQuantizedMaxNorm(Transformation):
                 domain="finn.custom_op.fpgadataflow",
                 backend="fpgadataflow",
                 IFMDim=ifm_dim,
-                NorMax=nor_max,
+                scale=scale,
                 inputDataType=idt.name,
                 outputDataType=odt.name,
             )
@@ -1778,7 +1774,6 @@ class InferQuantizedMaxNorm(Transformation):
             model = model.transform(InferDataTypes())
             graph_modified = True
         return (model, graph_modified)
-
 
 
 class InferStreamingEltwise(Transformation):

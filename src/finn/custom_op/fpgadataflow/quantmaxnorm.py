@@ -47,8 +47,10 @@ class QuantMaxNorm(HLSCustomOp):
         my_attrs = {
             # images size
             "IFMDim": ("ints", True, []),  # [H, W]
-            # Value of normalized maximum ("0" defaults to 2^(outputDataType)-1)
-            "NorMax": ("i", True, 0),
+            # Scale
+            # needs to be set to to 1/(2^(outputDataType)-1)*lambda
+            # with lambda being the distance between two thresholds
+            "scale": ("f", True, 1.0),
             # FINN DataTypes for input and output
             "inputDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
@@ -136,8 +138,10 @@ class QuantMaxNorm(HLSCustomOp):
         idim = self.get_nodeattr("IFMDim")
         self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(np.prod(idim))]
 
-        normax = self.get_nodeattr("NorMax")
-        self.code_gen_dict["$DEFINES$"] += ["#define NorMax {}".format(normax)]
+        scale = self.get_nodeattr("scale")
+        self.code_gen_dict["$DEFINES$"] += [
+            "constexpr unsigned SCALE0 = {}f;".format(scale)
+        ]
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -168,8 +172,8 @@ class QuantMaxNorm(HLSCustomOp):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """max_norm<IFMDim, NorMax, Input_precision, Output_precision>
-            (in0, out);"""
+            """max_norm<IFMDim, Input_precision, Output_precision>
+            (in0, out, SCALE0);"""
         ]
 
     def dataoutstrm(self):
