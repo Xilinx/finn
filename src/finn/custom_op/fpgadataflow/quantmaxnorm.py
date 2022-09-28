@@ -139,9 +139,7 @@ class QuantMaxNorm(HLSCustomOp):
         self.code_gen_dict["$DEFINES$"] += ["#define IFMDim {}".format(np.prod(idim))]
 
         scale = self.get_nodeattr("scale")
-        self.code_gen_dict["$DEFINES$"] += [
-            "constexpr unsigned SCALE0 = {}f;".format(scale)
-        ]
+        self.code_gen_dict["$DEFINES$"] += ["#define SCALE0 = {}".format(scale)]
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")

@@ -1753,7 +1753,7 @@ class InferQuantizedMaxNorm(Transformation):
             # get scale
             thresh = model.get_initializer(mt.input[1])
             diff = np.diff(thresh)
-            scale = np.mean(diff)
+            scale = (1 / (2 ^ odt.bitwidth() - 1)) * np.mean(diff)
             new_node = helper.make_node(
                 "QuantMaxNorm",
                 [rm_input],
@@ -1761,7 +1761,7 @@ class InferQuantizedMaxNorm(Transformation):
                 domain="finn.custom_op.fpgadataflow",
                 backend="fpgadataflow",
                 IFMDim=ifm_dim,
-                scale=scale,
+                scale=float(scale),
                 inputDataType=idt.name,
                 outputDataType=odt.name,
             )
