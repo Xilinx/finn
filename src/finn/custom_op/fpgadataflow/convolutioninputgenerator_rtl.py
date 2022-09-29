@@ -842,17 +842,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         each tuple is (interface_name, interface_width_bits).
         axilite always assumed to be 32 bits and is not tuple (name only).
         Each block must have at most one aximm and one axilite."""
-        intf_names = {}
-        intf_names["clk"] = ["ap_clk"]
-        intf_names["rst"] = ["ap_rst_n"]
-        sname = self.hls_sname()
-        intf_names["s_axis"] = [("in0_" + sname, self.get_instream_width_padded())]
-        intf_names["m_axis"] = [("out_" + sname, self.get_outstream_width_padded())]
-        intf_names["aximm"] = []
+        intf_names = super().get_verilog_top_module_intf_names()
         if self.get_nodeattr("dynamic_mode"):
             intf_names["axilite"] = ["s_axi_cfg"]
-        else:
-            intf_names["axilite"] = []
         return intf_names
 
     def get_dynamic_config(self, ifm_dim, stride=None, dilation=None):
