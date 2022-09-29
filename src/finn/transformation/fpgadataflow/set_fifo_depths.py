@@ -72,8 +72,9 @@ def optimize_depth(depth):
         # Q_srl FIFOs do not benefit from size < 32
         # add some slack
         return 32
-    # round to nearest power of two for Vivado IP FIFO implementation
-    return int(2 ** math.ceil(math.log2(depth)))
+    # otherwise leave as is
+    # will be rounded to nearest power of two for Vivado-style FIFO
+    return int(depth)
 
 
 class RemoveShallowFIFOs(Transformation):
