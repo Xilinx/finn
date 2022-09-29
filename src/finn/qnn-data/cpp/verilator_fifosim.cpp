@@ -118,7 +118,7 @@ int main(int argc, char *argv[]) {
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
 
     while(!exit_criterion) {
-        if(top->s_axis_0_tready == 1) {
+        if(top->s_axis_0_tready == 1 && top->s_axis_0_tvalid == 1) {
             n_in_txns++;
             if(n_in_txns == n_iters_per_input * n_inputs) {
                 top->s_axis_0_tvalid = 0;
