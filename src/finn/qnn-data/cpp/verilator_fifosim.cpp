@@ -118,7 +118,7 @@ int main(int argc, char *argv[]) {
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
 
     while(!exit_criterion) {
-        if(top->s_axis_0_tready == 1) {
+        if(top->s_axis_0_tready == 1 && top->s_axis_0_tvalid == 1) {
             n_in_txns++;
             if(n_in_txns == n_iters_per_input * n_inputs) {
                 top->s_axis_0_tvalid = 0;
@@ -152,8 +152,9 @@ int main(int argc, char *argv[]) {
     results_file.open("results.txt", ios::out | ios::trunc);
     results_file << "N_IN_TXNS" << "\t" << n_in_txns << endl;
     results_file << "N_OUT_TXNS" << "\t" << n_out_txns << endl;
-    results_file << "N_CYCLES" << "\t" << iters << endl;
-    results_file << "LATENCY" << "\t" << latency << endl;
+    results_file << "cycles" << "\t" << iters << endl;
+    results_file << "N" << "\t" << n_inputs << endl;
+    results_file << "latency_cycles" << "\t" << latency << endl;
 @FIFO_DEPTH_LOGGING@
     results_file.close();
 
