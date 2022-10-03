@@ -344,7 +344,10 @@ def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     # needed for convolutions -- TODO always exec?
     need_conv = len(model.get_nodes_by_op_type("Im2Col")) > 0
     if need_conv:
-        model = model.transform(to_hls.InferConvInpGen())
+        if cfg.force_rtl_conv_inp_gen:
+            model = model.transform(to_hls.InferConvInpGen(use_rtl_variant=True))
+        else:
+            model = model.transform(to_hls.InferConvInpGen())
         model = model.transform(to_hls.InferStreamingMaxPool())
         model = model.transform(RemoveCNVtoFCFlatten())
     # get rid of Tranpose -> Tranpose identity seq
