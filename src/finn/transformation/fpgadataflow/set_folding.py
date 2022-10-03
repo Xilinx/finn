@@ -109,6 +109,7 @@ class SetFolding(Transformation):
             "FMPadding_Batch",
             "ConvolutionInputGenerator",
             "ConvolutionInputGenerator1D",
+            "ConvolutionInputGenerator_rtl",
         ]
         # these ops are preceded by depthwise SWG and have special behavior,
         # as explained in the SetFolding docstring
@@ -171,10 +172,7 @@ class SetFolding(Transformation):
                             "Expected SWU on DW op input, found " + swu_node.op_type
                         )
             elif op_type in simd_ops:
-                if op_type in [
-                    "ConvolutionInputGenerator",
-                    "ConvolutionInputGenerator1D",
-                ]:
+                if op_type.startswith("ConvolutionInputGenerator"):
                     depthwise = node_inst.get_nodeattr("depthwise")
                     if depthwise == 0:
                         max_simd = node_inst.get_nodeattr("IFMChannels")
