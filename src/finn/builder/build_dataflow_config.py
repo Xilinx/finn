@@ -271,6 +271,10 @@ class DataflowBuildConfig:
     #: Which memory mode will be used for compute layers
     default_mem_mode: Optional[ComputeEngineMemMode] = ComputeEngineMemMode.DECOUPLED
 
+    #: Force inference of RTL ConvolutionInputGenerator over HLS implementation
+    #: If set to False, falls back to the default behavior of InferConvInpGen()
+    force_rtl_conv_inp_gen: Optional[bool] = False
+
     #: Which Vitis platform will be used.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
     #: e.g. "xilinx_u250_xdma_201830_2"
