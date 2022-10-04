@@ -68,6 +68,8 @@ class StreamingFIFO(HLSCustomOp):
                 "auto",
                 {"auto", "block", "distributed", "ultra"},
             ),
+            # whether depth monitoring is enabled (impl_style=rtl only)
+            "depth_monitor": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
 
@@ -96,6 +98,14 @@ class StreamingFIFO(HLSCustomOp):
 
     def verify_node(self):
         pass
+
+    def get_verilog_top_module_intf_names(self):
+        ret = super().get_verilog_top_module_intf_names()
+        is_rtl = self.get_nodeattr("impl_style") == "rtl"
+        is_depth_monitor = self.get_nodeattr("depth_monitor") == 1
+        if is_rtl and is_depth_monitor:
+            ret["ap_none"] = ["maxcount"]
+        return ret
 
     def get_verilog_top_module_name(self):
         "Return the Verilog top module name for this node."

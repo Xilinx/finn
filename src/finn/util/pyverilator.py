@@ -26,7 +26,10 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import pkg_resources as pk
+
 import os
+import shutil
 from pyverilator import PyVerilator
 
 from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
@@ -74,14 +77,35 @@ def pyverilate_stitched_ip(
     # are identical but in multiple directories (regslice_core.v)
 
     # remove duplicates from list by doing list -> set -> list
-    all_verilog_files = list(
-        set(filter(lambda x: x.endswith(".v") or x.endswith(".sv"), all_verilog_srcs))
+    src_exts = [".v", ".sv"]
+
+    all_verilog_src_files = list(
+        set(
+            filter(
+                lambda x: any(map(lambda y: x.endswith(y), src_exts)), all_verilog_srcs
+            )
+        )
     )
+
+    verilog_header_dir = make_build_dir("pyverilator_vh_")
+    # use custom version of axis infrastructure vh
+    # to enable Verilator to simulate AMD/Xilinx components (e.g DWC)
+    custom_vh = pk.resource_filename(
+        "finn.qnn-data", "verilog/custom_axis_infrastructure.vh"
+    )
+    shutil.copy(custom_vh, verilog_header_dir + "/axis_infrastructure_v1_1_0.vh")
+    for fn in all_verilog_srcs:
+        if fn.endswith(".vh"):
+            if "axis_infrastructure_v1_1_0.vh" in fn:
+                # skip, we use a custom version for this file without recursive gcd
+                continue
+            else:
+                shutil.copy(fn, verilog_header_dir)
 
     # remove all but one instances of regslice_core.v
     filtered_verilog_files = []
     remove_entry = False
-    for vfile in all_verilog_files:
+    for vfile in all_verilog_src_files:
         if "regslice_core" in vfile:
             if not remove_entry:
                 filtered_verilog_files.append(vfile)
@@ -94,7 +118,12 @@ def pyverilate_stitched_ip(
         for vfile in filtered_verilog_files:
             with open(vfile) as rf:
                 wf.write("//Added from " + vfile + "\n\n")
-                wf.write(rf.read())
+                lines = rf.read()
+                for line in lines.split("\n"):
+                    # break down too-long lines, Verilator complains otherwise
+                    if len(line) > 20000:
+                        line = line.replace("&", "\n&")
+                    wf.write("\n" + line)
 
     verilator_args = []
     # disable common verilator warnings that should be harmless but commonly occur
@@ -108,10 +137,20 @@ def pyverilate_stitched_ip(
     # force inlining of all submodules to ensure we can read internal signals properly
     if read_internal_signals:
         verilator_args += ["--inline-mult", "0"]
+    # add defines to make certain XPM src files work with Verilator
+    verilator_args.append("-DDISABLE_XPM_ASSERTIONS")
+    verilator_args.append("-DOBSOLETE")
+    verilator_args.append("-DONESPIN")
+    verilator_args.append("--bbox-unsup")
+    vivado_path = os.environ["VIVADO_PATH"]
+    # additional SystemVerilog modules to make XPMs work with Verilator
+    xpm_memory = f"{vivado_path}/data/ip/xpm/xpm_memory/hdl/xpm_memory.sv"
+    xpm_cdc = f"{vivado_path}/data/ip/xpm/xpm_cdc/hdl/xpm_cdc.sv"
+    xpm_fifo = f"{vivado_path}/data/ip/xpm/xpm_fifo/hdl/xpm_fifo.sv"
 
     sim = PyVerilator.build(
-        top_module_file_name,
-        verilog_path=[vivado_stitch_proj_dir],
+        [top_module_file_name, xpm_fifo, xpm_memory, xpm_cdc],
+        verilog_path=[vivado_stitch_proj_dir, verilog_header_dir],
         build_dir=build_dir,
         trace_depth=get_rtlsim_trace_depth(),
         top_module_name=top_module_name,
