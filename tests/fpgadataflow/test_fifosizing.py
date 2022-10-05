@@ -49,6 +49,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.fpgadataflow
 def test_fifosizing_linear():
     tmp_output_dir = fetch_test_model("tfc")
     cfg = build_cfg.DataflowBuildConfig(
