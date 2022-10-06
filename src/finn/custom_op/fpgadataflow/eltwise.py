@@ -151,7 +151,7 @@ class StreamingEltwise(HLSCustomOp):
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append(
-                """The required LabelSelect_Batch attributes do not exist."""
+                """The required StreamingEltwise attributes do not exist."""
             )
 
         return info_messages

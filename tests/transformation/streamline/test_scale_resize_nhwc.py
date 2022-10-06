@@ -3,9 +3,11 @@ import pytest
 import numpy as np
 import onnx
 import onnx.helper as oh
+import qonnx.core.data_layout as DataLayout
 from onnx import TensorProto
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
 
@@ -61,7 +63,9 @@ def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
 
+    model.set_tensor_layout("inp", DataLayout.NCHW)
     model = model.transform(InferShapes())
+    model = model.transform(InferDataLayouts())
 
     return model
 
@@ -113,8 +117,10 @@ def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
+    model.set_tensor_layout("inp", DataLayout.NHWC)
 
     model = model.transform(InferShapes())
+    model = model.transform(InferDataLayouts())
 
     return model
 
@@ -160,7 +166,7 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
 
     transpose_node2 = onnx.helper.make_node(
         "Transpose",
-        inputs=["out_up"],
+        inputs=["outp_up"],
         outputs=["outp"],
         name="Transpose2",
         perm=[0, 2, 3, 1],
@@ -178,10 +184,23 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
+    model.set_tensor_layout("inp", DataLayout.NHWC)
 
     model = model.transform(InferShapes())
+    model = model.transform(InferDataLayouts())
 
     return model
+
+
+def check_transform(model):
+    graph = model.graph
+    node_ind = 0
+    for n in graph.node:
+        node_ind += 1
+        if n.op_type == "Upsample" or n.op_type == "Resize":
+            if model.get_tensor_layout(n.output[0]) == DataLayout.NHWC:
+                return True
+    return False
 
 
 @pytest.mark.streamline
@@ -222,6 +241,7 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
 
     # transform Resize into ResizeNHWC
     resize_model1 = resize_model1.transform(MakeScaleResizeNHWC())
+    resize_model1 = resize_model1.transform(InferDataLayouts())
 
     # execute transformed model
     output_node_name1 = resize_model1.graph.output[0].name
@@ -232,6 +252,7 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
 
     # compare outputs
     assert (expected1 == output1).all()
+    assert check_transform(resize_model1)
 
     # execute second model
     output_dict2 = oxe.execute_onnx(resize_model2, input_dict_nhwc)
@@ -239,6 +260,7 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
 
     # transform Resize into ResizeNHWC
     resize_model2 = resize_model2.transform(MakeScaleResizeNHWC())
+    resize_model2 = resize_model2.transform(InferDataLayouts())
 
     # execute transformed model
     output_node_name2 = resize_model2.graph.output[0].name
@@ -249,6 +271,7 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
 
     # compare outputs
     assert (expected2 == output2).all()
+    assert check_transform(resize_model2)
 
     # execute third model
     output_dict3 = oxe.execute_onnx(resize_model3, input_dict_nhwc)
@@ -256,6 +279,7 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
 
     # transform Resize into ResizeNHWC
     resize_model3 = resize_model3.transform(MakeScaleResizeNHWC())
+    resize_model3 = resize_model3.transform(InferDataLayouts())
 
     # execute transformed model
     output_node_name3 = resize_model3.graph.output[0].name
@@ -266,3 +290,4 @@ def test_scale_resize_nhwc(ifm_dim, ifm_ch, scales, mode, idt):
 
     # compare outputs
     assert (expected3 == output3).all()
+    assert check_transform(resize_model3)

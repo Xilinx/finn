@@ -29,6 +29,7 @@
 import json
 import numpy as np
 import os
+import shutil
 from copy import deepcopy
 from distutils.dir_util import copy_tree
 from qonnx.core.modelwrapper import ModelWrapper
@@ -194,44 +195,53 @@ def verify_step(
                 res_str,
             )
             np.save(verification_output_fn, out_npy)
+        if cfg.verify_save_rtlsim_waveforms:
+            vcd_path = model.get_metadata_prop("rtlsim_trace")
+            if vcd_path is not None and os.path.isfile(vcd_path):
+                new_vcd_path = vcd_path.replace(".vcd", "_%d.vcd" % b)
+                shutil.move(vcd_path, new_vcd_path)
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
 
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
-    need_restitch = False
-    # rtlsim only supports certain impl_style for some nodes
-    # StreamingFIFO must have impl_style=rtl
-    for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
-        inst = getCustomOp(fifo_layer)
-        if inst.get_nodeattr("impl_style") != "rtl":
-            inst.set_nodeattr("impl_style", "rtl")
-            inst.set_nodeattr("code_gen_dir_ipgen", "")
-            inst.set_nodeattr("ipgen_path", "")
-            need_restitch = True
-    # StreamingDataWidthConverter must have impl_style=hls
-    for dwc_layer in verify_model.get_nodes_by_op_type(
-        "StreamingDataWidthConverter_Batch"
-    ):
-        inst = getCustomOp(dwc_layer)
-        if inst.get_nodeattr("impl_style") != "hls":
-            inst.set_nodeattr("impl_style", "hls")
-            inst.set_nodeattr("code_gen_dir_ipgen", "")
-            inst.set_nodeattr("ipgen_path", "")
-            need_restitch = True
-    # if we've made alterations to the model, need to do some re-prep
-    if need_restitch:
-        print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
-        verify_model = verify_model.transform(
-            PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-        )
-        verify_model = verify_model.transform(HLSSynthIP())
-        verify_model = verify_model.transform(
-            CreateStitchedIP(
-                cfg._resolve_fpga_part(),
-                cfg.synth_clk_period_ns,
-                vitis=False,
+    if not cfg.rtlsim_use_vivado_comps:
+        need_restitch = False
+        # switch impl_style=vivado components to rtl/hls
+        # StreamingFIFO must have impl_style=rtl
+        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
+            inst = getCustomOp(fifo_layer)
+            if inst.get_nodeattr("impl_style") != "rtl":
+                inst.set_nodeattr("impl_style", "rtl")
+                inst.set_nodeattr("code_gen_dir_ipgen", "")
+                inst.set_nodeattr("ipgen_path", "")
+                need_restitch = True
+        # StreamingDataWidthConverter must have impl_style=hls
+        for dwc_layer in verify_model.get_nodes_by_op_type(
+            "StreamingDataWidthConverter_Batch"
+        ):
+            inst = getCustomOp(dwc_layer)
+            if inst.get_nodeattr("impl_style") != "hls":
+                inst.set_nodeattr("impl_style", "hls")
+                inst.set_nodeattr("code_gen_dir_ipgen", "")
+                inst.set_nodeattr("ipgen_path", "")
+                need_restitch = True
+        # if we've made alterations to the model, need to do some re-prep
+        if need_restitch:
+            print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
+            verify_model = verify_model.transform(
+                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
-        )
+            verify_model = verify_model.transform(HLSSynthIP())
+            verify_model = verify_model.transform(
+                CreateStitchedIP(
+                    cfg._resolve_fpga_part(),
+                    cfg.synth_clk_period_ns,
+                    vitis=False,
+                )
+            )
+    else:
+        print("rtlsim_use_vivado_comps is enabled, may yield incorrect results")
+
     # set top-level prop for stitched-ip rtlsim and launch
     verify_model.set_metadata_prop("exec_mode", "rtlsim")
     # TODO make configurable
@@ -338,7 +348,10 @@ def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     # needed for convolutions -- TODO always exec?
     need_conv = len(model.get_nodes_by_op_type("Im2Col")) > 0
     if need_conv:
-        model = model.transform(to_hls.InferConvInpGen())
+        if cfg.force_rtl_conv_inp_gen:
+            model = model.transform(to_hls.InferConvInpGen(use_rtl_variant=True))
+        else:
+            model = model.transform(to_hls.InferConvInpGen())
         model = model.transform(to_hls.InferStreamingMaxPool())
         model = model.transform(RemoveCNVtoFCFlatten())
     # get rid of Tranpose -> Tranpose identity seq

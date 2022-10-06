@@ -192,10 +192,11 @@ class InsertAndSetFIFODepths(Transformation):
     - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
                        Verilog FIFOs (Q_srl.v)
     - max_depth : how deep the "max"-sized FIFOs initially inserted will be
+                   if set to None, use the tensor size as the depth
     - swg_exception : call CapConvolutionFIFODepths to make convolution FIFOs
                         smaller where appropriate
     - vivado_ram_style : the StreamingFIFO.ram_style attribute to be used for
-                          large FIFOs implemented by Vivado
+                          large FIFOs implemented by Vivado afterwards
 
     Assumed input graph properties:
     - all nodes are fpgadataflow nodes
@@ -210,7 +211,7 @@ class InsertAndSetFIFODepths(Transformation):
     necessary to insert FIFOs between them to prevent stalls due to bursty
     behavior. The sizes of those FIFOs are hard to predict analytically, so
     we do the following:
-    - insert very deep (default 16k deep) FIFOs between all fpgadataflow nodes
+    - insert deep (=tensor size) FIFOs between all fpgadataflow nodes
     - create stitched design
     - run through rtlsim with stream of multiple random input images (to fill pipeline)
     - keep track of observed maximum occupancy for each FIFO during rtlsim
@@ -223,7 +224,7 @@ class InsertAndSetFIFODepths(Transformation):
         fpgapart,
         clk_ns=10.0,
         max_qsrl_depth=256,
-        max_depth=2**14,
+        max_depth=None,
         swg_exception=True,
         vivado_ram_style="auto",
     ):
@@ -236,6 +237,9 @@ class InsertAndSetFIFODepths(Transformation):
         self.vivado_ram_style = vivado_ram_style
 
     def apply(self, model):
+        # these optypes may potentially use external weights
+        # we'll temporarily change them to use decoupled mode for FIFO sizing
+        extw_optypes = ["MatrixVectorActivation", "VectorVectorActivation"]
         # change external to decoupled and warn user
         # this way we are sure we have exactly one input/output
         modified_fc_nodes = []
@@ -246,9 +250,15 @@ class InsertAndSetFIFODepths(Transformation):
             )
             assert node.op_type != "StreamingFIFO", "Found existing StreamingFIFO node"
             node = getCustomOp(node)
-            node.set_nodeattr("inFIFODepth", self.max_depth)
-            node.set_nodeattr("outFIFODepth", self.max_depth)
-            if node.onnx_node.op_type == "MatrixVectorActivation":
+            if self.max_depth is not None:
+                node.set_nodeattr("inFIFODepth", self.max_depth)
+                node.set_nodeattr("outFIFODepth", self.max_depth)
+            else:
+                i_depth = np.prod(node.get_folded_input_shape()[:-1])
+                o_depth = np.prod(node.get_folded_output_shape()[:-1])
+                node.set_nodeattr("inFIFODepth", i_depth)
+                node.set_nodeattr("outFIFODepth", o_depth)
+            if node.onnx_node.op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
                     modified_fc_nodes.append(node.onnx_node.name)
@@ -267,13 +277,17 @@ class InsertAndSetFIFODepths(Transformation):
 
         # gather FIFO names, check they are of expected depth
         fifos = {}
-        for node in model.graph.node:
-            if node.op_type == "StreamingFIFO":
-                fifos[node.name] = 0
-                node = getCustomOp(node)
-                # check depths and fix as necessary
-                if node.get_nodeattr("depth") != self.max_depth:
-                    node.set_nodeattr("depth", self.max_depth)
+        fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")
+        for node in fifo_nodes:
+            fifos[node.name] = 0
+            node = getCustomOp(node)
+            node.set_nodeattr("depth_monitor", 1)
+            node.set_nodeattr("impl_style", "rtl")
+            # check depths and fix as necessary
+            if (self.max_depth is not None) and (
+                node.get_nodeattr("depth") != self.max_depth
+            ):
+                node.set_nodeattr("depth", self.max_depth)
 
         # insert FIFOs and do all transformations for RTLsim
         model = model.transform(AnnotateCycles())
@@ -324,21 +338,6 @@ class InsertAndSetFIFODepths(Transformation):
             else:
                 set_signal(sim, "tvalid", 0)
 
-            # check/update all fifo counts
-            for key in fifos:
-                current_state = sim.internals["finn_design_i"][key]["inst"][
-                    key + "_" + key
-                ]["state"]
-                current_addr = sim.internals["finn_design_i"][key]["inst"][
-                    key + "_" + key
-                ]["addr"]
-                if current_state == 2:
-                    current_count = current_addr + 2
-                else:
-                    current_count = current_state
-                if current_count > fifos[key]:
-                    fifos[key] = current_count
-
             # since latency estimation is very pessimistic, detect first output
             # and fast-forward the sim
             if get_signal(sim, "tvalid") != 0 and not output_detected:
@@ -352,6 +351,12 @@ class InsertAndSetFIFODepths(Transformation):
                 "No output detected, calculated FIFO depths may not be correct"
             )
 
+        for ind, node in enumerate(fifo_nodes):
+            maxcount_name = "maxcount_%d" % ind
+            if ind == 0:
+                maxcount_name = "maxcount"
+            fifos[node.name] = sim[maxcount_name]
+
         # Apply depths back into the model;
         # also set in/outFIFODepth to zero for non-FIFO
         # nodes, preventing further FIFO insertion
@@ -364,6 +369,7 @@ class InsertAndSetFIFODepths(Transformation):
                 depth = optimize_depth(fifos[node.name])
                 node_inst = getCustomOp(node)
                 node_inst.set_nodeattr("depth", depth)
+                node_inst.set_nodeattr("depth_monitor", 0)
                 # Set FIFO implementation/ram styles
                 if depth > self.max_qsrl_depth:
                     node_inst.set_nodeattr("impl_style", "vivado")
@@ -376,9 +382,9 @@ class InsertAndSetFIFODepths(Transformation):
             else:
                 getCustomOp(node).set_nodeattr("inFIFODepth", 0)
                 getCustomOp(node).set_nodeattr("outFIFODepth", 0)
-                # for every FC node we changed from external to decoupled,
+                # for every extw node we changed from external to decoupled,
                 # change back and reset implementation
-                if node.op_type == "MatrixVectorActivation":
+                if node.op_type in extw_optypes:
                     if node.name in modified_fc_nodes:
                         node_inst = getCustomOp(node)
                         node_inst.set_nodeattr("mem_mode", "external")
