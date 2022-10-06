@@ -152,7 +152,7 @@ class FMPadding_Batch(HLSCustomOp):
         assert ret.allowed(0), "FMPadding_Batch DataType must support zero"
         return ret
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output. (Same as input datatype)"""
         return self.get_input_datatype()
 

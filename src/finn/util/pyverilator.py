@@ -252,6 +252,7 @@ def pyverilate_stitched_ip(
 
     verilog_header_dir = make_build_dir("pyverilator_vh_")
     # use custom version of axis infrastructure vh
+    # to enable Verilator to simulate AMD/Xilinx components (e.g DWC)
     custom_vh = pk.resource_filename(
         "finn.qnn-data", "verilog/custom_axis_infrastructure.vh"
     )

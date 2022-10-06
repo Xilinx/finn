@@ -208,8 +208,6 @@ class StreamingFIFO(HLSCustomOp):
 
     def get_normal_input_shape(self, ind=0):
         depth = self.get_adjusted_depth()
-        # depth has to be between 2 and 256 with the current
-        # StreamingFIFO implementation
         assert depth >= 2, """Depth is too low"""
         if depth > 256 and self.get_nodeattr("impl_style") == "rtl":
             warnings.warn(

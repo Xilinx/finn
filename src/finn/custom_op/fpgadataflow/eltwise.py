@@ -91,10 +91,10 @@ class StreamingEltwise(HLSCustomOp):
         ishape = tuple(vecs + [ich // pe, pe])
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
     def make_shape_compatible_op(self, model):
@@ -156,11 +156,11 @@ class StreamingEltwise(HLSCustomOp):
 
         return info_messages
 
-    def get_input_datatype(self, id=0):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType" + str(id))]
+        return DataType[self.get_nodeattr("inputDataType" + str(ind))]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         op = self.get_nodeattr("eltwiseOp")
         idt0 = self.get_input_datatype(0)
@@ -196,7 +196,7 @@ class StreamingEltwise(HLSCustomOp):
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns output stream width."""
         obits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")

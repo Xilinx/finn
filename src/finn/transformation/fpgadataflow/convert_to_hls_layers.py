@@ -183,7 +183,7 @@ class InferConvInpGen(Transformation):
                         )
                         if not (downsample_1D or downsample_2D):
                             warnings.warn(
-                                f"Couldn't infer Downsample from {n.name}, check cfg."
+                                f"Couldn't infer Downsample from {n.name},check config."
                             )
                             continue
                         ConvInpGen_idim = max(ConvInpGen_idim_h, ConvInpGen_idim_w)
