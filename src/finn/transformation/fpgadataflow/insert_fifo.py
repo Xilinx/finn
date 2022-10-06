@@ -88,10 +88,7 @@ class InsertFIFO(Transformation):
     ):
         super().__init__()
         self.create_shallow_fifos = create_shallow_fifos
-        if max_qsrl_depth is None:
-            self.max_qsrl_depth = 1000000
-        else:
-            self.max_qsrl_depth = max_qsrl_depth
+        self.max_qsrl_depth = max_qsrl_depth
         self.vivado_ram_style = vivado_ram_style
 
     def apply(self, model):
@@ -120,15 +117,10 @@ class InsertFIFO(Transformation):
                         # check if folded_shape of output of first node and
                         # input of the second node is equal
                         n1 = getCustomOp(consumer)
-                        idx_inp = 0
                         for idx, inp in enumerate(consumer.input):
                             if inp == output_name:
-                                if idx == 0:
-                                    fld_shape_2 = n1.get_folded_input_shape()
-                                    idx_inp = 0
-                                else:
-                                    fld_shape_2 = n1.get_folded_input_shape(ind=idx)
-                                    idx_inp = idx
+                                fld_shape_2 = n1.get_folded_input_shape(ind=idx)
+                                idx_inp = idx
                         assert _suitable_folded_shapes(
                             fld_shape, fld_shape_2
                         ), """The
@@ -141,10 +133,7 @@ class InsertFIFO(Transformation):
                         n0_depth = n0.get_nodeattr("outFIFODepths")[idx_out]
                         n1_depth = n1.get_nodeattr("inFIFODepths")[idx_inp]
 
-                        if n0_depth == n1_depth:
-                            fifo_depth = n0_depth
-                        elif n0_depth != n1_depth:
-                            fifo_depth = max(n0_depth, n1_depth)
+                        fifo_depth = max(n0_depth, n1_depth)
 
                         if fifo_depth > 2 or self.create_shallow_fifos:
                             # assumption: HLS streaming components already have
@@ -159,9 +148,15 @@ class InsertFIFO(Transformation):
                             )
                             graph.value_info.append(fifo_output_tensor)
                             model.set_tensor_datatype(fifo_output_tensor.name, dtype)
-                            impl_style = (
-                                "vivado" if fifo_depth > self.max_qsrl_depth else "rtl"
-                            )
+
+                            if (
+                                self.max_qsrl_depth is None
+                                or fifo_depth <= self.max_qsrl_depth
+                            ):
+                                impl_style = "rtl"
+                            else:
+                                impl_style = "vivado"
+
                             fifo_node = oh.make_node(
                                 "StreamingFIFO",
                                 [output_name],
@@ -219,7 +214,11 @@ class InsertFIFO(Transformation):
                     )
                     graph.value_info.append(fifo_output_tensor)
                     model.set_tensor_datatype(fifo_output_tensor.name, dtype)
-                    impl_style = "vivado" if fifo_depth > self.max_qsrl_depth else "rtl"
+
+                    if self.max_qsrl_depth is None or fifo_depth <= self.max_qsrl_depth:
+                        impl_style = "rtl"
+                    else:
+                        impl_style = "vivado"
 
                     fifo_node = oh.make_node(
                         "StreamingFIFO",
@@ -270,7 +269,12 @@ class InsertFIFO(Transformation):
                     )
                     graph.value_info.append(fifo_input_tensor)
                     model.set_tensor_datatype(fifo_input_tensor.name, dtype)
-                    impl_style = "vivado" if fifo_depth > self.max_qsrl_depth else "rtl"
+
+                    if self.max_qsrl_depth is None or fifo_depth <= self.max_qsrl_depth:
+                        impl_style = "rtl"
+                    else:
+                        impl_style = "vivado"
+
                     fifo_node = oh.make_node(
                         "StreamingFIFO",
                         [fifo_input_tensor.name],
