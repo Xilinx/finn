@@ -75,21 +75,21 @@ class Lookup(HLSCustomOp):
         exp_cycles = int(n_inputs)
         return exp_cycles
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         return self.get_nodeattr("InputShape")
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         ishape = self.get_normal_input_shape()
         emb_dim = self.get_nodeattr("EmbeddingDim")
         oshape = list(ishape) + [emb_dim]
         return tuple(oshape)
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ishape = self.get_normal_input_shape()
         folded_ishape = list(ishape) + [1]
         return tuple(folded_ishape)
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         ishape = self.get_normal_input_shape()
         mem_mode = self.get_nodeattr("mem_mode")
         emb_dim = self.get_nodeattr("EmbeddingDim")
@@ -135,19 +135,19 @@ class Lookup(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         ret = DataType[self.get_nodeattr("InputType")]
         return ret
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         ret = DataType[self.get_nodeattr("EmbeddingType")]
         return ret
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
         return ibits
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         folded_oshape = self.get_folded_output_shape()
         obits = self.get_output_datatype().bitwidth()
         return obits * folded_oshape[-1]
