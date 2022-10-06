@@ -250,14 +250,21 @@ class InsertAndSetFIFODepths(Transformation):
             )
             assert node.op_type != "StreamingFIFO", "Found existing StreamingFIFO node"
             node = getCustomOp(node)
+            ifd = node.get_nodeattr("inFIFODepths")
+            ofd = node.get_nodeattr("outFIFODepths")
             if self.max_depth is not None:
-                node.set_nodeattr("inFIFODepth", self.max_depth)
-                node.set_nodeattr("outFIFODepth", self.max_depth)
+                ifd = [self.max_depth] * len(ifd)
+                ofd = [self.max_depth] * len(ofd)
             else:
-                i_depth = np.prod(node.get_folded_input_shape()[:-1])
-                o_depth = np.prod(node.get_folded_output_shape()[:-1])
-                node.set_nodeattr("inFIFODepth", i_depth)
-                node.set_nodeattr("outFIFODepth", o_depth)
+                # set each FIFO to its tensor size
+                # (except stream width hence the :-1)
+                for i in range(len(ifd)):
+                    ifd[i] = np.prod(node.get_folded_input_shape(i)[:-1])
+                for o in range(len(ofd)):
+                    ofd[o] = np.prod(node.get_folded_output_shape(o)[:-1])
+            node.set_nodeattr("inFIFODepths", ifd)
+            node.set_nodeattr("outFIFODepths", ofd)
+
             if node.onnx_node.op_type in extw_optypes:
                 mmode = node.get_nodeattr("mem_mode")
                 if mmode == "external":
@@ -380,8 +387,11 @@ class InsertAndSetFIFODepths(Transformation):
                 reset_implementation(node_inst)
                 del fifos[node.name]
             else:
-                getCustomOp(node).set_nodeattr("inFIFODepth", 0)
-                getCustomOp(node).set_nodeattr("outFIFODepth", 0)
+                inst = getCustomOp(node)
+                ifd = inst.get_nodeattr("inFIFODepths")
+                ofd = inst.get_nodeattr("outFIFODepths")
+                inst.set_nodeattr("inFIFODepths", [0] * len(ifd))
+                inst.set_nodeattr("outFIFODepths", [0] * len(ofd))
                 # for every extw node we changed from external to decoupled,
                 # change back and reset implementation
                 if node.op_type in extw_optypes:
