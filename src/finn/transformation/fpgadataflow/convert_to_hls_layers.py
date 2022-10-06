@@ -1721,6 +1721,64 @@ class InferConcatLayer(Transformation):
         return (model, graph_modified)
 
 
+class InferQuantizedMaxNorm(Transformation):
+    """Convert pattern of ReduceMax + Div followed by MultiThreshold
+    into QuantMaxNorm HLS layers."""
+
+    def _find_pattern(self, model):
+        graph = model.graph
+        node_ind = 0
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "ReduceMax":
+                successors = model.find_direct_successors(node)
+                if len(successors) == 1 and successors[0].op_type == "Div":
+                    div_node = successors[0]
+                    if node.input[0] == div_node.input[0]:
+                        mt_node = model.find_direct_successors(div_node)
+                        if len(mt_node) == 1 and mt_node[0].op_type == "MultiThreshold":
+                            mt_node = mt_node[0]
+                            return [node, node_ind, div_node, mt_node]
+        return []
+
+    def apply(self, model):
+        graph_modified = False
+        pattern = self._find_pattern(model)
+        if len(pattern) >= 1:
+            rm, rm_id, div, mt = pattern
+            # to instantiate quantmaxnor we need in/out tensor, IFMDim, scale, idt, odt
+            rm_input = rm.input[0]
+            mt_output = mt.output[0]
+            rm_input_shape = model.get_tensor_shape(rm_input)
+            ifm_dim = [rm_input_shape[1], rm_input_shape[2]]
+            idt = model.get_tensor_datatype(rm_input)
+            odt = model.get_tensor_datatype(mt_output)
+            # get scale
+            thresh = model.get_initializer(mt.input[1])
+            diff = np.diff(thresh)
+            scale = 1.0 / ((2 ** odt.bitwidth() - 1) * np.mean(diff))
+            new_node = helper.make_node(
+                "QuantMaxNorm",
+                [rm_input],
+                [mt_output],
+                domain="finn.custom_op.fpgadataflow",
+                backend="fpgadataflow",
+                IFMDim=ifm_dim,
+                scale=float(scale),
+                inputDataType=idt.name,
+                outputDataType=odt.name,
+            )
+            model.graph.node.insert(rm_id, new_node)
+            model.graph.node.remove(rm)
+            model.graph.node.remove(div)
+            model.graph.node.remove(mt)
+            model = model.transform(RemoveUnusedTensors())
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+            graph_modified = True
+        return (model, graph_modified)
+
+
 class InferStreamingEltwise(Transformation):
     """Convert eltwise Sub or Sub -> Abs to StreamingEltwise layer
     with SubEltwise or AbsDiffEltwise op."""
@@ -1807,70 +1865,7 @@ class InferStreamingEltwise(Transformation):
                     graph.node.remove(nd)
                 graph_modified = True
 
-        if graph_modified:
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-        return (model, graph_modified)
-
-
-class InferQuantizedMaxNorm(Transformation):
-    """Convert pattern of ReduceMax + Div followed by MultiThreshold
-    into QuantMaxNorm HLS layers."""
-
-    def _find_pattern(self, model):
-        graph = model.graph
-        node_ind = 0
-        for node in graph.node:
-            node_ind += 1
-            if node.op_type == "ReduceMax":
-                successors = model.find_direct_successors(node)
-                if len(successors) == 1 and successors[0].op_type == "Div":
-                    div_node = successors[0]
-                    if node.input[0] == div_node.input[0]:
-                        mt_node = model.find_direct_successors(div_node)
-                        if len(mt_node) == 1 and mt_node[0].op_type == "MultiThreshold":
-                            mt_node = mt_node[0]
-                            return [node, node_ind, div_node, mt_node]
-        return []
-
-    def apply(self, model):
-        graph_modified = False
-        pattern = self._find_pattern(model)
-        if len(pattern) >= 1:
-            rm, rm_id, div, mt = pattern
-            # to instantiate quantmaxnor we need in/out tensor, IFMDim, NorMax,idt,odt
-            rm_input = rm.input[0]
-            mt_output = mt.output[0]
-            rm_input_shape = model.get_tensor_shape(rm_input)
-            ifm_dim = [rm_input_shape[1], rm_input_shape[2]]
-            idt = model.get_tensor_datatype(rm_input)
-            odt = model.get_tensor_datatype(mt_output)
-            # get NorMax
-            thresh = model.get_initializer(mt.input[1])
-            if (thresh <= 1.0).all():
-                nor_max = 0
-            else:
-                # output of Div node can only be between 0.0 and 1.0
-                # get index of threshold that is just below 1.0
-                nor_max = np.argmax(thresh > 1.0) - 1
-            new_node = helper.make_node(
-                "QuantMaxNorm",
-                [rm_input],
-                [mt_output],
-                domain="finn.custom_op.fpgadataflow",
-                backend="fpgadataflow",
-                IFMDim=ifm_dim,
-                NorMax=nor_max,
-                inputDataType=idt.name,
-                outputDataType=odt.name,
-            )
-            model.graph.node.insert(rm_id, new_node)
-            model.graph.node.remove(rm)
-            model.graph.node.remove(div)
-            model.graph.node.remove(mt)
-            model = model.transform(RemoveUnusedTensors())
-            model = model.transform(InferShapes())
-            model = model.transform(InferDataTypes())
-            graph_modified = True
-
+        # if graph_modified:
+        # model = model.transform(InferShapes())
+        # model = model.transform(InferDataTypes())
         return (model, graph_modified)
