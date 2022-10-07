@@ -319,6 +319,7 @@ module $TOPNAME$(
 ap_clk,
 ap_rst_n,
 count,
+maxcount,
 in0_$HLS_SNAME$_TDATA,
 in0_$HLS_SNAME$_TVALID,
 in0_$HLS_SNAME$_TREADY,
@@ -330,6 +331,7 @@ out_$HLS_SNAME$_TREADY
 input   ap_clk;
 input   ap_rst_n;
 output $COUNT_RANGE$ count;
+output $COUNT_RANGE$ maxcount;
 input  $IN_RANGE$ in0_$HLS_SNAME$_TDATA;
 input   in0_$HLS_SNAME$_TVALID;
 output   in0_$HLS_SNAME$_TREADY;
@@ -346,6 +348,7 @@ $LAYER_NAME$
  .clock(ap_clk),
  .reset(!ap_rst_n),
  .count(count),
+ .maxcount(maxcount),
  .i_d(in0_$HLS_SNAME$_TDATA),
  .i_v(in0_$HLS_SNAME$_TVALID),
  .i_r(in0_$HLS_SNAME$_TREADY),

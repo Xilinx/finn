@@ -152,6 +152,7 @@ class InferConvInpGen(Transformation):
                         )
 
                 if self.use_rtl_variant and is_rtl_variant_compatible:
+
                     ConvInpGen_node = helper.make_node(
                         "ConvolutionInputGenerator_rtl",
                         [ConvInpGen_input],
@@ -176,18 +177,18 @@ class InferConvInpGen(Transformation):
                 else:
                     # Ensure that only supported HLS nodes are inserted
                     if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
-                        assert is_square_image, (
-                            """%s : DownSampler currently only supports square
-                            input images."""
-                            % n.name
+                        downsample_1D = (ifm_dim_h == 1) or (ifm_dim_w == 1)
+                        is1D_unitx = ifm_dim_w == 1
+                        downsample_2D = (
+                            (not downsample_1D) and is_square_image and is_equal_stride
                         )
-                        assert is_equal_stride, (
-                            """%s : DownSampler currently only supports equal stride
-                            value along different axes."""
-                            % n.name
-                        )
-                        ConvInpGen_idim = ConvInpGen_idim_h
-                        stride = stride_h
+                        if not (downsample_1D or downsample_2D):
+                            warnings.warn(
+                                f"Couldn't infer Downsample from {n.name},check config."
+                            )
+                            continue
+                        ConvInpGen_idim = max(ConvInpGen_idim_h, ConvInpGen_idim_w)
+                        stride = max(stride_h, stride_w)
                         # create DownSampler node
                         ConvInpGen_node = helper.make_node(
                             "DownSampler",
@@ -201,6 +202,8 @@ class InferConvInpGen(Transformation):
                             Stride=stride,
                             inputDataType=dt.name,
                             name="DownSampler_" + n.name,
+                            is1D=downsample_1D,
+                            is1D_unitx=is1D_unitx,
                         )
                         graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                     else:
@@ -1279,6 +1282,7 @@ class InferDuplicateStreamsLayer(Transformation):
                     inputDataType=dt.name,
                     numInputVectors=vecs,
                     NumOutputStreams=n_outputs,
+                    outFIFODepths=[2] * n_outputs,
                     name="DuplicateStreams_Batch_" + node.name,
                 )
 
@@ -1706,6 +1710,7 @@ class InferConcatLayer(Transformation):
                     ElemsPerStream=elems_per_stream,
                     inputDataType=dt0.name,
                     numInputVectors=inp_vec,
+                    inFIFODepths=[2] * len(node.input),
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
