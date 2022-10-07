@@ -55,6 +55,7 @@ class StreamingEltwise(HLSCustomOp):
             # [4] is four vectors (like a FC layer with batch=4)
             # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
             "numInputVectors": ("ints", False, [1]),
+            "inFIFODepths": ("ints", False, [2, 2]),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
