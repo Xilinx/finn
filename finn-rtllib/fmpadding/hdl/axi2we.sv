@@ -28,17 +28,12 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Feature map padding.
+ * @brief	AXI-Light adapter for trivial write enable interface.
  * @author	Thomas B. Preußer <tpreusse@amd.com>
  *****************************************************************************/
 
-module fmpadding_axi #(
-	int unsigned  XCOUNTER_BITS,
-	int unsigned  YCOUNTER_BITS,
-	int unsigned  NUM_CHANNELS,
-	int unsigned  SIMD,
-	int unsigned  ELEM_BITS,
-	localparam int unsigned  STREAM_BITS = 8*(1 + (SIMD*ELEM_BITS-1)/8)
+module axi2we #(
+	int unsigned  ADDR_BITS
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -46,9 +41,9 @@ module fmpadding_axi #(
 
 	//- AXI Lite ------------------------
 	// Writing
-	input	       s_axilite_AWVALID,
-	output	       s_axilite_AWREADY,
-	input	[2:0]  s_axilite_AWADDR,
+	input	                 s_axilite_AWVALID,
+	output	                 s_axilite_AWREADY,
+	input	[ADDR_BITS-1:0]  s_axilite_AWADDR,
 
 	input	        s_axilite_WVALID,
 	output	        s_axilite_WREADY,
@@ -59,7 +54,7 @@ module fmpadding_axi #(
 	input	       s_axilite_BREADY,
 	output	[1:0]  s_axilite_BRESP,
 
-	// Reading
+	// Reading tied to all-ones
 	input	       s_axilite_ARVALID,
 	output	       s_axilite_ARREADY,
 	input	[3:0]  s_axilite_ARADDR,
@@ -69,46 +64,59 @@ module fmpadding_axi #(
 	output	[31:0]  s_axilite_RDATA,
 	output	[ 1:0]  s_axilite_RRESP,
 
-	//- AXI Stream - Input --------------
-	output	logic  s_axis_tready,
-	input	logic  s_axis_tvalid,
-	input	logic [STREAM_BITS-1:0]  s_axis_tdata,
-
-	//- AXI Stream - Output -------------
-	input	logic  m_axis_tready,
-	output	logic  m_axis_tvalid,
-	output	logic [STREAM_BITS-1:0]  m_axis_tdata
+	// Write Enable Interface
+	output	logic                  we,
+	output	logic [ADDR_BITS-1:0]  wa,
+	output	logic [         31:0]  wd
 );
 
-	// AXI-Lite Adapter
-	uwire         we;
-	uwire [ 2:0]  wa;
-	uwire [31:0]  wd;
-	axi2we #(.ADDR_BITS(3)) axilight_adapter (
-		.ap_clk, .ap_rst_n,
+	uwire  clk = ap_clk;
+	uwire  rst = !ap_rst_n;
 
-		.s_axilite_AWVALID, .s_axilite_AWREADY, .s_axilite_AWADDR,
-		.s_axilite_WVALID, .s_axilite_WREADY, .s_axilite_WDATA, .s_axilite_WSTRB,
-		.s_axilite_BVALID, .s_axilite_BREADY, .s_axilite_BRESP,
 
-		.s_axilite_ARVALID, .s_axilite_ARREADY, .s_axilite_ARADDR,
-		.s_axilite_RVALID, .s_axilite_RREADY, .s_axilite_RDATA, .s_axilite_RRESP,
+	logic  WABusy = 0;
+	logic  WDBusy = 0;
+	logic [ADDR_BITS-1:0]  Addr = 'x;
+	logic [         31:0]  Data = 'x;
 
-		.we, .wa, .wd
-	);
+	assign	we = WABusy && WDBusy && s_axilite_BREADY;
+	assign	wa = Addr;
+	assign	wd = Data;
 
-	// Actual Padding
-	fmpadding #(
-		.XCOUNTER_BITS(XCOUNTER_BITS), .YCOUNTER_BITS(YCOUNTER_BITS),
-		.NUM_CHANNELS(NUM_CHANNELS), .SIMD(SIMD),
-		.ELEM_BITS(ELEM_BITS)
-	) padding (
-		.ap_clk, .ap_rst_n,
+	uwire  clr_wr = rst || we;
+	always_ff @(posedge clk) begin
+		if(clr_wr) begin
+			WABusy <= 0;
+			Addr <= 'x;
+			WDBusy <= 0;
+			Data <= 'x;
+		end
+		else begin
+			if(!WABusy) begin
+				WABusy <= s_axilite_AWVALID;
+				Addr   <= s_axilite_AWADDR;
+			end
+			if(!WDBusy) begin
+				WDBusy <= s_axilite_WVALID;
+				Data   <= s_axilite_WDATA;
+			end
+		end
+	end
+	assign	s_axilite_AWREADY = !WABusy;
+	assign	s_axilite_WREADY  = !WDBusy;
+	assign	s_axilite_BVALID  = WABusy && WDBusy;
+	assign	s_axilite_BRESP   = '0; // OK
 
-		.we, .wa, .wd,
+	// Answer all reads with '1
+	logic  RValid =  0;
+	uwire  clr_rd = rst || (RValid && s_axilite_RREADY);
+	always_ff @(posedge clk) begin
+		if(clr_rd)        RValid <=  0;
+		else if(!RValid)  RValid <= s_axilite_ARVALID;
+	end
+	assign	s_axilite_ARREADY = !RValid;
+	assign	s_axilite_RVALID  = RValid;
+	assign	s_axilite_RDATA   = '1;
+	assign	s_axilite_RRESP   = '0; // OK
 
-		.s_axis_tready, .s_axis_tvalid, .s_axis_tdata,
-		.m_axis_tready, .m_axis_tvalid, .m_axis_tdata
-	);
-
-endmodule : fmpadding_axi
+endmodule : axi2we
