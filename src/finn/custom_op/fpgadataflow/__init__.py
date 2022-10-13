@@ -43,6 +43,7 @@ from finn.custom_op.fpgadataflow.downsampler import DownSampler
 from finn.custom_op.fpgadataflow.duplicatestreams_batch import DuplicateStreams_Batch
 from finn.custom_op.fpgadataflow.eltwise import StreamingEltwise
 from finn.custom_op.fpgadataflow.fmpadding_batch import FMPadding_Batch
+from finn.custom_op.fpgadataflow.fmpadding_rtl import FMPadding_rtl
 from finn.custom_op.fpgadataflow.globalaccpool_batch import GlobalAccPool_Batch
 from finn.custom_op.fpgadataflow.iodma import IODMA
 from finn.custom_op.fpgadataflow.labelselect_batch import LabelSelect_Batch
@@ -91,3 +92,4 @@ custom_op["Lookup"] = Lookup
 custom_op["StreamingConcat"] = StreamingConcat
 custom_op["CheckSum"] = CheckSum
 custom_op["StreamingEltwise"] = StreamingEltwise
+custom_op["FMPadding_rtl"] = FMPadding_rtl
