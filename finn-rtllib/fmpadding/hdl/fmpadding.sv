@@ -38,6 +38,13 @@ module fmpadding #(
 	int unsigned  NUM_CHANNELS,
 	int unsigned  SIMD,
 	int unsigned  ELEM_BITS,
+	int unsigned  INIT_XON,
+	int unsigned  INIT_XOFF,
+	int unsigned  INIT_XEND,
+	int unsigned  INIT_YON,
+	int unsigned  INIT_YOFF,
+	int unsigned  INIT_YEND,
+
 	localparam int unsigned  STREAM_BITS = 8*(1 + (SIMD*ELEM_BITS-1)/8)
 )(
 	//- Global Control ------------------
@@ -66,14 +73,15 @@ module fmpadding #(
 	//-----------------------------------------------------------------------
 	// Dynamically configurable state
 	typedef logic [XCOUNTER_BITS-1:0]  xcount_t;
-	xcount_t  XEnd = 0;
-	xcount_t  XOn  = 0;
-	xcount_t  XOff = 0;
+	xcount_t  XEnd = INIT_XEND;
+	xcount_t  XOn  = INIT_XON;
+	xcount_t  XOff = INIT_XOFF;
 
 	typedef logic [YCOUNTER_BITS-1:0]  ycount_t;
-	ycount_t  YEnd = 0;
-	ycount_t  YOn  = 0;
-	ycount_t  YOff = 0;
+	ycount_t  YEnd = INIT_YEND;
+	ycount_t  YOn  = INIT_YON;
+	ycount_t  YOff = INIT_YOFF;
+
 	always_ff @(posedge clk) begin
 		if(we) begin
 			unique case(wa)

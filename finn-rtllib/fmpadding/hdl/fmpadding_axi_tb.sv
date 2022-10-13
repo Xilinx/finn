@@ -39,6 +39,8 @@ module fmpadding_axi_tb #(
 		.YCOUNTER_BITS(YCOUNTER_BITS),
 		.NUM_CHANNELS(NUM_CHANNELS),
 		.SIMD(SIMD),
+		.INIT_XON(0), .INIT_XOFF(0), .INIT_XEND(0),
+		.INIT_YON(0), .INIT_YOFF(0), .INIT_YEND(0),
 		.ELEM_BITS(ELEM_BITS)
 	) dut (
 		.ap_clk(clk), .ap_rst_n(!rst),
