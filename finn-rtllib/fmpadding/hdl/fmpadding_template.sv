@@ -62,14 +62,14 @@ output	[31:0]  s_axilite_RDATA,
 output	[ 1:0]  s_axilite_RRESP,
 
 //- AXI Stream - Input --------------
-output	logic  in0_V_tready,
-input	logic  in0_V_tvalid,
-input	logic [STREAM_BITS-1:0]  in0_V_tdata,
+output	logic  in0_V_TREADY,
+input	logic  in0_V_TVALID,
+input	logic [$STREAM_BITS$-1:0]  in0_V_TDATA,
 
 //- AXI Stream - Output -------------
-input	logic  out_V_tready,
-output	logic  out_V_tvalid,
-output	logic [STREAM_BITS-1:0]  out_V_tdata
+input	logic  out_V_TREADY,
+output	logic  out_V_TVALID,
+output	logic [$STREAM_BITS$-1:0]  out_V_TDATA
 );
 
 
@@ -78,7 +78,13 @@ fmpadding_axi #(
 .YCOUNTER_BITS($YCOUNTER_BITS$),
 .NUM_CHANNELS($NUM_CHANNELS$),
 .SIMD($SIMD$),
-.ELEM_BITS($ELEM_BITS$)
+.ELEM_BITS($ELEM_BITS$),
+.INIT_XON($INIT_XON$),
+.INIT_XOFF($INIT_XOFF$),
+.INIT_XEND($INIT_XEND$),
+.INIT_YON($INIT_YON$),
+.INIT_YOFF($INIT_YOFF$),
+.INIT_YEND($INIT_YEND$)
 )
 $TOP_MODULE_NAME$_impl
 (
@@ -101,12 +107,12 @@ $TOP_MODULE_NAME$_impl
  .s_axilite_RREADY,
  .s_axilite_RDATA,
  .s_axilite_RRESP,
- .s_axis_tready(in0_V_tready),
- .s_axis_tvalid(in0_V_tvalid),
- .s_axis_tdata(in0_V_tdata),
- .m_axis_tready(out_V_tready),
- .m_axis_tvalid(out_V_tvalid),
- .m_axis_tdata(out_V_tdata)
+ .s_axis_tready(in0_V_TREADY),
+ .s_axis_tvalid(in0_V_TVALID),
+ .s_axis_tdata(in0_V_TDATA),
+ .m_axis_tready(out_V_TREADY),
+ .m_axis_tvalid(out_V_TVALID),
+ .m_axis_tdata(out_V_TDATA)
 );
 
 endmodule
