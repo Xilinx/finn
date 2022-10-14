@@ -72,6 +72,46 @@ module fmpadding #(
 	uwire  rst = !ap_rst_n;
 
 	//-----------------------------------------------------------------------
+	// Parameter Sanity Checking
+	initial begin
+		automatic bit  fail = 0;
+
+		if(XCOUNTER_BITS < $clog2(1+INIT_XEND)) begin
+			$error("XCounter size too small to accommodate end count.");
+			fail = 1;
+		end
+		if(XCOUNTER_BITS < $clog2(1+INIT_XON)) begin
+			$error("XCounter size too small to accommodate ON count.");
+			fail = 1;
+		end
+		if(XCOUNTER_BITS < $clog2(1+INIT_XOFF)) begin
+			$error("XCounter size too small to accommodate OFF count.");
+			fail = 1;
+		end
+		if(YCOUNTER_BITS < $clog2(1+INIT_YEND)) begin
+			$error("YCounter size too small to accommodate end count.");
+			fail = 1;
+		end
+		if(YCOUNTER_BITS < $clog2(1+INIT_YON)) begin
+			$error("YCounter size too small to accommodate ON count.");
+			fail = 1;
+		end
+		if(YCOUNTER_BITS < $clog2(1+INIT_YOFF)) begin
+			$error("YCounter size too small to accommodate OFF count.");
+			fail = 1;
+		end
+
+		if((INIT_XEND < INIT_XON) || (INIT_XOFF <= INIT_XON)) begin
+			$warning("Initial empty X output range.");
+		end
+		if((INIT_YEND < INIT_YON) || (INIT_YOFF <= INIT_YON)) begin
+			$warning("Initial empty Y output range.");
+		end
+
+		if(fail)  $finish();
+	end
+
+	//-----------------------------------------------------------------------
 	// Dynamically configurable state
 	typedef logic [XCOUNTER_BITS-1:0]  xcount_t;
 	xcount_t  XEnd = INIT_XEND;
