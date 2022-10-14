@@ -131,10 +131,10 @@ def test_fpgadataflow_fmpadding(
     pad_h = pad[0] + pad[2]
     pad_w = pad[1] + pad[3]
 
-    if idim_h == idim_w and pad_h != pad_w:
+    if idim_h == idim_w and pad_h != pad_w and impl_style != "rtl":
         pytest.skip(
             """Only equal padding along the dimensions for square images
-            is supported, skipping"""
+            is supported for HLS, skipping"""
         )
 
     # generate input data
@@ -160,7 +160,6 @@ def test_fpgadataflow_fmpadding(
         model = model.transform(PrepareRTLSim())
         node = model.get_nodes_by_op_type(optype)[0]
         inst = getCustomOp(node)
-        inst.set_nodeattr("rtlsim_trace", "fmpadding_rtlsim.vcd")
 
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     expected_oshape = (1, odim_h, odim_w, num_ch)
@@ -168,21 +167,27 @@ def test_fpgadataflow_fmpadding(
 
     # calculate reference
     # calculate correct pad according to parameters
-    if pad_style == 2:
-        if pad_h % 2 == 0:
+    if impl_style == "hls":
+        if pad_style == 2:
+            if pad_h % 2 == 0:
+                pad_up = pad_h // 2
+            else:
+                pad_up = pad_h // 2 + 1
+            if pad_w % 2 == 0:
+                pad_left = pad_w // 2
+            else:
+                pad_left = pad_w // 2 + 1
+        else:
             pad_up = pad_h // 2
-        else:
-            pad_up = pad_h // 2 + 1
-        if pad_w % 2 == 0:
             pad_left = pad_w // 2
-        else:
-            pad_left = pad_w // 2 + 1
-    else:
-        pad_up = pad_h // 2
-        pad_left = pad_w // 2
 
-    pad_down = pad_h - pad_up
-    pad_right = pad_w - pad_left
+        pad_down = pad_h - pad_up
+        pad_right = pad_w - pad_left
+    else:
+        pad_up = pad[0]
+        pad_left = pad[1]
+        pad_down = pad[2]
+        pad_right = pad[3]
 
     y_expected = np.pad(
         x, ((0, 0), (pad_up, pad_down), (pad_left, pad_right), (0, 0)), "constant"
