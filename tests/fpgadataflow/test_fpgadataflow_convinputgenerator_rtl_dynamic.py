@@ -70,7 +70,7 @@ def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt, pad_mode):
     pad_1 = _auto_pad_to_explicit_padding(
         pad_mode, int_dim, int_dim, k, k, stride, stride, 2
     )
-    odim = compute_conv_output_dim(int_dim, k, stride)
+    odim = compute_conv_output_dim(int_dim, k, stride, total_pad=pad_1[0] + pad_1[2])
     oshp = (1, ofm, odim, odim)
     wshp = (ofm, ifm, k, k)
     wshp_1 = (ofm, ofm, k, k)
@@ -164,7 +164,7 @@ def config_hook(configs):
     return write_swg_config
 
 
-@pytest.mark.parametrize("pad_mode", ["VALID"])
+@pytest.mark.parametrize("pad_mode", ["SAME_UPPER", "VALID"])
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_conv_dynamic(pad_mode):
