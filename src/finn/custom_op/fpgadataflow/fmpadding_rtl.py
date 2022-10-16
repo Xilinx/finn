@@ -275,12 +275,10 @@ class FMPadding_rtl(HLSCustomOp):
         """Returns a configuration dict to re-configure FM dimension and
         padding amounts during runtime."""
 
-        dims = self.get_nodeattr("ImgDim")
-        pads = self.get_nodeattr("Padding")
         chans = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
         idt = self.get_input_datatype()
-        code_gen_dict = self.get_template_values(dims, pads, chans, simd, idt)
+        code_gen_dict = self.get_template_values(ifm_dims, pads, chans, simd, idt)
         config = {
             "XON": (0, (code_gen_dict["INIT_XON"])),
             "XOFF": (1, (code_gen_dict["INIT_XOFF"])),
