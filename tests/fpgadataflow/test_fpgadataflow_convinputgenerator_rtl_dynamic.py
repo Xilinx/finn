@@ -31,6 +31,7 @@ import pytest
 import copy
 import numpy as np
 import onnx.parser as oprs
+import os
 from onnx import TensorProto, helper
 from pyverilator.util.axi_utils import axilite_write, reset_rtlsim
 from qonnx.core.datatype import DataType
@@ -55,6 +56,7 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.util.basic import pyverilate_get_liveness_threshold_cycles
 
 
 def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt):
@@ -209,7 +211,6 @@ def test_fpgadataflow_conv_dynamic():
     # loop through experiment configurations
     for exp_cfg in exp_cfgs:
         idim, int_dim, odim, inp, golden = exp_cfg
-        # model.set_metadata_prop("rtlsim_trace", "trace_size0.vcd")
         # get config for the new dimensions
         swg_nodes = model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")
         swg0 = getCustomOp(swg_nodes[0])
@@ -235,9 +236,11 @@ def test_fpgadataflow_conv_dynamic():
         last_node_shp[2] = odim
         update_tensor_dim(model, last_node.onnx_node.output[0], (odim, odim))
         last_node.set_nodeattr("folded_shape", last_node_shp)
-        model.set_metadata_prop("rtlsim_trace", "trace_size1.vcd")
         ctx = {"global_in": inp.transpose(0, 2, 3, 1)}
+        liveness_prev = pyverilate_get_liveness_threshold_cycles()
+        os.environ["LIVENESS_THRESHOLD"] = "10000000"
         rtlsim_exec(model, ctx, pre_hook=config_hook(configs))
+        os.environ["LIVENESS_THRESHOLD"] = str(liveness_prev)
         ret = ctx["global_out"].transpose(0, 3, 1, 2)
         assert np.isclose(golden, ret).all()
 
