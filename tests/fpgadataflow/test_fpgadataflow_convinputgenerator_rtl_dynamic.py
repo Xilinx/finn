@@ -190,7 +190,6 @@ def test_fpgadataflow_conv_dynamic(pad_mode):
             # use largest model for hardware conversion
             largest_model = copy.deepcopy(model)
         golden = execute_onnx(model, {"in0": inp})["out0"]
-        print("pads: %s %s" % (str(pad0), str(pad1)))
         exp_cfg = (idim, int_dim, odim, pad0, pad1, inp, golden)
         exp_cfgs.append(exp_cfg)
 
@@ -258,9 +257,6 @@ def test_fpgadataflow_conv_dynamic(pad_mode):
             pad_config1 = padder1.get_dynamic_config((int_dim, int_dim), pad1)
             configs.append(("s_axilite_0_", pad_config0))
             configs.append(("s_axilite_1_", pad_config1))
-            print("FMPadding_rtl configs")
-            print(pad_config0)
-            print(pad_config1)
         # adjust folded shapes for I/O FIFOs
         # (since rtlsim_exec uses folded shape info to fold global i/o tensors)
         first_node = getCustomOp(model.graph.node[0])
@@ -277,7 +273,7 @@ def test_fpgadataflow_conv_dynamic(pad_mode):
         last_node.set_nodeattr("folded_shape", last_node_shp)
         ctx = {"global_in": inp.transpose(0, 2, 3, 1)}
         liveness_prev = pyverilate_get_liveness_threshold_cycles()
-        os.environ["LIVENESS_THRESHOLD"] = "10000000"
+        os.environ["LIVENESS_THRESHOLD"] = "100000"
         rtlsim_exec(model, ctx, pre_hook=config_hook(configs))
         os.environ["LIVENESS_THRESHOLD"] = str(liveness_prev)
         ret = ctx["global_out"].transpose(0, 3, 1, 2)
