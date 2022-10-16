@@ -293,7 +293,7 @@ class FMPadding_rtl(HLSCustomOp):
 
     def generate_hdl(self):
         rtlsrc = os.environ["FINN_ROOT"] + "/finn-rtllib/fmpadding/hdl"
-        template_path = rtlsrc + "/fmpadding_template.sv"
+        template_path = rtlsrc + "/fmpadding_template.v"
         dims = self.get_nodeattr("ImgDim")
         pads = self.get_nodeattr("Padding")
         chans = self.get_nodeattr("NumChannels")
@@ -313,7 +313,7 @@ class FMPadding_rtl(HLSCustomOp):
             template = template.replace(key, str(code_gen_dict[key_name]))
 
         with open(
-            os.path.join(code_gen_dir, self.get_verilog_top_module_name() + ".sv"),
+            os.path.join(code_gen_dir, self.get_verilog_top_module_name() + ".v"),
             "w",
         ) as f:
             f.write(template)
@@ -341,7 +341,7 @@ class FMPadding_rtl(HLSCustomOp):
             "fmpadding_axi.sv",
             "fmpadding.sv",
             "axi2we.sv",
-            self.get_nodeattr("gen_top_module") + ".sv",
+            self.get_nodeattr("gen_top_module") + ".v",
         ]
 
         # build the Verilator emu library
@@ -363,7 +363,8 @@ class FMPadding_rtl(HLSCustomOp):
         sourcefiles = [
             "fmpadding_axi.sv",
             "fmpadding.sv",
-            self.get_nodeattr("gen_top_module") + ".sv",
+            "axi2we.sv",
+            self.get_nodeattr("gen_top_module") + ".v",
         ]
 
         sourcefiles = [os.path.join(code_gen_dir, f) for f in sourcefiles]
