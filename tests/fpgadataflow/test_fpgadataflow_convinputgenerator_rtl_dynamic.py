@@ -41,7 +41,10 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
+from qonnx.transformation.lower_convs_to_matmul import (
+    LowerConvsToMatMul,
+    _auto_pad_to_explicit_padding,
+)
 from qonnx.util.basic import gen_finn_dt_tensor, get_by_name
 
 import finn.core.onnx_exec as oxe
@@ -59,10 +62,14 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.util.basic import pyverilate_get_liveness_threshold_cycles
 
 
-def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt):
+def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt, pad_mode):
     np.random.seed(0)
     ishp = (1, ifm, idim, idim)
-    int_dim = compute_conv_output_dim(idim, k, stride)
+    pad_0 = _auto_pad_to_explicit_padding(pad_mode, idim, idim, k, k, stride, stride, 2)
+    int_dim = compute_conv_output_dim(idim, k, stride, total_pad=pad_0[0] + pad_0[2])
+    pad_1 = _auto_pad_to_explicit_padding(
+        pad_mode, int_dim, int_dim, k, k, stride, stride, 2
+    )
     odim = compute_conv_output_dim(int_dim, k, stride)
     oshp = (1, ofm, odim, odim)
     wshp = (ofm, ifm, k, k)
@@ -72,7 +79,8 @@ def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt):
     wshp_str = str(list(wshp))
     wshp_1_str = str(list(wshp_1))
     kshp_str = str([k, k])
-    pad_str = str([0, 0, 0, 0])
+    pad_0_str = str(list(pad_0))
+    pad_1_str = str(list(pad_1))
     stride_str = str([stride, stride])
     dil_str = str([1, 1])
 
@@ -88,11 +96,11 @@ def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt):
     >
     {{
         conv0 = Conv<
-                dilations={dil_str},group=1,kernel_shape={kshp_str},pads={pad_str},
+                dilations={dil_str},group=1,kernel_shape={kshp_str},pads={pad_0_str},
                 strides={stride_str}
             >(in0, param_c0_weight)
         out0 = Conv<
-                dilations={dil_str},group=1,kernel_shape={kshp_str},pads={pad_str},
+                dilations={dil_str},group=1,kernel_shape={kshp_str},pads={pad_1_str},
                 strides={stride_str}
             >(conv0, param_c1_weight)
     }}
@@ -154,9 +162,10 @@ def config_hook(configs):
     return write_swg_config
 
 
+@pytest.mark.parametrize("pad_mode", ["VALID"])
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_conv_dynamic():
+def test_fpgadataflow_conv_dynamic(pad_mode):
     idims = [32, 16]
     ifm = 4
     k = 4
@@ -170,7 +179,7 @@ def test_fpgadataflow_conv_dynamic():
         ishp = (1, ifm, idim, idim)
         np.random.seed(0)
         inp = gen_finn_dt_tensor(idt, ishp)
-        model = create_conv_model(idim, ifm, k, stride, ofm, idt, wdt)
+        model = create_conv_model(idim, ifm, k, stride, ofm, idt, wdt, pad_mode)
         _, _, int_dim, _ = model.get_tensor_shape("conv0")
         _, _, odim, _ = model.get_tensor_shape("out0")
         if idim == max(idims):
@@ -192,6 +201,11 @@ def test_fpgadataflow_conv_dynamic():
         parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
     )
     model = ModelWrapper(sdp_inst.get_nodeattr("model"))
+    assert len(model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")) == 2
+    if pad_mode == "VALID":
+        assert len(model.get_nodes_by_op_type("FMPadding_rtl")) == 0
+    else:
+        assert len(model.get_nodes_by_op_type("FMPadding_rtl")) == 2
     for swg_node in model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl"):
         getCustomOp(swg_node).set_nodeattr("SIMD", 1)
         getCustomOp(swg_node).set_nodeattr("dynamic_mode", 1)
