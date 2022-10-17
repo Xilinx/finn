@@ -97,7 +97,7 @@ $TOP_MODULE_NAME$_impl
  .s_axilite_WREADY(s_axilite_WREADY),
  .s_axilite_WDATA(s_axilite_WDATA),
  .s_axilite_WSTRB(s_axilite_WSTRB),
- .s_axilite_BVALIDs_axilite_BVALID(),
+ .s_axilite_BVALID(s_axilite_BVALID),
  .s_axilite_BREADY(s_axilite_BREADY),
  .s_axilite_BRESP(s_axilite_BRESP),
  .s_axilite_ARVALID(s_axilite_ARVALID),
