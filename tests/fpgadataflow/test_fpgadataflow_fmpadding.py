@@ -53,7 +53,7 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
 
-def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
+def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt):
     pad_h = padding[0] + padding[2]
     pad_w = padding[1] + padding[3]
     idim_h, idim_w = idim
@@ -70,7 +70,7 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
     )
 
     FMPadding = helper.make_node(
-        "FMPadding_Batch",
+        optype,
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -110,10 +110,14 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
 @pytest.mark.parametrize("idt", [DataType["INT2"], DataType["INT4"]])
 # execution mode
 @pytest.mark.parametrize("mode", ["cppsim", "rtlsim"])
+# implementation style
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
+def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
+    if impl_style == "rtl" and mode == "cppsim":
+        pytest.skip("rtl implstyle has no cppsim, skipping")
     if num_ch % simd != 0:
         pytest.skip(" num_ch % simd != 0, skipping")
 
@@ -121,13 +125,21 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
     pad_h = pad[0] + pad[2]
     pad_w = pad[1] + pad[3]
 
+    if idim_h == idim_w and pad_h != pad_w and impl_style != "rtl":
+        pytest.skip(
+            """Only equal padding along the dimensions for square images
+            is supported for HLS, skipping"""
+        )
+
     # generate input data
     x = gen_finn_dt_tensor(idt, [1, idim_h, idim_w, num_ch])
     input_dict = {"inp": x}
     odim_h = idim_h + pad_h
     odim_w = idim_w + pad_w
 
-    model = make_single_fmpadding_modelwrapper(idim, pad, num_ch, simd, idt)
+    optype = {"hls": "FMPadding_Batch", "rtl": "FMPadding_rtl"}[impl_style]
+
+    model = make_single_fmpadding_modelwrapper(optype, idim, pad, num_ch, simd, idt)
     model = model.transform(InferShapes())
     model = model.transform(SetExecMode(mode))
     model = model.transform(GiveUniqueNodeNames())
@@ -138,18 +150,27 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
+        node = model.get_nodes_by_op_type(optype)[0]
+        inst = getCustomOp(node)
+
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     expected_oshape = (1, odim_h, odim_w, num_ch)
     assert y_produced.shape == expected_oshape
 
+    # calculate reference
+    pad_up = pad[0]
+    pad_left = pad[1]
+    pad_down = pad[2]
+    pad_right = pad[3]
+
     y_expected = np.pad(
-        x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
+        x, ((0, 0), (pad_up, pad_down), (pad_left, pad_right), (0, 0)), "constant"
     )
 
     assert (y_produced == y_expected).all()
 
     if mode == "rtlsim":
-        node = model.get_nodes_by_op_type("FMPadding_Batch")[0]
+        node = model.get_nodes_by_op_type(optype)[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

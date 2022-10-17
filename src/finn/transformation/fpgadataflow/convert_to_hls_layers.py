@@ -117,8 +117,12 @@ class InferConvInpGen(Transformation):
                     ConvInpGen_idim_h = odim_padding_h
                     ConvInpGen_idim_w = odim_padding_w
 
+                    padding_optype = (
+                        "FMPadding_rtl" if self.use_rtl_variant else "FMPadding_Batch"
+                    )
+
                     padding_node = helper.make_node(
-                        "FMPadding_Batch",
+                        padding_optype,
                         [i2c_input],
                         [padding_out],
                         domain="finn.custom_op.fpgadataflow",
