@@ -151,14 +151,10 @@ def config_hook(configs):
 
     def write_swg_config(sim):
         for axi_name, config in configs:
-            # 1. Write config registers to the SWG, dict defines (addr, value) tuples
+            # Write config registers to the SWG/FMPadding dict
+            # defines (addr, value) tuples
             for config_entry in config.values():
                 axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
-            # 2. Set cfg_valid flag (>= 1 cycle) for SWGG
-            # TODO direct add wren register to generated config?
-            if len(config) == 15:
-                axilite_write(sim, 0, 1, basename=axi_name)
-        # 3. Reset component (>= 1 cycle)
         reset_rtlsim(sim)
 
     return write_swg_config
