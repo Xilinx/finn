@@ -40,7 +40,7 @@ input	ap_rst_n,
 // Writing
 input	       s_axilite_AWVALID,
 output	       s_axilite_AWREADY,
-input	[2:0]  s_axilite_AWADDR,
+input	[4:0]  s_axilite_AWADDR,
 
 input	        s_axilite_WVALID,
 output	        s_axilite_WREADY,
@@ -54,7 +54,7 @@ output	[1:0]  s_axilite_BRESP,
 // Reading
 input	       s_axilite_ARVALID,
 output	       s_axilite_ARREADY,
-input	[3:0]  s_axilite_ARADDR,
+input	[4:0]  s_axilite_ARADDR,
 
 output	        s_axilite_RVALID,
 input	        s_axilite_RREADY,

@@ -53,7 +53,7 @@ module fmpadding #(
 
 	// Parameter Configuration ----------
 	input	logic         we,
-	input	logic [ 2:0]  wa,
+	input	logic [ 4:0]  wa,
 	input	logic [31:0]  wd,
 
 	//- AXI Stream - Input --------------
@@ -125,13 +125,12 @@ module fmpadding #(
 	always_ff @(posedge clk) begin
 		if(we) begin
 			unique case(wa)
-			0:  XOn  <= wd;
-			1:  XOff <= wd;
-			2:  XEnd <= wd;
-
-			4:  YOn  <= wd;
-			5:  YOff <= wd;
-			6:  YEnd <= wd;
+			0*4:  XOn  <= wd;
+			1*4:  XOff <= wd;
+			2*4:  XEnd <= wd;
+			3*4:  YOn  <= wd;
+			4*4:  YOff <= wd;
+			5*4:  YEnd <= wd;
 
 			default:  assert(0) else begin
 				$error("Illegal write address.");
