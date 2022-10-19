@@ -885,6 +885,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # each setting is mapped to an axi-lite register address
         template_path, code_gen_dict = self.prepare_codegen_default()
         config = {
+            "cfg_wren": (0 * 4, 1),
             "cfg_cntr_simd": (1 * 4, int(code_gen_dict["$LOOP_SIMD_ITERATIONS$"][0])),
             "cfg_cntr_kw": (2 * 4, int(code_gen_dict["$LOOP_KW_ITERATIONS$"][0])),
             "cfg_cntr_kh": (3 * 4, int(code_gen_dict["$LOOP_KH_ITERATIONS$"][0])),
