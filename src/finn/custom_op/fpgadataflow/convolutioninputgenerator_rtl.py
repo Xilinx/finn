@@ -844,7 +844,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         Each block must have at most one aximm and one axilite."""
         intf_names = super().get_verilog_top_module_intf_names()
         if self.get_nodeattr("dynamic_mode"):
-            intf_names["axilite"] = ["s_axi_cfg"]
+            intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
     def get_dynamic_config(self, ifm_dim, stride=None, dilation=None):

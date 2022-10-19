@@ -155,8 +155,8 @@ def config_hook(configs):
             for config_entry in config.values():
                 axilite_write(sim, config_entry[0], config_entry[1], basename=axi_name)
             # 2. Set cfg_valid flag (>= 1 cycle) for SWGG
-            # TODO better interface names to separate SWGG and padding
-            if "s_axi_cfg" in axi_name:
+            # TODO direct add wren register to generated config?
+            if len(config) == 15:
                 axilite_write(sim, 0, 1, basename=axi_name)
         # 3. Reset component (>= 1 cycle)
         reset_rtlsim(sim)
@@ -215,8 +215,8 @@ def test_fpgadataflow_conv_dynamic(pad_mode):
     for swg_node in dyn_nodes:
         getCustomOp(swg_node).set_nodeattr("SIMD", 1)
         getCustomOp(swg_node).set_nodeattr("dynamic_mode", 1)
-        getCustomOp(swg_node).set_nodeattr("inFIFODepth", 16)
-        getCustomOp(swg_node).set_nodeattr("outFIFODepth", 16)
+        getCustomOp(swg_node).set_nodeattr("inFIFODepths", [16])
+        getCustomOp(swg_node).set_nodeattr("outFIFODepths", [16])
     model = model.transform(InsertFIFO())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
@@ -235,12 +235,11 @@ def test_fpgadataflow_conv_dynamic(pad_mode):
         swg0 = getCustomOp(swg_nodes[0])
         update_tensor_dim(model, swg0.onnx_node.input[0], (conv0_idim, conv0_idim))
         update_tensor_dim(model, swg0.onnx_node.output[0], (int_dim, int_dim))
-        config0 = swg0.get_dynamic_config((conv0_idim, conv0_idim))
+        swg_config0 = swg0.get_dynamic_config((conv0_idim, conv0_idim))
         swg1 = getCustomOp(swg_nodes[1])
         update_tensor_dim(model, swg1.onnx_node.input[0], (conv1_idim, conv1_idim))
         update_tensor_dim(model, swg1.onnx_node.output[0], (odim, odim))
-        config1 = swg1.get_dynamic_config((conv1_idim, conv1_idim))
-        configs = [("s_axi_cfg_0_", config0), ("s_axi_cfg_1_", config1)]
+        swg_config1 = swg1.get_dynamic_config((conv1_idim, conv1_idim))
         if pad_mode != "VALID":
             pad_nodes = model.get_nodes_by_op_type("FMPadding_rtl")
             padder0 = getCustomOp(pad_nodes[0])
@@ -255,8 +254,14 @@ def test_fpgadataflow_conv_dynamic(pad_mode):
                 model, padder1.onnx_node.output[0], (conv1_idim, conv1_idim)
             )
             pad_config1 = padder1.get_dynamic_config((int_dim, int_dim), pad1)
-            configs.append(("s_axilite_0_", pad_config0))
-            configs.append(("s_axilite_1_", pad_config1))
+            configs = [
+                ("s_axilite_0_", pad_config0),
+                ("s_axilite_1_", swg_config0),
+                ("s_axilite_2_", pad_config1),
+                ("s_axilite_3_", swg_config1),
+            ]
+        else:
+            configs = [("s_axilite_0_", swg_config0), ("s_axilite_1_", swg_config1)]
         # adjust folded shapes for I/O FIFOs
         # (since rtlsim_exec uses folded shape info to fold global i/o tensors)
         first_node = getCustomOp(model.graph.node[0])
