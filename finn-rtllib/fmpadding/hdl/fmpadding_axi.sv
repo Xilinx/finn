@@ -55,7 +55,7 @@ module fmpadding_axi #(
 	// Writing
 	input	       s_axilite_AWVALID,
 	output	       s_axilite_AWREADY,
-	input	[2:0]  s_axilite_AWADDR,
+	input	[4:0]  s_axilite_AWADDR,
 
 	input	        s_axilite_WVALID,
 	output	        s_axilite_WREADY,
@@ -69,7 +69,7 @@ module fmpadding_axi #(
 	// Reading
 	input	       s_axilite_ARVALID,
 	output	       s_axilite_ARREADY,
-	input	[3:0]  s_axilite_ARADDR,
+	input	[4:0]  s_axilite_ARADDR,
 
 	output	        s_axilite_RVALID,
 	input	        s_axilite_RREADY,
@@ -89,9 +89,9 @@ module fmpadding_axi #(
 
 	// AXI-Lite Adapter
 	uwire         we;
-	uwire [ 2:0]  wa;
+	uwire [ 4:0]  wa;
 	uwire [31:0]  wd;
-	axi2we #(.ADDR_BITS(3)) axilight_adapter (
+	axi2we #(.ADDR_BITS(5)) axilight_adapter (
 		.ap_clk, .ap_rst_n,
 
 		.s_axilite_AWVALID, .s_axilite_AWREADY, .s_axilite_AWADDR,

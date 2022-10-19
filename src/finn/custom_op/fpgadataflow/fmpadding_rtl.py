@@ -284,12 +284,12 @@ class FMPadding_rtl(HLSCustomOp):
         idt = self.get_input_datatype()
         code_gen_dict = self.get_template_values(ifm_dims, pads, chans, simd, idt)
         config = {
-            "XON": (0, (code_gen_dict["INIT_XON"])),
-            "XOFF": (1, (code_gen_dict["INIT_XOFF"])),
-            "XEND": (2, (code_gen_dict["INIT_XEND"])),
-            "YON": (4, (code_gen_dict["INIT_YON"])),
-            "YOFF": (5, (code_gen_dict["INIT_YOFF"])),
-            "YEND": (6, (code_gen_dict["INIT_YEND"])),
+            "XON": (0 * 4, (code_gen_dict["INIT_XON"])),
+            "XOFF": (1 * 4, (code_gen_dict["INIT_XOFF"])),
+            "XEND": (2 * 4, (code_gen_dict["INIT_XEND"])),
+            "YON": (3 * 4, (code_gen_dict["INIT_YON"])),
+            "YOFF": (4 * 4, (code_gen_dict["INIT_YOFF"])),
+            "YEND": (5 * 4, (code_gen_dict["INIT_YEND"])),
         }
         return config
 

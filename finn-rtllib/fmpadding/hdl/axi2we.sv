@@ -57,7 +57,7 @@ module axi2we #(
 	// Reading tied to all-ones
 	input	       s_axilite_ARVALID,
 	output	       s_axilite_ARREADY,
-	input	[3:0]  s_axilite_ARADDR,
+	input	[ADDR_BITS-1:0]  s_axilite_ARADDR,
 
 	output	        s_axilite_RVALID,
 	input	        s_axilite_RREADY,
