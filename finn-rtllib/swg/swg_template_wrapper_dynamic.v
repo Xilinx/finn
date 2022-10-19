@@ -14,13 +14,13 @@ module $TOP_MODULE_NAME$ #(
     parameter BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN,
     parameter BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT,
 
-    parameter integer C_s_axi_cfg_DATA_WIDTH	= 32,
-    parameter integer C_s_axi_cfg_ADDR_WIDTH	= 6
+    parameter integer C_s_axilite_DATA_WIDTH	= 32,
+    parameter integer C_s_axilite_ADDR_WIDTH	= 6
 )
 (
-    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V:s_axi_cfg" *)
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V:s_axilite" *)
     input  ap_clk,
-    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V:s_axi_cfg" *)
+    (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V:s_axilite" *)
     input  ap_rst_n,
     input  [BUF_IN_WIDTH-1:0] in0_V_TDATA,
     input  in0_V_TVALID,
@@ -29,28 +29,28 @@ module $TOP_MODULE_NAME$ #(
     output out_V_TVALID,
     input  out_V_TREADY,
 
-    // Ports of Axi Slave Bus Interface s_axi_cfg
-    //input wire  s_axi_cfg_aclk,
-    //input wire  s_axi_cfg_aresetn,
-    input wire [C_s_axi_cfg_ADDR_WIDTH-1 : 0] s_axi_cfg_awaddr,
-    input wire [2 : 0] s_axi_cfg_awprot,
-    input wire  s_axi_cfg_awvalid,
-    output wire  s_axi_cfg_awready,
-    input wire [C_s_axi_cfg_DATA_WIDTH-1 : 0] s_axi_cfg_wdata,
-    input wire [(C_s_axi_cfg_DATA_WIDTH/8)-1 : 0] s_axi_cfg_wstrb,
-    input wire  s_axi_cfg_wvalid,
-    output wire  s_axi_cfg_wready,
-    output wire [1 : 0] s_axi_cfg_bresp,
-    output wire  s_axi_cfg_bvalid,
-    input wire  s_axi_cfg_bready,
-    input wire [C_s_axi_cfg_ADDR_WIDTH-1 : 0] s_axi_cfg_araddr,
-    input wire [2 : 0] s_axi_cfg_arprot,
-    input wire  s_axi_cfg_arvalid,
-    output wire  s_axi_cfg_arready,
-    output wire [C_s_axi_cfg_DATA_WIDTH-1 : 0] s_axi_cfg_rdata,
-    output wire [1 : 0] s_axi_cfg_rresp,
-    output wire  s_axi_cfg_rvalid,
-    input wire  s_axi_cfg_rready
+    // Ports of Axi Slave Bus Interface s_axilite
+    //input wire  s_axilite_aclk,
+    //input wire  s_axilite_aresetn,
+    input wire [C_s_axilite_ADDR_WIDTH-1 : 0] s_axilite_awaddr,
+    input wire [2 : 0] s_axilite_awprot,
+    input wire  s_axilite_awvalid,
+    output wire  s_axilite_awready,
+    input wire [C_s_axilite_DATA_WIDTH-1 : 0] s_axilite_wdata,
+    input wire [(C_s_axilite_DATA_WIDTH/8)-1 : 0] s_axilite_wstrb,
+    input wire  s_axilite_wvalid,
+    output wire  s_axilite_wready,
+    output wire [1 : 0] s_axilite_bresp,
+    output wire  s_axilite_bvalid,
+    input wire  s_axilite_bready,
+    input wire [C_s_axilite_ADDR_WIDTH-1 : 0] s_axilite_araddr,
+    input wire [2 : 0] s_axilite_arprot,
+    input wire  s_axilite_arvalid,
+    output wire  s_axilite_arready,
+    output wire [C_s_axilite_DATA_WIDTH-1 : 0] s_axilite_rdata,
+    output wire [1 : 0] s_axilite_rresp,
+    output wire  s_axilite_rvalid,
+    input wire  s_axilite_rready
 );
 
 wire                     cfg_valid;
@@ -70,32 +70,32 @@ wire [INCR_BITWIDTH-1:0] cfg_incr_tail_last;
 wire [31:0]              cfg_last_read;
 wire [31:0]              cfg_last_write;
 
-// Instantiation of Axi Bus Interface s_axi_cfg
+// Instantiation of Axi Bus Interface s_axilite
 $TOP_MODULE_NAME$_axilite # (
-    .C_S_AXI_DATA_WIDTH(C_s_axi_cfg_DATA_WIDTH),
-    .C_S_AXI_ADDR_WIDTH(C_s_axi_cfg_ADDR_WIDTH)
+    .C_S_AXI_DATA_WIDTH(C_s_axilite_DATA_WIDTH),
+    .C_S_AXI_ADDR_WIDTH(C_s_axilite_ADDR_WIDTH)
 ) axilite_cfg_inst (
     .S_AXI_ACLK(ap_clk),
     .S_AXI_ARESETN(ap_rst_n),
-    .S_AXI_AWADDR(s_axi_cfg_awaddr),
-    .S_AXI_AWPROT(s_axi_cfg_awprot),
-    .S_AXI_AWVALID(s_axi_cfg_awvalid),
-    .S_AXI_AWREADY(s_axi_cfg_awready),
-    .S_AXI_WDATA(s_axi_cfg_wdata),
-    .S_AXI_WSTRB(s_axi_cfg_wstrb),
-    .S_AXI_WVALID(s_axi_cfg_wvalid),
-    .S_AXI_WREADY(s_axi_cfg_wready),
-    .S_AXI_BRESP(s_axi_cfg_bresp),
-    .S_AXI_BVALID(s_axi_cfg_bvalid),
-    .S_AXI_BREADY(s_axi_cfg_bready),
-    .S_AXI_ARADDR(s_axi_cfg_araddr),
-    .S_AXI_ARPROT(s_axi_cfg_arprot),
-    .S_AXI_ARVALID(s_axi_cfg_arvalid),
-    .S_AXI_ARREADY(s_axi_cfg_arready),
-    .S_AXI_RDATA(s_axi_cfg_rdata),
-    .S_AXI_RRESP(s_axi_cfg_rresp),
-    .S_AXI_RVALID(s_axi_cfg_rvalid),
-    .S_AXI_RREADY(s_axi_cfg_rready),
+    .S_AXI_AWADDR(s_axilite_awaddr),
+    .S_AXI_AWPROT(s_axilite_awprot),
+    .S_AXI_AWVALID(s_axilite_awvalid),
+    .S_AXI_AWREADY(s_axilite_awready),
+    .S_AXI_WDATA(s_axilite_wdata),
+    .S_AXI_WSTRB(s_axilite_wstrb),
+    .S_AXI_WVALID(s_axilite_wvalid),
+    .S_AXI_WREADY(s_axilite_wready),
+    .S_AXI_BRESP(s_axilite_bresp),
+    .S_AXI_BVALID(s_axilite_bvalid),
+    .S_AXI_BREADY(s_axilite_bready),
+    .S_AXI_ARADDR(s_axilite_araddr),
+    .S_AXI_ARPROT(s_axilite_arprot),
+    .S_AXI_ARVALID(s_axilite_arvalid),
+    .S_AXI_ARREADY(s_axilite_arready),
+    .S_AXI_RDATA(s_axilite_rdata),
+    .S_AXI_RRESP(s_axilite_rresp),
+    .S_AXI_RVALID(s_axilite_rvalid),
+    .S_AXI_RREADY(s_axilite_rready),
 
     .cfg_reg0(cfg_valid),
     .cfg_reg1(cfg_cntr_simd),
