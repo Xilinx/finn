@@ -271,10 +271,14 @@ class FMPadding_rtl(HLSCustomOp):
         }
         return code_gen_dict
 
-    def get_dynamic_config(self, ifm_dims, pads):
+    def get_dynamic_config(self, ifm_dims=None, pads=None):
         """Returns a configuration dict to re-configure FM dimension and
         padding amounts during runtime."""
 
+        if ifm_dims is None:
+            ifm_dims = self.get_nodeattr("ImgDim")
+        if pads is None:
+            pads = self.get_nodeattr("Padding")
         chans = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
         idt = self.get_input_datatype()

@@ -847,13 +847,15 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
-    def get_dynamic_config(self, ifm_dim, stride=None, dilation=None):
+    def get_dynamic_config(self, ifm_dim=None, stride=None, dilation=None):
         """Returns a configuration dict to re-configure FM dimension during
         runtime. Stride and dilation can also be changed. Certain restrictions
         apply (e.g. component must be synthesized for largest buffer size)."""
         # NOTE: For better driver integration, this functionality could be packaged
         # as a standalone function in the future
 
+        if ifm_dim is None:
+            ifm_dim = self.get_nodeattr("IFMDim")
         k = self.get_nodeattr("ConvKernelDim")
         if stride is None:
             stride = self.get_nodeattr("Stride")
