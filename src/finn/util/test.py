@@ -180,6 +180,7 @@ def execute_parent(parent_path, child_path, input_tensor_npy, return_full_ctx=Fa
     sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
     sdp_node = getCustomOp(sdp_node)
     sdp_node.set_nodeattr("model", child_path)
+    sdp_node.set_nodeattr("return_full_exec_context", 1 if return_full_ctx else 0)
     ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
     if return_full_ctx:
         return ret

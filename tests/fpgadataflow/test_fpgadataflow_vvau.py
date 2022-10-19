@@ -33,12 +33,14 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
-from qonnx.custom_op.registry import getCustomOp
+
+# from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
-from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+
+# from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
@@ -75,7 +77,20 @@ def _calculate_dot_prod_range(dt_a, dt_b, len):
 
 
 def _make_single_vvau_modelwrapper(
-    W, pe, simd, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T=None, tdt=None
+    W,
+    pe,
+    simd,
+    k_h,
+    k_w,
+    channels,
+    dim_h,
+    dim_w,
+    wdt,
+    idt,
+    odt,
+    T=None,
+    tdt=None,
+    mem_mode="const",
 ):
     in_shape = [1, dim_h, dim_w, k_h * k_w * channels]  # [N, H, W, K*K*CH]
     out_shape = [
@@ -114,6 +129,7 @@ def _make_single_vvau_modelwrapper(
         weightDataType=wdt.name,
         outputDataType=odt.name,
         noActivation=no_act,
+        mem_mode=mem_mode,
     )
 
     graph = helper.make_graph(
@@ -141,7 +157,7 @@ def prepare_inputs(input_tensor):
     return {"inp": input_tensor}
 
 
-# mem_mode: const or decoupled
+# input datatype
 @pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
 # weight datatype
 @pytest.mark.parametrize("wdt", [DataType["INT4"]])
@@ -159,13 +175,15 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("k_w", [3, 1])
 # Number of input and output channels
 @pytest.mark.parametrize("channels", [3, 4])
+# memory mode
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_vvau(
-    idt, wdt, act, pe, simd, dim_h, dim_w, k_h, k_w, channels, exec_mode
+    idt, wdt, act, pe, simd, dim_h, dim_w, k_h, k_w, channels, mem_mode, exec_mode
 ):
     if pe == "channels":
         pe = channels
@@ -201,7 +219,7 @@ def test_fpgadataflow_vvau(
         tdt = DataType["INT32"]
 
     model = _make_single_vvau_modelwrapper(
-        W, pe, simd, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt
+        W, pe, simd, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt, mem_mode
     )
 
     if exec_mode == "cppsim":
@@ -242,11 +260,11 @@ def test_fpgadataflow_vvau(
 
     assert (y_produced == y_expected).all(), "incorrect result"
 
-    if exec_mode == "rtlsim":
-        node = model.get_nodes_by_op_type("VectorVectorActivation")[0]
-        inst = getCustomOp(node)
-        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
-        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-        exp_cycles = exp_cycles_dict[node.name]
-        # assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
-        # assert exp_cycles != 0
+    # if exec_mode == "rtlsim":
+    # node = model.get_nodes_by_op_type("VectorVectorActivation")[0]
+    # inst = getCustomOp(node)
+    # cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+    # exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+    # exp_cycles = exp_cycles_dict[node.name]
+    # assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+    # assert exp_cycles != 0
