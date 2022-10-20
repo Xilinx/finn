@@ -62,8 +62,10 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.util.basic import pyverilate_get_liveness_threshold_cycles
 
 
-def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt, pad_mode):
+def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
     np.random.seed(0)
+    group = ifm if depthwise else 1
+    group_str = str(group)
     ishp = (1, ifm, idim, idim)
     pad_0 = _auto_pad_to_explicit_padding(pad_mode, idim, idim, k, k, stride, stride, 2)
     int_dim = compute_conv_output_dim(idim, k, stride, total_pad=pad_0[0] + pad_0[2])
@@ -71,9 +73,9 @@ def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt, pad_mode):
         pad_mode, int_dim, int_dim, k, k, stride, stride, 2
     )
     odim = compute_conv_output_dim(int_dim, k, stride, total_pad=pad_1[0] + pad_1[2])
-    oshp = (1, ofm, odim, odim)
-    wshp = (ofm, ifm, k, k)
-    wshp_1 = (ofm, ofm, k, k)
+    oshp = (1, ifm, odim, odim) if depthwise else (1, ofm, odim, odim)
+    wshp = (ifm, 1, k, k) if depthwise else (ofm, ifm, k, k)
+    wshp_1 = (ifm, 1, k, k) if depthwise else (ofm, ofm, k, k)
     ishp_str = str(list(ishp))
     oshp_str = str(list(oshp))
     wshp_str = str(list(wshp))
@@ -96,11 +98,11 @@ def create_conv_model(idim, ifm, k, stride, ofm, idt, wdt, pad_mode):
     >
     {{
         conv0 = Conv<
-                dilations={dil_str},group=1,kernel_shape={kshp_str},pads={pad_0_str},
+                dilations={dil_str},group={group_str},kernel_shape={kshp_str},pads={pad_0_str},
                 strides={stride_str}
             >(in0, param_c0_weight)
         out0 = Conv<
-                dilations={dil_str},group=1,kernel_shape={kshp_str},pads={pad_1_str},
+                dilations={dil_str},group={group_str},kernel_shape={kshp_str},pads={pad_1_str},
                 strides={stride_str}
             >(conv0, param_c1_weight)
     }}
@@ -160,15 +162,37 @@ def config_hook(configs):
     return write_swg_config
 
 
-@pytest.mark.parametrize("pad_mode", ["SAME_UPPER", "VALID"])
+cfg0 = {
+    "idims": [32, 16],
+    "ifm": 4,
+    "k": 4,
+    "stride": 1,
+    "ofm": 8,
+    "depthwise": False,
+    "pad_mode": "SAME_UPPER",
+}
+cfg1 = {
+    "idims": [128, 4],
+    "ifm": 64,
+    "k": 3,
+    "stride": 1,
+    "ofm": 64,
+    "depthwise": True,
+    "pad_mode": "SAME_UPPER",
+}
+
+
+@pytest.mark.parametrize("cfg", [cfg0, cfg1])
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_conv_dynamic(pad_mode):
-    idims = [32, 16]
-    ifm = 4
-    k = 4
-    stride = 1
-    ofm = 8
+def test_fpgadataflow_conv_dynamic(cfg):
+    pad_mode = cfg["pad_mode"]
+    depthwise = cfg["depthwise"]
+    idims = cfg["idims"]
+    ifm = cfg["ifm"]
+    k = cfg["k"]
+    stride = cfg["stride"]
+    ofm = cfg["ofm"]
     idt = DataType["UINT8"]
     wdt = DataType["INT2"]
     exp_cfgs = []
@@ -177,7 +201,9 @@ def test_fpgadataflow_conv_dynamic(pad_mode):
         ishp = (1, ifm, idim, idim)
         np.random.seed(0)
         inp = gen_finn_dt_tensor(idt, ishp)
-        model = create_conv_model(idim, ifm, k, stride, ofm, idt, wdt, pad_mode)
+        model = create_conv_model(
+            idim, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise
+        )
         _, _, int_dim, _ = model.get_tensor_shape("conv0")
         _, _, odim, _ = model.get_tensor_shape("out0")
         pad0 = get_by_name(model.graph.node[0].attribute, "pads").ints
@@ -195,6 +221,7 @@ def test_fpgadataflow_conv_dynamic(pad_mode):
     model = model.transform(
         to_hls.InferQuantizedMatrixVectorActivation(mem_mode="decoupled")
     )
+    model = model.transform(to_hls.InferVectorVectorActivation())
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
     parent_model = model.transform(CreateDataflowPartition())
     sdp_inst = getCustomOp(
@@ -213,6 +240,10 @@ def test_fpgadataflow_conv_dynamic(pad_mode):
         getCustomOp(swg_node).set_nodeattr("dynamic_mode", 1)
         getCustomOp(swg_node).set_nodeattr("inFIFODepths", [16])
         getCustomOp(swg_node).set_nodeattr("outFIFODepths", [16])
+    comp_nodes = model.get_nodes_by_op_type("MatrixVectorActivation")
+    comp_nodes += model.get_nodes_by_op_type("VectorVectorActivation")
+    for comp_node in comp_nodes:
+        getCustomOp(comp_node).set_nodeattr("PE", 1)
     model = model.transform(InsertFIFO())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
