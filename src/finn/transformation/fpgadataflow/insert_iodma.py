@@ -211,7 +211,8 @@ class InsertIODMA(Transformation):
             # attached IODMA
             fc_extw_nodes = list(
                 filter(
-                    lambda x: x.op_type == "MatrixVectorActivation"
+                    lambda x: x.op_type
+                    in ["MatrixVectorActivation", "VectorVectorActivation"]
                     and getCustomOp(x).get_nodeattr("mem_mode") == "external"
                     and model.find_producer(x.input[1]) is None,
                     all_nodes,
@@ -259,6 +260,10 @@ class InsertIODMA(Transformation):
                 )
                 fc_node.input[1] = fc_node_in.name
                 model.graph.node.insert(0, dma_node)
+                # expand inFIFODepths for new second input of node
+                infifo_depth = fc_inst.get_nodeattr("inFIFODepths")
+                infifo_depth.append(8)
+                fc_inst.set_nodeattr("inFIFODepths", infifo_depth)
                 modified = True
         if modified:
             model = model.transform(SortGraph())
