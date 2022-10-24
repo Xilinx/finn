@@ -48,7 +48,12 @@ module thresholding #(
 	int unsigned  M,  // input/threshold precision
 	int unsigned  C,  // number of channels
 
-	localparam int unsigned  C_BITS = C < 2? 1 : $clog2(C)
+	int  BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
+
+	localparam int unsigned  C_BITS = C < 2? 1 : $clog2(C),
+	localparam int unsigned  O_BITS = BIAS <= 0?
+		/* unsigned */ $clog2(2**N-BIAS) :
+		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)
 )(
 	// Global Control
 	input	logic  clk,
@@ -70,7 +75,7 @@ module thresholding #(
 	// Output Stream
 	output	logic  ovld,
 	output	logic [C_BITS-1:0]  ocnl,
-	output	logic [N     -1:0]  odat
+	output	logic [O_BITS-1:0]  odat
 );
 
 	// Pipeline Links & Feed
@@ -148,6 +153,6 @@ module thresholding #(
 	// Output
 	assign	ovld = pipe[N].vld;
 	assign	ocnl = pipe[N].cnl;
-	assign	odat = pipe[N].res;
+	assign	odat = pipe[N].res - BIAS;
 
 endmodule : thresholding
