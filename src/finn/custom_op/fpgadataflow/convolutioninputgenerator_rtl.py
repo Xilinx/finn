@@ -29,7 +29,6 @@
 import math
 import numpy as np
 import os
-from math import copysign
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -574,10 +573,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             tail_incr_last_window = buffer_min_size - 1
             code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
 
-        code_gen_dict["$TAIL_INCR_W$"] = [str(tail_incr_w)]
-        code_gen_dict["$TAIL_INCR_H$"] = [str(tail_incr_h)]
-        code_gen_dict["$TAIL_INCR_LAST$"] = [str(tail_incr_last_window)]
-
         # support SIMD = IFMChannels and k_w = 1 cases
         # for k = [k_h, k_w] = [1, k_w], no adjustment is needed
         # for k = [k_h, k_w] = [1, 1], do not use this impl. style (mmv_out=K=1)
@@ -595,12 +590,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_SIMD"]
             loop_simd_iterations -= 1  # -1 because state is initial state
 
-        code_gen_dict["$LOOP_H_ITERATIONS$"] = [str(loop_h_iterations - 2)]
-        code_gen_dict["$LOOP_W_ITERATIONS$"] = [str(loop_w_iterations - 2)]
-        code_gen_dict["$LOOP_KH_ITERATIONS$"] = [str(loop_kh_iterations - 2)]
-        code_gen_dict["$LOOP_KW_ITERATIONS$"] = [str(loop_kw_iterations - 2)]
-        code_gen_dict["$LOOP_SIMD_ITERATIONS$"] = [str(loop_simd_iterations - 2)]
-
         cntr_bitwidth = math.ceil(
             math.log2(
                 max(
@@ -613,6 +602,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             )
         )
         code_gen_dict["$CNTR_BITWIDTH$"] = [str(cntr_bitwidth)]
+        code_gen_dict["$LOOP_H_ITERATIONS$"] = [str(loop_h_iterations - 2)]
+        code_gen_dict["$LOOP_W_ITERATIONS$"] = [str(loop_w_iterations - 2)]
+        code_gen_dict["$LOOP_KH_ITERATIONS$"] = [str(loop_kh_iterations - 2)]
+        code_gen_dict["$LOOP_KW_ITERATIONS$"] = [str(loop_kw_iterations - 2)]
+        code_gen_dict["$LOOP_SIMD_ITERATIONS$"] = [str(loop_simd_iterations - 2)]
 
         incr_bitwidth = 1 + math.ceil(
             math.log2(
@@ -629,26 +623,14 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             )
         )
         code_gen_dict["$INCR_BITWIDTH$"] = [str(incr_bitwidth)]
-        code_gen_dict["$ADDR_INCREMENT_MAP$"] = [
-            "'{{ {}'d0, {}'d{}, {}'d{}, {}'d{}, {}'d{}, {}'d{}}}".format(
-                incr_bitwidth,
-                int(copysign(incr_bitwidth, addr_incr_end_simd)),
-                abs(addr_incr_end_simd),
-                int(copysign(incr_bitwidth, addr_incr_end_window_elem)),
-                abs(addr_incr_end_window_elem),
-                int(copysign(incr_bitwidth, addr_incr_end_window_row)),
-                abs(addr_incr_end_window_row),
-                int(copysign(incr_bitwidth, addr_incr_end_window)),
-                abs(addr_incr_end_window),
-                int(copysign(incr_bitwidth, addr_incr_end_row)),
-                abs(addr_incr_end_row),
-            )
-        ]
-        code_gen_dict["$INCR_HEAD_SIMD$"] = [str(addr_incr_end_simd)]
-        code_gen_dict["$INCR_HEAD_KW$"] = [str(addr_incr_end_window_elem)]
-        code_gen_dict["$INCR_HEAD_KH$"] = [str(addr_incr_end_window_row)]
-        code_gen_dict["$INCR_HEAD_W$"] = [str(addr_incr_end_window)]
-        code_gen_dict["$INCR_HEAD_H$"] = [str(addr_incr_end_row)]
+        code_gen_dict["$HEAD_INCR_SIMD$"] = [str(addr_incr_end_simd)]
+        code_gen_dict["$HEAD_INCR_KW$"] = [str(addr_incr_end_window_elem)]
+        code_gen_dict["$HEAD_INCR_KH$"] = [str(addr_incr_end_window_row)]
+        code_gen_dict["$HEAD_INCR_W$"] = [str(addr_incr_end_window)]
+        code_gen_dict["$HEAD_INCR_H$"] = [str(addr_incr_end_row)]
+        code_gen_dict["$TAIL_INCR_W$"] = [str(tail_incr_w)]
+        code_gen_dict["$TAIL_INCR_H$"] = [str(tail_incr_h)]
+        code_gen_dict["$TAIL_INCR_LAST$"] = [str(tail_incr_last_window)]
 
         code_gen_dict["$ELEM_PER_WINDOW$"] = [str(elem_per_window)]
         code_gen_dict["$SIMD$"] = [str(simd)]
@@ -844,16 +826,18 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         Each block must have at most one aximm and one axilite."""
         intf_names = super().get_verilog_top_module_intf_names()
         if self.get_nodeattr("dynamic_mode"):
-            intf_names["axilite"] = ["s_axi_cfg"]
+            intf_names["axilite"] = ["s_axilite"]
         return intf_names
 
-    def get_dynamic_config(self, ifm_dim, stride=None, dilation=None):
+    def get_dynamic_config(self, ifm_dim=None, stride=None, dilation=None):
         """Returns a configuration dict to re-configure FM dimension during
         runtime. Stride and dilation can also be changed. Certain restrictions
         apply (e.g. component must be synthesized for largest buffer size)."""
         # NOTE: For better driver integration, this functionality could be packaged
         # as a standalone function in the future
 
+        if ifm_dim is None:
+            ifm_dim = self.get_nodeattr("IFMDim")
         k = self.get_nodeattr("ConvKernelDim")
         if stride is None:
             stride = self.get_nodeattr("Stride")
@@ -883,16 +867,17 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # each setting is mapped to an axi-lite register address
         template_path, code_gen_dict = self.prepare_codegen_default()
         config = {
+            "cfg_wren": (0 * 4, 1),
             "cfg_cntr_simd": (1 * 4, int(code_gen_dict["$LOOP_SIMD_ITERATIONS$"][0])),
             "cfg_cntr_kw": (2 * 4, int(code_gen_dict["$LOOP_KW_ITERATIONS$"][0])),
             "cfg_cntr_kh": (3 * 4, int(code_gen_dict["$LOOP_KH_ITERATIONS$"][0])),
             "cfg_cntr_w": (4 * 4, int(code_gen_dict["$LOOP_W_ITERATIONS$"][0])),
             "cfg_cntr_h": (5 * 4, int(code_gen_dict["$LOOP_H_ITERATIONS$"][0])),
-            "cfg_incr_head_simd": (6 * 4, int(code_gen_dict["$INCR_HEAD_SIMD$"][0])),
-            "cfg_incr_head_kw": (7 * 4, int(code_gen_dict["$INCR_HEAD_KW$"][0])),
-            "cfg_incr_head_kh": (8 * 4, int(code_gen_dict["$INCR_HEAD_KH$"][0])),
-            "cfg_incr_head_w": (9 * 4, int(code_gen_dict["$INCR_HEAD_W$"][0])),
-            "cfg_incr_head_h": (10 * 4, int(code_gen_dict["$INCR_HEAD_H$"][0])),
+            "cfg_incr_head_simd": (6 * 4, int(code_gen_dict["$HEAD_INCR_SIMD$"][0])),
+            "cfg_incr_head_kw": (7 * 4, int(code_gen_dict["$HEAD_INCR_KW$"][0])),
+            "cfg_incr_head_kh": (8 * 4, int(code_gen_dict["$HEAD_INCR_KH$"][0])),
+            "cfg_incr_head_w": (9 * 4, int(code_gen_dict["$HEAD_INCR_W$"][0])),
+            "cfg_incr_head_h": (10 * 4, int(code_gen_dict["$HEAD_INCR_H$"][0])),
             "cfg_incr_tail_w": (11 * 4, int(code_gen_dict["$TAIL_INCR_W$"][0])),
             "cfg_incr_tail_h": (12 * 4, int(code_gen_dict["$TAIL_INCR_H$"][0])),
             "cfg_incr_tail_last": (13 * 4, int(code_gen_dict["$TAIL_INCR_LAST$"][0])),
