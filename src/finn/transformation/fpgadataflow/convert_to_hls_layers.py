@@ -1282,6 +1282,7 @@ class InferDuplicateStreamsLayer(Transformation):
                     inputDataType=dt.name,
                     numInputVectors=vecs,
                     NumOutputStreams=n_outputs,
+                    outFIFODepths=[2] * n_outputs,
                     name="DuplicateStreams_Batch_" + node.name,
                 )
 
@@ -1709,6 +1710,7 @@ class InferConcatLayer(Transformation):
                     ElemsPerStream=elems_per_stream,
                     inputDataType=dt0.name,
                     numInputVectors=inp_vec,
+                    inFIFODepths=[2] * len(node.input),
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
