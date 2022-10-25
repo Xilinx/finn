@@ -35,7 +35,7 @@
 module thresholding_axi #(
 	int unsigned  N,	// output precision
 	int unsigned  M,	// input/threshold precision
-	int unsigned  C		// Channels
+	int unsigned  C,	// Channels
 
 	int  BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
