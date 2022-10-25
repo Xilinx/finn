@@ -36,7 +36,12 @@ module thresholding_axi_wrapper #(
 	parameter  N,	// output precision
 	parameter  M,	// input/threshold precision
 	parameter  C,	// Channels
-	parameter  C_BITS //= $clog2(C)
+	parameter  BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
+
+	localparam  C_BITS = $clog2(C),
+	localparam  O_BITS = BIAS <= 0?
+		/* unsigned */ $clog2(2**N-BIAS) :
+		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)
 )(
 	//- Global Control ------------------
 	input	ap_clk,
@@ -75,10 +80,10 @@ module thresholding_axi_wrapper #(
 	//- AXI Stream - Output -------------
 	input	m_axis_tready,
 	output	m_axis_tvalid,
-	output	[((N+7)/8)*8-1:0]  m_axis_tdata
+	output	[((O_BITS+7)/8)*8-1:0]  m_axis_tdata
 );
 
-	thresholding_axi #(.N(N), .M(M), .C(C)) inst (
+	thresholding_axi #(.N(N), .M(M), .C(C), .BIAS(BIAS)) inst (
 		//- Global Control ------------------
 		.ap_clk(ap_clk),
 		.ap_rst_n(ap_rst_n),
