@@ -36,6 +36,12 @@ module thresholding_axi #(
 	int unsigned  N,	// output precision
 	int unsigned  M,	// input/threshold precision
 	int unsigned  C		// Channels
+
+	int  BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
+
+	localparam int unsigned  O_BITS = BIAS <= 0?
+		/* unsigned */ $clog2(2**N-BIAS) :
+		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -74,7 +80,7 @@ module thresholding_axi #(
 	//- AXI Stream - Output -------------
 	input	logic  m_axis_tready,
 	output	logic  m_axis_tvalid,
-	output	logic [((N+7)/8)*8-1:0]  m_axis_tdata
+	output	logic [((O_BITS+7)/8)*8-1:0]  m_axis_tdata
 );
 	//- Global Control ------------------------------------------------------
 	uwire  clk = ap_clk;
@@ -134,12 +140,12 @@ module thresholding_axi #(
 
 	//- IO-Sandwich with two-stage output buffer for containing a local enable
 	uwire  en;
-	uwire [N-1:0]  odat;
+	uwire [O_BITS-1:0]  odat;
 	uwire  ovld;
 	if(1) begin : blkOutputDecouple
 		typedef struct {
 			logic          vld;
-			logic [N-1:0]  dat;
+			logic [O_BITS-1:0]  dat;
 		} buf_t;
 		buf_t  Buf[2] = '{ default: '{ vld: 0, dat: 'x } };
 		always_ff @(posedge clk) begin
@@ -187,7 +193,7 @@ module thresholding_axi #(
 	end
 
 	// Core Thresholding Module
-	thresholding #(.N(N), .M(M), .C(C)) core (
+	thresholding #(.N(N), .M(M), .C(C), .BIAS(BIAS)) core (
 		.clk, .rst,
 		.twe, .twa, .twd,
 		.en,
