@@ -29,10 +29,17 @@
 import math
 import numpy as np
 import warnings
+from onnx import TensorProto, helper
 from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
+from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
-from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.general import (
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    SortGraph,
+)
+from qonnx.util.basic import get_by_name
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
@@ -414,3 +421,69 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(RemoveShallowFIFOs())
 
         return (model, False)
+
+
+class SplitLargeFifos(Transformation):
+    """Split FIFOs with a depth larger than 32768 into smaller ones
+    to ensure that they can be correctly generated."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "StreamingFIFO":
+                depth = get_by_name(n.attribute, "depth")
+                if depth.i > 32768:
+                    n0 = getCustomOp(n)
+                    fld_shape = n0.get_folded_output_shape()
+                    dtype = n0.get_nodeattr("dataType")
+                    impl_style = n0.get_nodeattr("impl_style")
+                    ram_style = n0.get_nodeattr("ram_style")
+                    shape = model.get_tensor_shape(n.input[0])
+                    split_n = math.ceil(depth.i / 32768)
+                    fifo_depth = math.ceil(depth.i / split_n)
+                    for i in range(split_n):
+                        if i == 0:
+                            inp = n.input[0]
+                        else:
+                            inp = n.name + "_" + str(i - 1) + "_out"
+                        if i == split_n - 1:
+                            outp = n.output[0]
+                        else:
+                            outp = n.name + "_" + str(i) + "_out"
+                            out_tensor = helper.make_tensor_value_info(
+                                outp, TensorProto.FLOAT, shape
+                            )
+                            graph.value_info.append(out_tensor)
+                            model.set_tensor_datatype(out_tensor.name, DataType[dtype])
+                        fifo_node = helper.make_node(
+                            "StreamingFIFO",
+                            [inp],
+                            [outp],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            depth=fifo_depth,
+                            folded_shape=fld_shape,
+                            dataType=dtype,
+                            impl_style=impl_style,
+                            ram_style=ram_style,
+                        )
+                        graph.node.insert(node_ind + i, fifo_node)
+
+                    graph.node.remove(n)
+                    if n.output[0] != "global_out":
+                        consumer = model.find_consumer(n.output[0])
+                        n1 = getCustomOp(consumer)
+                        n1.set_nodeattr("outFIFODepth", fifo_depth)
+                    if n.input[0] != "global_in":
+                        producer = model.find_producer(n.input[0])
+                        n2 = getCustomOp(producer)
+                        n2.set_nodeattr("inFIFODepth", fifo_depth)
+                    graph_modified = True
+        if graph_modified:
+            model = model.transform(SortGraph())
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveReadableTensorNames())
+        return (model, graph_modified)
