@@ -246,6 +246,10 @@ class DataflowBuildConfig:
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
 
+    #: Whether FIFO nodes with depth larger than 32768 will be split.
+    #: Allow to configure very large FIFOs in the folding_config_file.
+    split_large_fifos: Optional[bool] = False
+
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`
     large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
