@@ -60,19 +60,19 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("dataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("dataType")]
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ishape = self.get_nodeattr("shape")
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         oshape = self.get_nodeattr("shape")
         return oshape
 
@@ -97,7 +97,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
                 Please adjust PE and SIMD values so that OutWidth % InWidth = 0
                 or alternatively use impl_style = vivado"""
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         self.check_divisible_iowidths()
         iwidth = self.get_nodeattr("inWidth")
         ishape = self.get_normal_input_shape()
@@ -117,7 +117,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         dummy_t = dummy_t.reshape(new_shape)
         return dummy_t.shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         self.check_divisible_iowidths()
         owidth = self.get_nodeattr("outWidth")
         oshape = self.get_normal_output_shape()
@@ -142,11 +142,11 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         in_width = self.get_nodeattr("inWidth")
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         out_width = self.get_nodeattr("outWidth")
         return out_width
 

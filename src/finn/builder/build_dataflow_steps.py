@@ -29,6 +29,7 @@
 import json
 import numpy as np
 import os
+import shutil
 from copy import deepcopy
 from distutils.dir_util import copy_tree
 from qonnx.core.modelwrapper import ModelWrapper
@@ -78,6 +79,10 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.derive_characteristic import (
+    DeriveCharacteristic,
+    DeriveFIFOSizes,
+)
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
@@ -85,6 +90,7 @@ from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
@@ -122,81 +128,126 @@ def verify_step(
     verify_out_dir = cfg.output_dir + "/verification_output"
     intermediate_models_dir = cfg.output_dir + "/intermediate_models"
     os.makedirs(verify_out_dir, exist_ok=True)
-    (in_npy, exp_out_npy) = cfg._resolve_verification_io_pair()
-    if need_parent:
-        assert (
-            cfg.save_intermediate_models
-        ), "Enable save_intermediate_models for verification"
-        parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
-        child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
-        model.save(child_model_fn)
-        out_tensor_name = ModelWrapper(parent_model_fn).graph.output[0].name
-        out_dict = execute_parent(
-            parent_model_fn, child_model_fn, in_npy, return_full_ctx=True
-        )
-        out_npy = out_dict[out_tensor_name]
-    else:
-        inp_tensor_name = model.graph.input[0].name
-        out_tensor_name = model.graph.output[0].name
-        inp_dict = {inp_tensor_name: in_npy}
-        if rtlsim_pre_hook is not None:
-            out_dict = rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
+    (in_npy_all, exp_out_npy_all) = cfg._resolve_verification_io_pair()
+    bsize_in = in_npy_all.shape[0]
+    bsize_out = exp_out_npy_all.shape[0]
+    assert bsize_in == bsize_out, "Batch sizes don't match for verification IO pair"
+    all_res = True
+    for b in range(bsize_in):
+        in_npy = np.expand_dims(in_npy_all[b], axis=0)
+        exp_out_npy = np.expand_dims(exp_out_npy_all[b], axis=0)
+        if need_parent:
+            assert (
+                cfg.save_intermediate_models
+            ), "Enable save_intermediate_models for verification"
+            parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
+            child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
+            model.save(child_model_fn)
+            parent_model = ModelWrapper(parent_model_fn)
+            out_tensor_name = parent_model.graph.output[0].name
+            exp_ishape = parent_model.get_tensor_shape(parent_model.graph.input[0].name)
+            if in_npy.shape != exp_ishape:
+                print(
+                    "Verification input has shape %s while model expects %s"
+                    % (str(in_npy.shape), str(exp_ishape))
+                )
+                print("Attempting to force model shape on verification input")
+                in_npy = in_npy.reshape(exp_ishape)
+            out_dict = execute_parent(
+                parent_model_fn, child_model_fn, in_npy, return_full_ctx=True
+            )
+            out_npy = out_dict[out_tensor_name]
         else:
-            out_dict = execute_onnx(model, inp_dict, True)
-        out_npy = out_dict[out_tensor_name]
-    res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
-    res_to_str = {True: "SUCCESS", False: "FAIL"}
-    res_str = res_to_str[res]
-    if cfg.verify_save_full_context:
-        verification_output_fn = verify_out_dir + "/verify_%s_%s.npz" % (
-            step_name,
-            res_str,
-        )
-        np.savez(verification_output_fn, **out_dict)
-    else:
-        verification_output_fn = verify_out_dir + "/verify_%s_%s.npy" % (
-            step_name,
-            res_str,
-        )
-        np.save(verification_output_fn, out_npy)
-    print("Verification for %s : %s" % (step_name, res_str))
+            inp_tensor_name = model.graph.input[0].name
+            out_tensor_name = model.graph.output[0].name
+            exp_ishape = model.get_tensor_shape(inp_tensor_name)
+            if in_npy.shape != exp_ishape:
+                print(
+                    "Verification input has shape %s while model expects %s"
+                    % (str(in_npy.shape), str(exp_ishape))
+                )
+                print("Attempting to force model shape on verification input")
+                in_npy = in_npy.reshape(exp_ishape)
+            inp_dict = {inp_tensor_name: in_npy}
+            if rtlsim_pre_hook is not None:
+                out_dict = rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
+            else:
+                out_dict = execute_onnx(model, inp_dict, True)
+            out_npy = out_dict[out_tensor_name]
+        exp_oshape = exp_out_npy.shape
+        if out_npy.shape != exp_oshape:
+            print(
+                "Verification output has shape %s while model produces %s"
+                % (str(exp_oshape), str(out_npy.shape))
+            )
+            print("Attempting to force model shape on verification output")
+            out_npy = out_npy.reshape(exp_oshape)
+
+        res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
+        all_res = all_res and res
+        res_to_str = {True: "SUCCESS", False: "FAIL"}
+        res_str = res_to_str[res]
+        if cfg.verify_save_full_context:
+            verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npz" % (
+                step_name,
+                b,
+                res_str,
+            )
+            np.savez(verification_output_fn, **out_dict)
+        else:
+            verification_output_fn = verify_out_dir + "/verify_%s_%d_%s.npy" % (
+                step_name,
+                b,
+                res_str,
+            )
+            np.save(verification_output_fn, out_npy)
+        if cfg.verify_save_rtlsim_waveforms:
+            vcd_path = model.get_metadata_prop("rtlsim_trace")
+            if vcd_path is not None and os.path.isfile(vcd_path):
+                new_vcd_path = vcd_path.replace(".vcd", "_%d.vcd" % b)
+                shutil.move(vcd_path, new_vcd_path)
+    print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
 
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
-    need_restitch = False
-    # rtlsim only supports certain impl_style for some nodes
-    # StreamingFIFO must have impl_style=rtl
-    for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
-        inst = getCustomOp(fifo_layer)
-        if inst.get_nodeattr("impl_style") != "rtl":
-            inst.set_nodeattr("impl_style", "rtl")
-            inst.set_nodeattr("code_gen_dir_ipgen", "")
-            inst.set_nodeattr("ipgen_path", "")
-            need_restitch = True
-    # StreamingDataWidthConverter must have impl_style=hls
-    for dwc_layer in verify_model.get_nodes_by_op_type(
-        "StreamingDataWidthConverter_Batch"
-    ):
-        inst = getCustomOp(dwc_layer)
-        if inst.get_nodeattr("impl_style") != "hls":
-            inst.set_nodeattr("impl_style", "hls")
-            inst.set_nodeattr("code_gen_dir_ipgen", "")
-            inst.set_nodeattr("ipgen_path", "")
-            need_restitch = True
-    # if we've made alterations to the model, need to do some re-prep
-    if need_restitch:
-        print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
-        verify_model = verify_model.transform(
-            PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
-        )
-        verify_model = verify_model.transform(HLSSynthIP())
-        verify_model = verify_model.transform(
-            CreateStitchedIP(
-                cfg._resolve_fpga_part(),
-                cfg.synth_clk_period_ns,
-                vitis=False,
+    if not cfg.rtlsim_use_vivado_comps:
+        need_restitch = False
+        # switch impl_style=vivado components to rtl/hls
+        # StreamingFIFO must have impl_style=rtl
+        for fifo_layer in verify_model.get_nodes_by_op_type("StreamingFIFO"):
+            inst = getCustomOp(fifo_layer)
+            if inst.get_nodeattr("impl_style") != "rtl":
+                inst.set_nodeattr("impl_style", "rtl")
+                inst.set_nodeattr("code_gen_dir_ipgen", "")
+                inst.set_nodeattr("ipgen_path", "")
+                need_restitch = True
+        # StreamingDataWidthConverter must have impl_style=hls
+        for dwc_layer in verify_model.get_nodes_by_op_type(
+            "StreamingDataWidthConverter_Batch"
+        ):
+            inst = getCustomOp(dwc_layer)
+            if inst.get_nodeattr("impl_style") != "hls":
+                inst.set_nodeattr("impl_style", "hls")
+                inst.set_nodeattr("code_gen_dir_ipgen", "")
+                inst.set_nodeattr("ipgen_path", "")
+                need_restitch = True
+        # if we've made alterations to the model, need to do some re-prep
+        if need_restitch:
+            print("Need to regen/re-stitch some IP for STITCHED_IP_RTLSIM")
+            verify_model = verify_model.transform(
+                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
-        )
+            verify_model = verify_model.transform(HLSSynthIP())
+            verify_model = verify_model.transform(
+                CreateStitchedIP(
+                    cfg._resolve_fpga_part(),
+                    cfg.synth_clk_period_ns,
+                    vitis=False,
+                )
+            )
+    else:
+        print("rtlsim_use_vivado_comps is enabled, may yield incorrect results")
+
     # set top-level prop for stitched-ip rtlsim and launch
     verify_model.set_metadata_prop("exec_mode", "rtlsim")
     # TODO make configurable
@@ -303,7 +354,10 @@ def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     # needed for convolutions -- TODO always exec?
     need_conv = len(model.get_nodes_by_op_type("Im2Col")) > 0
     if need_conv:
-        model = model.transform(to_hls.InferConvInpGen())
+        if cfg.force_rtl_conv_inp_gen:
+            model = model.transform(to_hls.InferConvInpGen(use_rtl_variant=True))
+        else:
+            model = model.transform(to_hls.InferConvInpGen())
         model = model.transform(to_hls.InferStreamingMaxPool())
         model = model.transform(RemoveCNVtoFCFlatten())
     # get rid of Tranpose -> Tranpose identity seq
@@ -447,9 +501,9 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     Depending on the auto_fifo_depths setting, do one of the following:
-    * if auto_fifo_depths=True:  Run the `InsertAndSetFIFODepths` transformation
-    to attempt to determine the FIFO sizes that provide full throughput. Involves
-    running stitched-IP rtlsim and may take a long time.
+    * if auto_fifo_depths=True:  Run the appropriate auto-sizing transformation
+    to attempt to determine the FIFO sizes that provide full throughput.
+    May take a long time.
     * if auto_fifo_depths=False:  Assume the folding config file contains FIFO
     sizes as well. Runs the `InsertFIFO` transformation, then
     `ApplyConfig(cfg.folding_config_file)`, and finally `RemoveShallowFIFOs`.
@@ -458,13 +512,35 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
 
     if cfg.auto_fifo_depths:
-        model = model.transform(
-            InsertAndSetFIFODepths(
-                cfg._resolve_fpga_part(),
-                cfg._resolve_hls_clk_period(),
-                vivado_ram_style=cfg.large_fifo_mem_style,
+        if cfg.auto_fifo_strategy == "characterize":
+            model = model.transform(InsertDWC())
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(
+                PrepareIP(cfg._resolve_fpga_part(), cfg._resolve_hls_clk_period())
             )
-        )
+            model = model.transform(HLSSynthIP())
+            model = model.transform(PrepareRTLSim())
+            model = model.transform(AnnotateCycles())
+            period = model.analysis(dataflow_performance)["max_cycles"] + 10
+            model = model.transform(DeriveCharacteristic(period))
+            model = model.transform(DeriveFIFOSizes())
+            model = model.transform(
+                InsertFIFO(
+                    vivado_ram_style=cfg.large_fifo_mem_style, max_qsrl_depth=256
+                )
+            )
+            model = model.transform(GiveUniqueNodeNames())
+            model = model.transform(GiveReadableTensorNames())
+        elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
+            model = model.transform(
+                InsertAndSetFIFODepths(
+                    cfg._resolve_fpga_part(),
+                    cfg._resolve_hls_clk_period(),
+                    vivado_ram_style=cfg.large_fifo_mem_style,
+                )
+            )
+        else:
+            assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
     else:
         # assume folding cfg json contains FIFO sizes too
         # insert DWCs, FIFOs and run ApplyConfig once more
