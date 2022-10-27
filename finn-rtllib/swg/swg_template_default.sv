@@ -67,29 +67,23 @@ module $TOP_MODULE_NAME$_controller #(
 
     // combinational logic for addr_incr generation
     always_comb begin : blkHead
-        case (State)
+        unique case (State)
             0 : addr_incr = 0;
             1 : addr_incr = $HEAD_INCR_SIMD$;
             2 : addr_incr = $HEAD_INCR_KW$;
             3 : addr_incr = $HEAD_INCR_KH$;
             4 : addr_incr = $HEAD_INCR_W$;
             5 : addr_incr = $HEAD_INCR_H$;
-            default: addr_incr = 0;
         endcase
     end
 
     // combinational logic for tail_incr generation
     uwire  tail_incr_inner_condition = IS_DEPTHWISE? (Counter_loop_kh >= 0) : 0;
-    always_comb begin : blkTail
-        if (tail_incr_inner_condition)
-            tail_incr = 1;
-        else if (Counter_loop_w >= 0)
-            tail_incr = $TAIL_INCR_W$;
-        else if (Counter_loop_h >= 0)
-            tail_incr = $TAIL_INCR_H$;
-        else
-            tail_incr = $TAIL_INCR_LAST$;
-    end
+    assign tail_incr =
+        tail_incr_inner_condition? 1 :
+        Counter_loop_w >= 0?       $TAIL_INCR_W$ :
+        Counter_loop_h >= 0?       $TAIL_INCR_H$ :
+        /* else */                 $TAIL_INCR_LAST$;
 
     // combinational next state logic
     always_comb begin : blkState
