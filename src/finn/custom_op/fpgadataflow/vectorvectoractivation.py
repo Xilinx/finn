@@ -917,20 +917,6 @@ class VectorVectorActivation(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
         )
-        # TODO can we deprecate this entirely? this looks like legacy code
-        # that does not really serve a purpose - FIFO sizes are not typically
-        # allocated at this point; at best they are set to 2 as the default
-        in_fifo_depth = 2
-        out_fifo_depth = 2
-        # insert depth pragmas only if specified
-        if in_fifo_depth != 0:
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=%d variable=in0" % in_fifo_depth
-            )
-        if out_fifo_depth != 0:
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=%d variable=out" % out_fifo_depth
-            )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
