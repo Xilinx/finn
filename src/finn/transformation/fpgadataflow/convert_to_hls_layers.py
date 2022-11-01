@@ -1168,9 +1168,15 @@ class InferAddStreamsLayer(Transformation):
                 result = node.output[0]
                 in0_shape = model.get_tensor_shape(in0)
                 in1_shape = model.get_tensor_shape(in1)
+                in0_static = not (model.get_initializer(in0) is None)
+                in1_static = not (model.get_initializer(in1) is None)
 
                 # skip if different shapes on inputs
                 if in0_shape != in1_shape:
+                    continue
+                # skip if any of inputs have initializers
+                # (this node is meant for adding two dynamic streams)
+                if in0_static or in1_static:
                     continue
 
                 idt0 = model.get_tensor_datatype(in0)
@@ -1697,6 +1703,10 @@ class InferConcatLayer(Transformation):
                 )
                 if not dt_coherent:
                     continue
+                # skip conversion if any inputs are static
+                all_static = all([model.get_initializer(x) is None for x in node.input])
+                if not all_static:
+                    continue
                 # skip conversion if inputs are not integers
                 if not dt0.is_integer():
                     continue
@@ -1800,9 +1810,15 @@ class InferStreamingEltwise(Transformation):
                 result = node.output[0]
                 in0_shape = model.get_tensor_shape(in0)
                 in1_shape = model.get_tensor_shape(in1)
+                in0_static = not (model.get_initializer(in0) is None)
+                in1_static = not (model.get_initializer(in1) is None)
 
                 # skip if different shapes on inputs
                 if in0_shape != in1_shape:
+                    continue
+                # skip if any of inputs have initializers
+                # (this node is meant for two dynamic streams)
+                if in0_static or in1_static:
                     continue
 
                 idt0 = model.get_tensor_datatype(in0)
