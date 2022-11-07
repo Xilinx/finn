@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (c) 2022, Xilinx
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -35,20 +35,24 @@ from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
-class AddStreams_Batch(HLSCustomOp):
-    """Class that corresponds to finn-hlslib AddStreams_Batch function."""
+class StreamingEltwise(HLSCustomOp):
+    """Class that corresponds to finn-hlslib StreamingEltwise function."""
 
     def __init__(self, onnx_node):
         super().__init__(onnx_node)
 
     def get_nodeattr_types(self):
+
         my_attrs = super().get_nodeattr_types()
         my_attrs.update(
             {
                 "NumChannels": ("i", True, ""),
                 "PE": ("i", True, ""),
                 # FINN DataTypes for inputs; output datatype inferred from input
-                "inputDataType": ("s", True, ""),
+                "inputDataType0": ("s", True, ""),
+                "inputDataType1": ("s", True, ""),
+                # type of EltwiseFunction for the operation
+                "eltwiseOp": ("s", True, "", ["Add", "Sub", "AbsDiff"]),
                 # number of input vectors, examples:
                 # [1] is a single vector (like a FC layer with batch=1)
                 # [4] is four vectors (like a FC layer with batch=4)
@@ -58,6 +62,24 @@ class AddStreams_Batch(HLSCustomOp):
             }
         )
         return my_attrs
+
+    def get_eltwise_op_lambda(self):
+        eltwise_op = self.get_nodeattr("eltwiseOp")
+        idt0 = self.get_input_datatype(0)
+        idt1 = self.get_input_datatype(1)
+        odt = self.get_output_datatype()
+        tin0 = idt0.get_hls_datatype_str()
+        tin1 = idt1.get_hls_datatype_str()
+        tout = odt.get_hls_datatype_str()
+        eltwise_ops = {
+            # "Add": "[](auto a, auto b) { return  a + b; }",
+            # "Sub": "[](auto a, auto b) { return  a - b; }",
+            # "AbsDiff": "[](auto a, auto b) { return  a>b? a-b : b-a; }",
+            "Add": f"add<{tin0}, {tin1}, {tout}>()",
+            "Sub": f"sub<{tin0}, {tin1}, {tout}>()",
+            "AbsDiff": f"absdiff<{tin0}, {tin1}, {tout}>()",
+        }
+        return eltwise_ops[eltwise_op]
 
     def get_normal_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
@@ -90,15 +112,24 @@ class AddStreams_Batch(HLSCustomOp):
 
     def infer_node_datatype(self, model):
         node = self.onnx_node
-        idt = model.get_tensor_datatype(node.input[0])
-        if idt != self.get_input_datatype():
-            warn_str = "inputDataType changing for %s: %s -> %s " % (
+        idt0 = model.get_tensor_datatype(node.input[0])
+        if idt0 != self.get_input_datatype(0):
+            warn_str = "inputDataType0 changing for %s: %s -> %s " % (
                 node.name,
-                str(self.get_input_datatype()),
-                str(idt),
+                str(self.get_input_datatype(0)),
+                str(idt0),
             )
             warnings.warn(warn_str)
-        self.set_nodeattr("inputDataType", idt.name)
+        self.set_nodeattr("inputDataType0", idt0.name)
+        idt1 = model.get_tensor_datatype(node.input[1])
+        if idt1 != self.get_input_datatype(1):
+            warn_str = "inputDataType1 changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype(1)),
+                str(idt1),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType1", idt1.name)
         # enforce output data type (calculated based on idt)
         odt = self.get_output_datatype()
         model.set_tensor_datatype(self.onnx_node.output[0], odt)
@@ -118,33 +149,53 @@ class AddStreams_Batch(HLSCustomOp):
             self.get_nodeattr("executable_path")
             self.get_nodeattr("NumChannels")
             self.get_nodeattr("PE")
-            self.get_nodeattr("inputDataType")
+            self.get_nodeattr("inputDataType0")
+            self.get_nodeattr("inputDataType1")
+            self.get_nodeattr("eltwiseOp")
             info_messages.append("All necessary attributes exist")
         except Exception:
             info_messages.append(
-                """The required LabelSelect_Batch attributes do not exist."""
+                """The required StreamingEltwise attributes do not exist."""
             )
 
         return info_messages
 
     def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType")]
+        return DataType[self.get_nodeattr("inputDataType" + str(ind))]
 
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
-        # we need to set output datatype to the next larger int or uint
-        # enhancement: consider specifying w/ explicit outputDataType attribute
-        # to allow overflow and use the same idt if user wants
-        idt = DataType[self.get_nodeattr("inputDataType")]
-        if idt.signed():
-            return DataType.get_smallest_possible(2 * idt.min())
+        op = self.get_nodeattr("eltwiseOp")
+        idt0 = self.get_input_datatype(0)
+        idt1 = self.get_input_datatype(1)
+        assert idt0.signed() == idt1.signed(), (
+            "%s: Inputs must have same signedness" % self.onnx_node.name
+        )
+        idt0_min, idt0_max = idt0.min(), idt0.max()
+        idt1_min, idt1_max = idt1.min(), idt1.max()
+        cands = [
+            idt0_min - idt1_min,
+            idt0_min - idt1_max,
+            idt0_max - idt1_min,
+            idt0_max - idt1_max,
+        ]
+        largest_magnitude = max(map(abs, cands))
+        if op == "Add":
+            if idt0.signed():
+                return DataType.get_smallest_possible(idt0.min() + idt1.min())
+            else:
+                return DataType.get_smallest_possible(idt0.max() + idt1.max())
+        elif op == "Sub":
+            return DataType.get_smallest_possible(-largest_magnitude)
+        elif op == "AbsDiff":
+            return DataType.get_smallest_possible(largest_magnitude)
         else:
-            return DataType.get_smallest_possible(2 * idt.max())
+            raise Exception("%s: Unknown eltWiseOp = %s" % (self.onnx_node.name, op))
 
     def get_instream_width(self, ind=0):
         """Returns input stream width."""
-        ibits = self.get_input_datatype().bitwidth()
+        ibits = self.get_input_datatype(ind).bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
@@ -187,7 +238,7 @@ class AddStreams_Batch(HLSCustomOp):
         assert (
             inp.shape == exp_ishape
         ), """Input0 shape doesn't match expected shape ."""
-        export_idt = self.get_input_datatype()
+        export_idt0 = self.get_input_datatype(0)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
         # make copy before saving array
@@ -200,7 +251,7 @@ class AddStreams_Batch(HLSCustomOp):
         assert (
             inp.shape == exp_ishape
         ), """Input1 shape doesn't match expected shape ."""
-        export_idt = self.get_input_datatype()
+        export_idt1 = self.get_input_datatype(1)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
         # make copy before saving array
@@ -217,12 +268,13 @@ class AddStreams_Batch(HLSCustomOp):
             ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
-            nbits = self.get_instream_width()
+            nbits0 = self.get_instream_width(0)
+            nbits1 = self.get_instream_width(1)
             rtlsim_inp0 = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+                "{}/input_0.npy".format(code_gen_dir), export_idt0, nbits0
             )
             rtlsim_inp1 = npy_to_rtlsim_input(
-                "{}/input_1.npy".format(code_gen_dir), export_idt, nbits
+                "{}/input_1.npy".format(code_gen_dir), export_idt1, nbits1
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
@@ -252,53 +304,105 @@ class AddStreams_Batch(HLSCustomOp):
         ), """Output shape doesn't match expected shape."""
 
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "streamtools.h"']
+        self.code_gen_dict["$GLOBALS$"] = [
+            '#include "eltwise.hpp"',
+            '#include "interpret.hpp"',
+        ]
+
+        self.code_gen_dict["$GLOBALS$"].extend(
+            [
+                "template<typename TI1, typename TI2, typename TO>",
+                "struct absdiff {",
+                "TO operator()(TI1 const &a, TI2 const &b) const {",
+                "#pragma HLS inline",
+                "return  a>b? a-b : b-a;",
+                "}",
+                "};",
+                "template<typename TI1, typename TI2, typename TO>",
+                "struct sub {",
+                "TO operator()(TI1 const &a, TI2 const &b) const {",
+                "#pragma HLS inline",
+                "return  a-b;",
+                "}",
+                "};",
+                "template<typename TI1, typename TI2, typename TO>",
+                "struct add {",
+                "TO operator()(TI1 const &a, TI2 const &b) const {",
+                "#pragma HLS inline",
+                "return  a+b;",
+                "}",
+                "};",
+            ]
+        )
 
     def defines(self, var):
         self.code_gen_dict["$DEFINES$"] = []
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
+        idt0 = self.get_input_datatype(0)
+        idt1 = self.get_input_datatype(1)
+        elem_bits_0 = idt0.bitwidth()
+        elem_bits_1 = idt1.bitwidth()
+        packed_bits_0 = self.get_instream_width(0)
+        packed_hls_type_0 = "ap_uint<%d>" % packed_bits_0
+        packed_bits_1 = self.get_instream_width(1)
+        packed_hls_type_1 = "ap_uint<%d>" % packed_bits_1
+        elem_hls_type_0 = idt0.get_hls_datatype_str()
+        elem_hls_type_1 = idt1.get_hls_datatype_str()
         npy_type = "float"
         self.code_gen_dict["$READNPYDATA$"] = []
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
             'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            % (packed_hls_type_0, elem_hls_type_0, elem_bits_0, npy_type, npy_in)
         )
         npy_in = "%s/input_1.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
             'npy2apintstream<%s, %s, %d, %s>("%s", in1);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            % (packed_hls_type_1, elem_hls_type_1, elem_bits_1, npy_type, npy_in)
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width(0))
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in1 ("in1");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in1 ("in1");'.format(self.get_instream_width(1))
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
         )
 
     def docompute(self):
-        node = self.onnx_node
+        op = self.get_nodeattr("eltwiseOp")
+        idt0 = self.get_input_datatype(0)
+        idt1 = self.get_input_datatype(1)
+        odt = self.get_output_datatype()
+        elem_hls_type_0 = idt0.get_hls_datatype_str()
+        elem_hls_type_1 = idt1.get_hls_datatype_str()
+        out_hls_type = odt.get_hls_datatype_str()
+        slice_in0 = "Slice<%s>" % elem_hls_type_0
+        slice_in1 = "Slice<%s>" % elem_hls_type_1
+        slice_out = "Slice<%s>" % out_hls_type
+        eltwise_op_str = self.get_eltwise_op_lambda()
+        "%sEltwiseFunction<%s, %s, %s>()" % (
+            op,
+            elem_hls_type_0,
+            elem_hls_type_1,
+            out_hls_type,
+        )
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, {}, {}, {}, {}> (in0, in1, out, 1);""".format(
-                node.op_type,
+            """{}<{}, {}, {}, {}, {}, {}>(in0, in1, out, {});""".format(
+                "StreamingEltwise",
+                self.get_nodeattr("NumChannels"),
                 self.get_nodeattr("PE"),
-                self.get_input_datatype().get_hls_datatype_str(),
-                self.get_input_datatype().get_hls_datatype_str(),
-                self.get_output_datatype().get_hls_datatype_str(),
                 self.get_number_output_values(),
+                slice_in0,
+                slice_in1,
+                slice_out,
+                eltwise_op_str,
             )
         ]
 
@@ -334,8 +438,8 @@ class AddStreams_Batch(HLSCustomOp):
             """void {}(hls::stream<ap_uint<{}>> &in0, hls::stream<ap_uint<{}>> &in1,
                 hls::stream<ap_uint<{}>> &out)""".format(
                 self.onnx_node.name,
-                self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
-                self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
+                self.get_nodeattr("PE") * self.get_input_datatype(0).bitwidth(),
+                self.get_nodeattr("PE") * self.get_input_datatype(1).bitwidth(),
                 self.get_nodeattr("PE") * self.get_output_datatype().bitwidth(),
             )
         ]
@@ -360,14 +464,3 @@ class AddStreams_Batch(HLSCustomOp):
         swidth = self.get_instream_width_padded()
         intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
         return intf_names
-
-    def derive_characteristic_fxns(self, period):
-        n_inps = np.prod(self.get_folded_input_shape()[:-1])
-        io_dict = {
-            "inputs": {
-                "in0": [0 for i in range(n_inps)],
-                "in1": [0 for i in range(n_inps)],
-            },
-            "outputs": {"out": []},
-        }
-        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

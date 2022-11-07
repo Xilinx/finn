@@ -57,11 +57,11 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("dataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("dataType")]
 
@@ -82,13 +82,13 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
         return (ifm_dim[0] == 1) and (k[0] == 1)
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
         ifm_ch = self.get_nodeattr("NumChannels")
         ishape = (1, ifm_dim_h, ifm_dim_w, ifm_ch)
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
         ifm_ch = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
@@ -99,7 +99,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             folded_ishape = (1, ifm_dim_h, ifm_dim_w, 1, ifm_ch)
         return folded_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
         k_h, k_w = tuple(self.get_nodeattr("PoolDim"))
         ifm_ch = self.get_nodeattr("NumChannels")
@@ -116,7 +116,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         oshape = (1, ofm_dim_h, ofm_dim_w, ifm_ch)
         return oshape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         # even though there is no folding in the current hlslib op,
         # insert a time multiplexing axis to remain compatible with the
         # shapes produced by the rest of the dataflow pipeline
@@ -155,7 +155,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             # TODO: adjust inaccurate formula
             return int(ifm_dim[1] * ifm_dim[1] * (1 + 1 / (k[1] * k[1])))
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         dt_bits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         ifm_ch = self.get_nodeattr("NumChannels")
@@ -165,7 +165,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             in_width = int(dt_bits * ifm_ch)
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """For streaming maxpool out stream width is the same as in stream width"""
         return self.get_instream_width()
 
