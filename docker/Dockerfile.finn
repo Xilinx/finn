@@ -72,7 +72,6 @@ RUN cd verilator && \
     make install
 
 # install XRT
-ARG XRT_DEB_VERSION
 RUN wget https://www.xilinx.com/bin/public/openDownload?filename=$XRT_DEB_VERSION.deb -O /tmp/$XRT_DEB_VERSION.deb
 RUN apt install -y /tmp/$XRT_DEB_VERSION.deb
 RUN rm /tmp/$XRT_DEB_VERSION.deb
