@@ -100,7 +100,7 @@ class IODMA(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         vecs = list(self.get_nodeattr("numInputVectors"))
         num_ch = self.get_nodeattr("NumChannels")
         ishape = tuple(vecs + [num_ch])

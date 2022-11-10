@@ -786,7 +786,6 @@ compilation transformations?
             io_dict = {
                 "inputs": {
                     "in0": [0 for i in range(n_inps)],
-                    # "weights": wei * num_w_reps
                 },
                 "outputs": {"out": []},
             }
@@ -824,7 +823,12 @@ compilation transformations?
             liveness_threshold=period,
             hook_preclk=monitor_txns,
         )
-        assert total_cycle_count <= period
+        assert (
+            total_cycle_count <= period
+        ), """Total cycle count from rtl simulation is higher than
+            specified period, please set the period higher than {}""".format(
+            total_cycle_count
+        )
         self.set_nodeattr("io_chrc_period", period)
 
         def accumulate_char_fxn(chrc):
@@ -859,7 +863,6 @@ compilation transformations?
             all_txns_out[out_idx, :] = txn_out
             all_pad_out.append(pad_out)
 
-        # TODO specialize here for DuplicateStreams and AddStreams
         self.set_nodeattr("io_chrc_in", all_txns_in)
         self.set_nodeattr("io_chrc_out", all_txns_out)
         self.set_nodeattr("io_chrc_pads_in", all_pad_in)

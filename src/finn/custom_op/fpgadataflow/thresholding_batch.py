@@ -75,9 +75,6 @@ class Thresholding_Batch(HLSCustomOp):
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
-            # input and output FIFO depths
-            "inFIFODepths": ("ints", False, [0]),
-            "outFIFODepths": ("ints", False, [0]),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
