@@ -171,10 +171,10 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "--threads",
         "4",
     ]
-    launch_process_helper(verilator_args, cwd=build_dir)
 
     proc_env = os.environ.copy()
-    proc_env["OPT_FAST"] = "-O3 -march=native"
+    gcc_args = "-O3 -march=native"
+    proc_env["OPT_FAST"] = gcc_args
     make_args = [
         "make",
         "-j4",
@@ -184,6 +184,14 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "Vfinn_design_wrapper.mk",
         "Vfinn_design_wrapper",
     ]
+
+    with open(build_dir + "/compile.sh", "w") as f:
+        f.write("#!/bin/bash" + "\n")
+        f.write("export OPT_FAST='%s'\n" % gcc_args)
+        f.write(" ".join(verilator_args) + "\n")
+        f.write(" ".join(make_args) + "\n")
+
+    launch_process_helper(verilator_args, cwd=build_dir)
     launch_process_helper(make_args, proc_env=proc_env, cwd=build_dir)
 
     sim_launch_args = ["./Vfinn_design_wrapper"]
