@@ -34,6 +34,12 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. */
 #include "verilated_vcd_c.h"
 #include "Vfinn_design_wrapper.h"
 
+#ifdef DEBUG
+#define TRACE(x) x
+#else
+#define TRACE(x) ;
+#endif
+
 using namespace std;
 
 Vfinn_design_wrapper * top;
@@ -52,7 +58,7 @@ return main_time;
 extern "C" { //Open an extern C closed below
 Vfinn_design_wrapper* construct() {
     Verilated::commandArgs(0, (const char**) nullptr);
-    //Verilated::traceEverOn(true);
+    TRACE(Verilated::traceEverOn(true));
     Vfinn_design_wrapper* top = new Vfinn_design_wrapper();
     return top;
 }
@@ -69,6 +75,7 @@ int destruct(Vfinn_design_wrapper* top) {
     return 0;
 }
 
+TRACE(
 VerilatedVcdC* tfp;
 VerilatedVcdC* start_vcd_trace(Vfinn_design_wrapper* top, const char* filename) {
     VerilatedVcdC* tfp = new VerilatedVcdC;
@@ -88,6 +95,7 @@ int stop_vcd_trace(VerilatedVcdC* tfp) {
     tfp->close();
     return 0;
 }
+)
 
 }
 
@@ -96,10 +104,10 @@ int stop_vcd_trace(VerilatedVcdC* tfp) {
 inline void toggle_clk() {
     eval(top);
     top->ap_clk = 1;
-    //add_to_vcd_trace(tfp, main_time);
+    TRACE(add_to_vcd_trace(tfp, main_time));
     eval(top);
     top->ap_clk = 0;
-    //add_to_vcd_trace(tfp, main_time);
+    TRACE(add_to_vcd_trace(tfp, main_time));
 }
 
 
@@ -113,7 +121,7 @@ void reset() {
 
 int main(int argc, char *argv[]) {
     top = construct();
-    //tfp = start_vcd_trace(top, "trace.vcd");
+    TRACE(tfp = start_vcd_trace(top, "trace.vcd"));
     unsigned n_iters_per_input = @ITERS_PER_INPUT@;
     unsigned n_iters_per_output = @ITERS_PER_OUTPUT@;
     unsigned n_inputs = @N_INPUTS@;
@@ -124,7 +132,7 @@ int main(int argc, char *argv[]) {
     top->m_axis_0_tready = 1;
     top->s_axis_0_tvalid = 1;
 
-    unsigned n_in_txns = 0, n_out_txns = 0, iters = 0;
+    unsigned n_in_txns = 0, n_out_txns = 0, iters = 0, last_output_at = 0;
     unsigned latency = 0;
 
     bool exit_criterion = false;
@@ -132,11 +140,19 @@ int main(int argc, char *argv[]) {
     cout << "Simulation starting" << endl;
     cout << "Number of inputs to write " << n_iters_per_input * n_inputs << endl;
     cout << "Number of outputs to expect " << n_iters_per_output * n_inputs << endl;
-    cout << "Timeout clock cycles " << max_iters << endl;
+    cout << "No-output timeout clock cycles " << max_iters << endl;
 
     chrono::steady_clock::time_point begin = chrono::steady_clock::now();
 
     while(!exit_criterion) {
+        toggle_clk();
+        iters++;
+        if(iters % 1000 == 0) {
+            cout << "Elapsed iters " << iters << " inps " << n_in_txns << " outs " << n_out_txns << endl;
+            chrono::steady_clock::time_point end = chrono::steady_clock::now();
+            cout << "Elapsed since last report = " << chrono::duration_cast<chrono::seconds>(end - begin).count() << "[s]" << endl;
+            begin = end;
+        }
         if(top->s_axis_0_tready == 1 && top->s_axis_0_tvalid == 1) {
             n_in_txns++;
             if(n_in_txns == n_iters_per_input * n_inputs) {
@@ -146,24 +162,17 @@ int main(int argc, char *argv[]) {
         }
         if(top->m_axis_0_tvalid == 1) {
             n_out_txns++;
+            last_output_at = iters;
             if(n_out_txns == n_iters_per_output) {
                 latency = iters;
             }
         }
-        toggle_clk();
-        iters++;
-        if(iters % 1000 == 0) {
-            cout << "Elapsed iters " << iters << " inps " << n_in_txns << " outs " << n_out_txns << endl;
-            chrono::steady_clock::time_point end = chrono::steady_clock::now();
-            cout << "Elapsed since last report = " << chrono::duration_cast<chrono::seconds>(end - begin).count() << "[s]" << endl;
-            begin = end;
-        }
 
-        exit_criterion = ((n_in_txns >= n_iters_per_input * n_inputs) && (n_out_txns >= n_iters_per_output * n_inputs)) || (iters > max_iters);
+        exit_criterion = ((n_in_txns >= n_iters_per_input * n_inputs) && (n_out_txns >= n_iters_per_output * n_inputs)) || ((iters-last_output_at) > max_iters);
     }
 
-    //flush_vcd_trace(tfp);
-    //stop_vcd_trace(tfp);
+    TRACE(flush_vcd_trace(tfp));
+    TRACE(stop_vcd_trace(tfp));
 
     cout << "Simulation finished" << endl;
     cout << "Number of inputs consumed " << n_in_txns << endl;
