@@ -38,7 +38,7 @@ module thresholding_axi_wrapper #(
 	parameter  C,	// Channels
 	int BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
-	localparam  C_BITS = $clog2(C),
+	parameter  C_BITS = C < 2 ? 1 : $clog2(C),
 	parameter  O_BITS = BIAS > 0?
 		/* unsigned */ $clog2(2**N-BIAS) :
 		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)

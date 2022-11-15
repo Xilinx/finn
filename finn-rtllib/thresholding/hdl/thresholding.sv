@@ -50,7 +50,7 @@ module thresholding #(
 
 	int BIAS,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
-	localparam int unsigned  C_BITS = C < 2? 1 : $clog2(C),
+	int unsigned  C_BITS,
 	int unsigned O_BITS
 )(
 	// Global Control

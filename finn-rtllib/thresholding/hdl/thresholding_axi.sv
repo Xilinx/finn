@@ -191,7 +191,7 @@ module thresholding_axi #(
 	end
 
 	// Core Thresholding Module
-	thresholding #(.N(N), .M(M), .C(C), .BIAS(BIAS), .O_BITS(O_BITS)) core (
+	thresholding #(.N(N), .M(M), .C(C), .BIAS(BIAS), .O_BITS(O_BITS), .C_BITS(C_BITS)) core (
 		.clk, .rst,
 		.twe, .twa, .twd,
 		.en,
