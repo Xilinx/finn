@@ -39,7 +39,7 @@ module thresholding_axi #(
 
 	int  BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
-	localparam int unsigned  O_BITS = BIAS <= 0?
+	localparam int unsigned  O_BITS = BIAS > 0?
 		/* unsigned */ $clog2(2**N-BIAS) :
 		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)
 )(

@@ -51,7 +51,7 @@ module thresholding #(
 	int  BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
 	localparam int unsigned  C_BITS = C < 2? 1 : $clog2(C),
-	localparam int unsigned  O_BITS = BIAS <= 0?
+	localparam int unsigned  O_BITS = BIAS > 0?
 		/* unsigned */ $clog2(2**N-BIAS) :
 		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)
 )(
@@ -153,6 +153,6 @@ module thresholding #(
 	// Output
 	assign	ovld = pipe[N].vld;
 	assign	ocnl = pipe[N].cnl;
-	assign	odat = pipe[N].res - BIAS;
+	assign	odat = pipe[N].res + BIAS;
 
 endmodule : thresholding

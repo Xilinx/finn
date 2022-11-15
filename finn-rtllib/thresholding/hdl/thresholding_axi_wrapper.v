@@ -39,7 +39,7 @@ module thresholding_axi_wrapper #(
 	parameter  BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
 	localparam  C_BITS = $clog2(C),
-	localparam  O_BITS = BIAS <= 0?
+	localparam  O_BITS = BIAS > 0?
 		/* unsigned */ $clog2(2**N-BIAS) :
 		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)
 )(
