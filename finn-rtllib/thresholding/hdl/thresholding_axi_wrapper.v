@@ -36,7 +36,7 @@ module thresholding_axi_wrapper #(
 	parameter  N,	// output precision
 	parameter  M,	// input/threshold precision
 	parameter  C,	// Channels
-	parameter  BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
+	int BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
 	localparam  C_BITS = $clog2(C),
 	localparam  O_BITS = BIAS > 0?
