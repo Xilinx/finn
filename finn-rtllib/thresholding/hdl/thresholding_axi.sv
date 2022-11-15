@@ -39,9 +39,7 @@ module thresholding_axi #(
 
 	int BIAS,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
-	localparam int unsigned  O_BITS = BIAS > 0?
-		/* unsigned */ $clog2(2**N-BIAS) :
-		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)
+	int unsigned O_BITS
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -193,7 +191,7 @@ module thresholding_axi #(
 	end
 
 	// Core Thresholding Module
-	thresholding #(.N(N), .M(M), .C(C), .BIAS(BIAS)) core (
+	thresholding #(.N(N), .M(M), .C(C), .BIAS(BIAS), .O_BITS(O_BITS)) core (
 		.clk, .rst,
 		.twe, .twa, .twd,
 		.en,
