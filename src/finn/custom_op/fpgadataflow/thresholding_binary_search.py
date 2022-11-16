@@ -35,6 +35,8 @@ from qonnx.util.basic import (
     roundup_to_integer_multiple,
 )
 from finn.util.data_packing import (
+    npy_to_rtlsim_input,
+    rtlsim_output_to_npy,
     pack_innermost_dim_as_hex_string,
 )
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -481,6 +483,83 @@ class Thresholding_Bin_Search(HLSCustomOp):
         return sim
 
     def execute_node(self, context, graph):
+        # Perform input checks
+        if self.get_nodeattr("exec_mode") != "rtlsim": raise Exception("Invalid exec_mode value: {}; exec_mode must be set to 'rtlsim'".format(self.get_nodeattr("exec_mode")))
+        if self.get_nodeattr("mem_mode") != "decoupled": raise Exception("Invalid mem_mode value: {}; mem_mode must be set to 'decoupled'".format(self.get_nodeattr("mem_mode")))
+
+        node = self.onnx_node
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        # create a npy file fore each input of the node (in_ind is input index)
+        in_ind = 0
+        for inputs in node.input:
+            # it is assumed that the first input of the node is the data input
+            # the second input are the weights
+            # the third input are the thresholds
+            if in_ind == 0:
+                assert (
+                    str(context[inputs].dtype) == "float32"
+                ), """Input datatype is
+                not float32 as expected."""
+                expected_inp_shape = self.get_folded_input_shape()
+                reshaped_input = context[inputs].reshape(expected_inp_shape)
+
+                if self.get_input_datatype() == DataType["BIPOLAR"]:
+                    # store bipolar activations as binary
+                    reshaped_input = (reshaped_input + 1) / 2
+                    export_idt = DataType["BINARY"]
+                else:
+                    export_idt = self.get_input_datatype()
+
+                # make copy before saving the array
+                reshaped_input = reshaped_input.copy()
+                np.save(
+                    os.path.join(code_gen_dir, "input_{}.npy".format(in_ind)),
+                    reshaped_input,
+                )
+            elif in_ind > 2:
+                raise Exception("Unexpected input found for Thresholding_Batch")
+            in_ind += 1
+
+        # Create a PyVerilator wrapper of the RTLSim .so
+        sim = self.get_rtlsim()
+        nbits = self.get_instream_width()
+        inp = npy_to_rtlsim_input(
+            "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+        )
+
+        super().reset_rtlsim(sim)
+        super().toggle_clk(sim)
+
+        wnbits = self.get_weightstream_width()
+        export_wdt = self.get_weight_datatype()
+        wei = npy_to_rtlsim_input(
+            "{}/thresholds.npy".format(code_gen_dir), export_wdt, wnbits
+        )
+        num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+        io_dict = {
+            "inputs": {"in0": inp, "weights": wei * num_w_reps},
+            "outputs": {"s_axis": []},
+        }
+        self.rtlsim_multi_io(sim, io_dict)
+        output = io_dict["outputs"]["out"]
+
+        # Manage output data
+        odt = self.get_output_datatype()
+        target_bits = odt.bitwidth()
+        packed_bits = self.get_outstream_width()
+        out_npy_path = "{}/output.npy".format(code_gen_dir)
+        out_shape = self.get_folded_output_shape()
+
+        rtlsim_output_to_npy(
+            output, out_npy_path, odt, out_shape, packed_bits, target_bits
+        )
+
+        # load and reshape output
+        output = np.load(out_npy_path)
+        oshape = self.get_normal_output_shape()
+        output = np.asarray([output], dtype=np.float32).reshape(*oshape)
+        context[node.output[0]] = output
         return
 
     def code_generation_ipi(self):
