@@ -665,6 +665,13 @@ class Thresholding_Bin_Search(HLSCustomOp):
 
         return config
 
+    def ipgen_singlenode_code(self):
+        """Normally: Builds the bash script for IP generation."""
+        """This is needed for the HLSSynthIP() transformation.
+        This is an IP, not a HLS node, so therefore provide an empty hook
+        to prevent any HLS synthesis."""
+        pass
+
     def global_includes(self):
         pass
 
