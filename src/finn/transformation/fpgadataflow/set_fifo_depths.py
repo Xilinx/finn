@@ -201,7 +201,7 @@ class InsertAndSetFIFODepths(Transformation):
     Assumed input graph properties:
     - all nodes are fpgadataflow nodes
     - no FIFOs inserted,
-    - (inFIFODepth/outFIFODepth attrs will be ignored)
+    - (inFIFODepths/outFIFODepths attrs will be ignored)
 
     Output:
     - graph with appropriate-depth FIFOs inserted
@@ -216,7 +216,7 @@ class InsertAndSetFIFODepths(Transformation):
     - run through rtlsim with stream of multiple random input images (to fill pipeline)
     - keep track of observed maximum occupancy for each FIFO during rtlsim
     - when sim finished, update each FIFO depth to maximum observed occupancy
-      and set inFIFODepth/outFIFODepth attrs to 0 on relevant nodes
+      and set inFIFODepths/outFIFODepths attrs to 0 on relevant nodes
     """
 
     def __init__(
@@ -365,7 +365,7 @@ class InsertAndSetFIFODepths(Transformation):
             fifos[node.name] = sim[maxcount_name]
 
         # Apply depths back into the model;
-        # also set in/outFIFODepth to zero for non-FIFO
+        # also set in/outFIFODepths to zero for non-FIFO
         # nodes, preventing further FIFO insertion
         for node in model.graph.node:
             # set FIFO depth, reset FIFO implementation,
