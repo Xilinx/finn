@@ -28,6 +28,7 @@
 
 import os
 import numpy as np
+import warnings
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
@@ -37,7 +38,12 @@ from finn.util.data_packing import (
     pack_innermost_dim_as_hex_string,
 )
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-import warnings
+from finn.util.basic import make_build_dir, get_rtlsim_trace_depth
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 
 """@package thresholding_binary_search
 - ONNX i/o tensor shape assumptions for Thresholding:
@@ -448,6 +454,31 @@ class Thresholding_Bin_Search(HLSCustomOp):
         )
 
         return
+
+    def prepare_rtlsim(self):
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        verilog_paths = [code_gen_dir]
+        verilog_files = self.get_rtl_file_list()
+
+        # build the Verilator emulation library
+        sim = PyVerilator.build(
+            verilog_files,
+            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            verilog_path=verilog_paths,
+            trace_depth=get_rtlsim_trace_depth(),
+            top_module_name=self.get_nodeattr("gen_top_module"),
+        )
+
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", sim.lib._name)
+        return sim
 
     def execute_node(self, context, graph):
         return
