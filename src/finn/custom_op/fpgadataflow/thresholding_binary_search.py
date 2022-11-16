@@ -316,6 +316,28 @@ class Thresholding_Bin_Search(HLSCustomOp):
 
         return cmd
 
+    def get_verilog_top_module_intf_names(self):
+        """Return a dict of names of input and output interfaces.
+        The keys reflect the protocols each interface implements:
+        'clk', 'rst', 'm_axis', 's_axis', 'aximm', 'axilite'.
+        Values are lists of tuples (axis, aximm) or names (axilite):
+        'axis' tuples correspond to the list of node inputs in order,
+        each tuple is (interface_name, interface_width_bits).
+        axilite always assumed to be 32 bits and is not tuple (name only).
+        Each block must have at most one aximm and one axilite."""
+
+        intf_names = super().get_verilog_top_module_intf_names()
+        # Only 'decoupled' mode is supported - check before adding axilite interface
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode != "decoupled": raise Exception("Unrecognized memory mode for this node: {}".format(mem_mode))
+        intf_names["axilite"] = ["s_axilite"]
+        intf_names["s_axis"] = [["s_axis"]]
+        intf_names["m_axis"] = [["m_axis"]]
+
+        self.set_nodeattr("runtime_writeable_weights", 1)
+
+        return intf_names
+
     def global_includes(self):
         pass
 
