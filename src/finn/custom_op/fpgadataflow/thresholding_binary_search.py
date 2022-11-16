@@ -338,6 +338,59 @@ class Thresholding_Bin_Search(HLSCustomOp):
 
         return intf_names
 
+    def find_next_power_of_2(self, n):
+        # Negative values will loop infinitely below - return 0
+        if n <= 0:
+            return 0
+        # If '1' is requested, output will be '0' in the loop below, so avoid this earlier.
+        elif n == 1:
+            return 2 # i.e. 2**1
+
+        # decrement 'n' (to handle cases when `n` itself is a power of 2)
+        n = n - 1
+
+        # loop until only one bit is left
+        while n & n - 1:
+            # unset rightmost bit
+            n = n & n - 1
+        return n << 1
+
+    def twos_comp(self, val, bitwidth):
+        return (val + (1 << bitwidth)) % (1 << bitwidth)
+
+    def prep_axilite_val(self, val):
+        return self.twos_comp(int(val), self.get_weight_datatype().bitwidth())
+
+    def get_dynamic_config(self, model, address_stride=1):
+        ## TODO - not sure this description is correct
+        """Returns a configuration dictionary containing axilite write commands
+        in order to program the thresholds into the RTL core during runtime.
+        The default address stride for the weights is 1 byte."""
+
+        thresholds = model.get_initializer(self.onnx_node.input[1])
+        num_channels, num_weights_per_channel = thresholds.shape
+
+        weight_addr_boundary = self.find_next_power_of_2(num_weights_per_channel)
+        # Make sure that the next power of 2 (output) is greater than the input
+        assert weight_addr_boundary >= num_weights_per_channel
+
+        config = {}
+        channel_cntr = 0
+        for channel in thresholds:
+            channel_start_addr = (channel_cntr * weight_addr_boundary * address_stride)
+            weight_cntr = 0
+            addr = 0
+            for weight in channel:
+                key_name = "{}_{}{}_{}{}".format("axilite", "ch", str(channel_cntr), "w", str(weight_cntr))
+                config[key_name] = (channel_start_addr + addr, self.prep_axilite_val(weight))
+
+                weight_cntr += 1
+                addr += address_stride
+
+            channel_cntr += 1
+
+        return config
+
     def global_includes(self):
         pass
 
