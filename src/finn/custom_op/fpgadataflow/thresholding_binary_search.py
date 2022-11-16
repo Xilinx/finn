@@ -289,7 +289,32 @@ class Thresholding_Bin_Search(HLSCustomOp):
         return
 
     def code_generation_ipi(self):
-        return []
+        """Constructs and returns the TCL commands for node instantiation as an RTL block."""
+        cmd = []
+        rtl_file_list = self.get_rtl_file_list()
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+
+        for rtl_file in rtl_file_list:
+            cmd.append("add_files -norecurse %s"
+            % (
+                os.path.join(
+                    code_gen_dir, rtl_file
+                )
+            ))
+
+        # Create an RTL block, not an IP core (-type ip)
+        cmd.append("create_bd_cell -type module -reference %s %s"
+            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name))
+
+        # ERROR: [BD 41-237] Bus Interface property FREQ_HZ does not match between
+        # /Thresholding_Binary_Search_0/s_axis(100000000 and /StreamingFIFO_0/out_V(200000000.000000)
+        cmd.append("set_property -dict [list CONFIG.FREQ_HZ {200000000}] [get_bd_intf_pins Thresholding_Binary_Search_0/s_axis]")
+
+        # ERROR: [BD 41-237] Bus Interface property FREQ_HZ does not match between
+        # /StreamingFIFO_1/in0_V(200000000.000000) and /Thresholding_Binary_Search_0/m_axis(100000000)
+        cmd.append("set_property -dict [list CONFIG.FREQ_HZ {200000000}] [get_bd_intf_pins Thresholding_Binary_Search_0/m_axis]")
+
+        return cmd
 
     def global_includes(self):
         pass
