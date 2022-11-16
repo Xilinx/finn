@@ -131,7 +131,14 @@ class Thresholding_Bin_Search(HLSCustomOp):
         return 0
 
     def get_weightstream_width(self):
-        return 0
+        # Only 'decoupled' mode is supported
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode != "decoupled": raise Exception("Unrecognized memory mode for this node: {}".format(mem_mode))
+        pe = self.get_nodeattr("PE")
+        wp = self.get_weight_datatype().bitwidth()
+        n_thres_steps = self.get_nodeattr("numSteps")
+        w_width = pe * wp * n_thres_steps
+        return w_width
 
     def get_folded_input_shape(self):
         fold = self.calc_tmem()
