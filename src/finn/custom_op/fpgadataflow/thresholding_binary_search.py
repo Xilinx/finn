@@ -59,7 +59,7 @@ for a HLS equivalent.
 """
 
 
-class Thresholding_Bin_Search(HLSCustomOp):
+class Thresholding_Binary_Search(HLSCustomOp):
     """Class that corresponds to finn-rtllib 'thresholding' function."""
 
     def __init__(self, onnx_node):

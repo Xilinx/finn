@@ -59,7 +59,7 @@ from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.thresholding_binary_search import (
-    Thresholding_Bin_Search,
+    Thresholding_Binary_Search,
 )
 from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour_Batch
@@ -82,7 +82,7 @@ custom_op["GlobalAccPool_Batch"] = GlobalAccPool_Batch
 custom_op["Pool_Batch"] = Pool_Batch
 custom_op["FMPadding_Batch"] = FMPadding_Batch
 custom_op["Thresholding_Batch"] = Thresholding_Batch
-custom_op["Thresholding_Binary_search"] = Thresholding_Bin_Search
+custom_op["Thresholding_Binary_Search"] = Thresholding_Binary_Search
 custom_op["AddStreams_Batch"] = AddStreams_Batch
 custom_op["LabelSelect_Batch"] = LabelSelect_Batch
 custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
