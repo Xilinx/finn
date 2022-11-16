@@ -32,11 +32,11 @@
  * @author	Thomas B. Preußer <tpreusse@amd.com>
  *****************************************************************************/
 
-module thresholding_axi_wrapper #(
-	parameter  N,	// output precision
-	parameter  M,	// input/threshold precision
-	parameter  C,	// Channels
-	int BIAS = 0,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
+module $MODULE_NAME_AXI_WRAPPER$ #(
+	parameter  N = $N$,	// output precision
+	parameter  M = $M$,	// input/threshold precision
+	parameter  C = $C$,	// Channels
+	int BIAS = $BIAS$,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
 	parameter  C_BITS = C < 2 ? 1 : $clog2(C),
 	parameter  O_BITS = BIAS > 0?
@@ -83,7 +83,7 @@ module thresholding_axi_wrapper #(
 	output	[((O_BITS+7)/8)*8-1:0]  m_axis_tdata
 );
 
-	thresholding_axi #(.N(N), .M(M), .C(C), .BIAS(BIAS), .O_BITS(O_BITS)) inst (
+	$MODULE_NAME_AXI$ #(.N(N), .M(M), .C(C), .BIAS(BIAS), .O_BITS(O_BITS)) inst (
 		//- Global Control ------------------
 		.ap_clk(ap_clk),
 		.ap_rst_n(ap_rst_n),
@@ -124,4 +124,4 @@ module thresholding_axi_wrapper #(
 		.m_axis_tdata(m_axis_tdata)
 	);
 
-endmodule : thresholding_axi_wrapper
+endmodule : $MODULE_NAME_AXI_WRAPPER$
