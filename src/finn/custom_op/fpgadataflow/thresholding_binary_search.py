@@ -27,9 +27,17 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+import numpy as np
 from qonnx.core.datatype import DataType
-
+from qonnx.util.basic import (
+    interleave_matrix_outer_dim_from_partitions,
+    roundup_to_integer_multiple,
+)
+from finn.util.data_packing import (
+    pack_innermost_dim_as_hex_string,
+)
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+import warnings
 
 """@package thresholding_binary_search
 - ONNX i/o tensor shape assumptions for Thresholding:
@@ -172,6 +180,63 @@ class Thresholding_Bin_Search(HLSCustomOp):
     def get_template_param_values(self):
         return dict()
 
+    def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
+        """Convert the original numpy weight matrix orig_weight_matrix into
+        a form suitable for passing to the hlslib call:
+        * ensure MH % PE == 0
+        * for unsigned inputs, ensure thresholds are positive
+        * interleave rows between PEs
+        * reshape into (PE, TMEM, n_thres_steps) and return
+        """
+        mh = self.get_nodeattr("NumChannels")
+        pe = self.get_nodeattr("PE")
+        tmem = mh // pe
+        assert mh % pe == 0, "Requirement NumChannels divisable by PE is violated."
+        assert (
+            orig_thres_matrix.ndim == 2
+        ), """Threshold matrix dimension is
+        not as expected (2)."""
+        n_thres_steps = orig_thres_matrix.shape[1]
+        assert n_thres_steps == self.get_nodeattr(
+            "numSteps"
+        ), "Mismatch in threshold steps"
+        if not self.get_input_datatype().signed():
+            # ensure all thresholds are nonnegative
+            assert (orig_thres_matrix >= 0).all()
+        # ensure all thresholds are integer
+        assert np.equal(
+            np.mod(orig_thres_matrix, 1), 0
+        ).all(), "Need int threshold tensor"
+        ret = orig_thres_matrix
+        # workaround for vivado_hls threshold bug
+        if ret[0][0] == 0 and n_thres_steps == 1:
+            ret = np.copy(ret)
+            ret[0][0] = 1
+            warnings.warn(
+                "Setting 0-valued first threshold to 1 to avoid vivado_hls bug"
+            )
+        # ensure channels = mh , duplicating if necessary
+        if ret.shape[0] == 1:
+            ret = np.tile(ret, (mh, 1))
+        assert (
+            ret.shape[0] == mh
+        ), "Channels of threshold matrix are not as expected (mh)"
+        # distribute rows between PEs
+        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
+        assert (
+            ret.shape[0] == pe
+        ), """First dimension after distribution of the
+        rows between PEs is not as expected (pe)"""
+        assert (
+            ret.shape[1] == tmem
+        ), """Second dimension after distribution of the
+        rows between PEs is not as expected (tmem)"""
+        assert (
+            ret.shape[2] == n_thres_steps
+        ), """Third dimension after distribution of the
+        rows between PEs is not as expected (n_thres_steps)"""
+        return ret.reshape(1, pe, tmem, n_thres_steps)
+
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights (thresholds) in appropriate
         format for this layer. This file can be used for either synthesis or
@@ -183,7 +248,68 @@ class Thresholding_Bin_Search(HLSCustomOp):
           decoupled_runtime}
         * weight_file_name : filename for the weight file to be generated
         """
-        return
+        # There are 'decoupled_*' flavors, just make sure that the flavors are decoupled related
+        if "decoupled" not in weight_file_mode: raise Exception("Unrecognized memory mode for this node: {}".format(weight_file_mode))
+
+        threshold_tensor = self.get_hls_compatible_threshold_tensor(weights)
+        tdt = self.get_weight_datatype()
+        assert np.vectorize(tdt.allowed)(
+            threshold_tensor
+        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+
+        # streaming thresholds need to be organized differently
+        # (1, pe, tmem, n_thres_steps) -> (1, tmem, pe, n_thres_steps)
+        decoupled_thres = np.transpose(threshold_tensor, (0, 2, 1, 3))
+        # (1, tmem, pe, n_thres_steps) -(1, tmem, pe * n_thres_steps)
+        pe = self.get_nodeattr("PE")
+        n_thres_steps = self.get_nodeattr("numSteps")
+        decoupled_thres_pe_flipped = np.flip(decoupled_thres, axis=-2)
+        decoupled_thres = decoupled_thres.reshape(1, -1, pe * n_thres_steps)
+        decoupled_thres = decoupled_thres.copy()
+        decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.reshape(
+            1, -1, pe * n_thres_steps
+        )
+        decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.copy()
+
+        if weight_file_mode == "decoupled_npy":
+            # save weight stream into npy for cppsim
+            np.save(weight_file_name, decoupled_thres)
+        elif weight_file_mode == "decoupled_verilog_dat":
+            # convert weight values into hexstring
+            weight_width = self.get_weightstream_width()
+            # pad to nearest 4 bits to get hex strings
+            weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
+            weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+                decoupled_thres_pe_flipped, tdt, weight_width_padded, prefix=""
+            )
+            weight_stream = weight_tensor_pe_flipped.flatten()
+            weight_stream = weight_stream.copy()
+            with open(weight_file_name, "w") as f:
+                for val in weight_stream:
+                    f.write(val + "\n")
+        elif weight_file_mode == "decoupled_runtime":
+            # memstream axi-lite interface will map each mem line to
+            # one or multiple 32-bit words
+            weight_width = self.get_weightstream_width()
+            words_per_memwidth = 2 ** ceil(log2(weight_width / 32))
+            if words_per_memwidth < 1:
+                words_per_memwidth = 1
+            weight_width_padded = words_per_memwidth * 32
+            # first, pack and ensure padding to 32 bits
+            weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
+                decoupled_thres_pe_flipped, tdt, weight_width_padded, prefix=""
+            )
+            weight_stream = weight_tensor_pe_flipped.flatten()
+            weight_stream = weight_stream.copy()
+            with open(weight_file_name, "w") as f:
+                for val in weight_stream:
+                    # split into groups of 8 hex digits (= 32 bits)
+                    words_32b = textwrap.wrap(val, 8)
+                    words_32b.reverse()
+                    for word_32b in words_32b:
+                        f.write(word_32b + "\n")
+        else:
+            raise Exception("Decoupled weight export not yet implemented")
 
     # Get the integer from the DataType and string-ify it
     # This assumes that the data is in the form "INTx" or similar
