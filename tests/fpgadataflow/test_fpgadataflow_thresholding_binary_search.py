@@ -51,6 +51,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
 
+
 # Helper functions
 def sort_thresholds_increasing(thresholds):
     return np.sort(thresholds, axis=1)
@@ -140,16 +141,18 @@ def make_single_thresholding_binary_search_modelwrapper(
     return model
 
 
-# Test brief: a particular method for this class was causing a bug - find_next_power_of_2()
-# Weights in the thresholding core are programmed on a per-channel basis and are byte-addressable.
-# When a channel is programmed, the next channel can start programming at the next power-of-2 byte boundary.
-# This test is to show that the function that calculates that boundary is working correctly.
+# Test brief: a particular method for this class was causing a bug:
+# find_next_power_of_2()
+# Weights in the thresholding core are programmed on a per-channel basis and are
+# byte-addressable. When a channel is programmed, the next channel can start
+# programming at the next power-of-2 byte boundary. This test is to show that the
+# function that calculates that boundary is working correctly.
 #
-# A Thresholding_Binary_Search layer was created and a SW generated dataset with a threshold channel
-# depth of 1 weight (1 layer of N channels in the thresholding core). However, find_next_power_of_2()
-# was returning a next-power-of-2 address boundary at address '0', instead of '2'. This unit test
-# is to prove that this bug no longer occurs. It was originally seen when the input datatype
-# was 'DataType["BIPOLAR"]'.
+# A Thresholding_Binary_Search layer was created and a SW generated dataset with a
+# threshold channel depth of 1 weight (1 layer of N channels in the thresholding core).
+# However, find_next_power_of_2() was returning a next-power-of-2 address boundary at
+# address '0', instead of '2'. This unit test is to prove that this bug no longer
+# occurs. It was originally seen when the input datatype was 'DataType["BIPOLAR"]'.
 @pytest.mark.tbs_unit
 @pytest.mark.tbs_all
 def test_fpgadataflow_thresholding_binary_search_unit():
@@ -228,7 +231,9 @@ def test_fpgadataflow_thresholding_binary_search_cppsim():
     act = DataType["BIPOLAR"]
     fold = -1
     num_input_channels = 16
-    mem_mode = "decoupled"  # 'const' is unsupported - see test_fpgadataflow_thresholding_binary_search_const_mem_mode
+    # 'const' is unsupported see test:
+    # test_fpgadataflow_thresholding_binary_search_const_mem_mode()
+    mem_mode = "decoupled"
 
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = act.get_num_possible_values() - 1
@@ -263,8 +268,9 @@ def test_fpgadataflow_thresholding_binary_search_cppsim():
         num_input_vecs,
     )
 
-    # Cppsim is not supported for this class, catch the specific exception thrown by cppsim
-    # Exception raised in cppsim: Custom op_type Thresholding_Binary_Search is currently not supported.
+    # Cppsim is not supported for this class, catch the specific exception thrown by
+    # cppsim. Exception raised in cppsim: Custom op_type Thresholding_Binary_Search is
+    # currently not supported.
     try:
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
@@ -310,8 +316,8 @@ def test_fpgadataflow_thresholding_binary_search_const_mem_mode():
     )
 
     # Prove that 'const' memory mode is not supported for this class
-    # 'const' memory mode is not supported for this class, catch the specific exception thrown by FINN
-    # Exception: ('Unrecognized memory mode for this node:', 'const')
+    # 'const' memory mode is not supported for this class, catch the specific exception
+    # thrown by FINN. Exception: ('Unrecognized memory mode for this node:', 'const')
     try:
         model = model.transform(InsertFIFO(True))
         model = model.transform(GiveUniqueNodeNames())
@@ -384,7 +390,8 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1])  # 1, 2, etc. will fail
 @pytest.mark.parametrize("num_input_channels", [16])
-# no need to test 'const' mode, it's already done in test_fpgadataflow_thresholding_binary_search_const_mem_mode()
+# no need to test 'const' mode, it's already done in:
+# test_fpgadataflow_thresholding_binary_search_const_mem_mode()
 @pytest.mark.parametrize("mem_mode", ["decoupled"])
 @pytest.mark.tbs_soak
 @pytest.mark.tbs_all
@@ -449,7 +456,7 @@ def test_fpgadataflow_thresholding_binary_search(
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
 
-    # Retrieve the axilite programming sequence for the weights - for decoupled mode only
+    # Retrieve the axilite programming sequence for weights - for decoupled mode only
     tbs_node = model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
     tbs_inst = getCustomOp(tbs_node)
     config = tbs_inst.get_dynamic_config(model)
@@ -470,7 +477,8 @@ def test_fpgadataflow_thresholding_binary_search(
             ).get_verilog_top_module_intf_names()["axilite"][0]
             axi_name += "_0_"
 
-            # 1. Write config registers to the Threshold memory, dict defines (addr, value) tuples
+            # Write config registers to the Threshold memory.
+            # The dictionary defines (addr, value) tuples.
             for config_entry in config.values():
                 addr = config_entry[0]
                 val = config_entry[1]

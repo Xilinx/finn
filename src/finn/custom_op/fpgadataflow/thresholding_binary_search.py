@@ -28,7 +28,9 @@
 
 import numpy as np
 import os
+import textwrap
 import warnings
+from math import ceil, log2
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
@@ -260,7 +262,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
           decoupled_runtime}
         * weight_file_name : filename for the weight file to be generated
         """
-        # There are 'decoupled_*' flavors, just make sure that the flavors are decoupled related
+        # There are 'decoupled_*' flavors, just make sure that the flavors
+        # are decoupled related
         if "decoupled" not in weight_file_mode:
             raise Exception(
                 "Unrecognized memory mode for this node: {}".format(weight_file_mode)
@@ -371,7 +374,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
             self.conv_datatype_to_str(bias)
         ]  # activation bias value
 
-        # Is the input datatype signed or unsigned? The thresholding core needs to know this
+        # Is the input datatype signed or unsigned?
+        # The thresholding core needs to know this when comparing weights to inputs
         if self.get_input_datatype().min() < 0:
             code_gen_dict["$SIGN$"] = ["signed"]
         else:
@@ -421,7 +425,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
             file_only_path = rtl_file_path.split("/")[-1]
             self.dump_rtl_data(code_gen_dir, file_only_path, data)
 
-        # Before we return - set the 'gen_top_module' attribute for use later by PyVerilator and IPI generation
+        # Before we return - set the 'gen_top_module' attribute for use later
+        # by PyVerilator and IPI generation
         self.set_nodeattr("gen_top_module", code_gen_dict["$TOP_MODULE$"][0])
         return
 
@@ -508,14 +513,14 @@ class Thresholding_Binary_Search(HLSCustomOp):
         # Perform input checks
         if self.get_nodeattr("exec_mode") != "rtlsim":
             raise Exception(
-                "Invalid exec_mode value: {}; exec_mode must be set to 'rtlsim'".format(
-                    self.get_nodeattr("exec_mode")
+                "Invalid exec_mode value: {}; exec_mode must be set to '{}'".format(
+                    self.get_nodeattr("exec_mode"), "rtlsim"
                 )
             )
         if self.get_nodeattr("mem_mode") != "decoupled":
             raise Exception(
-                "Invalid mem_mode value: {}; mem_mode must be set to 'decoupled'".format(
-                    self.get_nodeattr("mem_mode")
+                "Invalid mem_mode value: {}; mem_mode must be set to '{}'".format(
+                    self.get_nodeattr("mem_mode"), "decoupled"
                 )
             )
 
@@ -595,7 +600,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return
 
     def code_generation_ipi(self):
-        """Constructs and returns the TCL commands for node instantiation as an RTL block."""
+        """Constructs and returns the TCL commands for node instantiation as an RTL
+        block."""
         cmd = []
         rtl_file_list = self.get_rtl_file_list()
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -612,15 +618,19 @@ class Thresholding_Binary_Search(HLSCustomOp):
         )
 
         # ERROR: [BD 41-237] Bus Interface property FREQ_HZ does not match between
-        # /Thresholding_Binary_Search_0/s_axis(100000000 and /StreamingFIFO_0/out_V(200000000.000000)
+        # /Thresholding_Binary_Search_0/s_axis(100000000 and
+        # /StreamingFIFO_0/out_V(200000000.000000)
         cmd.append(
-            "set_property -dict [list CONFIG.FREQ_HZ {200000000}] [get_bd_intf_pins Thresholding_Binary_Search_0/s_axis]"
+            "set_property -dict [list CONFIG.FREQ_HZ {200000000}] [%s %s]"
+            % ("get_bd_intf_pins", "Thresholding_Binary_Search_0/s_axis")
         )
 
         # ERROR: [BD 41-237] Bus Interface property FREQ_HZ does not match between
-        # /StreamingFIFO_1/in0_V(200000000.000000) and /Thresholding_Binary_Search_0/m_axis(100000000)
+        # /StreamingFIFO_1/in0_V(200000000.000000) and
+        # /Thresholding_Binary_Search_0/m_axis(100000000)
         cmd.append(
-            "set_property -dict [list CONFIG.FREQ_HZ {200000000}] [get_bd_intf_pins Thresholding_Binary_Search_0/m_axis]"
+            "set_property -dict [list CONFIG.FREQ_HZ {200000000}] [%s %s]"
+            % ("get_bd_intf_pins", "Thresholding_Binary_Search_0/m_axis")
         )
 
         return cmd
@@ -654,7 +664,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         # Negative values will loop infinitely below - return 0
         if n <= 0:
             return 0
-        # If '1' is requested, output will be '0' in the loop below, so avoid this earlier.
+        # If '1' is requested, output will be '0' in the loop below, avoid this now.
         elif n == 1:
             return 2  # i.e. 2**1
 
@@ -674,7 +684,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return self.twos_comp(int(val), self.get_weight_datatype().bitwidth())
 
     def get_dynamic_config(self, model, address_stride=1):
-        ## TODO - not sure this description is correct
         """Returns a configuration dictionary containing axilite write commands
         in order to program the thresholds into the RTL core during runtime.
         The default address stride for the weights is 1 byte."""
