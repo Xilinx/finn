@@ -153,8 +153,8 @@ def make_single_thresholding_binary_search_modelwrapper(
 # However, find_next_power_of_2() was returning a next-power-of-2 address boundary at
 # address '0', instead of '2'. This unit test is to prove that this bug no longer
 # occurs. It was originally seen when the input datatype was 'DataType["BIPOLAR"]'.
-@pytest.mark.tbs_unit
-@pytest.mark.tbs_all
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
 def test_fpgadataflow_thresholding_binary_search_unit():
     activation = DataType["BIPOLAR"]
     input_data_type = DataType["INT16"]
@@ -224,8 +224,8 @@ def test_fpgadataflow_thresholding_binary_search_unit():
 
 
 # Test brief: Prove that cppsim is not supported for this class
-@pytest.mark.tbs_cppsim
-@pytest.mark.tbs_all
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
 def test_fpgadataflow_thresholding_binary_search_cppsim():
     input_data_type = DataType["UINT16"]
     act = DataType["BIPOLAR"]
@@ -284,8 +284,8 @@ def test_fpgadataflow_thresholding_binary_search_cppsim():
 
 
 # Test brief: Prove that memory mode 'const' is not supported for this layer type
-@pytest.mark.tbs_const
-@pytest.mark.tbs_all
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
 def test_fpgadataflow_thresholding_binary_search_const_mem_mode():
     input_data_type = DataType["INT16"]
     activation = DataType["INT4"]
@@ -333,8 +333,8 @@ def test_fpgadataflow_thresholding_binary_search_const_mem_mode():
 
 # Test brief: Test that PrepareRTLSim() runs successfully. This function is not
 # tested in test_fpgadataflow_thresholding_binary_search()
-@pytest.mark.tbs_prep_rtlsim
-@pytest.mark.tbs_all
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
 def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
     input_data_type = DataType["INT16"]
     act = DataType["INT4"]
@@ -393,8 +393,9 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 # no need to test 'const' mode, it's already done in:
 # test_fpgadataflow_thresholding_binary_search_const_mem_mode()
 @pytest.mark.parametrize("mem_mode", ["decoupled"])
-@pytest.mark.tbs_soak
-@pytest.mark.tbs_all
+@pytest.mark.fpgadataflow
+@pytest.mark.vivado
+@pytest.mark.slow
 def test_fpgadataflow_thresholding_binary_search(
     activation, input_data_type, fold, num_input_channels, mem_mode
 ):
