@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+
 import numpy as np
 from onnx import TensorProto, helper
 from pyverilator.util.axi_utils import axilite_write, reset_rtlsim
@@ -54,8 +55,14 @@ target_clk_ns = 5
 def sort_thresholds_increasing(thresholds):
     return np.sort(thresholds, axis=1)
 
+
 def generate_random_threshold_values(input_data_type, num_input_channels, num_steps):
-    return np.random.randint(input_data_type.min(), input_data_type.max() + 1, (num_input_channels, num_steps)).astype(np.float32)
+    return np.random.randint(
+        input_data_type.min(),
+        input_data_type.max() + 1,
+        (num_input_channels, num_steps),
+    ).astype(np.float32)
+
 
 def generate_pe_value(fold, num_input_channels):
     if fold == -1:
@@ -64,11 +71,13 @@ def generate_pe_value(fold, num_input_channels):
     assert num_input_channels % pe == 0
     return pe
 
+
 # n = batch, c = channel, h = height, w = width of feature map
 # Standard = NCHW; FINN = NHWC
 # Convert from NCHW to NHWC
 def convert_np_array_to_finn_data_layout(data):
     return np.transpose(data, (0, 2, 3, 1))
+
 
 # n = batch, c = channel, h = height, w = width of feature map
 # Standard = NCHW; FINN = NHWC
@@ -76,8 +85,15 @@ def convert_np_array_to_finn_data_layout(data):
 def convert_np_array_to_standard_data_layout(data):
     return np.transpose(data, (0, 3, 1, 2))
 
+
 def make_single_thresholding_binary_search_modelwrapper(
-    thresholds, pe, input_data_type, output_data_type, activation_bias, mem_mode, num_input_vecs
+    thresholds,
+    pe,
+    input_data_type,
+    output_data_type,
+    activation_bias,
+    mem_mode,
+    num_input_vecs,
 ):
     NumChannels = thresholds.shape[0]
 
@@ -123,6 +139,7 @@ def make_single_thresholding_binary_search_modelwrapper(
     model.set_initializer("thresh", thresholds)
     return model
 
+
 # Test brief: a particular method for this class was causing a bug - find_next_power_of_2()
 # Weights in the thresholding core are programmed on a per-channel basis and are byte-addressable.
 # When a channel is programmed, the next channel can start programming at the next power-of-2 byte boundary.
@@ -155,11 +172,19 @@ def test_fpgadataflow_thresholding_binary_search_unit():
         activation_bias = output_data_type.min()
 
     # Generate random thresholds and sort in ascending order
-    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
+    thresholds = generate_random_threshold_values(
+        input_data_type, num_input_channels, num_steps
+    )
 
     # Generate model from input parameters to the test
     model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds, pe, input_data_type, output_data_type, activation_bias, mem_mode, num_input_vecs
+        thresholds,
+        pe,
+        input_data_type,
+        output_data_type,
+        activation_bias,
+        mem_mode,
+        num_input_vecs,
     )
 
     # Retrieve the class to get the method-under-test
@@ -194,6 +219,7 @@ def test_fpgadataflow_thresholding_binary_search_unit():
 
     return
 
+
 # Test brief: Prove that cppsim is not supported for this class
 @pytest.mark.tbs_cppsim
 @pytest.mark.tbs_all
@@ -202,13 +228,15 @@ def test_fpgadataflow_thresholding_binary_search_cppsim():
     act = DataType["BIPOLAR"]
     fold = -1
     num_input_channels = 16
-    mem_mode = "decoupled" # 'const' is unsupported - see test_fpgadataflow_thresholding_binary_search_const_mem_mode
+    mem_mode = "decoupled"  # 'const' is unsupported - see test_fpgadataflow_thresholding_binary_search_const_mem_mode
 
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = act.get_num_possible_values() - 1
 
     # Generate random, non-decreasing thresholds
-    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
+    thresholds = generate_random_threshold_values(
+        input_data_type, num_input_channels, num_steps
+    )
 
     # make the vivado_hls threshold bug appear (incorrect rtlsim result when first
     # threshold of first channel is zero, while using BIPOLAR output)
@@ -226,7 +254,13 @@ def test_fpgadataflow_thresholding_binary_search_cppsim():
 
     # Generate model from input parameters to the test
     model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds, pe, input_data_type, output_data_type, activation_bias, mem_mode, num_input_vecs
+        thresholds,
+        pe,
+        input_data_type,
+        output_data_type,
+        activation_bias,
+        mem_mode,
+        num_input_vecs,
     )
 
     # Cppsim is not supported for this class, catch the specific exception thrown by cppsim
@@ -236,8 +270,12 @@ def test_fpgadataflow_thresholding_binary_search_cppsim():
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))
     except Exception as e:
-        if str(e) != "Custom op_type Thresholding_Binary_Search is currently not supported.":
+        if (
+            str(e)
+            != "Custom op_type Thresholding_Binary_Search is currently not supported."
+        ):
             raise
+
 
 # Test brief: Prove that memory mode 'const' is not supported for this layer type
 @pytest.mark.tbs_const
@@ -256,11 +294,19 @@ def test_fpgadataflow_thresholding_binary_search_const_mem_mode():
 
     # Generate random thresholds and sort in ascending order
     num_steps = activation.get_num_possible_values() - 1
-    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
+    thresholds = generate_random_threshold_values(
+        input_data_type, num_input_channels, num_steps
+    )
 
     # Generate model from input parameters to the test
     model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds, pe, input_data_type, output_data_type, activation_bias, mem_mode, num_input_vecs
+        thresholds,
+        pe,
+        input_data_type,
+        output_data_type,
+        activation_bias,
+        mem_mode,
+        num_input_vecs,
     )
 
     # Prove that 'const' memory mode is not supported for this class
@@ -278,6 +324,7 @@ def test_fpgadataflow_thresholding_binary_search_const_mem_mode():
         # Caught the expected exception, leave the test early
         return
 
+
 # Test brief: Test that PrepareRTLSim() runs successfully. This function is not
 # tested in test_fpgadataflow_thresholding_binary_search()
 @pytest.mark.tbs_prep_rtlsim
@@ -294,7 +341,9 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
     num_steps = act.get_num_possible_values() - 1
 
     # Generate random, non-decreasing thresholds
-    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
+    thresholds = generate_random_threshold_values(
+        input_data_type, num_input_channels, num_steps
+    )
     # make the vivado_hls threshold bug appear (incorrect rtlsim result when first
     # threshold of first channel is zero, while using BIPOLAR output)
     if act == DataType["BIPOLAR"]:
@@ -311,7 +360,13 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 
     # Generate model from input parameters to the test
     model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds, pe, input_data_type, output_data_type, activation_bias, mem_mode, num_input_vecs
+        thresholds,
+        pe,
+        input_data_type,
+        output_data_type,
+        activation_bias,
+        mem_mode,
+        num_input_vecs,
     )
 
     model = model.transform(SetExecMode("rtlsim"))
@@ -321,18 +376,21 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
     model = model.transform(PrepareRTLSim())
     return
 
+
 # Test brief: Create a Thresholding binary search layer using various parameters
 # and test against a SW generated & simulated dataset
 # N.B. - fold factor of '-1' is supported only (no PE/SIMD support)
 @pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
-@pytest.mark.parametrize("fold", [-1]) # 1, 2, etc. will fail
+@pytest.mark.parametrize("fold", [-1])  # 1, 2, etc. will fail
 @pytest.mark.parametrize("num_input_channels", [16])
 # no need to test 'const' mode, it's already done in test_fpgadataflow_thresholding_binary_search_const_mem_mode()
 @pytest.mark.parametrize("mem_mode", ["decoupled"])
 @pytest.mark.tbs_soak
 @pytest.mark.tbs_all
-def test_fpgadataflow_thresholding_binary_search(activation, input_data_type, fold, num_input_channels, mem_mode):
+def test_fpgadataflow_thresholding_binary_search(
+    activation, input_data_type, fold, num_input_channels, mem_mode
+):
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = activation.get_num_possible_values() - 1
@@ -350,7 +408,9 @@ def test_fpgadataflow_thresholding_binary_search(activation, input_data_type, fo
     x = gen_finn_dt_tensor(input_data_type, tensor_shape)
 
     # Generate random thresholds and sort in ascending order
-    thresholds = generate_random_threshold_values(input_data_type, num_input_channels, num_steps)
+    thresholds = generate_random_threshold_values(
+        input_data_type, num_input_channels, num_steps
+    )
 
     # make the vivado_hls threshold bug appear (incorrect rtlsim result when first
     # threshold of first channel is zero, while using BIPOLAR output)
@@ -374,7 +434,13 @@ def test_fpgadataflow_thresholding_binary_search(activation, input_data_type, fo
 
     # Generate model from input parameters to the test
     model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds, pe, input_data_type, output_data_type, activation_bias, mem_mode, num_input_vecs
+        thresholds,
+        pe,
+        input_data_type,
+        output_data_type,
+        activation_bias,
+        mem_mode,
+        num_input_vecs,
     )
 
     model = model.transform(InsertFIFO(True))
@@ -399,7 +465,9 @@ def test_fpgadataflow_thresholding_binary_search(activation, input_data_type, fo
 
         def write_thresh_config(sim):
             # axi_name = "s_axilite_0_" # works
-            axi_name = getCustomOp(model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]).get_verilog_top_module_intf_names()['axilite'][0]
+            axi_name = getCustomOp(
+                model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
+            ).get_verilog_top_module_intf_names()["axilite"][0]
             axi_name += "_0_"
 
             # 1. Write config registers to the Threshold memory, dict defines (addr, value) tuples
@@ -409,6 +477,7 @@ def test_fpgadataflow_thresholding_binary_search(activation, input_data_type, fo
                 axilite_write(sim, addr, val, basename=axi_name)
 
             reset_rtlsim(sim)
+
         return write_thresh_config
 
     input_dict = {"inp": x}

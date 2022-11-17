@@ -26,21 +26,22 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import os
 import numpy as np
+import os
 import warnings
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
     roundup_to_integer_multiple,
 )
+
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
-    rtlsim_output_to_npy,
     pack_innermost_dim_as_hex_string,
+    rtlsim_output_to_npy,
 )
-from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import make_build_dir, get_rtlsim_trace_depth
 
 try:
     from pyverilator import PyVerilator
@@ -151,7 +152,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
     def get_weightstream_width(self):
         # Only 'decoupled' mode is supported
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode != "decoupled": raise Exception("Unrecognized memory mode for this node: {}".format(mem_mode))
+        if mem_mode != "decoupled":
+            raise Exception(
+                "Unrecognized memory mode for this node: {}".format(mem_mode)
+            )
         pe = self.get_nodeattr("PE")
         wp = self.get_weight_datatype().bitwidth()
         n_thres_steps = self.get_nodeattr("numSteps")
@@ -257,7 +261,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
         * weight_file_name : filename for the weight file to be generated
         """
         # There are 'decoupled_*' flavors, just make sure that the flavors are decoupled related
-        if "decoupled" not in weight_file_mode: raise Exception("Unrecognized memory mode for this node: {}".format(weight_file_mode))
+        if "decoupled" not in weight_file_mode:
+            raise Exception(
+                "Unrecognized memory mode for this node: {}".format(weight_file_mode)
+            )
 
         threshold_tensor = self.get_hls_compatible_threshold_tensor(weights)
         tdt = self.get_weight_datatype()
@@ -334,21 +341,35 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         # Identify the module names
         code_gen_dict["$MODULE_NAME$"] = [self.get_verilog_top_module_name()]
-        code_gen_dict["$MODULE_NAME_AXI$"] = [self.get_verilog_top_module_name() + "_axi"]
-        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name() + "_axi_wrapper"]
+        code_gen_dict["$MODULE_NAME_AXI$"] = [
+            self.get_verilog_top_module_name() + "_axi"
+        ]
+        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
+            self.get_verilog_top_module_name() + "_axi_wrapper"
+        ]
         # Set the top module name - AXI wrapper
         code_gen_dict["$TOP_MODULE$"] = code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"]
 
         # Identify the module variables
-        output_data_type = self.get_nodeattr("outputDataType") # output precision
-        input_data_type = self.get_nodeattr("inputDataType") # input/threshold precision
-        num_channels = self.get_nodeattr("NumChannels") # number of channels
-        bias = self.get_nodeattr("activation_bias") # activation bias value
+        output_data_type = self.get_nodeattr("outputDataType")  # output precision
+        input_data_type = self.get_nodeattr(
+            "inputDataType"
+        )  # input/threshold precision
+        num_channels = self.get_nodeattr("NumChannels")  # number of channels
+        bias = self.get_nodeattr("activation_bias")  # activation bias value
 
-        code_gen_dict["$N$"] = [self.conv_datatype_to_str(output_data_type)] # output precision
-        code_gen_dict["$M$"] = [self.conv_datatype_to_str(input_data_type)] # input/threshold precision
-        code_gen_dict["$C$"] = [self.conv_datatype_to_str(num_channels)] # number of channels
-        code_gen_dict["$BIAS$"] = [self.conv_datatype_to_str(bias)] # activation bias value
+        code_gen_dict["$N$"] = [
+            self.conv_datatype_to_str(output_data_type)
+        ]  # output precision
+        code_gen_dict["$M$"] = [
+            self.conv_datatype_to_str(input_data_type)
+        ]  # input/threshold precision
+        code_gen_dict["$C$"] = [
+            self.conv_datatype_to_str(num_channels)
+        ]  # number of channels
+        code_gen_dict["$BIAS$"] = [
+            self.conv_datatype_to_str(bias)
+        ]  # activation bias value
 
         # Is the input datatype signed or unsigned? The thresholding core needs to know this
         if self.get_input_datatype().min() < 0:
@@ -359,9 +380,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return code_gen_dict
 
     def get_rtl_file_list(self):
-        return ["thresholding.sv",
-                "thresholding_axi.sv",
-                "thresholding_axi_wrapper.v"]
+        return ["thresholding.sv", "thresholding_axi.sv", "thresholding_axi_wrapper.v"]
 
     def get_rtl_file_paths(self):
         rtl_root_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/thresholding/hdl/"
@@ -399,7 +418,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
             # apply code generation to templates
             data = self.fill_in_rtl_template_data(code_gen_dict, template_data)
             # dump filled-in template to destination directory for compilation
-            file_only_path = rtl_file_path.split('/')[-1]
+            file_only_path = rtl_file_path.split("/")[-1]
             self.dump_rtl_data(code_gen_dir, file_only_path, data)
 
         # Before we return - set the 'gen_top_module' attribute for use later by PyVerilator and IPI generation
@@ -422,7 +441,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
     def generate_params(self, model, path):
         # Only 'decoupled' mode is supported
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode != "decoupled": raise Exception("Unrecognized memory mode for this node: {}".format(mem_mode))
+        if mem_mode != "decoupled":
+            raise Exception(
+                "Unrecognized memory mode for this node: {}".format(mem_mode)
+            )
 
         code_gen_dir = path
         weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
@@ -484,8 +506,18 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
     def execute_node(self, context, graph):
         # Perform input checks
-        if self.get_nodeattr("exec_mode") != "rtlsim": raise Exception("Invalid exec_mode value: {}; exec_mode must be set to 'rtlsim'".format(self.get_nodeattr("exec_mode")))
-        if self.get_nodeattr("mem_mode") != "decoupled": raise Exception("Invalid mem_mode value: {}; mem_mode must be set to 'decoupled'".format(self.get_nodeattr("mem_mode")))
+        if self.get_nodeattr("exec_mode") != "rtlsim":
+            raise Exception(
+                "Invalid exec_mode value: {}; exec_mode must be set to 'rtlsim'".format(
+                    self.get_nodeattr("exec_mode")
+                )
+            )
+        if self.get_nodeattr("mem_mode") != "decoupled":
+            raise Exception(
+                "Invalid mem_mode value: {}; mem_mode must be set to 'decoupled'".format(
+                    self.get_nodeattr("mem_mode")
+                )
+            )
 
         node = self.onnx_node
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -569,24 +601,27 @@ class Thresholding_Binary_Search(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         for rtl_file in rtl_file_list:
-            cmd.append("add_files -norecurse %s"
-            % (
-                os.path.join(
-                    code_gen_dir, rtl_file
-                )
-            ))
+            cmd.append(
+                "add_files -norecurse %s" % (os.path.join(code_gen_dir, rtl_file))
+            )
 
         # Create an RTL block, not an IP core (-type ip)
-        cmd.append("create_bd_cell -type module -reference %s %s"
-            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name))
+        cmd.append(
+            "create_bd_cell -type module -reference %s %s"
+            % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
+        )
 
         # ERROR: [BD 41-237] Bus Interface property FREQ_HZ does not match between
         # /Thresholding_Binary_Search_0/s_axis(100000000 and /StreamingFIFO_0/out_V(200000000.000000)
-        cmd.append("set_property -dict [list CONFIG.FREQ_HZ {200000000}] [get_bd_intf_pins Thresholding_Binary_Search_0/s_axis]")
+        cmd.append(
+            "set_property -dict [list CONFIG.FREQ_HZ {200000000}] [get_bd_intf_pins Thresholding_Binary_Search_0/s_axis]"
+        )
 
         # ERROR: [BD 41-237] Bus Interface property FREQ_HZ does not match between
         # /StreamingFIFO_1/in0_V(200000000.000000) and /Thresholding_Binary_Search_0/m_axis(100000000)
-        cmd.append("set_property -dict [list CONFIG.FREQ_HZ {200000000}] [get_bd_intf_pins Thresholding_Binary_Search_0/m_axis]")
+        cmd.append(
+            "set_property -dict [list CONFIG.FREQ_HZ {200000000}] [get_bd_intf_pins Thresholding_Binary_Search_0/m_axis]"
+        )
 
         return cmd
 
@@ -603,7 +638,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
         intf_names = super().get_verilog_top_module_intf_names()
         # Only 'decoupled' mode is supported - check before adding axilite interface
         mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode != "decoupled": raise Exception("Unrecognized memory mode for this node: {}".format(mem_mode))
+        if mem_mode != "decoupled":
+            raise Exception(
+                "Unrecognized memory mode for this node: {}".format(mem_mode)
+            )
         intf_names["axilite"] = ["s_axilite"]
         intf_names["s_axis"] = [["s_axis"]]
         intf_names["m_axis"] = [["m_axis"]]
@@ -618,7 +656,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
             return 0
         # If '1' is requested, output will be '0' in the loop below, so avoid this earlier.
         elif n == 1:
-            return 2 # i.e. 2**1
+            return 2  # i.e. 2**1
 
         # decrement 'n' (to handle cases when `n` itself is a power of 2)
         n = n - 1
@@ -651,12 +689,17 @@ class Thresholding_Binary_Search(HLSCustomOp):
         config = {}
         channel_cntr = 0
         for channel in thresholds:
-            channel_start_addr = (channel_cntr * weight_addr_boundary * address_stride)
+            channel_start_addr = channel_cntr * weight_addr_boundary * address_stride
             weight_cntr = 0
             addr = 0
             for weight in channel:
-                key_name = "{}_{}{}_{}{}".format("axilite", "ch", str(channel_cntr), "w", str(weight_cntr))
-                config[key_name] = (channel_start_addr + addr, self.prep_axilite_val(weight))
+                key_name = "{}_{}{}_{}{}".format(
+                    "axilite", "ch", str(channel_cntr), "w", str(weight_cntr)
+                )
+                config[key_name] = (
+                    channel_start_addr + addr,
+                    self.prep_axilite_val(weight),
+                )
 
                 weight_cntr += 1
                 addr += address_stride
