@@ -225,10 +225,10 @@ class VectorVectorActivation(HLSCustomOp):
     def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
-        if simd > 1:
-            pe = self.get_nodeattr("Channels")
-        else:
-            pe = self.get_nodeattr("PE")
+        #if simd > 1:
+            #pe = self.get_nodeattr("Channels")
+        #else:
+        pe = self.get_nodeattr("PE")
         in_width = i_bits * simd * pe
         return in_width
 
@@ -242,10 +242,10 @@ class VectorVectorActivation(HLSCustomOp):
         dim_h, dim_w = self.get_nodeattr("Dim")
         ch = self.get_nodeattr("Channels")
         simd = self.get_nodeattr("SIMD")
-        if simd > 1:
-            pe = self.get_nodeattr("Channels")
-        else:
-            pe = self.get_nodeattr("PE")
+        #if simd > 1:
+            #pe = self.get_nodeattr("Channels")
+        #else:
+        pe = self.get_nodeattr("PE")
         sf = k_h * k_w // simd
         nf = ch // pe
 

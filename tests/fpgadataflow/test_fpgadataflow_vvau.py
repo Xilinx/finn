@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
-
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
@@ -37,6 +36,8 @@ from qonnx.custom_op.general.multithreshold import multithreshold
 # from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
 
@@ -47,6 +48,9 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 
 
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
@@ -150,6 +154,11 @@ def _make_single_vvau_modelwrapper(
         model.set_tensor_datatype("thresh", tdt)
         model.set_initializer("thresh", T)
 
+    # Minimize accumulator width to obtain realistic HLS reports
+    model = model.transform(MinimizeAccumulatorWidth())
+    model = model.transform(InferShapes())
+    model = model.transform(InferDataTypes())
+
     return model
 
 
@@ -158,27 +167,27 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
+@pytest.mark.parametrize("idt", [DataType["UINT4"]])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType["INT4"]])
+@pytest.mark.parametrize("wdt", [DataType["UINT4"]])
 # activation: None or DataType
 @pytest.mark.parametrize("act", [DataType["UINT4"], None])
 # PE
-@pytest.mark.parametrize("pe", [1, "channels"])
+@pytest.mark.parametrize("pe", [1,2,3,6])
 # SIMD
-@pytest.mark.parametrize("simd", [1])
+@pytest.mark.parametrize("simd", [1,9])
 # Input image shape
 @pytest.mark.parametrize("dim_h", [10])
-@pytest.mark.parametrize("dim_w", [10, 1])
+@pytest.mark.parametrize("dim_w", [10])
 # Kernel shape
 @pytest.mark.parametrize("k_h", [3])
-@pytest.mark.parametrize("k_w", [3, 1])
+@pytest.mark.parametrize("k_w", [3])
 # Number of input and output channels
-@pytest.mark.parametrize("channels", [3, 4])
+@pytest.mark.parametrize("channels", [6])
 # memory mode
-@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
+@pytest.mark.parametrize("mem_mode", ["const"])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["cppsim","rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -193,6 +202,9 @@ def test_fpgadataflow_vvau(
 
     if channels % pe != 0:
         pytest.skip("Requirement Channels divisable by PE is violated.")
+
+    #if pe < channels and simd > 1:
+    #    pytest.skip("Do not apply SIMD parallelism before max PE parallelism")
 
     # Generate weights in expected shape for ONNX and HLS node
     W = gen_finn_dt_tensor(wdt, (channels, 1, k_h, k_w))  # shape: [channels, 1, k, k]
@@ -250,13 +262,6 @@ def test_fpgadataflow_vvau(
     y_produced = oxe.execute_onnx(model, input_dict, return_full_exec_context=False)[
         "outp"
     ]
-
-    with open("vvau_test_expected.txt", "w") as f:
-        f.write("-------expected:\n")
-        f.write(str(y_expected))
-    with open("vvau_test_produced.txt", "w") as f:
-        f.write("--------produced:\n")
-        f.write(str(y_produced))
 
     assert (y_produced == y_expected).all(), "incorrect result"
 
