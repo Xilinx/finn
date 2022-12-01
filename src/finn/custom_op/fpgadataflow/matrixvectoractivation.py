@@ -350,13 +350,23 @@ class MatrixVectorActivation(HLSCustomOp):
         # adder tree
         addertree_luts = (W + A) * (2 * Q - 1)
         # accumulator
-        acc_bits = W + A + np.ceil(math.log(MW, 2))
+        acc_datatype = self.get_accumulator_datatype()
+        # if accDataType is not set, then it will default to INT32, which would
+        # be a large overestimate in most (if not all) cases. In this scenario,
+        # we would use the minimum accumulator as determined by the data types.
+        alpha = math.log(MW, 2) + W + A - 1 - int(idt.signed())
+        phi = lambda x_: math.log(1 + pow(2, -x_), 2)
+        acc_bits = min(
+            acc_datatype.bitwidth(),
+            np.ceil(alpha + phi(alpha) + 1)
+        )
         acc_luts = acc_bits
         # thresholds and threshold comparators
         thr_luts = 0
         comp_luts = 0
         noact = self.get_nodeattr("noActivation")
-        if noact == 0:
+        tmem_style = self.get_nodeattr("ram_style_thresholds")
+        if (noact == 0) and (tmem_style == "distributed"):
             odt = self.get_output_datatype()
             B = odt.bitwidth()
             thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
@@ -404,6 +414,10 @@ class MatrixVectorActivation(HLSCustomOp):
             return DataType[self.get_nodeattr("weightDataType")]
         else:
             raise Exception("Undefined input ind for this layer type")
+
+    def get_accumulator_datatype(self):
+        """Returns FINN DataType of accumulator"""
+        return DataType[self.get_nodeattr("accDataType")]
 
     def get_weight_datatype(self):
         """Returns FINN DataType of weights."""
