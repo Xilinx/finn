@@ -68,3 +68,5 @@ repos:
     # black-compatible flake-8 config
     args: ['--max-line-length=88',  # black default
            '--extend-ignore=E203']  # E203 is not PEP8 compliant
+    language_version: python3
+
