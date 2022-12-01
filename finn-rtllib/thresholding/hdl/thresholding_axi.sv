@@ -30,6 +30,12 @@
  *
  * @brief	All-AXI interface adapter for thresholding module.
  * @author	Thomas B. Preußer <tpreusse@amd.com>
+ *
+ * @description
+ *	This AXI adapter fits the core thresholding functionality:
+ *	- with AXI stream data interfaces with flow control
+ *	- with implicit round-robin channel rotation as used by FINN, and
+ *	- performs aligned byte address to parameter word address translation.
  *****************************************************************************/
 
 module $MODULE_NAME_AXI$ #(
@@ -49,7 +55,7 @@ module $MODULE_NAME_AXI$ #(
 	// Writing
 	input	logic                    s_axilite_AWVALID,
 	output	logic                    s_axilite_AWREADY,
-	input	logic [$clog2(C)+N-1:0]  s_axilite_AWADDR,
+	input	logic [$clog2(C)+N+1:0]  s_axilite_AWADDR,	// lowest 2 bits (byte selectors) are ignored
 
 	input	logic         s_axilite_WVALID,
 	output	logic         s_axilite_WREADY,
@@ -109,7 +115,7 @@ module $MODULE_NAME_AXI$ #(
 			else begin
 				if(!WABusy) begin
 					WABusy <= s_axilite_AWVALID;
-					Addr   <= s_axilite_AWADDR[$clog2(C)+N-1:0];
+					Addr   <= s_axilite_AWADDR[$clog2(C)+N+1:2];
 				end
 				if(!WDBusy) begin
 					WDBusy <= s_axilite_WVALID;
