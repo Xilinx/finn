@@ -62,11 +62,9 @@ repos:
     language_version: python3
 
 - repo: https://github.com/PyCQA/flake8
-  rev: 3.9.2
+  rev: 6.0.0
   hooks:
   - id: flake8
     # black-compatible flake-8 config
     args: ['--max-line-length=88',  # black default
            '--extend-ignore=E203']  # E203 is not PEP8 compliant
-    language_version: python3
-
