@@ -72,8 +72,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "SIMD": ("i", True, 0),
             # additional parallelization parameter - not yet implemented
             "M": ("i", False, 1),
-            # alternative implementation style - not yet implemented
-            "parallel_window": ("i", False, 0, {0}),
+            # Enable parallel window output (requires full SIMD unfolding)
+            "parallel_window": ("i", False, 0, {0, 1}),
             "Stride": ("ints", True, []),  # [H, W] = [Y, X]
             "Dilation": ("ints", True, []),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
@@ -639,6 +639,281 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         return template_path, code_gen_dict
 
+    def prepare_codegen_parallel(self):
+        # Parallel implementation style for MMV_out = K:
+        # mix of shift-registers (for parallel read) and line buffers (BRAM or LUTRAM)
+        # compute a static schedule by analyzing access pattern (from im2col function)
+        template_path = (
+            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_parallel.sv"
+        )
+        code_gen_dict = {}
+
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        stride = self.get_nodeattr("Stride")
+        dilation = self.get_nodeattr("Dilation")
+        simd = self.get_nodeattr("SIMD")
+        M = self.get_nodeattr("M")
+
+        k_h, k_w = k
+        h, w = ifm_dim
+        pad = [0, 0, 0, 0]  # padding happens in separate padding node for now
+        stride_h, stride_w = stride
+        dilation_h, dilation_w = dilation
+        pad_h = pad[0] + pad[2]
+        pad_w = pad[1] + pad[3]
+        out_dim_h = im2col.compute_conv_output_dim(h, k_h, stride_h, pad_h, dilation_h)
+        out_dim_w = im2col.compute_conv_output_dim(w, k_w, stride_w, pad_w, dilation_w)
+        mmv_in = M * 1
+        mmv_out = M * k_h * k_w
+        channel_factor = int(ifm_ch / simd)
+
+        # compute minimal buffer length (assuming it holds 1 complete window)
+        buffer_min_size = (
+            (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
+        ) * channel_factor
+
+        # buffer_actual_size = self.get_buffer_depth() # TODO: Move to this method
+        buffer_actual_size = buffer_min_size + 1
+        code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_actual_size)]
+
+        # compute some intermediate values, e.g., kernel "width" = k_w incl. dilation
+        # or cols/rows that are skipped due to imperfect stride<->dim combination
+        kernel_width = (k_w - 1) * dilation_w + 1
+        kernel_height = (k_h - 1) * dilation_h + 1
+        skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w)
+        skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h)
+
+        # compute address increment values for 5-loop nest #TODO: simplify
+        addr_incr_end_simd = 1
+        addr_incr_end_window_elem = (dilation_w - 1) * channel_factor + 1
+        addr_incr_end_window_row = (
+            ((w - kernel_width) * channel_factor)  # remaining line
+            + ((dilation_h - 1) * w * channel_factor)  # skip lines
+            + 1  # wrap-around of minimally sized buffer
+        )
+        addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1
+        addr_incr_end_row = (
+            -buffer_min_size
+            + ((skip_columns + kernel_width) * channel_factor)  # remaining line
+            + ((stride_h - 1) * w * channel_factor)  # skip lines
+            + 1
+        )
+
+        # set certain threshold indices to detect when reading/writing finishes
+        code_gen_dict["$LAST_READ_ELEM$"] = [str(h * w * channel_factor - 1)]
+        code_gen_dict["$LAST_WRITE_ELEM$"] = [
+            str(((h - skip_rows - 1) * w + (w - skip_columns)) * channel_factor - 1)
+        ]
+
+        # default controller loop structure: # iterations (counters) map directly
+        loop_h_iterations = out_dim_h
+        loop_w_iterations = out_dim_w  # -> innermost loop
+        loop_kh_iterations = 1  # k_h
+        loop_kw_iterations = 1  # k_w
+        loop_simd_iterations = 1  # channel_factor
+
+        if loop_w_iterations == 1:
+            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_H"]
+            loop_h_iterations -= 1  # -1 because state is initial state
+        else:
+            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_W"]
+            loop_w_iterations -= 1  # -1 because state is initial state
+
+        tail_incr_w = addr_incr_end_window + buffer_min_size - 1
+        tail_incr_h = addr_incr_end_row + buffer_min_size - 1
+        tail_incr_last_window = buffer_min_size - 1
+        code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
+
+        # overwrite new loop bounds:
+        addr_incr_end_simd = 1
+        addr_incr_end_window_elem = 1
+        addr_incr_end_window_row = 1
+        addr_incr_end_window = tail_incr_w
+        addr_incr_end_row = tail_incr_h
+
+        # add init value for CURRENT_ELEM counter = last elem of first window
+        code_gen_dict["$FIRST_WRITE_ELEM$"] = [str(buffer_min_size - 1)]
+
+        cntr_bitwidth = math.ceil(
+            math.log2(
+                max(
+                    loop_h_iterations - 2 + 1,
+                    loop_w_iterations - 2 + 1,
+                    loop_kh_iterations - 2 + 1,
+                    loop_kw_iterations - 2 + 1,
+                    loop_simd_iterations - 2 + 1,
+                )
+            )
+        )
+        code_gen_dict["$CNTR_BITWIDTH$"] = [str(cntr_bitwidth)]
+        code_gen_dict["$LOOP_H_ITERATIONS$"] = [str(loop_h_iterations - 2)]
+        code_gen_dict["$LOOP_W_ITERATIONS$"] = [str(loop_w_iterations - 2)]
+        code_gen_dict["$LOOP_KH_ITERATIONS$"] = [str(loop_kh_iterations - 2)]
+        code_gen_dict["$LOOP_KW_ITERATIONS$"] = [str(loop_kw_iterations - 2)]
+        code_gen_dict["$LOOP_SIMD_ITERATIONS$"] = [str(loop_simd_iterations - 2)]
+
+        incr_bitwidth = 1 + math.ceil(
+            math.log2(
+                max(
+                    abs(addr_incr_end_simd) + 1,
+                    abs(addr_incr_end_window_elem) + 1,
+                    abs(addr_incr_end_window_row) + 1,
+                    abs(addr_incr_end_window) + 1,
+                    abs(addr_incr_end_row) + 1,
+                    abs(tail_incr_w) + 1,
+                    abs(tail_incr_h) + 1,
+                    abs(tail_incr_last_window) + 1,
+                )
+            )
+        )
+        code_gen_dict["$INCR_BITWIDTH$"] = [str(incr_bitwidth)]
+        code_gen_dict["$HEAD_INCR_SIMD$"] = [str(addr_incr_end_simd)]
+        code_gen_dict["$HEAD_INCR_KW$"] = [str(addr_incr_end_window_elem)]
+        code_gen_dict["$HEAD_INCR_KH$"] = [str(addr_incr_end_window_row)]
+        code_gen_dict["$HEAD_INCR_W$"] = [str(addr_incr_end_window)]
+        code_gen_dict["$HEAD_INCR_H$"] = [str(addr_incr_end_row)]
+        code_gen_dict["$TAIL_INCR_W$"] = [str(tail_incr_w)]
+        code_gen_dict["$TAIL_INCR_H$"] = [str(tail_incr_h)]
+        code_gen_dict["$TAIL_INCR_LAST$"] = [str(tail_incr_last_window)]
+
+        code_gen_dict["$SIMD$"] = [str(simd)]
+        code_gen_dict["$MMV_IN$"] = [str(mmv_in)]
+        code_gen_dict["$MMV_OUT$"] = [str(mmv_out)]
+
+        # prepare buffer partitioning into "reg_fifos" and "bram_fifos"
+        # use normalized ([H,W]=[1,W]) dimensions for 1D case
+        (
+            ifm_ch,
+            [ifm_dim_h, ifm_dim_w],
+            [ofm_dim_h, ofm_dim_w],
+            [k_h, k_w],
+            [stride_h, stride_w],
+            [dilation_h, dilation_w],
+        ) = self.get_1d_conv_attrs_normalized()
+
+        reg_fifos = []
+        bram_fifos_depth = []
+
+        px_idx = 0
+        for ky in range(k_h):
+            reg_fifo = []
+            for kx in range(k_w):
+                reg_fifo.append(px_idx)
+                px_idx += 1
+                if kx < (k_w - 1):
+                    reg_fifo.extend([-1] * (dilation_w - 1))
+                    px_idx += dilation_w - 1
+            reg_fifos.append(reg_fifo)
+
+            if ky < (k_h - 1):
+                line_buffer_len = (w - kernel_width) + w * (dilation_h - 1)
+                bram_fifos_depth.append(line_buffer_len)
+                px_idx += line_buffer_len
+
+        code_gen_dict["$GENERATE_REG_FIFOS$"] = []
+        for i, reg_fifo in enumerate(reg_fifos):
+            code_gen_dict["$GENERATE_REG_FIFOS$"].append(
+                """
+                wire [IN_WIDTH-1:0] reg_fifo_{id}_in;
+                wire [IN_WIDTH-1:0] reg_fifo_{id}_out;
+                wire [IN_WIDTH*{len}-1:0] reg_fifo_{id};
+                {name}_reg_buffer
+                #(
+                .WIDTH(IN_WIDTH),
+                .DEPTH({len})
+                )
+                reg_buffer_inst_{id}
+                (
+                    .CLK(CLK),
+                    .shift_enable(shift_enable),
+                    .shift_in(reg_fifo_{id}_in),
+                    .shift_out(reg_fifo_{id}_out),
+                    .data_out(reg_fifo_{id})
+                );""".format(
+                    name=self.get_verilog_top_module_name(),
+                    id=i,
+                    len=len(reg_fifo),
+                )
+            )
+
+        code_gen_dict["$GENERATE_BRAM_FIFOS$"] = []
+        for i, bram_fifo_depth in enumerate(bram_fifos_depth):
+            code_gen_dict["$GENERATE_BRAM_FIFOS$"].append(
+                """
+                wire [IN_WIDTH-1:0] bram_fifo_{id}_in;
+                wire [IN_WIDTH-1:0] bram_fifo_{id}_out;
+                {name}_ram_buffer
+                #(
+                .WIDTH(IN_WIDTH),
+                .DEPTH({len})
+                )
+                ram_buffer_inst_{id}
+                (
+                    .CLK(CLK),
+                    .RST(RST),
+                    .shift_enable(shift_enable),
+                    .shift_in(bram_fifo_{id}_in),
+                    .shift_out(bram_fifo_{id}_out)
+                );""".format(
+                    name=self.get_verilog_top_module_name(),
+                    id=i,
+                    len=bram_fifo_depth,
+                )
+            )
+
+        code_gen_dict["$GENERATE_OUTPUT_MAPPING$"] = []
+        out_idx = mmv_out - 1
+        for fifo_id, reg_fifo in enumerate(reg_fifos):
+            for fifo_idx, access_idx in enumerate(reg_fifo):
+                if access_idx != -1:
+                    code_gen_dict["$GENERATE_OUTPUT_MAPPING$"].append(
+                        """assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH]
+                        = reg_fifo_{fifo_id}[{access_idx}*{mmv}*OUT_ELEM_WIDTH+
+                        OUT_ELEM_WIDTH*{mmv_idx}+:OUT_ELEM_WIDTH];""".format(
+                            out_idx=out_idx,
+                            fifo_id=fifo_id,
+                            access_idx=len(reg_fifo)
+                            - 1
+                            - int((max(reg_fifo) - access_idx) / M),
+                            mmv_idx=(max(reg_fifo) - access_idx) % M,
+                            mmv=M,
+                        )
+                    )
+                    # reversal: out_idx=0 -> oldest buffer element -> highest access_idx
+                    out_idx = out_idx - 1
+        assert out_idx == -1, "ERROR: Not all output vector elements connected"
+
+        code_gen_dict["$GENERATE_BUFFER_CONNECTION$"] = []
+        for i in range(len(reg_fifos)):
+            if i == 0:
+                # first FIFO containing newest elements -> input comes from input reg
+                code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                    """assign reg_fifo_{fifo_id}_in = data_in;""".format(
+                        fifo_id=i,
+                    )
+                )
+            else:
+                # other REG FIFOs -> input comes from connected BRAM FIFO (line buffer)
+                input_fifo_id = i - 1
+                code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                    """assign reg_fifo_{fifo_id}_in = bram_fifo_{input_fifo_id}_out;
+                    """.format(
+                        fifo_id=i, input_fifo_id=input_fifo_id
+                    )
+                )
+        for i in range(len(bram_fifos_depth)):
+            input_fifo_id = i
+            code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                """assign bram_fifo_{fifo_id}_in = reg_fifo_{input_fifo_id}_out;
+                """.format(
+                    fifo_id=i, input_fifo_id=input_fifo_id
+                )
+            )
+
+        return template_path, code_gen_dict
+
     def select_impl_style(self):
         simd = self.get_nodeattr("SIMD")
         M = self.get_nodeattr("M")
@@ -685,9 +960,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         else:
             impl_style = "default"
 
-        assert (
-            impl_style == "default"
-        ), "ERROR: Parallel window mode not yet implemented"
         return impl_style
 
     def generate_hdl(self):
@@ -696,6 +968,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         # prepare code generation by filling out dictionaries
         if impl_style == "default":
             template_path, code_gen_dict = self.prepare_codegen_default()
+        elif impl_style == "parallel":
+            template_path, code_gen_dict = self.prepare_codegen_parallel()
         else:
             raise Exception("Requested impl. style not implemented")
 
