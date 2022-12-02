@@ -98,7 +98,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
-    SplitLargeFifos,
+    SplitLargeFIFOs,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
@@ -572,7 +572,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     # json file has been written. otherwise, since these transforms may add/remove
     # FIFOs, we get name mismatch problems when trying to reuse the final config.
     if cfg.split_large_fifos:
-        model = model.transform(SplitLargeFifos())
+        model = model.transform(SplitLargeFIFOs())
     model = model.transform(RemoveShallowFIFOs())
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again

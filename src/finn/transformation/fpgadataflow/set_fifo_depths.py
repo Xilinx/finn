@@ -422,20 +422,23 @@ class InsertAndSetFIFODepths(Transformation):
         return (model, False)
 
 
-class SplitLargeFifos(Transformation):
-    """Split FIFOs with a depth larger than 32768 into smaller ones
-    to ensure that they can be correctly generated."""
+class SplitLargeFIFOs(Transformation):
+    """Split large FIFOs before implementation, for two reasons:
+    - impl_style="vivado" supports a max depth of 32k. Any larger
+      FIFOs must be implemented as a sequence of smaller FIFOs.
+    - impl_style="vivado" requires power-of-two depths, which is
+      normally handled by rounding up to the nearest power-of-two.
+      So a FIFO of size 8196 normally gets rounded-up to a depth of
+      16384 and wastes a lot of resources. Here, instead, we split
+      this up into two FIFOs of depth 8192 + 4.
+    """
 
-    def __init__(
-        self,
-        max_qsrl_depth=256,
-    ):
+    def __init__(self, max_qsrl_depth=256, max_vivado_depth=32768):
         super().__init__()
         self.max_qsrl_depth = max_qsrl_depth
+        self.max_vivado_depth = max_vivado_depth
 
     def get_split_configs(self, depth):
-        max_size = 32768
-
         def floor_pow2(x):
             if (x & (x - 1) == 0) and x != 0:
                 return x
@@ -446,14 +449,13 @@ class SplitLargeFifos(Transformation):
         # trivial case: for small FIFOs, return as-is with rtl style
         if depth <= self.max_qsrl_depth:
             return [(depth, "rtl")]
-        # first pass: ensure max depth of 32k is respected
+        # first pass: ensure max depth is respected
         # (restricted by Vivado AXIS infra IP)
-
         remainder = depth
         while remainder != 0:
-            if remainder > max_size:
-                ret.append(max_size)
-                remainder -= max_size
+            if remainder > self.max_vivado_depth:
+                ret.append(self.max_vivado_depth)
+                remainder -= self.max_vivado_depth
             else:
                 ret.append(remainder)
                 remainder = 0
