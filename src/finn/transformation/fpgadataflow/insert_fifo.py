@@ -67,7 +67,7 @@ class InsertFIFO(Transformation):
     between fpgadataflow nodes.
 
     Takes the setting for the depth from the surrounding nodes by extracting
-    node attribute 'outFIFODepth' of the previous and node attribute 'inFIFODepth'
+    node attribute 'outFIFODepths' of the previous and node attribute 'inFIFODepths'
     of the subsequent node. max() of these two values sets the FIFO depth.
 
     Constructor arguments:
@@ -128,8 +128,8 @@ class InsertFIFO(Transformation):
                         folded output shape of the second node. A streaming fifo can't
                         be implemented in between these nodes."""
 
-                        # check if outFIFOdepth attribute of first node
-                        # and inFIFOdepth attribute of consumer node is equal
+                        # check if outFIFOdepths attribute of first node
+                        # and inFIFOdepths attribute of consumer node is equal
                         n0_depth = n0.get_nodeattr("outFIFODepths")[idx_out]
                         n1_depth = n1.get_nodeattr("inFIFODepths")[idx_inp]
 
