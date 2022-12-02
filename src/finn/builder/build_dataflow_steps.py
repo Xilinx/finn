@@ -552,10 +552,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:
             model = model.transform(ApplyConfig(cfg.folding_config_file))
-        if cfg.split_large_fifos:
-            model = model.transform(SplitLargeFifos())
-        # remove any shallow FIFOs
-        model = model.transform(RemoveShallowFIFOs())
 
     # extract the final configuration and save it as json
     hw_attrs = [
@@ -571,6 +567,13 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     extract_model_config_to_json(
         model, cfg.output_dir + "/final_hw_config.json", hw_attrs
     )
+
+    # perform FIFO splitting and shallow FIFO removal only after the final config
+    # json file has been written. otherwise, since these transforms may add/remove
+    # FIFOs, we get name mismatch problems when trying to reuse the final config.
+    if cfg.split_large_fifos:
+        model = model.transform(SplitLargeFifos())
+    model = model.transform(RemoveShallowFIFOs())
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
