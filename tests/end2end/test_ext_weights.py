@@ -113,6 +113,7 @@ def test_end2end_ext_weights_build():
 
 @pytest.mark.board
 @pytest.mark.end2end
+@pytest.mark.fail
 def test_end2end_ext_weights_dataset():
     # make sure we have local copies of mnist dataset files
     subprocess.check_output(["mkdir", "-p", mnist_local])
@@ -129,6 +130,7 @@ def test_end2end_ext_weights_dataset():
 
 
 @pytest.mark.end2end
+@pytest.mark.xfail
 def test_end2end_ext_weights_run_on_hw():
     build_env = get_build_env(build_kind, target_clk_ns)
     deploy_dir = get_checkpoint_name("build")
