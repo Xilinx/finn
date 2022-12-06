@@ -1193,8 +1193,8 @@ class VectorVectorActivation(HLSCustomOp):
         thr_luts = 0
         comp_luts = 0
         noact = self.get_nodeattr("noActivation")
-        tmem_style = self.get_nodeattr("ram_style_thresholds")
-        if (noact == 0) and (tmem_style == "distributed"):
+        # TODO - add 'ram_style_threshold' node attribute
+        if noact == 0:
             odt = self.get_output_datatype()
             B = odt.bitwidth()
             thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
