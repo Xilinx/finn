@@ -90,6 +90,7 @@ def test_end2end_ext_weights_build():
     output_dir = make_build_dir("test_end2end_ext_weights_build")
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        verbose=True,
         folding_config_file=folding_config_file,
         synth_clk_period_ns=target_clk_ns,
         board=build_env["board"],
@@ -113,7 +114,7 @@ def test_end2end_ext_weights_build():
 
 @pytest.mark.board
 @pytest.mark.end2end
-@pytest.mark.fail
+@pytest.mark.xfail
 def test_end2end_ext_weights_dataset():
     # make sure we have local copies of mnist dataset files
     subprocess.check_output(["mkdir", "-p", mnist_local])
