@@ -65,9 +65,32 @@ def make_single_verilog_file(model):
     # are identical but in multiple directories (regslice_core.v)
 
     # remove duplicates from list by doing list -> set -> list
+    src_exts = [".v", ".sv"]
+
     all_verilog_files = list(
-        set(filter(lambda x: x.endswith(".v") or x.endswith(".sv"), all_verilog_srcs))
+        set(
+            filter(
+                lambda x: any(map(lambda y: x.endswith(y), src_exts)), all_verilog_srcs
+            )
+        )
     )
+
+    verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
+    os.makedirs(verilog_header_dir, exist_ok=True)
+
+    # use custom version of axis infrastructure vh
+    # to enable Verilator to simulate AMD/Xilinx components (e.g DWC)
+    custom_vh = pk.resource_filename(
+        "finn.qnn-data", "verilog/custom_axis_infrastructure.vh"
+    )
+    shutil.copy(custom_vh, verilog_header_dir + "/axis_infrastructure_v1_1_0.vh")
+    for fn in all_verilog_srcs:
+        if fn.endswith(".vh"):
+            if "axis_infrastructure_v1_1_0.vh" in fn:
+                # skip, we use a custom version for this file without recursive gcd
+                continue
+            else:
+                shutil.copy(fn, verilog_header_dir)
 
     # remove all but one instances of regslice_core.v
     filtered_verilog_files = []
@@ -85,7 +108,12 @@ def make_single_verilog_file(model):
         for vfile in filtered_verilog_files:
             with open(vfile) as rf:
                 wf.write("//Added from " + vfile + "\n\n")
-                wf.write(rf.read())
+                lines = rf.read()
+                for line in lines.split("\n"):
+                    # break down too-long lines, Verilator complains otherwise
+                    if len(line) > 20000:
+                        line = line.replace("&", "\n&")
+                    wf.write("\n" + line)
     return vivado_stitch_proj_dir
 
 
@@ -227,12 +255,8 @@ def pyverilate_stitched_ip(
     if PyVerilator is None:
         raise ImportError("Installation of PyVerilator is required.")
 
-    vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
-    with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
-        all_verilog_srcs = f.read().split()
-
-    def file_to_dir(x):
-        return os.path.dirname(os.path.realpath(x))
+    vivado_stitch_proj_dir = make_single_verilog_file(model)
+    verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
 
     def file_to_basename(x):
         return os.path.basename(os.path.realpath(x))
@@ -240,61 +264,6 @@ def pyverilate_stitched_ip(
     top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
     top_module_name = top_module_file_name.strip(".v")
     build_dir = make_build_dir("pyverilator_ipstitched_")
-
-    # dump all Verilog code to a single file
-    # this is because large models with many files require
-    # a verilator command line too long for bash on most systems
-    # NOTE: there are duplicates in this list, and some files
-    # are identical but in multiple directories (regslice_core.v)
-
-    # remove duplicates from list by doing list -> set -> list
-    src_exts = [".v", ".sv"]
-
-    all_verilog_src_files = list(
-        set(
-            filter(
-                lambda x: any(map(lambda y: x.endswith(y), src_exts)), all_verilog_srcs
-            )
-        )
-    )
-
-    verilog_header_dir = make_build_dir("pyverilator_vh_")
-    # use custom version of axis infrastructure vh
-    # to enable Verilator to simulate AMD/Xilinx components (e.g DWC)
-    custom_vh = pk.resource_filename(
-        "finn.qnn-data", "verilog/custom_axis_infrastructure.vh"
-    )
-    shutil.copy(custom_vh, verilog_header_dir + "/axis_infrastructure_v1_1_0.vh")
-    for fn in all_verilog_srcs:
-        if fn.endswith(".vh"):
-            if "axis_infrastructure_v1_1_0.vh" in fn:
-                # skip, we use a custom version for this file without recursive gcd
-                continue
-            else:
-                shutil.copy(fn, verilog_header_dir)
-
-    # remove all but one instances of regslice_core.v
-    filtered_verilog_files = []
-    remove_entry = False
-    for vfile in all_verilog_src_files:
-        if "regslice_core" in vfile:
-            if not remove_entry:
-                filtered_verilog_files.append(vfile)
-            remove_entry = True
-        else:
-            filtered_verilog_files.append(vfile)
-
-    # concatenate all verilog code into a single file
-    with open(vivado_stitch_proj_dir + "/" + top_module_file_name, "w") as wf:
-        for vfile in filtered_verilog_files:
-            with open(vfile) as rf:
-                wf.write("//Added from " + vfile + "\n\n")
-                lines = rf.read()
-                for line in lines.split("\n"):
-                    # break down too-long lines, Verilator complains otherwise
-                    if len(line) > 20000:
-                        line = line.replace("&", "\n&")
-                    wf.write("\n" + line)
 
     verilator_args = []
     # disable common verilator warnings that should be harmless but commonly occur
