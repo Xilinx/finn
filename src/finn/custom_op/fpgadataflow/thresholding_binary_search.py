@@ -129,10 +129,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
     def lut_estimation(self):
         return 0
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         return DataType[self.get_nodeattr("outputDataType")]
 
     def get_weight_datatype(self):
@@ -142,11 +142,11 @@ class Thresholding_Binary_Search(HLSCustomOp):
     def minimize_accumulator_width(self, model):
         return None
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         return i_bits * self.get_nodeattr("PE")
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
@@ -163,24 +163,24 @@ class Thresholding_Binary_Search(HLSCustomOp):
         w_width = pe * wp * n_thres_steps
         return w_width
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         fold = self.calc_tmem()
         pe = self.get_nodeattr("PE")
         vecs = list(self.get_nodeattr("numInputVectors"))
         folded_input_shape = tuple(vecs + [fold, pe])
         return folded_input_shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         # same shape as input
         return self.get_folded_input_shape()
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         num_channels = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         normal_input_shape = tuple(vecs + [num_channels])
         return normal_input_shape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         # same shape as input
         return self.get_normal_input_shape()
 
