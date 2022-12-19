@@ -121,7 +121,7 @@ if {$BOARD == "ZCU104"} {
     set_property board_part avnet.com:ultra96v1:part0:1.2 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "ZUBoard-1CG"} {
-    set_property board_part avnet.com:zub1cg:part0:1.0 [current_project]
+    set_property board_part avnet.com:zuboard_1cg:part0:1.0 [current_project]
     set ZYNQ_TYPE "zynq_us+"
 } elseif {$BOARD == "Pynq-Z2"} {
     set ZYNQ_TYPE "zynq_7000"
