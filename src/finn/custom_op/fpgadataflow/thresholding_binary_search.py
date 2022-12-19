@@ -105,6 +105,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
             # weight data from the weight FIFOs.
             "gen_top_module": ("s", False, ""),
             "activation_bias": ("i", False, 0),
+            "clkFreq": ("i", False, 200000000),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -604,6 +605,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
         cmd = []
         rtl_file_list = self.get_rtl_file_list()
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        node_name = self.onnx_node.name
+        dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0][0]
+        din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
+        clock_freq = self.get_nodeattr("clkFreq")
 
         for rtl_file in rtl_file_list:
             cmd.append(
@@ -616,20 +621,14 @@ class Thresholding_Binary_Search(HLSCustomOp):
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
         )
 
-        # ERROR: [BD 41-237] Bus Interface property FREQ_HZ does not match between
-        # /Thresholding_Binary_Search_0/s_axis(100000000 and
-        # /StreamingFIFO_0/out_V(200000000.000000)
         cmd.append(
-            "set_property -dict [list CONFIG.FREQ_HZ {200000000}] [%s %s]"
-            % ("get_bd_intf_pins", "Thresholding_Binary_Search_0/s_axis")
+            "set_property -dict [list CONFIG.FREQ_HZ {%d}] [%s %s/%s]"
+            % (clock_freq, "get_bd_intf_pins", node_name, din_name)
         )
 
-        # ERROR: [BD 41-237] Bus Interface property FREQ_HZ does not match between
-        # /StreamingFIFO_1/in0_V(200000000.000000) and
-        # /Thresholding_Binary_Search_0/m_axis(100000000)
         cmd.append(
-            "set_property -dict [list CONFIG.FREQ_HZ {200000000}] [%s %s]"
-            % ("get_bd_intf_pins", "Thresholding_Binary_Search_0/m_axis")
+            "set_property -dict [list CONFIG.FREQ_HZ {%d}] [%s %s/%s]"
+            % (clock_freq, "get_bd_intf_pins", node_name, dout_name)
         )
 
         return cmd
