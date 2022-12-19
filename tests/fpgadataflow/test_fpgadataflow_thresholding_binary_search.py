@@ -242,11 +242,6 @@ def test_fpgadataflow_thresholding_binary_search_cppsim():
     thresholds = generate_random_threshold_values(
         input_data_type, num_input_channels, num_steps
     )
-
-    # make the vivado_hls threshold bug appear (incorrect rtlsim result when first
-    # threshold of first channel is zero, while using BIPOLAR output)
-    if act == DataType["BIPOLAR"]:
-        thresholds[0][0] = 0
     thresholds = sort_thresholds_increasing(thresholds)
 
     # Other non-input parameters
@@ -350,10 +345,6 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
     thresholds = generate_random_threshold_values(
         input_data_type, num_input_channels, num_steps
     )
-    # make the vivado_hls threshold bug appear (incorrect rtlsim result when first
-    # threshold of first channel is zero, while using BIPOLAR output)
-    if act == DataType["BIPOLAR"]:
-        thresholds[0][0] = 0
     thresholds = sort_thresholds_increasing(thresholds)
 
     # Other non-input parameters
@@ -419,11 +410,6 @@ def test_fpgadataflow_thresholding_binary_search(
     thresholds = generate_random_threshold_values(
         input_data_type, num_input_channels, num_steps
     )
-
-    # make the vivado_hls threshold bug appear (incorrect rtlsim result when first
-    # threshold of first channel is zero, while using BIPOLAR output)
-    if activation == DataType["BIPOLAR"]:
-        thresholds[0][0] = 0
 
     # provide non-decreasing/ascending thresholds
     thresholds = sort_thresholds_increasing(thresholds)
