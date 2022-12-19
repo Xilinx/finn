@@ -41,10 +41,28 @@ from finn.util.basic import (
 )
 
 
-def make_single_verilog_file(model):
+def make_single_source_file(filtered_verilog_files, target_file):
     """Dump all Verilog code used by stitched IP into a single file.
     This is because large models with many files require a verilator
     command line too long for bash on most systems"""
+
+    # concatenate all verilog code into a single file
+    with open(target_file, "w") as wf:
+        for vfile in filtered_verilog_files:
+            with open(vfile) as rf:
+                wf.write("//Added from " + vfile + "\n\n")
+                lines = rf.read()
+                for line in lines.split("\n"):
+                    # break down too-long lines, Verilator complains otherwise
+                    if len(line) > 20000:
+                        line = line.replace("&", "\n&")
+                    wf.write("\n" + line)
+
+
+def prepare_stitched_ip_for_verilator(model):
+    """Prepare sources from given stitched IP for verilator simulation, including
+    generating a single source file and replacing certain Vivado infrastructure
+    headers with Verilator-compatible ones"""
 
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
@@ -103,17 +121,9 @@ def make_single_verilog_file(model):
         else:
             filtered_verilog_files.append(vfile)
 
-    # concatenate all verilog code into a single file
-    with open(vivado_stitch_proj_dir + "/" + top_module_file_name, "w") as wf:
-        for vfile in filtered_verilog_files:
-            with open(vfile) as rf:
-                wf.write("//Added from " + vfile + "\n\n")
-                lines = rf.read()
-                for line in lines.split("\n"):
-                    # break down too-long lines, Verilator complains otherwise
-                    if len(line) > 20000:
-                        line = line.replace("&", "\n&")
-                    wf.write("\n" + line)
+    target_file = vivado_stitch_proj_dir + "/" + top_module_file_name
+    make_single_source_file(filtered_verilog_files, target_file)
+
     return vivado_stitch_proj_dir
 
 
@@ -122,7 +132,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     driver to drive the input stream. Useful for FIFO sizing, latency
     and throughput measurement."""
 
-    vivado_stitch_proj_dir = make_single_verilog_file(model)
+    vivado_stitch_proj_dir = prepare_stitched_ip_for_verilator(model)
     build_dir = make_build_dir("verilator_fifosim_")
     fifosim_cpp_fname = pk.resource_filename(
         "finn.qnn-data", "cpp/verilator_fifosim.cpp"
@@ -255,7 +265,7 @@ def pyverilate_stitched_ip(
     if PyVerilator is None:
         raise ImportError("Installation of PyVerilator is required.")
 
-    vivado_stitch_proj_dir = make_single_verilog_file(model)
+    vivado_stitch_proj_dir = prepare_stitched_ip_for_verilator(model)
     verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
 
     def file_to_basename(x):
