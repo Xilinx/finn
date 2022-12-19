@@ -103,7 +103,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
             # always "flush" the accelerator by first passing a dummy input
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
-            "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             "gen_top_module": ("s", False, ""),
             "activation_bias": ("i", False, 0),
         }
@@ -655,8 +654,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         intf_names["axilite"] = ["s_axilite"]
         intf_names["s_axis"] = [["s_axis"]]
         intf_names["m_axis"] = [["m_axis"]]
-
-        self.set_nodeattr("runtime_writeable_weights", 1)
 
         return intf_names
 
