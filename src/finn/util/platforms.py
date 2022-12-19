@@ -242,6 +242,29 @@ class Zynq7020_Platform(Platform):
         return [[53200, 2 * 53200, 280, 0, 220] for i in range(1)]
 
 
+class ZU1CG_Platform(Platform):
+    def __init__(
+        self,
+        ndevices=1,
+        limits=DEFAULT_RES_LIMITS,
+        avg_constraints=DEFAULT_AVG_CONSTRAINTS,
+    ):
+        super(ZU1CG_Platform, self).__init__(
+            nslr=1,
+            ndevices=ndevices,
+            sll_count=[[0]],
+            ddr_slr=[],
+            eth_slr=0,
+            eth_gbps=1,
+            limits=limits,
+            avg_constraints=avg_constraints,
+        )
+
+    @property
+    def compute_resources(self):
+        return [[37000, 2 * 37000, 206, 0, 216] for i in range(1)]
+
+
 class ZU3EG_Platform(Platform):
     def __init__(
         self,
@@ -477,4 +500,5 @@ platforms["Pynq-Z2"] = Zynq7020_Platform
 platforms["Ultra96"] = ZU3EG_Platform
 platforms["ZCU104"] = ZU7EV_Platform
 platforms["ZCU102"] = ZU9EG_Platform
+platforms["ZUBoard-1CG"] = ZU1CG_Platform
 platforms["ZCU111"] = ZU28DR_Platform
