@@ -43,7 +43,7 @@ module $MODULE_NAME_AXI$ #(
 	int unsigned  M,	// input/threshold precision
 	int unsigned  C,	// Channels
 
-	int BIAS,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
+	int BIAS,  // offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
 
 	int unsigned O_BITS
 )(
