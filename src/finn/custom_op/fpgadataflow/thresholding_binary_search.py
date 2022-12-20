@@ -76,8 +76,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
             "NumChannels": ("i", True, 0),
             # number of steps in thresholding function. Used only in decoupled mode
             "numSteps": ("i", True, 1),
-            # string defining memory type
-            "ram_style": ("s", False, "distributed", {"distributed", "block"}),
             # FINN DataTypes for inputs, outputs
             "inputDataType": ("s", True, ""),
             "weightDataType": ("s", True, ""),
@@ -470,14 +468,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         )
 
         # Synthesis thresholds:
-        ram_style = self.get_nodeattr("ram_style")
-        if ram_style == "ultra":
-            # UltraRAM must have no memory initializer, or only zeroes
-            # otherwise BRAM will be inferred instead of URAM
-            # as a workaround we provide a zero-weight init here
-            synth_thresholds = np.zeros_like(thresholds, dtype=np.float32)
-        else:
-            synth_thresholds = thresholds
+        synth_thresholds = thresholds
         self.make_weight_file(
             synth_thresholds, "decoupled_verilog_dat", weight_filename_rtl_synth
         )
