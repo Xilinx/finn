@@ -125,14 +125,17 @@ class CapConvolutionFIFODepths(Transformation):
     constructor flag is set.
 
     Constructor arguments:
-    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
-                       Verilog FIFOs (Q_srl.v)
+
+    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
+        instead of Verilog FIFOs (Q_srl.v)
 
     Assumed input graph properties:
+
     - all nodes are fpgadataflow nodes
     - FIFOs inserted with InsertAndSetFIFODepths
 
     Output:
+
     - graph with smaller-depth FIFOs for convolutions
 
     Background:
@@ -188,22 +191,25 @@ class InsertAndSetFIFODepths(Transformation):
     throughput in the created accelerator.
 
     Constructor arguments:
-    - clk_ns : clock period (used for IP preparation)
-    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
-                       Verilog FIFOs (Q_srl.v)
-    - max_depth : how deep the "max"-sized FIFOs initially inserted will be
-                   if set to None, use the tensor size as the depth
-    - swg_exception : call CapConvolutionFIFODepths to make convolution FIFOs
-                        smaller where appropriate
-    - vivado_ram_style : the StreamingFIFO.ram_style attribute to be used for
-                          large FIFOs implemented by Vivado afterwards
+
+    :parameter clk_ns: clock period (used for IP preparation)
+    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
+        instead of Verilog FIFOs (Q_srl.v)
+    :parameter max_depth: how deep the "max"-sized FIFOs initially inserted
+        will be. If set to None, use the tensor size as the depth
+    :parameter swg_exception: call CapConvolutionFIFODepths to make convolution FIFOs
+        smaller where appropriate
+    :parameter vivado_ram_style: the StreamingFIFO.ram_style attribute to be used
+        for large FIFOs implemented by Vivado afterwards
 
     Assumed input graph properties:
+
     - all nodes are fpgadataflow nodes
     - no FIFOs inserted,
     - (inFIFODepths/outFIFODepths attrs will be ignored)
 
     Output:
+
     - graph with appropriate-depth FIFOs inserted
 
     Background:
@@ -211,12 +217,14 @@ class InsertAndSetFIFODepths(Transformation):
     necessary to insert FIFOs between them to prevent stalls due to bursty
     behavior. The sizes of those FIFOs are hard to predict analytically, so
     we do the following:
+
     - insert deep (=tensor size) FIFOs between all fpgadataflow nodes
     - create stitched design
     - run through rtlsim with stream of multiple random input images (to fill pipeline)
     - keep track of observed maximum occupancy for each FIFO during rtlsim
     - when sim finished, update each FIFO depth to maximum observed occupancy
       and set inFIFODepths/outFIFODepths attrs to 0 on relevant nodes
+
     """
 
     def __init__(
