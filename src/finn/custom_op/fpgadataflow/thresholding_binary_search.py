@@ -88,8 +88,12 @@ class Thresholding_Binary_Search(HLSCustomOp):
             # [4] is four vectors (like a FC layer with batch=4)
             # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
             "numInputVectors": ("ints", False, [1]),
+            # name of the top module in verilog template. Used by PyVerilator
+            # and IPI generation
             "gen_top_module": ("s", False, ""),
+            # bias to be applied to outputs of the node
             "activation_bias": ("i", False, 0),
+            # used for IPI step
             "clkFreq": ("i", False, 200000000),
         }
         my_attrs.update(super().get_nodeattr_types())
