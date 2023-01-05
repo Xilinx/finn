@@ -38,7 +38,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
+from finn.util.basic import get_rtlsim_trace_depth, make_build_dir, find_next_power_of_2
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     pack_innermost_dim_as_hex_string,
@@ -647,23 +647,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         return intf_names
 
-    def find_next_power_of_2(self, n):
-        # Negative values will loop infinitely below - return 0
-        if n <= 0:
-            return 0
-        # If '1' is requested, output will be '0' in the loop below, avoid this now.
-        elif n == 1:
-            return 2  # i.e. 2**1
-
-        # decrement 'n' (to handle cases when `n` itself is a power of 2)
-        n = n - 1
-
-        # loop until only one bit is left
-        while n & n - 1:
-            # unset rightmost bit
-            n = n & n - 1
-        return n << 1
-
     def twos_comp(self, val, bitwidth):
         return (val + (1 << bitwidth)) % (1 << bitwidth)
 
@@ -678,7 +661,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         thresholds = model.get_initializer(self.onnx_node.input[1])
         num_channels, num_weights_per_channel = thresholds.shape
 
-        weight_addr_boundary = self.find_next_power_of_2(num_weights_per_channel)
+        weight_addr_boundary = find_next_power_of_2(num_weights_per_channel)
         # Make sure that the next power of 2 (output) is greater than the input
         assert weight_addr_boundary >= num_weights_per_channel
 
