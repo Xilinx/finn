@@ -217,7 +217,7 @@ def test_convert_to_hls_tbs_rtl_variant(
     # Paralellisation not supported for thresholding binary search rtl node
     if pe != 1:
         pytest.skip(
-            "Paralellisation of IP not supported for RTL Thresholding Binary Search node"
+            "Paralellisation not supported for RTL Thresholding Binary Search node"
         )
 
     # Other non-input parameters
