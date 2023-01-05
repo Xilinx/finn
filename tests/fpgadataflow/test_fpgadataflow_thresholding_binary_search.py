@@ -96,6 +96,7 @@ def make_single_thresholding_binary_search_modelwrapper(
     mem_mode,
     num_input_vecs,
 ):
+
     NumChannels = thresholds.shape[0]
 
     inp = helper.make_tensor_value_info(
@@ -223,61 +224,6 @@ def test_fpgadataflow_thresholding_binary_search_unit():
     return
 
 
-# Test brief: Prove that cppsim is not supported for this class
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-def test_fpgadataflow_thresholding_binary_search_cppsim():
-    input_data_type = DataType["UINT16"]
-    act = DataType["BIPOLAR"]
-    fold = -1
-    num_input_channels = 16
-    # 'const' is unsupported see test:
-    # test_fpgadataflow_thresholding_binary_search_const_mem_mode()
-    mem_mode = "decoupled"
-
-    pe = generate_pe_value(fold, num_input_channels)
-    num_steps = act.get_num_possible_values() - 1
-
-    # Generate random, non-decreasing thresholds
-    thresholds = generate_random_threshold_values(
-        input_data_type, num_input_channels, num_steps
-    )
-    thresholds = sort_thresholds_increasing(thresholds)
-
-    # Other non-input parameters
-    num_input_vecs = [1, 2, 2]
-    output_data_type = act
-    if output_data_type == DataType["BIPOLAR"]:
-        activation_bias = 0
-    else:
-        activation_bias = output_data_type.min()
-
-    # Generate model from input parameters to the test
-    model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds,
-        pe,
-        input_data_type,
-        output_data_type,
-        activation_bias,
-        mem_mode,
-        num_input_vecs,
-    )
-
-    # Cppsim is not supported for this class, catch the specific exception thrown by
-    # cppsim. Exception raised in cppsim: Custom op_type Thresholding_Binary_Search is
-    # currently not supported.
-    try:
-        model = model.transform(PrepareCppSim())
-        model = model.transform(CompileCppSim())
-        model = model.transform(SetExecMode("cppsim"))
-    except Exception as e:
-        if (
-            str(e)
-            != "Custom op_type Thresholding_Binary_Search is currently not supported."
-        ):
-            raise
-
-
 # Test brief: Prove that memory mode 'const' is not supported for this layer type
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -384,15 +330,22 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 # no need to test 'const' mode, it's already done in:
 # test_fpgadataflow_thresholding_binary_search_const_mem_mode()
 @pytest.mark.parametrize("mem_mode", ["decoupled"])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding_binary_search(
-    activation, input_data_type, fold, num_input_channels, mem_mode
+    activation, input_data_type, fold, num_input_channels, mem_mode, exec_mode
 ):
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = activation.get_num_possible_values() - 1
+
+    # Cppsim is not supported for this node (as it is an RTL node)
+    if exec_mode == "cppsim":
+        pytest.skip("cppsim not supported for RTL Thresholding Binary Search node")
+    elif exec_mode != "rtlsim":
+        raise Exception("Unknown exec_mode: {}".format(exec_mode))
 
     # Other non-input parameters
     num_input_vecs = [1, 2, 2]
