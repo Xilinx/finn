@@ -42,14 +42,10 @@ from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 from finn.core.rtlsim_exec import rtlsim_exec
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -209,14 +205,16 @@ def test_convert_to_hls_tbs_rtl_variant(
     # Cppsim is not supported for this node (as it is an RTL node)
     if mem_mode == "const":
         pytest.skip(
-            "const memory mode not supported for RTL Thresholding Binary Search node"
+            "const memory mode not supported for " \
+            "RTL Thresholding Binary Search node"
         )
     elif mem_mode != "decoupled":
         raise Exception("Unknown mem_mode: {}".format(mem_mode))
 
     if activation == DataType["BIPOLAR"]:
         pytest.skip(
-            "Only negative activations are supported for RTL Thresholding Binary Search node"
+            "Only negative activations are supported for " \
+            "RTL Thresholding Binary Search node"
         )
 
     # Paralellisation not supported for thresholding binary search rtl node
@@ -310,7 +308,7 @@ def test_convert_to_hls_tbs_rtl_variant(
     y_produced = input_dict["outp"]
     assert (y_produced == y_expected).all()
 
-    #### Make a Multithreshold graph and convert to thresholding binary search node
+    # Make a Multithreshold graph and convert to thresholding binary search node
     new_model = make_single_multithresholding_modelwrapper(
         thresholds,
         pe,

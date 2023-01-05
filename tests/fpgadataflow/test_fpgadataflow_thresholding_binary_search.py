@@ -39,11 +39,9 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor
 
 from finn.core.rtlsim_exec import rtlsim_exec
-from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -207,7 +205,8 @@ def test_fpgadataflow_thresholding_binary_search(
     # Paralellisation not supported for thresholding binary search rtl node
     if pe != 1:
         pytest.skip(
-            "Paralellisation of IP not supported for RTL Thresholding Binary Search node"
+            "Paralellisation of IP not supported for " \
+            "RTL Thresholding Binary Search node"
         )
 
     # Cppsim is not supported for this node (as it is an RTL node)
