@@ -647,12 +647,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         return intf_names
 
-    def twos_comp(self, val, bitwidth):
-        return (val + (1 << bitwidth)) % (1 << bitwidth)
-
-    def prep_axilite_val(self, val):
-        return self.twos_comp(int(val), self.get_weight_datatype().bitwidth())
-
     def get_dynamic_config(self, model, address_stride=1):
         """Returns a configuration dictionary containing axilite write commands
         in order to program the thresholds into the RTL core during runtime.
@@ -677,7 +671,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
                 )
                 config[key_name] = (
                     channel_start_addr + addr,
-                    self.prep_axilite_val(weight),
+                    int(str(pack_innermost_dim_as_hex_string([weight], self.get_weight_datatype(), self.get_weight_datatype().bitwidth())), 0),
                 )
 
                 weight_cntr += 1
