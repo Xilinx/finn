@@ -205,8 +205,7 @@ def test_convert_to_hls_tbs_rtl_variant(
     # Cppsim is not supported for this node (as it is an RTL node)
     if mem_mode == "const":
         pytest.skip(
-            "const memory mode not supported for "
-            "RTL Thresholding Binary Search node"
+            "const memory mode not supported for this node"
         )
     elif mem_mode != "decoupled":
         raise Exception("Unknown mem_mode: {}".format(mem_mode))
