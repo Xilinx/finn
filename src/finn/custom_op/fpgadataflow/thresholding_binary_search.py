@@ -101,10 +101,23 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return num_channels // pe
 
     def make_shape_compatible_op(self, model):
-        return []
+        oshape = self.get_normal_output_shape()
+        return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
-        return
+        node = self.onnx_node
+        idt = model.get_tensor_datatype(node.input[0])
+        if idt != self.get_input_datatype():
+            warn_str = "inputDataType changing for %s: %s -> %s " % (
+                node.name,
+                str(self.get_input_datatype().name),
+                str(idt.name),
+            )
+            warnings.warn(warn_str)
+        self.set_nodeattr("inputDataType", idt.name)
+        # set output datatype from property
+        odt = self.get_output_datatype()
+        model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
         return []
@@ -126,7 +139,28 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return DataType[self.get_nodeattr("weightDataType")]
 
     def minimize_accumulator_width(self, model):
-        return None
+        "Minimize threshold width ('accumulator width' here due to convention)"
+        thresholds = model.get_initializer(self.onnx_node.input[1])
+        threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+        min_threshold = thresholds.min()
+        max_threshold = thresholds.max()
+        min_input = self.get_input_datatype().min()
+        max_input = self.get_input_datatype().max()
+        # get range required by threshold values
+        tdt_min = min(min_input, min_threshold)
+        tdt_max = max(max_input, max_threshold)
+        if tdt_min < 0:
+            if abs(tdt_min) > tdt_max:
+                tdt = DataType.get_smallest_possible(tdt_min)
+            else:
+                tdt = DataType.get_smallest_possible(-tdt_max - 1)
+        else:
+            tdt = DataType.get_smallest_possible(tdt_max)
+        assert np.vectorize(tdt.allowed)(
+            threshold_tensor
+        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
+        self.set_nodeattr("weightDataType", tdt.name)
+        return DataType[self.get_nodeattr("weightDataType")]
 
     def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
