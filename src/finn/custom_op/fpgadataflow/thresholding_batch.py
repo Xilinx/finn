@@ -600,8 +600,12 @@ class Thresholding_Batch(HLSCustomOp):
 
     # TODO check and add whatever missing
     def defines(self, var):
-        numInputVectors = list(self.get_nodeattr("numInputVectors"))
-        numReps = int(np.prod(numInputVectors))
+        if self.get_nodeattr("mem_mode") == "const":
+            numReps = 1
+        else:
+            numInputVectors = list(self.get_nodeattr("numInputVectors"))
+            numReps = int(np.prod(numInputVectors))
+
         self.code_gen_dict["$DEFINES$"] = [
             """#define NumChannels1 {}\n #define PE1 {}\n #define numReps {}""".format(
                 self.get_nodeattr("NumChannels"),
