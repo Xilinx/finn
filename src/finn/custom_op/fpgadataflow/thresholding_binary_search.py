@@ -88,19 +88,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
             # [4] is four vectors (like a FC layer with batch=4)
             # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
             "numInputVectors": ("ints", False, [1]),
-            # memory mode for the thresholds
-            # const -- embedded thresholds, default
-            # decoupled -- streaming thresholds with streamer packaged inside IP
-            "mem_mode": ("s", False, "const", {"const", "decoupled"}),
-            # (mem_mode = decoupled only) whether weights (thresholds) will be
-            # writable through an AXI-lite interface during runtime
-            # 1 for enabled, 0 for disabled.
-            # see finn-rtllib/memstream/doc/README for more about the memory
-            # address map used for writable weights
-            # IMPORTANT: After using AXI lite to either read or write the weights,
-            # always "flush" the accelerator by first passing a dummy input
-            # vector through the accelerator. This will get rid of any old
-            # weight data from the weight FIFOs.
             "gen_top_module": ("s", False, ""),
             "activation_bias": ("i", False, 0),
             "clkFreq": ("i", False, 200000000),
@@ -150,12 +137,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return o_bits * self.get_nodeattr("PE")
 
     def get_weightstream_width(self):
-        # Only 'decoupled' mode is supported
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode != "decoupled":
-            raise Exception(
-                "Unrecognized memory mode for this node: {}".format(mem_mode)
-            )
         pe = self.get_nodeattr("PE")
         wp = self.get_weight_datatype().bitwidth()
         n_thres_steps = self.get_nodeattr("numSteps")
@@ -442,13 +423,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         self.generate_params(model, code_gen_dir)
 
     def generate_params(self, model, path):
-        # Only 'decoupled' mode is supported
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode != "decoupled":
-            raise Exception(
-                "Unrecognized memory mode for this node: {}".format(mem_mode)
-            )
-
         code_gen_dir = path
         weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
         thresholds = model.get_initializer(self.onnx_node.input[1])
@@ -506,12 +480,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
             raise Exception(
                 "Invalid exec_mode value: {}; exec_mode must be set to '{}'".format(
                     self.get_nodeattr("exec_mode"), "rtlsim"
-                )
-            )
-        if self.get_nodeattr("mem_mode") != "decoupled":
-            raise Exception(
-                "Invalid mem_mode value: {}; mem_mode must be set to '{}'".format(
-                    self.get_nodeattr("mem_mode"), "decoupled"
                 )
             )
 
@@ -635,12 +603,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         Each block must have at most one aximm and one axilite."""
 
         intf_names = super().get_verilog_top_module_intf_names()
-        # Only 'decoupled' mode is supported - check before adding axilite interface
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode != "decoupled":
-            raise Exception(
-                "Unrecognized memory mode for this node: {}".format(mem_mode)
-            )
         intf_names["axilite"] = ["s_axilite"]
         intf_names["s_axis"] = [["s_axis"]]
         intf_names["m_axis"] = [["m_axis"]]

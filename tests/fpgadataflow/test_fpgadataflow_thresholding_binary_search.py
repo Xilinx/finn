@@ -93,7 +93,6 @@ def make_single_thresholding_binary_search_modelwrapper(
     input_data_type,
     output_data_type,
     activation_bias,
-    mem_mode,
     num_input_vecs,
 ):
 
@@ -121,7 +120,6 @@ def make_single_thresholding_binary_search_modelwrapper(
         weightDataType=input_data_type.name,
         outputDataType=output_data_type.name,
         activation_bias=activation_bias,
-        mem_mode=mem_mode,
         numInputVectors=num_input_vecs,
     )
     graph = helper.make_graph(
@@ -142,54 +140,6 @@ def make_single_thresholding_binary_search_modelwrapper(
     return model
 
 
-# Test brief: Prove that memory mode 'const' is not supported for this layer type
-@pytest.mark.fpgadataflow
-@pytest.mark.vivado
-def test_fpgadataflow_thresholding_binary_search_const_mem_mode():
-    input_data_type = DataType["INT16"]
-    activation = DataType["INT4"]
-    fold = -1
-    num_input_channels = 16
-    mem_mode = "const"
-
-    pe = generate_pe_value(fold, num_input_channels)
-    num_input_vecs = [1, 2, 2]
-    output_data_type = activation
-    activation_bias = output_data_type.min()
-
-    # Generate random thresholds and sort in ascending order
-    num_steps = activation.get_num_possible_values() - 1
-    thresholds = generate_random_threshold_values(
-        input_data_type, num_input_channels, num_steps
-    )
-
-    # Generate model from input parameters to the test
-    model = make_single_thresholding_binary_search_modelwrapper(
-        thresholds,
-        pe,
-        input_data_type,
-        output_data_type,
-        activation_bias,
-        mem_mode,
-        num_input_vecs,
-    )
-
-    # Prove that 'const' memory mode is not supported for this class
-    # 'const' memory mode is not supported for this class, catch the specific exception
-    # thrown by FINN. Exception: ('Unrecognized memory mode for this node:', 'const')
-    try:
-        model = model.transform(InsertFIFO(True))
-        model = model.transform(GiveUniqueNodeNames())
-        model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
-        model = model.transform(HLSSynthIP())
-        model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
-    except Exception as e:
-        if str(e) != "Unrecognized memory mode for this node: {}".format(mem_mode):
-            raise
-        # Caught the expected exception, leave the test early
-        return
-
-
 # Test brief: Test that PrepareRTLSim() runs successfully. This function is not
 # tested in test_fpgadataflow_thresholding_binary_search()
 @pytest.mark.fpgadataflow
@@ -199,7 +149,6 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
     act = DataType["INT4"]
     fold = -1
     num_input_channels = 16
-    mem_mode = "decoupled"
 
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
@@ -226,7 +175,6 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
         input_data_type,
         output_data_type,
         activation_bias,
-        mem_mode,
         num_input_vecs,
     )
 
@@ -245,15 +193,12 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1])  # 1, 2, etc. will fail
 @pytest.mark.parametrize("num_input_channels", [16])
-# no need to test 'const' mode, it's already done in:
-# test_fpgadataflow_thresholding_binary_search_const_mem_mode()
-@pytest.mark.parametrize("mem_mode", ["decoupled"])
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding_binary_search(
-    activation, input_data_type, fold, num_input_channels, mem_mode, exec_mode
+    activation, input_data_type, fold, num_input_channels, exec_mode
 ):
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
@@ -304,7 +249,6 @@ def test_fpgadataflow_thresholding_binary_search(
         input_data_type,
         output_data_type,
         activation_bias,
-        mem_mode,
         num_input_vecs,
     )
 
