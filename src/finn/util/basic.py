@@ -216,3 +216,20 @@ def which(program):
                 return exe_file
 
     return None
+
+def find_next_power_of_2(n):
+    # Negative values will loop infinitely below - return 0
+    if n <= 0:
+        return 0
+    # If '1' is requested, output will be '0' in the loop below, avoid this now.
+    elif n == 1:
+        return 2  # i.e. 2**1
+
+    # decrement 'n' (to handle cases when `n` itself is a power of 2)
+    n = n - 1
+
+    # loop until only one bit is left
+    while n & n - 1:
+        # unset rightmost bit
+        n = n & n - 1
+    return n << 1
