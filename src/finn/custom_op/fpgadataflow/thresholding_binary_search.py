@@ -393,7 +393,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         # Is the input datatype signed or unsigned?
         # The thresholding core needs to know this when comparing weights to inputs
-        if self.get_input_datatype().min() < 0:
+        if self.get_input_datatype().signed():
             code_gen_dict["$SIGN$"] = ["signed"]
         else:
             code_gen_dict["$SIGN$"] = ["unsigned"]
