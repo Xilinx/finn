@@ -194,7 +194,7 @@ def make_single_multithresholding_modelwrapper(
 
 @pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
-@pytest.mark.parametrize("fold", [-1])
+@pytest.mark.parametrize("fold", [-1, 1, 2])
 @pytest.mark.parametrize("num_input_channels", [16])
 @pytest.mark.parametrize("mem_mode", ["decoupled", "const"])
 @pytest.mark.fpgadataflow
@@ -212,6 +212,10 @@ def test_convert_to_hls_tbs_rtl_variant(activation, input_data_type, fold, num_i
 
     if activation == DataType["BIPOLAR"]:
         pytest.skip("Only negative activations are supported for RTL Thresholding Binary Search node")
+
+    # Paralellisation not supported for thresholding binary search rtl node
+    if pe != 1:
+        pytest.skip("Paralellisation of IP not supported for RTL Thresholding Binary Search node")
 
     # Other non-input parameters
     num_input_vecs = [1, 2, 2]
