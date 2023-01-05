@@ -38,7 +38,7 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-from finn.util.basic import get_rtlsim_trace_depth, make_build_dir, find_next_power_of_2
+from finn.util.basic import find_next_power_of_2, get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
     pack_innermost_dim_as_hex_string,
@@ -671,7 +671,16 @@ class Thresholding_Binary_Search(HLSCustomOp):
                 )
                 config[key_name] = (
                     channel_start_addr + addr,
-                    int(str(pack_innermost_dim_as_hex_string([weight], self.get_weight_datatype(), self.get_weight_datatype().bitwidth())), 0),
+                    int(
+                        str(
+                            pack_innermost_dim_as_hex_string(
+                                [weight],
+                                self.get_weight_datatype(),
+                                self.get_weight_datatype().bitwidth(),
+                            )
+                        ),
+                        0,
+                    ),
                 )
 
                 weight_cntr += 1

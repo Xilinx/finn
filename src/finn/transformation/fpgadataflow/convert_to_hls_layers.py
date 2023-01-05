@@ -1167,10 +1167,10 @@ class InferThresholdingLayer(Transformation):
                 else:
                     if self.use_rtl_variant:
                         warnings.warn(
-                        """%s : RTL Thresholding requested for unsupported
+                            """%s : RTL Thresholding requested for unsupported
                             configuration. Falling back to HLS implementation."""
-                        % node.name
-                    )
+                            % node.name
+                        )
 
                     # create and insert new Thresholding_Batch node
                     new_node = helper.make_node(

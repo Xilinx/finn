@@ -217,6 +217,7 @@ def which(program):
 
     return None
 
+
 def find_next_power_of_2(n):
     # Negative values will loop infinitely below - return 0
     if n <= 0:

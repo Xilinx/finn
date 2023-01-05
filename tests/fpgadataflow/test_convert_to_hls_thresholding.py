@@ -40,8 +40,8 @@ from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import gen_finn_dt_tensor
 
-from finn.core.rtlsim_exec import rtlsim_exec
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
+from finn.core.rtlsim_exec import rtlsim_exec
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -199,23 +199,31 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize("mem_mode", ["decoupled", "const"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
-def test_convert_to_hls_tbs_rtl_variant(activation, input_data_type, fold, num_input_channels, mem_mode):
+def test_convert_to_hls_tbs_rtl_variant(
+    activation, input_data_type, fold, num_input_channels, mem_mode
+):
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = activation.get_num_possible_values() - 1
 
     # Cppsim is not supported for this node (as it is an RTL node)
     if mem_mode == "const":
-        pytest.skip("const memory mode not supported for RTL Thresholding Binary Search node")
+        pytest.skip(
+            "const memory mode not supported for RTL Thresholding Binary Search node"
+        )
     elif mem_mode != "decoupled":
         raise Exception("Unknown mem_mode: {}".format(mem_mode))
 
     if activation == DataType["BIPOLAR"]:
-        pytest.skip("Only negative activations are supported for RTL Thresholding Binary Search node")
+        pytest.skip(
+            "Only negative activations are supported for RTL Thresholding Binary Search node"
+        )
 
     # Paralellisation not supported for thresholding binary search rtl node
     if pe != 1:
-        pytest.skip("Paralellisation of IP not supported for RTL Thresholding Binary Search node")
+        pytest.skip(
+            "Paralellisation of IP not supported for RTL Thresholding Binary Search node"
+        )
 
     # Other non-input parameters
     num_input_vecs = [1, 2, 2]
@@ -313,7 +321,9 @@ def test_convert_to_hls_tbs_rtl_variant(activation, input_data_type, fold, num_i
     )
 
     # Recreate the model using the ConvertToHLS transform
-    new_model = new_model.transform(to_hls.InferThresholdingLayer(mem_mode=mem_mode, use_rtl_variant=True))
+    new_model = new_model.transform(
+        to_hls.InferThresholdingLayer(mem_mode=mem_mode, use_rtl_variant=True)
+    )
     new_model = new_model.transform(InsertFIFO(True))
     new_model = new_model.transform(GiveUniqueNodeNames())
     new_model = new_model.transform(PrepareIP(test_fpga_part, target_clk_ns))

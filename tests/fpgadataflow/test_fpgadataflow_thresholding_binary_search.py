@@ -206,7 +206,9 @@ def test_fpgadataflow_thresholding_binary_search(
 
     # Paralellisation not supported for thresholding binary search rtl node
     if pe != 1:
-        pytest.skip("Paralellisation of IP not supported for RTL Thresholding Binary Search node")
+        pytest.skip(
+            "Paralellisation of IP not supported for RTL Thresholding Binary Search node"
+        )
 
     # Cppsim is not supported for this node (as it is an RTL node)
     if exec_mode == "cppsim":
