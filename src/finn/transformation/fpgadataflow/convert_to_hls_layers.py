@@ -1062,9 +1062,10 @@ class InferVectorVectorActivation(Transformation):
 class InferThresholdingLayer(Transformation):
     """Convert any MultiThreshold into a standalone thresholding HLS layer."""
 
-    def __init__(self, mem_mode="const"):
+    def __init__(self, mem_mode="const", use_rtl_variant=False):
         super().__init__()
         self.mem_mode = mem_mode
+        self.use_rtl_variant = use_rtl_variant
 
     def apply(self, model):
         graph = model.graph
@@ -1118,26 +1119,78 @@ class InferThresholdingLayer(Transformation):
                 )
                 actval = int(actval)
                 assert (not odt.signed()) or (actval < 0), (
-                    node.name + ": Signed output requres actval < 0"
+                    node.name + ": Signed output requires actval < 0"
                 )
-                # create and insert new Thresholding_Batch node
-                new_node = helper.make_node(
-                    "Thresholding_Batch",
-                    [thl_input, thl_threshold],
-                    [thl_output],
-                    domain="finn.custom_op.fpgadataflow",
-                    backend="fpgadataflow",
-                    NumChannels=ifc,
-                    PE=pe,
-                    numSteps=thl_thres_shape[1],
-                    inputDataType=idt.name,
-                    weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
-                    outputDataType=odt.name,
-                    numInputVectors=list(thl_in_shape[:-1]),
-                    ActVal=actval,
-                    mem_mode=self.mem_mode,
-                    name="Thresholding_Batch_" + node.name,
-                )
+
+                # Ensure that RTL variant is not inserted for unsupported configuration
+                is_rtl_variant_compatible = True
+
+                # Perform checks for RTL variant if chosen
+                if self.use_rtl_variant:
+                    # Check memory mode
+                    if self.mem_mode != "decoupled":
+                        warnings.warn(
+                            """%s : RTL Thresholding does not support 'decoupled' memory mode.
+                            Falling back to HLS implementation."""
+                            % node.name
+                        )
+                        is_rtl_variant_compatible = False
+
+                    # Check PE/SIMD value
+                    if pe != 1:
+                        warnings.warn(
+                            """%s : RTL Thresholding does not support paralellisation.
+                            Only a PE value of 1 is supported.
+                            Falling back to HLS implementation."""
+                            % node.name
+                        )
+                        is_rtl_variant_compatible = False
+
+                if self.use_rtl_variant and is_rtl_variant_compatible:
+                    new_node = helper.make_node(
+                        "Thresholding_Binary_Search",
+                        [thl_input, thl_threshold],
+                        [thl_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        NumChannels=ifc,
+                        PE=pe,
+                        numSteps=thl_thres_shape[1],
+                        inputDataType=idt.name,
+                        weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
+                        outputDataType=odt.name,
+                        numInputVectors=list(thl_in_shape[:-1]),
+                        activation_bias=actval,
+                        mem_mode=self.mem_mode,
+                        name="Thresholding_Binary_Search_" + node.name,
+                    )
+                else:
+                    if self.use_rtl_variant:
+                        warnings.warn(
+                        """%s : RTL Thresholding requested for unsupported
+                            configuration. Falling back to HLS implementation."""
+                        % node.name
+                    )
+
+                    # create and insert new Thresholding_Batch node
+                    new_node = helper.make_node(
+                        "Thresholding_Batch",
+                        [thl_input, thl_threshold],
+                        [thl_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        NumChannels=ifc,
+                        PE=pe,
+                        numSteps=thl_thres_shape[1],
+                        inputDataType=idt.name,
+                        weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
+                        outputDataType=odt.name,
+                        numInputVectors=list(thl_in_shape[:-1]),
+                        ActVal=actval,
+                        mem_mode=self.mem_mode,
+                        name="Thresholding_Batch_" + node.name,
+                    )
+
                 graph.node.insert(insert_point, new_node)
                 # remove old node
                 graph.node.remove(node)
