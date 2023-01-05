@@ -205,7 +205,7 @@ def test_fpgadataflow_thresholding_binary_search(
     # Paralellisation not supported for thresholding binary search rtl node
     if pe != 1:
         pytest.skip(
-            "Paralellisation of IP not supported for " \
+            "Paralellisation of IP not supported for "
             "RTL Thresholding Binary Search node"
         )
 
