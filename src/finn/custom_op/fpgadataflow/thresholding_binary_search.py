@@ -30,9 +30,7 @@ import numpy as np
 import os
 import warnings
 from qonnx.core.datatype import DataType
-from qonnx.util.basic import (
-    interleave_matrix_outer_dim_from_partitions,
-)
+from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 from finn.util.basic import find_next_power_of_2, get_rtlsim_trace_depth, make_build_dir
