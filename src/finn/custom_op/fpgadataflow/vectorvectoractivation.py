@@ -169,6 +169,20 @@ class VectorVectorActivation(HLSCustomOp):
             self.set_nodeattr("outputDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
 
+    def minimize_weight_bit_width(self, model):
+        weights = model.get_initializer(self.onnx_node.input[1])
+        w_min = weights.min()
+        w_max = weights.max()
+        if w_min < 0:
+            if abs(w_min) > w_max:
+                wdt = DataType.get_smallest_possible(w_min)
+            else:
+                wdt = DataType.get_smallest_possible(-w_max - 1)
+        else:
+            wdt = DataType.get_smallest_possible(w_max)
+        self.set_nodeattr("weightDataType", wdt.name)
+        return DataType[self.get_nodeattr("weightDataType")]
+
     def calc_wmem(self):
         """Calculates and returns WMEM."""
         ch = self.get_nodeattr("Channels")
