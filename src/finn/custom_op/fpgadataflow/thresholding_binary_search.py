@@ -28,9 +28,7 @@
 
 import numpy as np
 import os
-import textwrap
 import warnings
-from math import ceil, log2
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
