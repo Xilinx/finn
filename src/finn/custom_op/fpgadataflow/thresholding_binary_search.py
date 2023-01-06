@@ -261,84 +261,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    def make_weight_file(self, weights, weight_file_mode, weight_file_name):
-        """Produce a file containing given weights (thresholds) in appropriate
-        format for this layer. This file can be used for either synthesis or
-        run-time reconfig of weights.
-
-        Arguments:
-        * weights : numpy array with weights to be put into the file
-        * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
-          decoupled_runtime}
-        * weight_file_name : filename for the weight file to be generated
-        """
-        # There are 'decoupled_*' flavors, just make sure that the flavors
-        # are decoupled related
-        if "decoupled" not in weight_file_mode:
-            raise Exception(
-                "Unrecognized memory mode for this node: {}".format(weight_file_mode)
-            )
-
-        threshold_tensor = self.get_hls_compatible_threshold_tensor(weights)
-        tdt = self.get_weight_datatype()
-        assert np.vectorize(tdt.allowed)(
-            threshold_tensor
-        ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
-
-        # streaming thresholds need to be organized differently
-        # (1, pe, tmem, n_thres_steps) -> (1, tmem, pe, n_thres_steps)
-        decoupled_thres = np.transpose(threshold_tensor, (0, 2, 1, 3))
-        # (1, tmem, pe, n_thres_steps) -(1, tmem, pe * n_thres_steps)
-        pe = self.get_nodeattr("PE")
-        n_thres_steps = self.get_nodeattr("numSteps")
-        decoupled_thres_pe_flipped = np.flip(decoupled_thres, axis=-2)
-        decoupled_thres = decoupled_thres.reshape(1, -1, pe * n_thres_steps)
-        decoupled_thres = decoupled_thres.copy()
-        decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.reshape(
-            1, -1, pe * n_thres_steps
-        )
-        decoupled_thres_pe_flipped = decoupled_thres_pe_flipped.copy()
-
-        if weight_file_mode == "decoupled_npy":
-            # save weight stream into npy for cppsim
-            np.save(weight_file_name, decoupled_thres)
-        elif weight_file_mode == "decoupled_verilog_dat":
-            # convert weight values into hexstring
-            weight_width = self.get_weightstream_width()
-            # pad to nearest 4 bits to get hex strings
-            weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-            weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                decoupled_thres_pe_flipped, tdt, weight_width_padded, prefix=""
-            )
-            weight_stream = weight_tensor_pe_flipped.flatten()
-            weight_stream = weight_stream.copy()
-            with open(weight_file_name, "w") as f:
-                for val in weight_stream:
-                    f.write(val + "\n")
-        elif weight_file_mode == "decoupled_runtime":
-            # memstream axi-lite interface will map each mem line to
-            # one or multiple 32-bit words
-            weight_width = self.get_weightstream_width()
-            words_per_memwidth = 2 ** ceil(log2(weight_width / 32))
-            if words_per_memwidth < 1:
-                words_per_memwidth = 1
-            weight_width_padded = words_per_memwidth * 32
-            # first, pack and ensure padding to 32 bits
-            weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                decoupled_thres_pe_flipped, tdt, weight_width_padded, prefix=""
-            )
-            weight_stream = weight_tensor_pe_flipped.flatten()
-            weight_stream = weight_stream.copy()
-            with open(weight_file_name, "w") as f:
-                for val in weight_stream:
-                    # split into groups of 8 hex digits (= 32 bits)
-                    words_32b = textwrap.wrap(val, 8)
-                    words_32b.reverse()
-                    for word_32b in words_32b:
-                        f.write(word_32b + "\n")
-        else:
-            raise Exception("Decoupled weight export not yet implemented")
-
     # Get the integer from the DataType and string-ify it
     # This assumes that the data is in the form "INTx" or similar
     def conv_datatype_to_str(self, data_type):
@@ -449,35 +371,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         self.set_nodeattr("ipgen_path", code_gen_dir)
         self.set_nodeattr("ip_path", code_gen_dir)
-
-        # Generate params for RTLSim
-        self.generate_params(model, code_gen_dir)
-
-    def generate_params(self, model, path):
-        code_gen_dir = path
-        weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
-        thresholds = model.get_initializer(self.onnx_node.input[1])
-        self.make_weight_file(thresholds, "decoupled_npy", weight_filename_sim)
-
-        # Verilog.dat thresholds:
-        # also save weights as Verilog .dat file
-        # note that we provide two different .dat files, one for synth
-        # and one for synthesis. this is because URAM-based weights always
-        # need zero weights for synthesis, otherwise they get inferred
-        # as BRAM
-        weight_filename_rtl_synth = "{}/memblock_synth_0.dat".format(code_gen_dir)
-        weight_filename_rtl_sim = "{}/memblock_sim_0.dat".format(code_gen_dir)
-        # sim weights are always the true weights
-        self.make_weight_file(
-            thresholds, "decoupled_verilog_dat", weight_filename_rtl_sim
-        )
-
-        # Synthesis thresholds:
-        synth_thresholds = thresholds
-        self.make_weight_file(
-            synth_thresholds, "decoupled_verilog_dat", weight_filename_rtl_synth
-        )
-
         return
 
     def prepare_rtlsim(self):
