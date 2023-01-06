@@ -32,7 +32,6 @@ import warnings
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import (
     interleave_matrix_outer_dim_from_partitions,
-    roundup_to_integer_multiple,
 )
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
