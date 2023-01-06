@@ -261,14 +261,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         rows between PEs is not as expected (n_thres_steps)"""
         return ret.reshape(1, pe, tmem, n_thres_steps)
 
-    # Get the integer from the DataType and string-ify it
-    # This assumes that the data is in the form "INTx" or similar
-    def conv_datatype_to_str(self, data_type):
-        # Handle the case that an int is passed to the function
-        if isinstance(data_type, int):
-            return str(data_type)
-        return str(DataType[data_type].bitwidth())
-
     def prepare_codegen_rtl_values(self):
         """All dictionary values produced in this function are to replace
         their key value(s) in the RTL template files"""
@@ -294,16 +286,16 @@ class Thresholding_Binary_Search(HLSCustomOp):
         bias = self.get_nodeattr("activation_bias")  # activation bias value
 
         code_gen_dict["$N$"] = [
-            self.conv_datatype_to_str(output_data_type)
-        ]  # output precision
+            str(DataType[output_data_type].bitwidth())
+        ]  # output precision - convert bitwidth to string
         code_gen_dict["$M$"] = [
-            self.conv_datatype_to_str(input_data_type)
-        ]  # input/threshold precision
+            str(DataType[input_data_type].bitwidth())
+        ]  # input/threshold precision - convert bitwidth to string
         code_gen_dict["$C$"] = [
-            self.conv_datatype_to_str(num_channels)
+            str(num_channels)
         ]  # number of channels
         code_gen_dict["$BIAS$"] = [
-            self.conv_datatype_to_str(bias)
+            str(bias)
         ]  # activation bias value
 
         # Is the input datatype signed or unsigned?
