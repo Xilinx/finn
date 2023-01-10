@@ -48,7 +48,7 @@ module $MODULE_NAME$ #(
 	int unsigned  M,  // input/threshold precision
 	int unsigned  C,  // number of channels
 
-	int BIAS,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
+	int BIAS,  // offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
 
 	int unsigned  C_BITS,
 	int unsigned O_BITS
