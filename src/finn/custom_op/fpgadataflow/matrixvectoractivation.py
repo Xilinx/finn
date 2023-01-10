@@ -650,6 +650,23 @@ class MatrixVectorActivation(HLSCustomOp):
             self.set_nodeattr("outputDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
 
+    def minimize_weight_bit_width(self, model):
+        """Minimize the bit width based on the values of the weights"""
+        runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 0
+        if runtime_writable:
+            weights = model.get_initializer(self.onnx_node.input[1])
+            w_min = weights.min()
+            w_max = weights.max()
+            if w_min < 0:
+                if abs(w_min) > w_max:
+                    wdt = DataType.get_smallest_possible(w_min)
+                else:
+                    wdt = DataType.get_smallest_possible(-w_max - 1)
+            else:
+                wdt = DataType.get_smallest_possible(w_max)
+            self.set_nodeattr("weightDataType", wdt.name)
+        return DataType[self.get_nodeattr("weightDataType")]
+
     def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
