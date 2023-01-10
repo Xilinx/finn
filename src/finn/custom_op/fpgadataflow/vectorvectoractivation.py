@@ -225,9 +225,9 @@ class VectorVectorActivation(HLSCustomOp):
     def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
-        #if simd > 1:
-            #pe = self.get_nodeattr("Channels")
-        #else:
+        # if simd > 1:
+        # pe = self.get_nodeattr("Channels")
+        # else:
         pe = self.get_nodeattr("PE")
         in_width = i_bits * simd * pe
         return in_width
@@ -242,9 +242,9 @@ class VectorVectorActivation(HLSCustomOp):
         dim_h, dim_w = self.get_nodeattr("Dim")
         ch = self.get_nodeattr("Channels")
         simd = self.get_nodeattr("SIMD")
-        #if simd > 1:
-            #pe = self.get_nodeattr("Channels")
-        #else:
+        # if simd > 1:
+        # pe = self.get_nodeattr("Channels")
+        # else:
         pe = self.get_nodeattr("PE")
         sf = k_h * k_w // simd
         nf = ch // pe
@@ -351,6 +351,9 @@ class VectorVectorActivation(HLSCustomOp):
         ), """Weights matrix doesn't
         have expected shape (channels, 1, kernel_size, kernel_size)"""
         ret = orig_weight_matrix
+        if self.get_weight_datatype() == DataType["BIPOLAR"]:
+            # convert bipolar to binary
+            ret = (ret + 1) / 2
         ret = ret.reshape(ch, k_h * k_w)
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
@@ -649,6 +652,12 @@ class VectorVectorActivation(HLSCustomOp):
                 not float32 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
+                if self.get_input_datatype() == DataType["BIPOLAR"]:
+                    # store bipolar activations as binary
+                    reshaped_input = (reshaped_input + 1) / 2
+                    export_idt = DataType["BINARY"]
+                else:
+                    export_idt = self.get_input_datatype()
                 # make copy before saving the array
                 reshaped_input = reshaped_input.copy()
                 np.save(
@@ -664,14 +673,20 @@ class VectorVectorActivation(HLSCustomOp):
             super().exec_precompiled_singlenode_model()
             # load output npy file
             super().npy_to_dynamic_output(context)
+            # reinterpret binary output as bipolar where needed
+            if self.get_output_datatype() == DataType["BIPOLAR"]:
+                out = context[node.output[0]]
+                out = 2 * out - 1
+                context[node.output[0]] = out
             assert (
                 context[node.output[0]].shape == self.get_normal_output_shape()
             ), "cppsim did not produce expected output shape"
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            idt = self.get_input_datatype()
-            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), idt, nbits)
+            inp = npy_to_rtlsim_input(
+                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
+            )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
 
@@ -756,6 +771,9 @@ class VectorVectorActivation(HLSCustomOp):
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_input_datatype()
+        if dtype == DataType["BIPOLAR"]:
+            # use binary for bipolar storage
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
@@ -826,6 +844,11 @@ class VectorVectorActivation(HLSCustomOp):
                 )
             ]
         elif mem_mode == "decoupled" or mem_mode == "external":
+            simd = self.get_nodeattr("SIMD")
+            if simd > 1:
+                raise Exception(
+                    "SIMD parallelism not supported for decoupled or external mode"
+                )
             wdt = self.get_weight_datatype()
             if wdt == DataType["BIPOLAR"]:
                 export_wdt = DataType["BINARY"]
@@ -853,6 +876,9 @@ class VectorVectorActivation(HLSCustomOp):
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
         dtype = self.get_output_datatype()
+        if dtype == DataType["BIPOLAR"]:
+            # use binary for bipolar storage
+            dtype = DataType["BINARY"]
         elem_bits = dtype.bitwidth()
         packed_bits = self.get_outstream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits

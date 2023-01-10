@@ -27,30 +27,29 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import pytest
+
 import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
-
-# from qonnx.custom_op.registry import getCustomOp
+from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
-
-# from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
+from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
 
 
 def _infer_sparse_weight_tensor(W_conv, k_h, k_w, channels):
@@ -110,7 +109,10 @@ def _make_single_vvau_modelwrapper(
     if T is not None:
         no_act = 0
         node_inp_list = ["inp", "weights", "thresh"]
-        actval = odt.min()
+        if odt == DataType["BIPOLAR"]:
+            actval = 0
+        else:
+            actval = odt.min()
     else:
         no_act = 1
         node_inp_list = ["inp", "weights"]
@@ -167,15 +169,15 @@ def prepare_inputs(input_tensor):
 
 
 # input datatype
-@pytest.mark.parametrize("idt", [DataType["UINT4"]])
+@pytest.mark.parametrize("idt", [DataType["BIPOLAR"], DataType["UINT4"]])
 # weight datatype
-@pytest.mark.parametrize("wdt", [DataType["UINT4"]])
+@pytest.mark.parametrize("wdt", [DataType["BIPOLAR"], DataType["UINT4"]])
 # activation: None or DataType
-@pytest.mark.parametrize("act", [DataType["UINT4"], None])
+@pytest.mark.parametrize("act", [DataType["BIPOLAR"], DataType["UINT4"], None])
 # PE
-@pytest.mark.parametrize("pe", [1,2,3,6])
+@pytest.mark.parametrize("pe", [1, 3, 6])
 # SIMD
-@pytest.mark.parametrize("simd", [1,9])
+@pytest.mark.parametrize("simd", [1, 9])
 # Input image shape
 @pytest.mark.parametrize("dim_h", [10])
 @pytest.mark.parametrize("dim_w", [10])
@@ -187,7 +189,7 @@ def prepare_inputs(input_tensor):
 # memory mode
 @pytest.mark.parametrize("mem_mode", ["const"])
 # execution mode
-@pytest.mark.parametrize("exec_mode", ["cppsim","rtlsim"])
+@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -202,9 +204,6 @@ def test_fpgadataflow_vvau(
 
     if channels % pe != 0:
         pytest.skip("Requirement Channels divisable by PE is violated.")
-
-    #if pe < channels and simd > 1:
-    #    pytest.skip("Do not apply SIMD parallelism before max PE parallelism")
 
     # Generate weights in expected shape for ONNX and HLS node
     W = gen_finn_dt_tensor(wdt, (channels, 1, k_h, k_w))  # shape: [channels, 1, k, k]
@@ -221,14 +220,23 @@ def test_fpgadataflow_vvau(
     if act is None:
         T = None
         tdt = None
-        odt = DataType["INT32"]
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            odt = DataType["UINT32"]
+        else:
+            odt = DataType["INT32"]
     else:
         odt = act
-        (min_v, max_v) = _calculate_dot_prod_range(idt, wdt, k_h * k_w * channels)
+        (min_v, max_v) = _calculate_dot_prod_range(idt, wdt, k_h * k_w)
         n_steps = act.get_num_possible_values() - 1
         T = np.random.randint(min_v, max_v - 1, (channels, n_steps)).astype(np.float32)
         T = np.sort(T, axis=1)
-        tdt = DataType["INT32"]
+        if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+            tdt = DataType["UINT32"]
+            # bias thresholds to be positive
+            T = np.ceil((T + (k_h * k_w)) / 2)
+            assert (T >= 0).all()
+        else:
+            tdt = DataType["INT32"]
 
     model = _make_single_vvau_modelwrapper(
         W, pe, simd, k_h, k_w, channels, dim_h, dim_w, wdt, idt, odt, T, tdt, mem_mode
@@ -250,14 +258,25 @@ def test_fpgadataflow_vvau(
     input_dict = prepare_inputs(x_vvau)
 
     # Calculate output
-    y_expected = np.matmul(x, W_onnx)  # Y is in [N, H, W, C] format
+    if wdt == DataType["BIPOLAR"] and idt == DataType["BIPOLAR"]:
+        # Simulate XNOR-popcount matrix multiplication, see
+        # qonnx.custom_op.general.xnorpopcount (not usable due to sparse W)
+        y_expected = np.matmul(x, W_onnx)
+        y_expected = (y_expected + (k_h * k_w)) / 2
+    else:
+        y_expected = np.matmul(x, W_onnx)  # Y is in [N, H, W, C] format
+
     if T is not None:
         # Reshape Y, as multithreshold expects Y to be in [N, C, H, W] format
         y_expected = np.transpose(y_expected, (0, 3, 1, 2))
         y_expected = multithreshold(y_expected, T)
         y_expected = np.transpose(y_expected, (0, 2, 3, 1))
-        # signed offset
-        y_expected += act.min()
+        if act == DataType["BIPOLAR"]:
+            # binary to bipolar
+            y_expected = 2 * y_expected - 1
+        else:
+            # signed offset
+            y_expected += act.min()
 
     y_produced = oxe.execute_onnx(model, input_dict, return_full_exec_context=False)[
         "outp"
@@ -265,11 +284,11 @@ def test_fpgadataflow_vvau(
 
     assert (y_produced == y_expected).all(), "incorrect result"
 
-    # if exec_mode == "rtlsim":
-    # node = model.get_nodes_by_op_type("VectorVectorActivation")[0]
-    # inst = getCustomOp(node)
-    # cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
-    # exp_cycles_dict = model.analysis(exp_cycles_per_layer)
-    # exp_cycles = exp_cycles_dict[node.name]
-    # assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
-    # assert exp_cycles != 0
+    if exec_mode == "rtlsim":
+        node = model.get_nodes_by_op_type("VectorVectorActivation")[0]
+        inst = getCustomOp(node)
+        cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
+        exp_cycles_dict = model.analysis(exp_cycles_per_layer)
+        exp_cycles = exp_cycles_dict[node.name]
+        assert np.isclose(exp_cycles, cycles_rtlsim, atol=10)
+        assert exp_cycles != 0
