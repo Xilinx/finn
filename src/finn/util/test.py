@@ -91,8 +91,8 @@ def soft_verify_topk(invec, idxvec, k):
     """Check that the topK indices provided actually point to the topK largest
     values in the input vector"""
     np_topk = np.flip(invec.flatten().argsort())[:k]
-    soft_expected = invec.flatten()[np_topk.astype(np.int).flatten()]
-    soft_produced = invec.flatten()[idxvec.astype(np.int).flatten()]
+    soft_expected = invec.flatten()[np_topk.astype(np.int_).flatten()]
+    soft_produced = invec.flatten()[idxvec.astype(np.int_).flatten()]
     return (soft_expected == soft_produced).all()
 
 

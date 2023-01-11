@@ -46,32 +46,34 @@ class StreamingFIFO(HLSCustomOp):
         self.strm_fifo_wrapper = templates.strm_fifo_wrapper
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            # FIFO depth
-            "depth": ("i", True, 0),
-            # folded shape of input/output
-            "folded_shape": ("ints", True, []),
-            # FINN DataTypes for inputs/outputs
-            "dataType": ("s", True, ""),
-            # Toggle between hls or IPI implementation
-            # rtl - use the hls generated IP during stitching
-            # vivado - use the AXI Infrastructure FIFO
-            "impl_style": ("s", False, "rtl", {"rtl", "vivado"}),
-            # FPGA resource type for FIFOs when impl_style is vivado
-            # auto -- let Vivado decide
-            # block -- use BRAM
-            # distributed -- use LUTRAM
-            # ultra -- use URAM (on UltraScale+)
-            "ram_style": (
-                "s",
-                False,
-                "auto",
-                {"auto", "block", "distributed", "ultra"},
-            ),
-            # whether depth monitoring is enabled (impl_style=rtl only)
-            "depth_monitor": ("i", False, 0),
-        }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs = super().get_nodeattr_types()
+        my_attrs.update(
+            {
+                # FIFO depth
+                "depth": ("i", True, 0),
+                # folded shape of input/output
+                "folded_shape": ("ints", True, []),
+                # FINN DataTypes for inputs/outputs
+                "dataType": ("s", True, ""),
+                # Toggle between hls or IPI implementation
+                # rtl - use the hls generated IP during stitching
+                # vivado - use the AXI Infrastructure FIFO
+                "impl_style": ("s", False, "rtl", {"rtl", "vivado"}),
+                # FPGA resource type for FIFOs when impl_style is vivado
+                # auto -- let Vivado decide
+                # block -- use BRAM
+                # distributed -- use LUTRAM
+                # ultra -- use URAM (on UltraScale+)
+                "ram_style": (
+                    "s",
+                    False,
+                    "auto",
+                    {"auto", "block", "distributed", "ultra"},
+                ),
+                # whether depth monitoring is enabled (impl_style=rtl only)
+                "depth_monitor": ("i", False, 0),
+            }
+        )
 
         return my_attrs
 
@@ -255,6 +257,12 @@ class StreamingFIFO(HLSCustomOp):
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()
         return in_width
+
+    def get_input_datatype(self, ind=0):
+        return DataType[self.get_nodeattr("dataType")]
+
+    def get_output_datatype(self, ind=0):
+        return DataType[self.get_nodeattr("dataType")]
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

@@ -411,12 +411,13 @@ class VitisBuild(Transformation):
         # Build each kernel individually
         sdp_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
         for sdp_node in sdp_nodes:
+            prefix = sdp_node.name + "_"
             sdp_node = getCustomOp(sdp_node)
             dataflow_model_filename = sdp_node.get_nodeattr("model")
             kernel_model = ModelWrapper(dataflow_model_filename)
             kernel_model = kernel_model.transform(InsertFIFO())
             kernel_model = kernel_model.transform(RemoveUnusedTensors())
-            kernel_model = kernel_model.transform(GiveUniqueNodeNames())
+            kernel_model = kernel_model.transform(GiveUniqueNodeNames(prefix))
             kernel_model.save(dataflow_model_filename)
             kernel_model = kernel_model.transform(
                 PrepareIP(self.fpga_part, self.period_ns)
