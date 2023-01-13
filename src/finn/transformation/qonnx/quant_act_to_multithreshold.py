@@ -30,7 +30,10 @@
 import warnings
 from qonnx.transformation.base import Transformation
 
-from finn.transformation.qonnx.qonnx_activation_handlers import QuantActBaseHandler
+from finn.transformation.qonnx.qonnx_activation_handlers import (
+    QuantActBaseHandler,
+    QuantIdentityHandler,
+)
 
 
 def default_filter_function_generator(max_multithreshold_bit_width=8):
@@ -126,7 +129,7 @@ class ConvertQuantActToMultiThreshold(Transformation):
                 # Check for possible ambiguity in handler selection
                 valid_predecessors = []
                 for cls in QuantActBaseHandler.__subclasses__():
-                    valid_predecessors.extend(cls.valid_predecessor_op_types)
+                    valid_predecessors.extend(cls.valid_predecessor_op_types())
                 if len(valid_predecessors) != len(set(valid_predecessors)):
                     raise RuntimeError(
                         "Two or more activation handlers declare the same "
@@ -137,16 +140,15 @@ class ConvertQuantActToMultiThreshold(Transformation):
 
                 # Try to find a fitting handler for this Quant activation node
                 for handler_cls in QuantActBaseHandler.__subclasses__():
-                    if predecessor_op_type in handler_cls.valid_predecessor_op_types:
+                    if predecessor_op_type in handler_cls.valid_predecessor_op_types():
                         handler = handler_cls(model, n, node_ind)
                         break
                 else:
-                    raise ValueError(
-                        f"Quant nodes in the activation path and with predecessor "
-                        f"nodes of type {predecessor_op_type} are currently not "
-                        f"supported by FINN and can not be converted to "
-                        f"MultiThreshold nodes."
-                    )
+                    # fall back to QuantIdentityHandler here
+                    # it may still not work due to its particular restrictions,
+                    # but better than just erroring out without trying
+                    handler = QuantIdentityHandler(model, n, node_ind)
+
                 model = handler.replace_quant_node()
                 graph_modified = True
                 return (model, graph_modified)
