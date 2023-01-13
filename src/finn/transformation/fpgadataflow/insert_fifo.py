@@ -71,13 +71,15 @@ class InsertFIFO(Transformation):
     of the subsequent node. max() of these two values sets the FIFO depth.
 
     Constructor arguments:
-    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
-                       Verilog FIFOs (Q_srl.v)
-    - vivado_ram_style : the StreamingFIFO.ram_style attribute to be used for
-                          large FIFOs implemented by Vivado
-    - create_shallow_fifos : Normally, shallow-depth (<=2) FIFOs won't be created since
-                            HLS streaming interfaces already have a degree of buffering.
-                            Override with this parameter.
+
+    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
+        instead of Verilog FIFOs (Q_srl.v)
+    :parameter vivado_ram_style: the StreamingFIFO.ram_style attribute
+        to be used for large FIFOs implemented by Vivado
+    :parameter create_shallow_fifos: Normally, shallow-depth (<=2) FIFOs
+        won't be created since HLS streaming interfaces
+        already have a degree of buffering.
+        Override with this parameter.
 
 
     The other node attributes necessary to create a FIFO node are taken from the
