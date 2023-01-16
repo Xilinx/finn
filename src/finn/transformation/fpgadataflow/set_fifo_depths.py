@@ -382,9 +382,9 @@ class InsertAndSetFIFODepths(Transformation):
                 # nodes as # inputs to drive the imulation
                 n_inputs = int(len(model.graph.node) / 2)
             else:
-                # convnet, single input is typically enough to fill entire
+                # convnet, two inputs are typically enough to fill entire
                 # layer pipeline due to overlaps
-                n_inputs = 1
+                n_inputs = 2
             sim = verilator_fifosim(model, n_inputs)
 
         for ind, node in enumerate(fifo_nodes):
