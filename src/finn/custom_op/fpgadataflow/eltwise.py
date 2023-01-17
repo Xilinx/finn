@@ -42,21 +42,25 @@ class StreamingEltwise(HLSCustomOp):
         super().__init__(onnx_node)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            "NumChannels": ("i", True, ""),
-            "PE": ("i", True, ""),
-            # FINN DataTypes for inputs; output datatype inferred from input
-            "inputDataType0": ("s", True, ""),
-            "inputDataType1": ("s", True, ""),
-            # type of EltwiseFunction for the operation
-            "eltwiseOp": ("s", True, "", ["Add", "Sub", "AbsDiff"]),
-            # number of input vectors, examples:
-            # [1] is a single vector (like a FC layer with batch=1)
-            # [4] is four vectors (like a FC layer with batch=4)
-            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
-            "numInputVectors": ("ints", False, [1]),
-        }
-        my_attrs.update(super().get_nodeattr_types())
+
+        my_attrs = super().get_nodeattr_types()
+        my_attrs.update(
+            {
+                "NumChannels": ("i", True, ""),
+                "PE": ("i", True, ""),
+                # FINN DataTypes for inputs; output datatype inferred from input
+                "inputDataType0": ("s", True, ""),
+                "inputDataType1": ("s", True, ""),
+                # type of EltwiseFunction for the operation
+                "eltwiseOp": ("s", True, "", ["Add", "Sub", "AbsDiff"]),
+                # number of input vectors, examples:
+                # [1] is a single vector (like a FC layer with batch=1)
+                # [4] is four vectors (like a FC layer with batch=4)
+                # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
+                "numInputVectors": ("ints", False, [1]),
+                "inFIFODepths": ("ints", False, [2, 2]),
+            }
+        )
         return my_attrs
 
     def get_eltwise_op_lambda(self):
@@ -91,10 +95,10 @@ class StreamingEltwise(HLSCustomOp):
         ishape = tuple(vecs + [ich // pe, pe])
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
     def make_shape_compatible_op(self, model):
@@ -156,11 +160,11 @@ class StreamingEltwise(HLSCustomOp):
 
         return info_messages
 
-    def get_input_datatype(self, id=0):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
-        return DataType[self.get_nodeattr("inputDataType" + str(id))]
+        return DataType[self.get_nodeattr("inputDataType" + str(ind))]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         op = self.get_nodeattr("eltwiseOp")
         idt0 = self.get_input_datatype(0)
@@ -196,7 +200,7 @@ class StreamingEltwise(HLSCustomOp):
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns output stream width."""
         obits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")

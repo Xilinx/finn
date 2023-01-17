@@ -56,13 +56,13 @@ class GlobalAccPool_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ch = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         ishape = tuple(vecs + [ch])
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ch = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         vecs = list(self.get_nodeattr("numInputVectors"))
@@ -71,7 +71,7 @@ class GlobalAccPool_Batch(HLSCustomOp):
         folded_ishape = tuple(vecs + [folds, pe])
         return folded_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         ch = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         if len(vecs) == 1:
@@ -80,7 +80,7 @@ class GlobalAccPool_Batch(HLSCustomOp):
             oshape = tuple([vecs[0]] + [1, 1, ch])
         return oshape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         ch = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         unfolded_shape = list(self.get_normal_output_shape())
@@ -139,11 +139,11 @@ class GlobalAccPool_Batch(HLSCustomOp):
 
         return info_messages
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         # determine data type from image size and input type
         idt = DataType[self.get_nodeattr("inputDataType")]
@@ -155,14 +155,14 @@ class GlobalAccPool_Batch(HLSCustomOp):
             extreme_value = npixels * idt.max()
         return DataType.get_smallest_possible(extreme_value)
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         """Returns input stream width."""
         ibits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns output stream width."""
         obits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")

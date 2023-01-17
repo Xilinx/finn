@@ -409,16 +409,16 @@ class MatrixVectorActivation(HLSCustomOp):
         """Returns FINN DataType of weights."""
         return DataType[self.get_nodeattr("weightDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         in_width = i_bits * self.get_nodeattr("SIMD")
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         out_width = o_bits * self.get_nodeattr("PE")
         return out_width
@@ -474,7 +474,7 @@ class MatrixVectorActivation(HLSCustomOp):
 
         return folded_input_shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         mh = self.get_nodeattr("MH")
         pe = self.get_nodeattr("PE")
         nf = mh // pe
@@ -482,13 +482,13 @@ class MatrixVectorActivation(HLSCustomOp):
         folded_output_shape = tuple(vecs + [nf, pe])
         return folded_output_shape
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         mw = self.get_nodeattr("MW")
         vecs = list(self.get_nodeattr("numInputVectors"))
         normal_input_shape = tuple(vecs + [mw])
         return normal_input_shape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         mh = self.get_nodeattr("MH")
         vecs = list(self.get_nodeattr("numInputVectors"))
         normal_output_shape = tuple(vecs + [mh])
@@ -702,10 +702,12 @@ class MatrixVectorActivation(HLSCustomOp):
         of weights.
 
         Arguments:
+
         * weights : numpy array with weights to be put into the file
         * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
           decoupled_runtime}
         * weight_file_name : filename for the weight file to be generated
+
         """
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hls_compatible_weight_tensor(weights)
@@ -1227,17 +1229,6 @@ class MatrixVectorActivation(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
         )
-        in_fifo_depth = self.get_nodeattr("inFIFODepth")
-        out_fifo_depth = self.get_nodeattr("outFIFODepth")
-        # insert depth pragmas only if specified
-        if in_fifo_depth != 0:
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=%d variable=in0" % in_fifo_depth
-            )
-        if out_fifo_depth != 0:
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=%d variable=out" % out_fifo_depth
-            )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
@@ -1462,3 +1453,20 @@ class MatrixVectorActivation(HLSCustomOp):
             thres_count = out_features
             ret_dict[thres_param_type] = thres_count
         return ret_dict
+
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+        mem_mode = self.get_nodeattr("mem_mode")
+        if mem_mode in ["decoupled", "external"]:
+            n_weight_inps = self.calc_wmem()
+            num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
+            io_dict["inputs"]["weights"] = [
+                0 for i in range(num_w_reps * n_weight_inps)
+            ]
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

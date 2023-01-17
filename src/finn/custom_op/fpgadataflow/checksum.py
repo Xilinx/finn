@@ -77,31 +77,31 @@ class CheckSum(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         # here same as input data type
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         dtype = DataType[self.get_nodeattr("inputDataType")]
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         return self.get_instream_width()
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         # derive normal shape from folded shape
         # checksum nodes are inserted in between fpgadataflow nodes
         # the folded shape could be for example (1, nf, pe)
@@ -127,7 +127,7 @@ class CheckSum(HLSCustomOp):
     def get_ap_int_max_w(self):
         return max(super().get_ap_int_max_w(), 32)
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         # same shape as input
         return self.get_normal_input_shape()
 
@@ -329,5 +329,5 @@ class CheckSum(HLSCustomOp):
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
         # expose axilite interface
-        intf_names["axilite"] = ["s_axilite_checksum"]
+        intf_names["axilite"] = ["s_axi_checksum"]
         return intf_names
