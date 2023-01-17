@@ -398,7 +398,7 @@ class StreamingEltwise(HLSCustomOp):
                 "StreamingEltwise",
                 self.get_nodeattr("NumChannels"),
                 self.get_nodeattr("PE"),
-                self.get_number_output_values(),
+                int(np.prod(self.get_folded_output_shape()[:-2])),
                 slice_in0,
                 slice_in1,
                 slice_out,
