@@ -576,6 +576,10 @@ class MatrixVectorActivation(HLSCustomOp):
 
     def minimize_accumulator_width(self, model):
         weights = model.get_initializer(self.onnx_node.input[1])
+        # since in the calculation the values of the weight matrix are used,
+        # for the bipolar case they need to be converted to bipolar
+        if self.get_nodeattr("binaryXnorMode"):
+            weights = 2 * weights - 1
         if len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
         else:
