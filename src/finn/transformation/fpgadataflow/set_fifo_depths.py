@@ -42,7 +42,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.util.fpgadataflow import is_fpgadataflow_node
-from finn.util.pyverilator import pyverilate_stitched_ip
+from finn.util.pyverilator import pyverilate_stitched_ip, verilator_fifosim
 
 
 def reset_implementation(node):
@@ -72,8 +72,9 @@ def optimize_depth(depth):
         # Q_srl FIFOs do not benefit from size < 32
         # add some slack
         return 32
-    # round to nearest power of two for Vivado IP FIFO implementation
-    return int(2 ** math.ceil(math.log2(depth)))
+    # otherwise leave as is
+    # will be rounded to nearest power of two for Vivado-style FIFO
+    return int(depth)
 
 
 class RemoveShallowFIFOs(Transformation):
@@ -125,14 +126,17 @@ class CapConvolutionFIFODepths(Transformation):
     constructor flag is set.
 
     Constructor arguments:
-    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
-                       Verilog FIFOs (Q_srl.v)
+
+    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
+        instead of Verilog FIFOs (Q_srl.v)
 
     Assumed input graph properties:
+
     - all nodes are fpgadataflow nodes
     - FIFOs inserted with InsertAndSetFIFODepths
 
     Output:
+
     - graph with smaller-depth FIFOs for convolutions
 
     Background:
@@ -188,22 +192,25 @@ class InsertAndSetFIFODepths(Transformation):
     throughput in the created accelerator.
 
     Constructor arguments:
-    - clk_ns : clock period (used for IP preparation)
-    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
-                       Verilog FIFOs (Q_srl.v)
-    - max_depth : how deep the "max"-sized FIFOs initially inserted will be
-                   if set to None, use the tensor size as the depth
-    - swg_exception : call CapConvolutionFIFODepths to make convolution FIFOs
-                        smaller where appropriate
-    - vivado_ram_style : the StreamingFIFO.ram_style attribute to be used for
-                          large FIFOs implemented by Vivado afterwards
+
+    :parameter clk_ns: clock period (used for IP preparation)
+    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
+        instead of Verilog FIFOs (Q_srl.v)
+    :parameter max_depth: how deep the "max"-sized FIFOs initially inserted
+        will be. If set to None, use the tensor size as the depth
+    :parameter swg_exception: call CapConvolutionFIFODepths to make convolution FIFOs
+        smaller where appropriate
+    :parameter vivado_ram_style: the StreamingFIFO.ram_style attribute to be used
+        for large FIFOs implemented by Vivado afterwards
 
     Assumed input graph properties:
+
     - all nodes are fpgadataflow nodes
     - no FIFOs inserted,
     - (inFIFODepths/outFIFODepths attrs will be ignored)
 
     Output:
+
     - graph with appropriate-depth FIFOs inserted
 
     Background:
@@ -211,12 +218,14 @@ class InsertAndSetFIFODepths(Transformation):
     necessary to insert FIFOs between them to prevent stalls due to bursty
     behavior. The sizes of those FIFOs are hard to predict analytically, so
     we do the following:
+
     - insert deep (=tensor size) FIFOs between all fpgadataflow nodes
     - create stitched design
     - run through rtlsim with stream of multiple random input images (to fill pipeline)
     - keep track of observed maximum occupancy for each FIFO during rtlsim
     - when sim finished, update each FIFO depth to maximum observed occupancy
       and set inFIFODepths/outFIFODepths attrs to 0 on relevant nodes
+
     """
 
     def __init__(
@@ -227,6 +236,7 @@ class InsertAndSetFIFODepths(Transformation):
         max_depth=None,
         swg_exception=True,
         vivado_ram_style="auto",
+        force_python_sim=False,
     ):
         super().__init__()
         self.fpgapart = fpgapart
@@ -235,6 +245,7 @@ class InsertAndSetFIFODepths(Transformation):
         self.max_depth = max_depth
         self.swg_exception = swg_exception
         self.vivado_ram_style = vivado_ram_style
+        self.force_python_sim = force_python_sim
 
     def apply(self, model):
         # these optypes may potentially use external weights
@@ -306,57 +317,75 @@ class InsertAndSetFIFODepths(Transformation):
         model = model.transform(CreateStitchedIP(self.fpgapart, self.clk_ns))
         model.set_metadata_prop("exec_mode", "rtlsim")
 
-        # calculate input frequency (number of cycles for each input word)
-        first_node = getCustomOp(model.graph.node[0])
-        ncycles_per_input = max(
-            1,
-            int(
-                math.ceil(
-                    perf["max_cycles"]
-                    / (
-                        np.prod(first_node.get_folded_input_shape())
-                        / first_node.get_folded_input_shape()[-1]
+        if self.force_python_sim:
+            # do rtlsim in Python for FIFO sizing
+            # calculate input frequency (number of cycles for each input word)
+            first_node = getCustomOp(model.graph.node[0])
+            ncycles_per_input = max(
+                1,
+                int(
+                    math.ceil(
+                        perf["max_cycles"]
+                        / (
+                            np.prod(first_node.get_folded_input_shape())
+                            / first_node.get_folded_input_shape()[-1]
+                        )
                     )
-                )
-            ),
-        )
-
-        # set sufficiently large threshold for 1 image to  fully execute and exit
-        ncycles = int(latency + max_cycles)
-
-        # prepare pyverilator model
-        sim = pyverilate_stitched_ip(model)
-
-        reset_rtlsim(sim)
-        toggle_clk(sim)
-
-        # set all input valids to 0 and output readies to 1
-        # set input data to some constant
-        set_signal(sim, "tvalid", 0)
-        set_signal(sim, "tready", 1)
-        set_signal(sim, "tdata", 0)
-
-        output_detected = False
-        while ncycles > 0:
-            toggle_clk(sim)
-            # set/unset valids
-            if ncycles % ncycles_per_input == 0:
-                set_signal(sim, "tvalid", 1)
-            else:
-                set_signal(sim, "tvalid", 0)
-
-            # since latency estimation is very pessimistic, detect first output
-            # and fast-forward the sim
-            if get_signal(sim, "tvalid") != 0 and not output_detected:
-                ncycles = max_cycles
-                output_detected = True
-            else:
-                ncycles = ncycles - 1
-
-        if not output_detected:
-            warnings.warn(
-                "No output detected, calculated FIFO depths may not be correct"
+                ),
             )
+
+            # set sufficiently large threshold for 1 image to  fully execute and exit
+            ncycles = int(latency + max_cycles)
+
+            # prepare pyverilator model
+            sim = pyverilate_stitched_ip(model)
+
+            reset_rtlsim(sim)
+            toggle_clk(sim)
+
+            # set all input valids to 0 and output readies to 1
+            # set input data to some constant
+            set_signal(sim, "tvalid", 0)
+            set_signal(sim, "tready", 1)
+            set_signal(sim, "tdata", 0)
+
+            output_detected = False
+            while ncycles > 0:
+                toggle_clk(sim)
+                # set/unset valids
+                if ncycles % ncycles_per_input == 0:
+                    set_signal(sim, "tvalid", 1)
+                else:
+                    set_signal(sim, "tvalid", 0)
+
+                # since latency estimation is very pessimistic, detect first output
+                # and fast-forward the sim
+                if get_signal(sim, "tvalid") != 0 and not output_detected:
+                    ncycles = max_cycles
+                    output_detected = True
+                else:
+                    ncycles = ncycles - 1
+
+            if not output_detected:
+                warnings.warn(
+                    "No output detected, calculated FIFO depths may not be correct"
+                )
+        else:
+            # do rtlsim in C++ for FIFO sizing
+            # determine # inputs for FIFO sizing according to topology type
+            swg_nodes = [
+                x for x in model.graph.node if "ConvolutionInputGenerator" in x.op_type
+            ]
+            if len(swg_nodes) == 0:
+                # MLP, no layer overlap
+                # assuming half the nodes are now FIFOs, use half the # of
+                # nodes as # inputs to drive the imulation
+                n_inputs = int(len(model.graph.node) / 2)
+            else:
+                # convnet, single input is typically enough to fill entire
+                # layer pipeline due to overlaps
+                n_inputs = 1
+            sim = verilator_fifosim(model, n_inputs)
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind

@@ -62,17 +62,20 @@ class SetFolding(Transformation):
 
     Notable exceptions and special behavior:
 
-    * When folding dense convolution/FC compute engines ("MVAU"/MatrixVectorActivation),
+    When folding dense convolution/FC compute engines ("MVAU"/MatrixVectorActivation),
     which have two attributes (PE and SIMD):
-        * first increases SIMD while weight stream width per PE is <= mvau_wwidth_max
-          (configurable in the SetFolding initializer, defaults to 36)
-        * then increases PE until the target is met or max PE reached
 
-    * When folding depthwise convolutions ("VVAU"/VectorVectorActivation)
+    * first increases SIMD while weight stream width per PE is <= mvau_wwidth_max
+      (configurable in the SetFolding initializer, defaults to 36)
+    * then increases PE until the target is met or max PE reached
+
+    When folding depthwise convolutions ("VVAU"/VectorVectorActivation)
     or spatial reduction ops (Pool_Batch):
-        * the producer of the node is expected to be a ConvolutionInputGenerator
-        with depthwise=1, whose SIMD value will be set equal to the PE value of
-        its consumer node
+
+    * the producer of the node is expected to be a ConvolutionInputGenerator
+      with depthwise=1, whose SIMD value will be set equal to the PE value of
+      its consumer node
+
     """
 
     def __init__(

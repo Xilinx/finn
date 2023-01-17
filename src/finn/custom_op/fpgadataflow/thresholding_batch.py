@@ -354,10 +354,12 @@ class Thresholding_Batch(HLSCustomOp):
         run-time reconfig of weights.
 
         Arguments:
+
         * weights : numpy array with weights to be put into the file
         * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
           decoupled_runtime}
         * weight_file_name : filename for the weight file to be generated
+
         """
         threshold_tensor = self.get_hls_compatible_threshold_tensor(weights)
         tdt = self.get_weight_datatype()
