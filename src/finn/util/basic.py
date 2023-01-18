@@ -121,7 +121,7 @@ def make_build_dir(prefix=""):
     try:
         tmpdir = tempfile.mkdtemp(prefix=prefix)
         newdir = tmpdir.replace("/tmp", os.environ["FINN_BUILD_DIR"])
-        os.makedirs(newdir, exist_ok=True)
+        os.makedirs(newdir)
         return newdir
     except KeyError:
         raise Exception(
