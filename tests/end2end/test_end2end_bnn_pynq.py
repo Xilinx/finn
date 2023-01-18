@@ -102,7 +102,7 @@ from finn.util.test import (
 )
 
 build_dir = os.environ["FINN_BUILD_DIR"]
-target_clk_ns = 10
+target_clk_ns = 20
 mem_mode = "decoupled"
 rtlsim_trace = False
 

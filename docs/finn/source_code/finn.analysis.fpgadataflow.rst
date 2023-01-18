@@ -30,6 +30,7 @@ finn.analysis.fpgadataflow.floorplan\_params
    :undoc-members:
    :show-inheritance:
 
+
 finn.analysis.fpgadataflow.hls\_synth\_res\_estimation
 -------------------------------------------------------------
 
@@ -38,13 +39,14 @@ finn.analysis.fpgadataflow.hls\_synth\_res\_estimation
    :undoc-members:
    :show-inheritance:
 
- finn.analysis.fpgadataflow.op\_and\_param\_counts
- --------------------------------------------------
+finn.analysis.fpgadataflow.op\_and\_param\_counts
+--------------------------------------------------
 
- .. automodule:: finn.analysis.fpgadataflow.op_and_param_counts
+.. automodule:: finn.analysis.fpgadataflow.op_and_param_counts
     :members:
     :undoc-members:
     :show-inheritance:
+
 
 finn.analysis.fpgadataflow.post\_synth\_res
 --------------------------------------------------
@@ -53,6 +55,7 @@ finn.analysis.fpgadataflow.post\_synth\_res
    :members:
    :undoc-members:
    :show-inheritance:
+
 
 finn.analysis.fpgadataflow.res\_estimation
 -------------------------------------------------
