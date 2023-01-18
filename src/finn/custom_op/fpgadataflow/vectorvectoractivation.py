@@ -473,7 +473,7 @@ class VectorVectorActivation(HLSCustomOp):
             weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
             # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
             pe = self.get_nodeattr("PE")
-            simd = 1
+            simd = self.get_nodeattr("SIMD")
             # simd_flipped
             weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(
                 1, -1, pe * simd
@@ -844,11 +844,6 @@ class VectorVectorActivation(HLSCustomOp):
                 )
             ]
         elif mem_mode == "decoupled" or mem_mode == "external":
-            simd = self.get_nodeattr("SIMD")
-            if simd > 1:
-                raise Exception(
-                    "SIMD parallelism not supported for decoupled or external mode"
-                )
             wdt = self.get_weight_datatype()
             if wdt == DataType["BIPOLAR"]:
                 export_wdt = DataType["BINARY"]
@@ -1249,9 +1244,10 @@ class VectorVectorActivation(HLSCustomOp):
             self.get_nodeattr("mem_mode") == "decoupled"
             or self.get_nodeattr("mem_mode") == "external"
         ):
+            simd = self.get_nodeattr("SIMD")
             pe = self.get_nodeattr("PE")
             wp = self.get_weight_datatype().bitwidth()
-            w_width = pe * wp
+            w_width = simd * pe * wp
             return w_width
         else:
             return 0
