@@ -501,6 +501,7 @@ def get_fifo_split_configs(depth, max_qsrl_depth, max_vivado_depth):
 
 class SplitLargeFIFOs(Transformation):
     """Split large FIFOs before implementation, for two reasons:
+
     - impl_style="vivado" supports a max depth of 32k. Any larger
       FIFOs must be implemented as a sequence of smaller FIFOs.
     - impl_style="vivado" requires power-of-two depths, which is
@@ -508,6 +509,7 @@ class SplitLargeFIFOs(Transformation):
       So a FIFO of size 8196 normally gets rounded-up to a depth of
       16384 and wastes a lot of resources. Here, instead, we split
       this up into two FIFOs of depth 8192 + 4.
+
     """
 
     def __init__(self, max_qsrl_depth=256, max_vivado_depth=32768):
