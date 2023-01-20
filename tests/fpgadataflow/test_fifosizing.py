@@ -49,6 +49,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.fpgadataflow
 @pytest.mark.parametrize(
     "method", ["largefifo_rtlsim_python", "largefifo_rtlsim_cpp", "characterize"]
 )
