@@ -34,6 +34,7 @@ import tempfile
 # mapping from PYNQ board names to FPGA part names
 pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
+pynq_part_map["Ultra96-V2"] = "xczu3eg-sbva484-1-i"
 pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
 pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
 pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
@@ -46,6 +47,7 @@ pynq_native_port_width = dict()
 pynq_native_port_width["Pynq-Z1"] = 64
 pynq_native_port_width["Pynq-Z2"] = 64
 pynq_native_port_width["Ultra96"] = 128
+pynq_native_port_width["Ultra96-V2"] = 128
 pynq_native_port_width["ZCU102"] = 128
 pynq_native_port_width["ZCU104"] = 128
 pynq_native_port_width["ZCU111"] = 128
