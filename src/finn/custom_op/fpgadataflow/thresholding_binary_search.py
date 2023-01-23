@@ -421,7 +421,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
                     reshaped_input,
                 )
             elif in_ind > 2:
-                raise Exception("Unexpected input found for Thresholding_Batch")
+                raise Exception("Unexpected input found for Thresholding_Binary_Search")
             in_ind += 1
 
         # Create a PyVerilator wrapper of the RTLSim .so
