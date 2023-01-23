@@ -38,7 +38,6 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  C = $C$,	// Channels
 	int BIAS = $BIAS$,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
-	parameter  C_BITS = C < 2 ? 1 : $clog2(C),
 	parameter  O_BITS = BIAS > 0?
 		/* unsigned */ $clog2(2**N-BIAS) :
 		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)
@@ -49,9 +48,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 
 	//- AXI Lite ------------------------
 	// Writing
-	input	                s_axilite_AWVALID,
-	output	                s_axilite_AWREADY,
-	input	[C_BITS+N+1:0]  s_axilite_AWADDR,
+	input	                   s_axilite_AWVALID,
+	output	                   s_axilite_AWREADY,
+	input	[$clog2(C)+N+1:0]  s_axilite_AWADDR,
 
 	input	        s_axilite_WVALID,
 	output	        s_axilite_WREADY,
