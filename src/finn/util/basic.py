@@ -219,6 +219,7 @@ def which(program):
 
 
 def find_next_power_of_2(n):
+    """For any integer 'n', find the next greatest power of 2"""
     # Negative values will loop infinitely below - return 0
     if n <= 0:
         return 0
