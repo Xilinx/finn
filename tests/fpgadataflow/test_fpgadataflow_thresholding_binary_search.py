@@ -266,7 +266,7 @@ def test_fpgadataflow_thresholding_binary_search(
     # Retrieve the axilite programming sequence for weights - for decoupled mode only
     tbs_node = model.get_nodes_by_op_type("Thresholding_Binary_Search")[0]
     tbs_inst = getCustomOp(tbs_node)
-    config = tbs_inst.get_dynamic_config(model)
+    config = tbs_inst.get_dynamic_config(model, 4)
 
     # Reshape generated data (not from model)
     oshape = model.get_tensor_shape("outp")
