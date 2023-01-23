@@ -209,9 +209,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
     def get_exp_cycles(self):
         return 0
 
-    def get_template_param_values(self):
-        return dict()
-
     def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
