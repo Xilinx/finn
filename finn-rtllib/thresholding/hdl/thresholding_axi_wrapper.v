@@ -51,7 +51,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	// Writing
 	input	                s_axilite_AWVALID,
 	output	                s_axilite_AWREADY,
-	input	[C_BITS+N-1:0]  s_axilite_AWADDR,
+	input	[C_BITS+N+1:0]  s_axilite_AWADDR,
 
 	input	        s_axilite_WVALID,
 	output	        s_axilite_WREADY,
