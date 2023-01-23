@@ -95,6 +95,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return my_attrs
 
     def calc_tmem(self):
+        """Calculates and returns TMEM."""
         num_channels = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         return num_channels // pe
@@ -104,6 +105,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
+        """Used for FINN DataType inference: set the output tensors' datatypes
+        accordingly for this node"""
         node = self.onnx_node
         idt = model.get_tensor_datatype(node.input[0])
         if idt != self.get_input_datatype():
@@ -119,6 +122,8 @@ class Thresholding_Binary_Search(HLSCustomOp):
         model.set_tensor_datatype(node.output[0], odt)
 
     def verify_node(self):
+        """Required by the FINN nalysis module. Checks if custom ops in graph
+        are correctly built, with all attributes and inputs."""
         return []
 
     def bram_estimation(self):
@@ -170,6 +175,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return o_bits * self.get_nodeattr("PE")
 
     def get_weightstream_width(self):
+        """Returns weight stream width"""
         pe = self.get_nodeattr("PE")
         wp = self.get_weight_datatype().bitwidth()
         n_thres_steps = self.get_nodeattr("numSteps")
@@ -299,20 +305,24 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return code_gen_dict
 
     def get_rtl_file_list(self):
+        """Thresholding binary search RTL file list"""
         return ["thresholding.sv", "thresholding_axi.sv", "thresholding_axi_wrapper.v"]
 
     def get_rtl_file_paths(self):
+        """Get full path of all RTL files"""
         rtl_root_dir = os.environ["FINN_ROOT"] + "/finn-rtllib/thresholding/hdl/"
         rtl_file_list = self.get_rtl_file_list()
         rtl_file_paths = [rtl_root_dir + file for file in rtl_file_list]
         return rtl_file_paths
 
     def get_rtl_template_data(self, path):
+        """Return RTL file contents as a template"""
         with open(path, "r") as f:
             template = f.read()
         return template
 
     def fill_in_rtl_template_data(self, replace_dict, template_data):
+        """Use attribute values to finn in RTL template placeholders"""
         template_data_cp = template_data
         for key in replace_dict:
             replacement_line = "\n".join(replace_dict[key])
@@ -320,11 +330,13 @@ class Thresholding_Binary_Search(HLSCustomOp):
         return template_data_cp
 
     def dump_rtl_data(self, dest_dir, filename, data):
+        """Dump filled-in-template RTL files for future synthesis step"""
         with open(os.path.join(dest_dir, filename), "w") as f:
             f.write(data)
         return
 
     def generate_hdl(self):
+        """Prepare HDL files from templates for synthesis"""
         # Generate a dictionary of values to put in RTL template
         code_gen_dict = self.prepare_codegen_rtl_values()
 
