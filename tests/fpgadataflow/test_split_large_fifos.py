@@ -1,4 +1,4 @@
-# Copyright (c) 2022 Xilinx, Inc.
+# Copyright (C) 2022, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -74,6 +74,7 @@ def test_split_large_fifos(depth):
         split_large_fifos=True,
         folding_config_file=tmp_output_dir + "/folding_config.json",
         target_fps=10000,
+        force_python_rtlsim=True,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
         rtlsim_batch_size=100,
