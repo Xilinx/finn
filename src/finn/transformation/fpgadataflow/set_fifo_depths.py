@@ -29,10 +29,16 @@
 import math
 import numpy as np
 import warnings
+from onnx import TensorProto, helper
 from pyverilator.util.axi_utils import reset_rtlsim, toggle_clk
+from qonnx.core.datatype import DataType
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
-from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.general import (
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    SortGraph,
+)
 
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
@@ -442,4 +448,127 @@ class InsertAndSetFIFODepths(Transformation):
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
 
+        return (model, False)
+
+
+def get_fifo_split_configs(depth, max_qsrl_depth=256, max_vivado_depth=32768):
+    """Break non-power-of-2 sized FIFO depths into several ones"""
+
+    def floor_pow2(x):
+        if (x & (x - 1) == 0) and x != 0:
+            return x
+        else:
+            return 1 << ((x - 1).bit_length() - 1)
+
+    def decompose_pow2(x):
+        if x <= max_qsrl_depth:
+            return [x]
+        else:
+            r = floor_pow2(x)
+            if x == r:
+                return [x]
+            else:
+                return [r, *decompose_pow2(x - r)]
+
+    ret = []
+    # trivial case: for small FIFOs, return as-is with rtl style
+    if depth <= max_qsrl_depth:
+        return [(depth, "rtl")]
+    # first pass: ensure max depth is respected
+    # (restricted by Vivado AXIS infra IP)
+    remainder = depth
+    while remainder != 0:
+        if remainder > max_vivado_depth:
+            ret.append(max_vivado_depth)
+            remainder -= max_vivado_depth
+        else:
+            ret.append(remainder)
+            remainder = 0
+    # second pass: break non-power-of-2 sized FIFOs
+    # into several ones
+
+    ret_pass2 = list(map(decompose_pow2, ret))
+    # unpack list of lists
+    ret_pass2 = [x for dec_list in ret_pass2 for x in dec_list]
+
+    # finally, add impl_style to each split FIFO
+    ret_final = []
+    for cand_depth in ret_pass2:
+        if cand_depth <= max_qsrl_depth:
+            ret_final.append((cand_depth, "rtl"))
+        else:
+            ret_final.append((cand_depth, "vivado"))
+
+    return ret_final
+
+
+class SplitLargeFIFOs(Transformation):
+    """Split large FIFOs before implementation, for two reasons:
+
+    - impl_style="vivado" supports a max depth of 32k. Any larger
+      FIFOs must be implemented as a sequence of smaller FIFOs.
+    - impl_style="vivado" requires power-of-two depths, which is
+      normally handled by rounding up to the nearest power-of-two.
+      So a FIFO of size 8196 normally gets rounded-up to a depth of
+      16384 and wastes a lot of resources. Here, instead, we split
+      this up into two FIFOs of depth 8192 + 4.
+
+    """
+
+    def __init__(self, max_qsrl_depth=256, max_vivado_depth=32768):
+        super().__init__()
+        self.max_qsrl_depth = max_qsrl_depth
+        self.max_vivado_depth = max_vivado_depth
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "StreamingFIFO":
+                n_inst = getCustomOp(node)
+                depth = n_inst.get_nodeattr("depth")
+                cfgs = get_fifo_split_configs(
+                    depth, self.max_qsrl_depth, self.max_vivado_depth
+                )
+                if len(cfgs) > 1:
+                    fld_shape = n_inst.get_folded_output_shape()
+                    dtype = n_inst.get_nodeattr("dataType")
+                    ram_style = n_inst.get_nodeattr("ram_style")
+                    shape = model.get_tensor_shape(node.input[0])
+                    for i, (fifo_depth, impl_style) in enumerate(cfgs):
+                        if i == 0:
+                            inp = node.input[0]
+                        else:
+                            inp = node.name + "_" + str(i - 1) + "_out"
+                        if i == len(cfgs) - 1:
+                            outp = node.output[0]
+                        else:
+                            outp = node.name + "_" + str(i) + "_out"
+                            out_tensor = helper.make_tensor_value_info(
+                                outp, TensorProto.FLOAT, shape
+                            )
+                            graph.value_info.append(out_tensor)
+                            model.set_tensor_datatype(out_tensor.name, DataType[dtype])
+                        fifo_node = helper.make_node(
+                            "StreamingFIFO",
+                            [inp],
+                            [outp],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            depth=fifo_depth,
+                            folded_shape=fld_shape,
+                            dataType=dtype,
+                            impl_style=impl_style,
+                            ram_style=ram_style,
+                            name=node.name + "_" + str(i),
+                        )
+                        graph.node.insert(node_ind + i, fifo_node)
+
+                    graph.node.remove(node)
+                    graph_modified = True
+        if graph_modified:
+            model = model.transform(SortGraph())
+            model = model.transform(GiveReadableTensorNames())
         return (model, False)
