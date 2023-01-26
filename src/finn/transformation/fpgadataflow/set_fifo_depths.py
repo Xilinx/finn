@@ -451,7 +451,9 @@ class InsertAndSetFIFODepths(Transformation):
         return (model, False)
 
 
-def get_fifo_split_configs(depth, max_qsrl_depth, max_vivado_depth):
+def get_fifo_split_configs(depth, max_qsrl_depth=256, max_vivado_depth=32768):
+    """Break non-power-of-2 sized FIFO depths into several ones"""
+
     def floor_pow2(x):
         if (x & (x - 1) == 0) and x != 0:
             return x
@@ -486,6 +488,7 @@ def get_fifo_split_configs(depth, max_qsrl_depth, max_vivado_depth):
     # into several ones
 
     ret_pass2 = list(map(decompose_pow2, ret))
+    # unpack list of lists
     ret_pass2 = [x for dec_list in ret_pass2 for x in dec_list]
 
     # finally, add impl_style to each split FIFO
