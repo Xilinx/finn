@@ -409,6 +409,7 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
         hw_attrs = [
             "PE",
             "SIMD",
+            "parallel_window",
             "ram_style",
             "resType",
             "mem_mode",

@@ -81,7 +81,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "outputDataType": ("s", True, ""),
             "depthwise": ("i", False, 0, {0, 1}),
             # Enable reprogrammable implementation to change FM dimensions,
-            # stride, or dilation during runtime
+            # stride, or dilation during runtime (requires parallel_window = 0)
             "dynamic_mode": ("i", False, 0, {0, 1}),
             # FPGA resource type for ConvolutionInputGenerator input buffer
             # auto -- let Vivado decide
@@ -233,13 +233,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         mmv_out = 1
         channel_factor = int(ifm_ch / simd)
 
+        # compute minimal buffer length (assuming it holds 1 complete window)
+        buffer_min_size = (
+            (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
+        ) * channel_factor
+
         impl_style = self.select_impl_style()
         if impl_style == "default":
-            # compute minimal buffer length (assuming it holds 1 complete window)
-            buffer_min_size = (
-                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
-            ) * channel_factor
-
             # add additional buffer space in case of stride > 1
             # this minimizes cycle count as it allows an earlier pre-load of inputs
             buffer_depth = (
@@ -255,73 +255,89 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     * channel_factor,
                 )
             )
-        else:
-            buffer_depth = 0
-            raise Exception("Requested impl. style not implemented")
+        elif impl_style == "parallel":
+            buffer_depth = buffer_min_size + 1
         return buffer_depth
 
     def get_exp_cycles(self):
-        simd = self.get_nodeattr("SIMD")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_dim = self.get_nodeattr("IFMDim")
-        ofm_dim = self.get_nodeattr("OFMDim")
-        stride = self.get_nodeattr("Stride")
-        dilation = self.get_nodeattr("Dilation")
-        depthwise = self.get_nodeattr("depthwise")
-        ifm_dim_h, ifm_dim_w = ifm_dim
-        ofm_dim_h, ofm_dim_w = ofm_dim
-        k_h, k_w = k
-        stride_h, stride_w = stride
-        dilation_h, dilation_w = dilation
+        impl_style = self.select_impl_style()
 
-        channel_factor = int(ifm_ch / simd)
+        if impl_style == "parallel":
+            exp_cycles = self.get_number_input_values() + 2
+        elif impl_style == "default":
+            simd = self.get_nodeattr("SIMD")
+            ifm_ch = self.get_nodeattr("IFMChannels")
+            k = self.get_nodeattr("ConvKernelDim")
+            ifm_dim = self.get_nodeattr("IFMDim")
+            ofm_dim = self.get_nodeattr("OFMDim")
+            stride = self.get_nodeattr("Stride")
+            dilation = self.get_nodeattr("Dilation")
+            depthwise = self.get_nodeattr("depthwise")
+            ifm_dim_h, ifm_dim_w = ifm_dim
+            ofm_dim_h, ofm_dim_w = ofm_dim
+            k_h, k_w = k
+            stride_h, stride_w = stride
+            dilation_h, dilation_w = dilation
 
-        if ifm_dim_h == 1 or ifm_dim_w == 1:
-            # 1D case
-            (
-                ifm_ch,
-                [ifm_dim_h, ifm_dim_w],
-                [ofm_dim_h, ofm_dim_w],
-                [k_h, k_w],
-                [stride_h, stride_w],
-                [dilation_h, dilation_w],
-            ) = self.get_1d_conv_attrs_normalized()
+            channel_factor = int(ifm_ch / simd)
+            if ifm_dim_h == 1 or ifm_dim_w == 1:
+                # 1D case
+                (
+                    ifm_ch,
+                    [ifm_dim_h, ifm_dim_w],
+                    [ofm_dim_h, ofm_dim_w],
+                    [k_h, k_w],
+                    [stride_h, stride_w],
+                    [dilation_h, dilation_w],
+                ) = self.get_1d_conv_attrs_normalized()
 
-            if depthwise:
-                exp_cycles = (
-                    +ofm_dim_w * k_w * channel_factor
-                    + channel_factor * (k_w - 1) * (stride_w - 1)
-                    - (k_w - 1)
-                    + 2
-                )
+                if depthwise:
+                    exp_cycles = (
+                        +ofm_dim_w * k_w * channel_factor
+                        + channel_factor * (k_w - 1) * (stride_w - 1)
+                        - (k_w - 1)
+                        + 2
+                    )
+                else:
+                    exp_cycles = ofm_dim_w * k_w * channel_factor + 2
             else:
-                exp_cycles = ofm_dim_w * k_w * channel_factor + 2
-        else:
-            # 2D case
-            buffer_min_size = (
-                (k_h - 1) * dilation_h * ifm_dim_w + (k_w - 1) * dilation_w + 1
-            ) * channel_factor
-            cycles_write_block = ofm_dim_w * k_w * k_h * channel_factor
-            cycles_read_block = stride_w * ifm_dim_w * channel_factor
-            max_cycles = max(cycles_write_block, cycles_read_block)
-            if depthwise:
-                max_cycles += ofm_dim_w * (stride_w - 1) * (channel_factor - 1)
-            exp_cycles = buffer_min_size + ofm_dim_h * max_cycles  # initial buffering
-            if depthwise:
-                exp_cycles += (stride_h - 1) * ifm_dim_w * channel_factor
+                # 2D case
+                buffer_min_size = (
+                    (k_h - 1) * dilation_h * ifm_dim_w + (k_w - 1) * dilation_w + 1
+                ) * channel_factor
+                cycles_write_block = ofm_dim_w * k_w * k_h * channel_factor
+                cycles_read_block = stride_w * ifm_dim_w * channel_factor
+                max_cycles = max(cycles_write_block, cycles_read_block)
+                if depthwise:
+                    max_cycles += ofm_dim_w * (stride_w - 1) * (channel_factor - 1)
+                exp_cycles = buffer_min_size + ofm_dim_h * max_cycles
+                if depthwise:
+                    exp_cycles += (stride_h - 1) * ifm_dim_w * channel_factor
 
         return int(exp_cycles)
 
     def bram_estimation(self):
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
+        impl_style = self.select_impl_style()
+        [k_h, k_w] = self.get_nodeattr("ConvKernelDim")
+        [ifm_dim_h, ifm_dim_w] = self.get_nodeattr("IFMDim")
+        [dilation_h, dilation_w] = self.get_nodeattr("Dilation")
 
-        # NOTE: Actual BRAM usage might be lower in some cases.
-        # This does not account for the exact Vivado behavior yet.
-        buffer_width = simd * self.get_input_datatype().bitwidth()
-        buffer_depth = self.get_buffer_depth()
         if ram_style == "block" or ram_style == "auto":
+            buffer_width = simd * self.get_input_datatype().bitwidth()
+            if impl_style == "default":
+                buffer_depth = self.get_buffer_depth()
+                buffer_count = 1
+            elif impl_style == "parallel":
+                if ifm_dim_h == 1 or ifm_dim_w == 1:
+                    return 0  # 1D case (no line buffers needed)
+                kernel_width = (k_w - 1) * dilation_w + 1
+                buffer_depth = (ifm_dim_w - kernel_width) + ifm_dim_w * (dilation_h - 1)
+                buffer_count = k_h - 1
+
+            # NOTE: Actual BRAM usage might be lower in some cases
+            # due to imperfect modeling of Vivado behavior
             if buffer_depth <= 512:
                 ram_width = 36
             elif buffer_depth <= 1024:
@@ -356,7 +372,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 remainder_cascade_width = math.ceil(buffer_width / remainder_width)
                 cascade_savings = ram_cascade_width - remainder_cascade_width
 
-            return int(ram_cascade_depth * ram_cascade_width - cascade_savings)
+            return int(
+                (ram_cascade_depth * ram_cascade_width - cascade_savings) * buffer_count
+            )
         else:
             return 0
 
@@ -374,15 +392,28 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     def uram_estimation(self):
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
-        buffer_width = simd * self.get_input_datatype().bitwidth()
-        buffer_depth = self.get_buffer_depth()
+        impl_style = self.select_impl_style()
+        [k_h, k_w] = self.get_nodeattr("ConvKernelDim")
+        [ifm_dim_h, ifm_dim_w] = self.get_nodeattr("IFMDim")
+        [dilation_h, dilation_w] = self.get_nodeattr("Dilation")
 
         if ram_style == "ultra":
+            buffer_width = simd * self.get_input_datatype().bitwidth()
+            if impl_style == "default":
+                buffer_depth = self.get_buffer_depth()
+                buffer_count = 1
+            elif impl_style == "parallel":
+                if ifm_dim_h == 1 or ifm_dim_w == 1:
+                    return 0  # 1D case (no line buffers needed)
+                kernel_width = (k_w - 1) * dilation_w + 1
+                buffer_depth = (ifm_dim_w - kernel_width) + ifm_dim_w * (dilation_h - 1)
+                buffer_count = k_h - 1
+
             ram_depth = 4096
             ram_width = 72
             ram_cascade_depth = math.ceil(buffer_depth / ram_depth)
             ram_cascade_width = math.ceil(buffer_width / ram_width)
-            return int(ram_cascade_depth * ram_cascade_width)
+            return int(ram_cascade_depth * ram_cascade_width * buffer_count)
         else:
             return 0
 
@@ -641,8 +672,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
     def prepare_codegen_parallel(self):
         # Parallel implementation style for MMV_out = K:
-        # mix of shift-registers (for parallel read) and line buffers (BRAM or LUTRAM)
-        # compute a static schedule by analyzing access pattern (from im2col function)
+        # mix of shift-registers (for parallel read) and line buffers (BRAM/URAM/LUT)
         template_path = (
             os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_parallel.sv"
         )
@@ -674,8 +704,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
         ) * channel_factor
 
-        # buffer_actual_size = self.get_buffer_depth() # TODO: Move to this method
-        buffer_actual_size = buffer_min_size + 1
+        buffer_actual_size = self.get_buffer_depth()
         code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_actual_size)]
 
         # compute some intermediate values, e.g., kernel "width" = k_w incl. dilation
@@ -685,34 +714,19 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w)
         skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h)
 
-        # compute address increment values for 5-loop nest #TODO: simplify
-        addr_incr_end_simd = 1
-        addr_incr_end_window_elem = (dilation_w - 1) * channel_factor + 1
-        addr_incr_end_window_row = (
-            ((w - kernel_width) * channel_factor)  # remaining line
-            + ((dilation_h - 1) * w * channel_factor)  # skip lines
-            + 1  # wrap-around of minimally sized buffer
-        )
-        addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1
-        addr_incr_end_row = (
-            -buffer_min_size
-            + ((skip_columns + kernel_width) * channel_factor)  # remaining line
-            + ((stride_h - 1) * w * channel_factor)  # skip lines
-            + 1
-        )
-
         # set certain threshold indices to detect when reading/writing finishes
         code_gen_dict["$LAST_READ_ELEM$"] = [str(h * w * channel_factor - 1)]
         code_gen_dict["$LAST_WRITE_ELEM$"] = [
             str(((h - skip_rows - 1) * w + (w - skip_columns)) * channel_factor - 1)
         ]
 
-        # default controller loop structure: # iterations (counters) map directly
+        # re-use default controller loop structure
+        code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
         loop_h_iterations = out_dim_h
-        loop_w_iterations = out_dim_w  # -> innermost loop
-        loop_kh_iterations = 1  # k_h
-        loop_kw_iterations = 1  # k_w
-        loop_simd_iterations = 1  # channel_factor
+        loop_w_iterations = out_dim_w  # now the innermost loop
+        loop_kh_iterations = 1
+        loop_kw_iterations = 1
+        loop_simd_iterations = 1
 
         if loop_w_iterations == 1:
             code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_H"]
@@ -721,12 +735,19 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_W"]
             loop_w_iterations -= 1  # -1 because state is initial state
 
+        # set head and tail address increment values
+        addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1
+        addr_incr_end_row = (
+            -buffer_min_size
+            + ((skip_columns + kernel_width) * channel_factor)  # remaining line
+            + ((stride_h - 1) * w * channel_factor)  # skip lines
+            + 1
+        )
+
         tail_incr_w = addr_incr_end_window + buffer_min_size - 1
         tail_incr_h = addr_incr_end_row + buffer_min_size - 1
         tail_incr_last_window = buffer_min_size - 1
-        code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
 
-        # overwrite new loop bounds:
         addr_incr_end_simd = 1
         addr_incr_end_window_elem = 1
         addr_incr_end_window_row = 1
@@ -970,6 +991,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             template_path, code_gen_dict = self.prepare_codegen_default()
         elif impl_style == "parallel":
             template_path, code_gen_dict = self.prepare_codegen_parallel()
+            if self.get_nodeattr("dynamic_mode"):
+                raise Exception("Dynamic mode is not compatible with parallel_window")
         else:
             raise Exception("Requested impl. style not implemented")
 
@@ -1109,6 +1132,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         apply (e.g. component must be synthesized for largest buffer size)."""
         # NOTE: For better driver integration, this functionality could be packaged
         # as a standalone function in the future
+        if self.select_impl_style() != "default":
+            raise Exception("Impl. style is incompatible with dynamic mode")
 
         if ifm_dim is None:
             ifm_dim = self.get_nodeattr("IFMDim")

@@ -192,7 +192,7 @@ output [WIDTH-1:0] shift_out;
 reg [WIDTH-1:0] out_reg;
 assign shift_out = out_reg;
 
-integer addr_w, addr_r; //TODO: minimize width + simplify
+integer addr_w, addr_r;
 
 $RAM_STYLE$ reg [WIDTH-1:0] ram [DEPTH-1:0];
 
@@ -221,9 +221,9 @@ endmodule : $TOP_MODULE_NAME$_ram_buffer
 
 module $TOP_MODULE_NAME$_wb
 #(
-    parameter IN_WIDTH = 1, //bit-width*C*MMV_in
-    parameter OUT_ELEM_WIDTH = 1, //bit-width*C
-    parameter OUT_WIDTH = 1, //bit-width*C*MMV_out
+    parameter IN_WIDTH          = 1, // bit-width*C*MMV_in
+    parameter OUT_ELEM_WIDTH    = 1, // bit-width*C
+    parameter OUT_WIDTH         = 1, // bit-width*C*MMV_out
     parameter BUFFER_ELEM_TOTAL = 1
 )
 (
@@ -243,12 +243,11 @@ $GENERATE_REG_FIFOS$
 
 $GENERATE_BRAM_FIFOS$
 
-//Fixed interconnect between linear buffers
+// fixed interconnect between linear buffers
 $GENERATE_BUFFER_CONNECTION$
 
-//Fixed REG FIFO <-> output mapping
+// fixed REG FIFO -> output mapping
 $GENERATE_OUTPUT_MAPPING$
-
 
 endmodule : $TOP_MODULE_NAME$_wb
 
@@ -279,7 +278,7 @@ module $TOP_MODULE_NAME$_impl #(
     localparam int unsigned  BUF_OUT_ELEM_WIDTH = BIT_WIDTH * SIMD;
     localparam int unsigned  BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT;
 
-    //main buffer instantiation
+    // main buffer instantiation
     uwire [BUF_IN_WIDTH -1:0] window_buffer_in;
     uwire [BUF_OUT_WIDTH-1:0] window_buffer_out;
     uwire window_buffer_shift_enable;
@@ -299,7 +298,7 @@ module $TOP_MODULE_NAME$_impl #(
         .data_out(window_buffer_out)
     );
 
-    //controller instantiation
+    // controller instantiation
     uwire  advance_controller;
     uwire signed [INCR_BITWIDTH-1:0]  addr_incr;
     uwire        [INCR_BITWIDTH-1:0]  tail_incr;
@@ -311,27 +310,22 @@ module $TOP_MODULE_NAME$_impl #(
         .tail_incr(tail_incr)
     );
 
-    // Counters/address registers
-    // Add a sign bit even to (most) unsigned counters and Window_buffer_read_addr_reg,
-    // so we can use automatic sign extension and simplify calculations w/ signed increment.
-    // Alternatively, we could manually sign-extend and shave off a bit here or there.
+    // counters/address registers
     logic signed [$clog2(LAST_READ_ELEM+1)+1-1:0]  Newest_buffered_elem = -1;
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  Current_elem = FIRST_WRITE_ELEM;
     logic        [$clog2(LAST_READ_ELEM+1)+1-1:0]  First_elem_next_window = 0;
 
-    // Control signals/registers
-    logic  Writing_done = 0;
-    logic  write_done   = 0;
-
-    uwire  write_ok          = write_cmd && (out_V_V_TREADY || write_done);
-    uwire  write_blocked     = write_cmd && !out_V_V_TREADY && !write_done;
-
-    uwire  write_cmd =   !($signed(Current_elem) > Newest_buffered_elem)                   && !Writing_done;;
+    // control registers/signals
+    logic  Writing_done  = 0;
+    logic  Write_done    = 0;
+    uwire  write_ok      = write_cmd && (out_V_V_TREADY || Write_done);
+    uwire  write_blocked = write_cmd && !out_V_V_TREADY && !Write_done;
+    uwire  write_cmd     = !($signed(Current_elem) > Newest_buffered_elem) && !Writing_done;;
 
     uwire  reading_done = Newest_buffered_elem == LAST_READ_ELEM;
-    uwire  read_cmd =
+    uwire  read_cmd     =
         !reading_done && ( // if there is still an input element left to read
-            Writing_done || ( // if fetching is done (e.g. for skipped rows at FM end due to stride)
+            Writing_done || ( // if writing is done (e.g. for skipped rows at FM end due to stride)
                 $signed(((Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)))) < $signed(First_elem_next_window) &&
                 $signed(((Newest_buffered_elem - (BUF_ELEM_TOTAL - 1)))) < $signed(Current_elem)
             ) // (over-)write to buffer if oldest buffered element will no longer be needed
@@ -339,27 +333,27 @@ module $TOP_MODULE_NAME$_impl #(
     uwire  read_ok      = read_cmd && in0_V_V_TVALID && !write_blocked;
 
     //            includes waiting on W    if W-only cycle: wait only on W     no R/W to wait for
-    uwire advance =      read_ok        ||   (!read_cmd && write_ok)    || (!read_cmd && !write_cmd);
+    uwire advance       = read_ok        ||   (!read_cmd && write_ok)    || (!read_cmd && !write_cmd);
 
-    //assign buffer control
+    // assign buffer control
     assign window_buffer_shift_enable = advance;
     assign  advance_controller = write_ok;
 
-    //assign I/O ports
+    // assign I/O ports
     assign  window_buffer_in = in0_V_V_TDATA;
     assign  out_V_V_TDATA = window_buffer_out;
     assign  in0_V_V_TREADY = ap_rst_n && read_ok; //only asserted if data is available and we can store it (allowed)
-    assign  out_V_V_TVALID = ap_rst_n && write_cmd && !write_done; //only asserted if we have data available and it has not been read yet (don't wait for READY from sink)
+    assign  out_V_V_TVALID = ap_rst_n && write_cmd && !Write_done; //only asserted if we have data available and it has not been read yet (don't wait for READY from sink)
 
-    //write done logic
+    // write done logic
     always_ff @(posedge ap_clk) begin
         if (advance) begin
-            write_done <= 1'b0; //reset flag
-        end else if (write_ok) // successful W in this cycle, but R still outstanding
-            write_done <= 1'b1; //write can happen even if read is blocked, but only for the current cycle!
+            Write_done <= 1'b0; //reset flag
+        end else if (write_ok)  //successful W in this cycle, but R still outstanding
+            Write_done <= 1'b1; //write can happen even if read is blocked, but only for the current cycle!
     end
 
-    //main process for advancing counters
+    // main process for advancing counters
     always_ff @(posedge ap_clk) begin
         if(!ap_rst_n) begin
             Newest_buffered_elem <= -1;
@@ -371,10 +365,10 @@ module $TOP_MODULE_NAME$_impl #(
             if (read_ok) begin
                 Newest_buffered_elem <= Newest_buffered_elem+1;
 
-                //check if this is the last read cycle (reading_done will be true afterwards)
+                // check if this is the last read cycle (reading_done will be true afterwards)
                 if ((Newest_buffered_elem == LAST_READ_ELEM-1) && Writing_done) begin
-                    //start processing of next FM if writing is done already (possible due to unused input elements at the tail end)
-                    //todo: allow for read overlapping between feature maps (i.e., reading first elements from next FM while still writing last window of current FM)
+                    // start processing of next FM if writing is done already (possible due to unused input elements at the tail end)
+                    // todo: allow for read overlapping between feature maps (i.e., reading first elements from next FM while still writing last window of current FM)
                     Newest_buffered_elem <= -1;
                     Current_elem <= FIRST_WRITE_ELEM;
                     First_elem_next_window <= 0;
@@ -385,12 +379,12 @@ module $TOP_MODULE_NAME$_impl #(
             if (write_ok) begin
                 First_elem_next_window <= First_elem_next_window + tail_incr;
 
-                //check if this is the last write cycle (Writing_done will be true afterwards)
+                // check if this is the last write cycle (Writing_done will be true afterwards)
                 if (Current_elem == LAST_WRITE_ELEM) begin
                     Writing_done <= 1;
 
                     if (reading_done || (read_ok && (Newest_buffered_elem == LAST_READ_ELEM - 1))) begin
-                        //start processing of next FM if reading is done already, or completes in the same cycle
+                        // start processing of next FM if reading is done already, or completes in the same cycle
                         Newest_buffered_elem <= -1;
                         Current_elem <= FIRST_WRITE_ELEM;
                         First_elem_next_window <= 0;
