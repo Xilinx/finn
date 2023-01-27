@@ -85,8 +85,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
             "gen_top_module": ("s", False, ""),
             # bias to be applied to outputs of the node
             "activation_bias": ("i", False, 0),
-            # used for IPI step
-            "clkFreq": ("i", False, 200000000),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -477,10 +475,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         cmd = []
         rtl_file_list = self.get_rtl_file_list()
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        node_name = self.onnx_node.name
-        dout_name = self.get_verilog_top_module_intf_names()["m_axis"][0][0]
-        din_name = self.get_verilog_top_module_intf_names()["s_axis"][0][0]
-        clock_freq = self.get_nodeattr("clkFreq")
 
         for rtl_file in rtl_file_list:
             cmd.append(
@@ -491,16 +485,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
         cmd.append(
             "create_bd_cell -type module -reference %s %s"
             % (self.get_nodeattr("gen_top_module"), self.onnx_node.name)
-        )
-
-        cmd.append(
-            "set_property -dict [list CONFIG.FREQ_HZ {%d}] [%s %s/%s]"
-            % (clock_freq, "get_bd_intf_pins", node_name, din_name)
-        )
-
-        cmd.append(
-            "set_property -dict [list CONFIG.FREQ_HZ {%d}] [%s %s/%s]"
-            % (clock_freq, "get_bd_intf_pins", node_name, dout_name)
         )
 
         return cmd
@@ -517,9 +501,6 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         intf_names = super().get_verilog_top_module_intf_names()
         intf_names["axilite"] = ["s_axilite"]
-        intf_names["s_axis"] = [["s_axis"]]
-        intf_names["m_axis"] = [["m_axis"]]
-
         return intf_names
 
     def get_dynamic_config(self, model, address_stride=1):
