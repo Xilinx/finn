@@ -576,6 +576,10 @@ class MatrixVectorActivation(HLSCustomOp):
 
     def minimize_accumulator_width(self, model):
         weights = model.get_initializer(self.onnx_node.input[1])
+        # since in the calculation the values of the weight matrix are used,
+        # for the bipolar case they need to be converted to bipolar
+        if self.get_nodeattr("binaryXnorMode"):
+            weights = 2 * weights - 1
         if len(self.onnx_node.input) > 2:
             thresholds = model.get_initializer(self.onnx_node.input[2])
         else:
@@ -702,10 +706,12 @@ class MatrixVectorActivation(HLSCustomOp):
         of weights.
 
         Arguments:
+
         * weights : numpy array with weights to be put into the file
         * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
           decoupled_runtime}
         * weight_file_name : filename for the weight file to be generated
+
         """
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hls_compatible_weight_tensor(weights)
@@ -1227,20 +1233,6 @@ class MatrixVectorActivation(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
         )
-        # TODO can we deprecate this entirely? this looks like legacy code
-        # that does not really serve a purpose - FIFO sizes are not typically
-        # allocated at this point; at best they are set to 2 as the default
-        in_fifo_depth = 2
-        out_fifo_depth = 2
-        # insert depth pragmas only if specified
-        if in_fifo_depth != 0:
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=%d variable=in0" % in_fifo_depth
-            )
-        if out_fifo_depth != 0:
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=%d variable=out" % out_fifo_depth
-            )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )

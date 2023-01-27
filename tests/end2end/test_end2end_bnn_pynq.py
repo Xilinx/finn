@@ -80,7 +80,6 @@ from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import InsertAndSetFIFODepths
 from finn.transformation.move_reshape import RemoveCNVtoFCFlatten
@@ -103,7 +102,7 @@ from finn.util.test import (
 )
 
 build_dir = os.environ["FINN_BUILD_DIR"]
-target_clk_ns = 10
+target_clk_ns = 20
 mem_mode = "decoupled"
 rtlsim_trace = False
 
@@ -597,7 +596,6 @@ class TestEnd2End:
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
-        model = model.transform(PrepareRTLSim())
         model.set_metadata_prop("exec_mode", "rtlsim")
         os.environ["LIVENESS_THRESHOLD"] = str(int(latency * 1.1))
         if rtlsim_trace:
