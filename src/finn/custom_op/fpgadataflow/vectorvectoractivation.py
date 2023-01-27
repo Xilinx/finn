@@ -171,8 +171,7 @@ class VectorVectorActivation(HLSCustomOp):
 
     def minimize_weight_bit_width(self, model):
         """Minimize the bit width based on the values of the weights"""
-        runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 0
-        if runtime_writable:
+        if not self.get_nodeattr("runtime_writeable_weights"):
             weights = model.get_initializer(self.onnx_node.input[1])
             w_min = weights.min()
             w_max = weights.max()
