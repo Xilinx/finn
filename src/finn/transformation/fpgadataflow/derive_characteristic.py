@@ -134,8 +134,9 @@ class DeriveFIFOSizes(NodeLocalTransformation):
       NodeLocalTransformation for more details.
     """
 
-    def __init__(self, num_workers=None):
+    def __init__(self, num_workers=None, io_fifo_depth=32):
         super().__init__(num_workers=num_workers)
+        self.io_fifo_depth = io_fifo_depth
 
     def applyNodeLocal(self, node):
         op_type = node.op_type
@@ -161,7 +162,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                     if cons_node is None:
                         # could be final node, will be overridden if so
                         # need an entry in the list anyway
-                        out_fifo_depths.append(2)
+                        out_fifo_depths.append(self.io_fifo_depth)
                         continue
                     cons = registry.getCustomOp(cons_node)
                     cons_chrc = cons.get_nodeattr("io_chrc_in")[0]
@@ -181,6 +182,14 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 # InsertFIFO looks at the max of (outFIFODepths, inFIFODepths)
                 # for each tensor
                 prod.set_nodeattr("outFIFODepths", out_fifo_depths)
+
+                # finally, check node inputs to ensure FIFOs are added to
+                # any top-level inputs (at least self.io_fifo_depth deep)
+                in_fifo_depths = prod.get_nodeattr("inFIFODepths")
+                for (i, input_name) in enumerate(node.input):
+                    if input_name in [x.name for x in model.graph.input]:
+                        in_fifo_depths[i] = max(self.io_fifo_depth, in_fifo_depths[i])
+                prod.set_nodeattr("inFIFODepths", in_fifo_depths)
 
             except KeyError:
                 # exception if op_type is not supported

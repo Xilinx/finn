@@ -224,7 +224,7 @@ class InsertAndSetFIFODepths(Transformation):
     - run through rtlsim with stream of multiple random input images (to fill pipeline)
     - keep track of observed maximum occupancy for each FIFO during rtlsim
     - when sim finished, update each FIFO depth to maximum observed occupancy
-      and set inFIFODepths/outFIFODepths attrs to 0 on relevant nodes
+      and set inFIFODepths/outFIFODepths attrs to that depth as well
 
     """
 
@@ -289,7 +289,7 @@ class InsertAndSetFIFODepths(Transformation):
 
         # insert stream infrastructure (DWC/FIFO)
         model = model.transform(InsertDWC())
-        model = model.transform(InsertFIFO())
+        model = model.transform(InsertFIFO(create_shallow_fifos=True))
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
 
@@ -416,11 +416,7 @@ class InsertAndSetFIFODepths(Transformation):
                 reset_implementation(node_inst)
                 del fifos[node.name]
             else:
-                inst = getCustomOp(node)
-                ifd = inst.get_nodeattr("inFIFODepths")
-                ofd = inst.get_nodeattr("outFIFODepths")
-                inst.set_nodeattr("inFIFODepths", [0] * len(ifd))
-                inst.set_nodeattr("outFIFODepths", [0] * len(ofd))
+                # (removed setting of node FIFO size attributes to 0 here)
                 # for every extw node we changed from external to decoupled,
                 # change back and reset implementation
                 if node.op_type in extw_optypes:
@@ -441,5 +437,50 @@ class InsertAndSetFIFODepths(Transformation):
             )
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
+
+        # reflect final values in attributes
+        for node in model.graph.node:
+            if node.op_type != "StreamingFIFO":
+                node_inst = getCustomOp(node)
+                fifodepth_in = []
+                for node_inp in node.input:
+                    prod = model.find_producer(node_inp)
+                    if prod is None:
+                        # no producer for this input
+                        if node_inp in [x.name for x in model.graph.input]:
+                            # top-level input with no FIFO
+                            fifodepth_in.append(0)
+                        else:
+                            # FIFO depth attr applies only to dynamic attributes
+                            pass
+                    else:
+                        # there is a producer for this input
+                        if prod.op_type == "StreamingFIFO":
+                            prod_inst = getCustomOp(prod)
+                            fifodepth_in.append(prod_inst.get_nodeattr("depth"))
+                        else:
+                            # explicitly no FIFO on this dynamic input
+                            fifodepth_in.append(0)
+                fifodepth_out = []
+                for node_out in node.output:
+                    cons = model.find_consumer(node_out)
+                    if cons is None:
+                        # no consumer for this output
+                        if node_out in [x.name for x in model.graph.output]:
+                            # top-level output with no FIFO
+                            fifodepth_out.append(0)
+                        else:
+                            # FIFO depth attr applies only to dynamic attributes
+                            pass
+                    else:
+                        # there is a consumer for this input
+                        if cons.op_type == "StreamingFIFO":
+                            cons_inst = getCustomOp(cons)
+                            fifodepth_out.append(cons_inst.get_nodeattr("depth"))
+                        else:
+                            # explicitly no FIFO on this dynamic output
+                            fifodepth_out.append(0)
+                node_inst.set_nodeattr("inFIFODepths", fifodepth_in)
+                node_inst.set_nodeattr("outFIFODepths", fifodepth_out)
 
         return (model, False)
