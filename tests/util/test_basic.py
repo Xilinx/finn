@@ -58,5 +58,3 @@ def test_next_power_of_2():
         output = basic.find_next_power_of_2(test_dict["input"])
         assert output >= test_dict["input"]
         assert output == test_dict["expected_result"]
-
-    return
