@@ -54,22 +54,16 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.parametrize(
     "method", ["largefifo_rtlsim_python", "largefifo_rtlsim_cpp", "characterize"]
 )
-@pytest.mark.parametrize(
-    "topology",
-    [
-        "cnv",
-        # "tfc"
-    ],
-)
+@pytest.mark.parametrize("topology", ["cnv", "tfc"])
 def test_fifosizing_linear(method, topology):
     force_python_rtlsim = "python" in method
     method_key = "largefifo_rtlsim" if "largefifo_rtlsim" in method else "characterize"
-    tmp_output_dir = fetch_test_model("tfc")
+    tmp_output_dir = fetch_test_model(topology)
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
         auto_fifo_depths=True,
         auto_fifo_strategy=method_key,
-        target_fps=10000,
+        target_fps=10000 if topology == "tfc" else 1000,
         force_python_rtlsim=force_python_rtlsim,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
@@ -93,7 +87,7 @@ def test_fifosizing_linear(method, topology):
         > 0.9
     )
     # now run the same build using the generated folding and FIFO config
-    tmp_output_dir_cmp = fetch_test_model("tfc")
+    tmp_output_dir_cmp = fetch_test_model(topology)
     cfg_cmp = cfg
     cfg_cmp.output_dir = tmp_output_dir_cmp
     cfg_cmp.auto_fifo_depths = False
