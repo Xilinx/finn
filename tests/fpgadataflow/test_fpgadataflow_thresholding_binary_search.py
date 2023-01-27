@@ -191,12 +191,11 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1, 1, 2])
 @pytest.mark.parametrize("num_input_channels", [16])
-@pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_thresholding_binary_search(
-    activation, input_data_type, fold, num_input_channels, exec_mode
+    activation, input_data_type, fold, num_input_channels
 ):
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
@@ -208,12 +207,6 @@ def test_fpgadataflow_thresholding_binary_search(
             "Paralellisation of IP not supported for "
             "RTL Thresholding Binary Search node"
         )
-
-    # Cppsim is not supported for this node (as it is an RTL node)
-    if exec_mode == "cppsim":
-        pytest.skip("cppsim not supported for RTL Thresholding Binary Search node")
-    elif exec_mode != "rtlsim":
-        raise Exception("Unknown exec_mode: {}".format(exec_mode))
 
     # Other non-input parameters
     num_input_vecs = [1, 2, 2]
