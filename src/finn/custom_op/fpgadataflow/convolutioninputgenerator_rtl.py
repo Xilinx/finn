@@ -188,6 +188,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             return self.get_instream_width()
 
     def get_number_input_values(self):
+        """Function to get the number of expected input values."""
         folded_ishape = self.get_folded_input_shape()
         num_input_elems = np.prod(folded_ishape[:-1])
         return num_input_elems
@@ -198,6 +199,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return num_output_elems
 
     def get_1d_conv_attrs_normalized(self):
+        """Returns normalized spatial attributes, where H=1 for the 1D case."""
         # normalize FM dimensions so that:
         # [H, W] = [Y, X] = [1, D] or [D, 1] are always mapped to [1, D].
         # The dummy ('1') dimension is the Y-dimension.
@@ -218,6 +220,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return (ifm_ch, ifm_dim, ofm_dim, k, stride, dilation)
 
     def get_buffer_depth(self):
+        """Returns total depth of the internal buffer, depending on
+        implementation style."""
         ifm_ch = self.get_nodeattr("IFMChannels")
         k = self.get_nodeattr("ConvKernelDim")
         ifm_dim = self.get_nodeattr("IFMDim")
@@ -488,8 +492,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         shape doesn't match expected shape (1, ofm_dim_h, ofm_dim_w, k_h*k_w*ifm_ch)."""
 
     def prepare_codegen_default(self):
-        # Default implementation style for MMV_out = 1: addressable cyclic buffer
-        # Computing incremental addressing scheme directly..
+        """Fills code generation dict for the default implementation style by computing
+        the incremental addressing scheme for the circular buffer."""
         if self.get_nodeattr("dynamic_mode"):
             template_select = "/finn-rtllib/swg/swg_template_default_dynamic.sv"
         else:
@@ -671,8 +675,10 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return template_path, code_gen_dict
 
     def prepare_codegen_parallel(self):
-        # Parallel implementation style for MMV_out = K:
-        # mix of shift-registers (for parallel read) and line buffers (BRAM/URAM/LUT)
+        """Fills code generation dict for the parallel implementation style by computing
+        the loop controller configuration and partitioning the fixed buffer into
+        shift-registers (for parallel read access) and line buffers (for efficient
+        LUTRAM/BRAM/URAM implementation)."""
         template_path = (
             os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_parallel.sv"
         )
@@ -936,6 +942,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return template_path, code_gen_dict
 
     def select_impl_style(self):
+        """Selects implementation style based on folding configuration."""
         simd = self.get_nodeattr("SIMD")
         M = self.get_nodeattr("M")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -984,6 +991,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return impl_style
 
     def generate_hdl(self):
+        """Generates HDL code and wrapper for the IP, depending on required
+        implementation style."""
         impl_style = self.select_impl_style()
 
         # prepare code generation by filling out dictionaries
@@ -1186,44 +1195,53 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return config
 
     def code_generation_ipgen(self, model, fpgapart, clk):
-        """Normally: Generates C++ code and tcl script for IP generation.
-        Here: Generates (System-)Verilog code for IP generation."""
+        """Generates (System-)Verilog code for IP generation (instead of HLS code)."""
         self.generate_hdl()
 
     def ipgen_singlenode_code(self):
-        """Normally: Builds the bash script for IP generation."""
+        """Not implemented (RTL component)."""
         pass
 
     def code_generation_cppsim(self, model):
-        """Normally: Generates C++ code for simulation (cppsim)."""
+        """Not implemented (RTL component)."""
         pass
 
     def compile_singlenode_code(self):
+        """Not implemented (RTL component)."""
         pass
 
     def global_includes(self):
+        """Not implemented (RTL component)."""
         pass
 
     def defines(self, var):
+        """Not implemented (RTL component)."""
         pass
 
     def read_npy_data(self):
+        """Not implemented (RTL component)."""
         pass
 
     def strm_decl(self):
+        """Not implemented (RTL component)."""
         pass
 
     def docompute(self):
+        """Not implemented (RTL component)."""
         pass
 
     def dataoutstrm(self):
+        """Not implemented (RTL component)."""
         pass
 
     def save_as_npy(self):
+        """Not implemented (RTL component)."""
         pass
 
     def blackboxfunction(self):
+        """Not implemented (RTL component)."""
         pass
 
     def pragmas(self):
+        """Not implemented (RTL component)."""
         pass
