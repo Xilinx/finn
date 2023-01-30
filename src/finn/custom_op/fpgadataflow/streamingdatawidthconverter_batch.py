@@ -466,3 +466,28 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             cset_luts += outw
 
         return int(cnt_luts + cset_luts)
+
+    def prepare_rtlsim(self):
+        assert self.get_nodeattr("impl_style") != "vivado", (
+            "StreamingDataWidthConverter impl_style "
+            "cannot be vivado for rtlsim. Only impl_style=rtl supported."
+        )
+        super().prepare_rtlsim()
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        # no codegen required for impl_style=vivado since
+        # that uses premade, configurable AXIS IP
+        if self.get_nodeattr("impl_style") == "hls":
+            super().code_generation_ipgen(model, fpgapart, clk)
+
+    def ipgen_singlenode_code(self):
+        # no IP generation required for impl_style=vivado since
+        # that uses premade, configurable AXIS IP
+        if self.get_nodeattr("impl_style") == "hls":
+            super().ipgen_singlenode_code()
+        else:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            # set ipgen_path and ip_path so that HLSSynthIP
+            # and CreatedStitchedIP transformations do not complain
+            self.set_nodeattr("ipgen_path", code_gen_dir)
+            self.set_nodeattr("ip_path", code_gen_dir)
