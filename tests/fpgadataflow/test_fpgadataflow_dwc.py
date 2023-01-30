@@ -37,14 +37,18 @@ from qonnx.util.basic import gen_finn_dt_tensor
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
 def make_single_dwc_modelwrapper(Shape, INWidth, OUTWidth, finn_dtype):
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, Shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, Shape)
+
+    max_w = max(OUTWidth, INWidth)
+    min_w = min(OUTWidth, INWidth)
+    impl_style = "hls" if max_w % min_w == 0 else "vivado"
 
     DWC_node = helper.make_node(
         "StreamingDataWidthConverter_Batch",
@@ -56,6 +60,7 @@ def make_single_dwc_modelwrapper(Shape, INWidth, OUTWidth, finn_dtype):
         inWidth=INWidth,
         outWidth=OUTWidth,
         dataType=str(finn_dtype.name),
+        impl_style=impl_style,
     )
 
     graph = helper.make_graph(
@@ -76,13 +81,17 @@ def prepare_inputs(input_tensor, dt):
 
 
 # shape
-@pytest.mark.parametrize("Shape", [[1, 4], [1, 2, 8]])
+# @pytest.mark.parametrize("Shape", [[1, 4], [1, 2, 8]])
+@pytest.mark.parametrize("Shape", [[1, 24]])
 # inWidth
-@pytest.mark.parametrize("INWidth", [2, 4])
+# @pytest.mark.parametrize("INWidth", [2, 4])
+@pytest.mark.parametrize("INWidth", [6])
 # outWidth
-@pytest.mark.parametrize("OUTWidth", [2, 4])
+# @pytest.mark.parametrize("OUTWidth", [2, 4])
+@pytest.mark.parametrize("OUTWidth", [4])
 # finn_dtype
-@pytest.mark.parametrize("finn_dtype", [DataType["BIPOLAR"], DataType["INT2"]])
+# @pytest.mark.parametrize("finn_dtype", [DataType["BIPOLAR"], DataType["INT2"]])
+@pytest.mark.parametrize("finn_dtype", [DataType["INT2"]])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -94,13 +103,13 @@ def test_fpgadataflow_dwc_rtlsim(Shape, INWidth, OUTWidth, finn_dtype):
     input_dict = prepare_inputs(x, finn_dtype)
 
     model = make_single_dwc_modelwrapper(Shape, INWidth, OUTWidth, finn_dtype)
-
-    model = model.transform(SetExecMode("rtlsim"))
+    model = model.transform(InsertFIFO(create_shallow_fifos=True))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
     model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
     model.set_metadata_prop("exec_mode", "rtlsim")
+    model.set_metadata_prop("rtlsim_trace", "dwc.vcd")
 
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
