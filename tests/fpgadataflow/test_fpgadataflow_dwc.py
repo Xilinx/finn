@@ -35,9 +35,9 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.util.basic import gen_finn_dt_tensor
 
 import finn.core.onnx_exec as oxe
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
@@ -87,7 +87,8 @@ def prepare_inputs(input_tensor, dt):
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_dwc_rtlsim(Shape, INWidth, OUTWidth, finn_dtype):
-
+    test_fpga_part = "xc7z020clg400-1"
+    target_clk_ns = 10.0
     # generate input data
     x = gen_finn_dt_tensor(finn_dtype, Shape)
     input_dict = prepare_inputs(x, finn_dtype)
@@ -96,9 +97,11 @@ def test_fpgadataflow_dwc_rtlsim(Shape, INWidth, OUTWidth, finn_dtype):
 
     model = model.transform(SetExecMode("rtlsim"))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+    model.set_metadata_prop("exec_mode", "rtlsim")
+
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert (
