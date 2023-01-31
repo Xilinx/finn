@@ -156,6 +156,7 @@ def config_hook(configs):
 
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.fpgadataflow
 def test_fpgadataflow_conv_dynamic():
     idims = [32, 16]
     ifm = 4
@@ -361,6 +362,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("m", [1])
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.fpgadataflow
 def test_fpgadataflow_slidingwindow_rtl_dynamic(
     idt, k, ifm_dim_series, ifm_ch, stride, dilation, dw, simd, m, parallel_window
 ):
