@@ -99,6 +99,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
+    SplitLargeFIFOs,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
@@ -527,7 +528,9 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
-                    vivado_ram_style=cfg.large_fifo_mem_style, max_qsrl_depth=256
+                    vivado_ram_style=cfg.large_fifo_mem_style,
+                    max_qsrl_depth=256,
+                    create_shallow_fifos=True,
                 )
             )
             model = model.transform(GiveUniqueNodeNames())
@@ -549,6 +552,8 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
                     force_python_sim=force_python_sim,
                 )
             )
+            # InsertAndSetFIFODepths internally removes any shallow FIFOs
+            # so no need to call RemoveShallowFIFOs here
         else:
             assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
     else:
@@ -562,8 +567,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:
             model = model.transform(ApplyConfig(cfg.folding_config_file))
-        # remove any shallow FIFOs
-        model = model.transform(RemoveShallowFIFOs())
 
     # extract the final configuration and save it as json
     hw_attrs = [
@@ -575,10 +578,19 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "resType",
         "mem_mode",
         "runtime_writeable_weights",
+        "inFIFODepths",
+        "outFIFODepths",
     ]
     extract_model_config_to_json(
         model, cfg.output_dir + "/final_hw_config.json", hw_attrs
     )
+
+    # perform FIFO splitting and shallow FIFO removal only after the final config
+    # json file has been written. otherwise, since these transforms may add/remove
+    # FIFOs, we get name mismatch problems when trying to reuse the final config.
+    if cfg.split_large_fifos:
+        model = model.transform(SplitLargeFIFOs())
+    model = model.transform(RemoveShallowFIFOs())
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)

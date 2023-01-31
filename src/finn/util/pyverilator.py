@@ -133,6 +133,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     and throughput measurement."""
 
     vivado_stitch_proj_dir = prepare_stitched_ip_for_verilator(model)
+    verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
     build_dir = make_build_dir("verilator_fifosim_")
     fifosim_cpp_fname = pk.resource_filename(
         "finn.qnn-data", "cpp/verilator_fifosim.cpp"
@@ -184,6 +185,19 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     if which_verilator is None:
         raise Exception("'verilator' executable not found")
 
+    # add defines to make certain XPM src files work with Verilator
+    xpm_args = []
+    xpm_args.append("-DDISABLE_XPM_ASSERTIONS")
+    xpm_args.append("-DOBSOLETE")
+    xpm_args.append("-DONESPIN")
+    xpm_args.append("--bbox-unsup")
+    vivado_path = os.environ["VIVADO_PATH"]
+    # additional SystemVerilog modules to make XPMs work with Verilator
+    xpm_memory = f"{vivado_path}/data/ip/xpm/xpm_memory/hdl/xpm_memory.sv"
+    xpm_cdc = f"{vivado_path}/data/ip/xpm/xpm_cdc/hdl/xpm_cdc.sv"
+    xpm_fifo = f"{vivado_path}/data/ip/xpm/xpm_fifo/hdl/xpm_fifo.sv"
+    verilog_file_arg = ["finn_design_wrapper.v", xpm_memory, xpm_cdc, xpm_fifo]
+
     verilator_args = [
         "perl",
         which_verilator,
@@ -192,6 +206,8 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         build_dir,
         "-y",
         vivado_stitch_proj_dir,
+        "-y",
+        verilog_header_dir,
         "--CFLAGS",
         "--std=c++11",
         "-O3",
@@ -201,13 +217,14 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "fast",
         "--noassert",
         "--cc",
-        "finn_design_wrapper.v",
+        *verilog_file_arg,
         "--top-module",
         "finn_design_wrapper",
         "--exe",
         "verilator_fifosim.cpp",
         "--threads",
         "4",
+        *xpm_args,
     ]
 
     proc_env = os.environ.copy()

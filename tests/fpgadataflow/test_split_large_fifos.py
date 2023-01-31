@@ -1,4 +1,4 @@
-# Copyright (c) 2022 Xilinx, Inc.
+# Copyright (C) 2022, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -37,6 +37,7 @@ from qonnx.custom_op.registry import getCustomOp
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
+from finn.transformation.fpgadataflow.set_fifo_depths import get_fifo_split_configs
 from finn.util.basic import make_build_dir
 from finn.util.test import get_trained_network_and_ishape
 
@@ -49,22 +50,31 @@ def fetch_test_model(topology, wbits=2, abits=2):
     return tmp_output_dir
 
 
+def get_folding_cfg(depth=65536):
+    cfg = dict()
+    cfg["Defaults"] = dict()
+    for i in range(3):
+        key = "StreamingFIFO_" + str(i)
+        cfg[key] = {"depth": depth, "ram_style": "auto", "impl_style": "vivado"}
+    return cfg
+
+
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
-@pytest.mark.parametrize(
-    "method", ["largefifo_rtlsim_python", "largefifo_rtlsim_cpp", "characterize"]
-)
-@pytest.mark.parametrize("topology", ["tfc"])
-def test_fifosizing_linear(method, topology):
-    force_python_rtlsim = "python" in method
-    method_key = "largefifo_rtlsim" if "largefifo_rtlsim" in method else "characterize"
-    tmp_output_dir = fetch_test_model(topology)
+@pytest.mark.parametrize("depth", [16384, 65536, 45000])
+@pytest.mark.parametrize("force_python_rtlsim", ["True", "False"])
+def test_split_large_fifos(depth, force_python_rtlsim):
+    tmp_output_dir = fetch_test_model("tfc")
+    folding_cfg = get_folding_cfg(depth)
+    with open(tmp_output_dir + "/folding_config.json", "w") as f:
+        json.dump(folding_cfg, f, indent=2)
     cfg = build_cfg.DataflowBuildConfig(
         output_dir=tmp_output_dir,
-        auto_fifo_depths=True,
-        auto_fifo_strategy=method_key,
-        target_fps=10000 if topology == "tfc" else 1000,
+        auto_fifo_depths=False,
+        split_large_fifos=True,
+        folding_config_file=tmp_output_dir + "/folding_config.json",
+        target_fps=10000,
         force_python_rtlsim=force_python_rtlsim,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
@@ -87,32 +97,32 @@ def test_fifosizing_linear(method, topology):
         / float(est_data["estimated_throughput_fps"])
         > 0.9
     )
-    # now run the same build using the generated folding and FIFO config
-    tmp_output_dir_cmp = fetch_test_model(topology)
-    cfg_cmp = cfg
-    cfg_cmp.output_dir = tmp_output_dir_cmp
-    cfg_cmp.auto_fifo_depths = False
-    cfg_cmp.target_fps = None
-    cfg_cmp.generate_outputs = [build_cfg.DataflowOutputType.STITCHED_IP]
-    cfg_cmp.folding_config_file = tmp_output_dir + "/final_hw_config.json"
-    build.build_dataflow_cfg(tmp_output_dir_cmp + "/model.onnx", cfg_cmp)
-
-    model0 = ModelWrapper(
-        tmp_output_dir + "/intermediate_models/step_create_stitched_ip.onnx"
+    model = ModelWrapper(
+        tmp_output_dir + "/intermediate_models/step_set_fifo_depths.onnx"
     )
-    model1 = ModelWrapper(
-        tmp_output_dir_cmp + "/intermediate_models/step_create_stitched_ip.onnx"
-    )
-
-    assert len(model0.graph.node) == len(model1.graph.node)
-    for i in range(len(model0.graph.node)):
-        node0 = model0.graph.node[i]
-        node1 = model1.graph.node[i]
-        assert node0.op_type == node1.op_type
-        if node0.op_type == "StreamingFIFO":
-            node0_inst = getCustomOp(node0)
-            node1_inst = getCustomOp(node1)
-            assert node0_inst.get_nodeattr("depth") == node1_inst.get_nodeattr("depth")
+    # exclude final FIFO node (output FIFO, not part of test)
+    fifo_nodes = model.get_nodes_by_op_type("StreamingFIFO")[:-1]
+    golden_cfg = get_fifo_split_configs(depth, 256, 32768)
+    for i, fifo_node in enumerate(fifo_nodes):
+        inst = getCustomOp(fifo_node)
+        fifo_depth = inst.get_nodeattr("depth")
+        assert fifo_depth == golden_cfg[i % len(golden_cfg)][0]
 
     shutil.rmtree(tmp_output_dir)
-    shutil.rmtree(tmp_output_dir_cmp)
+
+
+def test_split_large_fifo_configs():
+    ret0 = get_fifo_split_configs(513, 256, 32768)
+    assert ret0 == [(512, "vivado"), (1, "rtl")]
+    ret1 = get_fifo_split_configs(1200, 256, 32768)
+    assert ret1 == [(1024, "vivado"), (176, "rtl")]
+    ret2 = get_fifo_split_configs(45000, 256, 32768)
+    assert ret2 == [
+        (32768, "vivado"),
+        (8192, "vivado"),
+        (2048, "vivado"),
+        (1024, "vivado"),
+        (512, "vivado"),
+        (256, "rtl"),
+        (200, "rtl"),
+    ]
