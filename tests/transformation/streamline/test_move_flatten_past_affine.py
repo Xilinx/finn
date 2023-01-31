@@ -36,7 +36,7 @@ from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNode
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveFlattenPastAffine
@@ -74,7 +74,7 @@ def test_move_flatten_past_affine(data_layout, batch_size):
         value_info=[a0, a1, a2],
     )
 
-    model = helper.make_model(graph, producer_name="move_reshape_model")
+    model = qonnx_make_model(graph, producer_name="move_reshape_model")
     model = ModelWrapper(model)
 
     # initialize values
