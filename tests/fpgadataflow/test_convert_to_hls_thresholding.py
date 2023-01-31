@@ -46,7 +46,9 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from test_fpgadataflow_thresholding_binary_search import make_single_thresholding_binary_search_modelwrapper
+from test_fpgadataflow_thresholding_binary_search import (
+    make_single_thresholding_binary_search_modelwrapper,
+)
 
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
@@ -145,7 +147,10 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_to_hls_tbs_rtl_variant(
-    activation, input_data_type, fold, num_input_channels,
+    activation,
+    input_data_type,
+    fold,
+    num_input_channels,
 ):
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
