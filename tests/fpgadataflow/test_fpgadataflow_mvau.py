@@ -36,7 +36,11 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor, qonnx_make_model
+from qonnx.util.basic import (
+    calculate_signed_dot_prod_range,
+    gen_finn_dt_tensor,
+    qonnx_make_model,
+)
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
