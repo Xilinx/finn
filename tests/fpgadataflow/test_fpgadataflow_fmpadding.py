@@ -54,13 +54,12 @@ target_clk_ns = 10
 
 
 def make_single_fmpadding_modelwrapper(
-    optype, idim, padding, num_ch, simd, idt, pad_style
+    optype, idim, padding, num_ch, simd, idt
 ):
     pad_h = padding[0] + padding[2]
     pad_w = padding[1] + padding[3]
     idim_h, idim_w = idim
 
-    assert pad_style == 2, "only pad_style == 2 supported in hlslib"
     assert pad_h > 0 or pad_w > 0, "Output dim should be greater than input dim"
     odim_h = idim_h + pad_h
     odim_w = idim_w + pad_w
@@ -82,7 +81,6 @@ def make_single_fmpadding_modelwrapper(
         Padding=padding,
         NumChannels=num_ch,
         inputDataType=str(idt.name),
-        PaddingStyle=pad_style,
         numInputVectors=1,
         SIMD=simd,
     )
@@ -103,13 +101,13 @@ def make_single_fmpadding_modelwrapper(
 # input image dimension
 @pytest.mark.parametrize("idim", [[8, 8], [10, 8]])
 # number of rows and number of cols to add
-@pytest.mark.parametrize("pad", [[1, 1, 1, 1], [1, 1, 2, 2], [1, 3, 2, 3]])
+@pytest.mark.parametrize(
+    "pad", [[1, 1, 1, 1], [1, 1, 2, 2], [1, 3, 2, 3], [7, 0, 8, 0]]
+)
 # number of channels
 @pytest.mark.parametrize("num_ch", [2, 4])
 # Input parallelism
 @pytest.mark.parametrize("simd", [1, 2])
-# PaddingStyle: selects behavior when (odim-idim)%2 != 0
-@pytest.mark.parametrize("pad_style", [2])
 # FINN input datatype
 @pytest.mark.parametrize("idt", [DataType["INT2"], DataType["INT4"]])
 # execution mode
@@ -120,7 +118,7 @@ def make_single_fmpadding_modelwrapper(
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fmpadding(
-    idim, pad, num_ch, simd, pad_style, idt, mode, impl_style
+    idim, pad, num_ch, simd, idt, mode, impl_style
 ):
     if impl_style == "rtl" and mode == "cppsim":
         pytest.skip("rtl implstyle has no cppsim, skipping")
@@ -145,9 +143,7 @@ def test_fpgadataflow_fmpadding(
 
     optype = {"hls": "FMPadding_Batch", "rtl": "FMPadding_rtl"}[impl_style]
 
-    model = make_single_fmpadding_modelwrapper(
-        optype, idim, pad, num_ch, simd, idt, pad_style
-    )
+    model = make_single_fmpadding_modelwrapper(optype, idim, pad, num_ch, simd, idt)
     model = model.transform(InferShapes())
     model = model.transform(SetExecMode(mode))
     model = model.transform(GiveUniqueNodeNames())
@@ -165,32 +161,8 @@ def test_fpgadataflow_fmpadding(
     expected_oshape = (1, odim_h, odim_w, num_ch)
     assert y_produced.shape == expected_oshape
 
-    # calculate reference
-    # calculate correct pad according to parameters
-    if impl_style == "hls":
-        if pad_style == 2:
-            if pad_h % 2 == 0:
-                pad_up = pad_h // 2
-            else:
-                pad_up = pad_h // 2 + 1
-            if pad_w % 2 == 0:
-                pad_left = pad_w // 2
-            else:
-                pad_left = pad_w // 2 + 1
-        else:
-            pad_up = pad_h // 2
-            pad_left = pad_w // 2
-
-        pad_down = pad_h - pad_up
-        pad_right = pad_w - pad_left
-    else:
-        pad_up = pad[0]
-        pad_left = pad[1]
-        pad_down = pad[2]
-        pad_right = pad[3]
-
     y_expected = np.pad(
-        x, ((0, 0), (pad_up, pad_down), (pad_left, pad_right), (0, 0)), "constant"
+        x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
     )
 
     assert (y_produced == y_expected).all()

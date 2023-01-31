@@ -404,6 +404,7 @@ class CreateStitchedIP(Transformation):
         wrapper_filename = "%s/hdl/%s_wrapper.v" % (bd_base, block_name)
         tcl.append("add_files -norecurse %s" % wrapper_filename)
         model.set_metadata_prop("wrapper_filename", wrapper_filename)
+        tcl.append("set_property top finn_design_wrapper [current_fileset]")
         # synthesize to DCP and export stub, DCP and constraints
         if self.vitis:
             tcl.append(
@@ -582,6 +583,10 @@ class CreateStitchedIP(Transformation):
             if os.path.isfile(wrapper_filename_alt):
                 model.set_metadata_prop("wrapper_filename", wrapper_filename_alt)
             else:
-                raise Exception("CreateStitchedIP failed, no wrapper HDL found.")
+                raise Exception(
+                    """CreateStitchedIP failed, no wrapper HDL found under %s or %s.
+                    Please check logs under the parent directory."""
+                    % (wrapper_filename, wrapper_filename_alt)
+                )
 
         return (model, False)

@@ -73,7 +73,7 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         exp_cycles = OFMDim * reps
         return int(exp_cycles)
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         IFMDim = self.get_nodeattr("IFMDim")
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
@@ -84,7 +84,7 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
             ishape = (batch, IFMDim, 1, num_ch)
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         OFMDim = self.get_nodeattr("OFMDim")
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
@@ -95,11 +95,11 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
             oshape = (batch, OFMDim, 1, num_ch)
         return oshape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         normal_ishape = list(self.get_normal_input_shape())
         return tuple(normal_ishape)
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         normal_oshape = list(self.get_normal_output_shape())
         return tuple(normal_oshape)
 
@@ -129,21 +129,21 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]
         return ret
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output. (Same as input datatype)"""
         return self.get_input_datatype()
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
         ifm_ch = self.get_nodeattr("NumChannels")
         return ibits * ifm_ch
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         obits = self.get_output_datatype().bitwidth()
         ifm_ch = self.get_nodeattr("NumChannels")
         return obits * ifm_ch

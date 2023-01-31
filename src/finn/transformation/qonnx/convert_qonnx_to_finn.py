@@ -56,12 +56,12 @@ class ConvertQONNXtoFINN(Transformation):
     is not converted to a MultiThreshold node.
 
     :param filter_function: Each candidate Quant and BinaryQant node is first evaluated
-    by this function. If the function returns False,
-    then the node is not converted to a MultiTrheshold node.
-    The function is given the model and candidate node as parameters.
-    Per default a filter function is inserted, which disables the conversion of
-    Quant nodes, which have a bit width of larger than 8.
-    Defaults to: default_filter_function_generator(max_multithreshold_bit_width=8)
+        by this function. If the function returns False,
+        then the node is not converted to a MultiTrheshold node.
+        The function is given the model and candidate node as parameters.
+        Per default a filter function is inserted, which disables the conversion of
+        Quant nodes, which have a bit width of larger than 8.
+        Defaults to: default_filter_function_generator(max_multithreshold_bit_width=8)
     """
 
     def __init__(

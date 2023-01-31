@@ -74,12 +74,12 @@ class StreamingConcat(HLSCustomOp):
     def get_folded_input_shape(self, ind=0):
         return self.get_normal_input_shape(ind)
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         total_elems = self.get_total_elems()
         vecs = list(self.get_nodeattr("numInputVectors"))
         return tuple(vecs + [total_elems])
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_normal_output_shape()
 
     def make_shape_compatible_op(self, model):
@@ -106,7 +106,7 @@ class StreamingConcat(HLSCustomOp):
         # input dt identical for all inputs
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         return self.get_input_datatype()
 
     def get_instream_width(self, ind=0):
@@ -115,7 +115,7 @@ class StreamingConcat(HLSCustomOp):
         ibits = self.get_input_datatype().bitwidth()
         return elems * ibits
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         obits = self.get_output_datatype().bitwidth()
         total_elems = self.get_total_elems()
         out_width = total_elems * obits

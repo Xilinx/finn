@@ -42,12 +42,13 @@ class Pool_Batch(HLSCustomOp):
     Output shape (BatchSize,OutImgDim,OutImgDim,Channels)
 
     Notes:
-    # The input shape was chosen to be compatible with im2col (only true when there
-    is not folding).
 
-    # The actual data layout produced by the hlslib kernels is different
-    for depthwise ops.
-     * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/PE, K, K, PE)
+    * The input shape was chosen to be compatible with im2col (only true when there
+      is not folding).
+    * The actual data layout produced by the hlslib kernels is different
+      for depthwise ops.
+
+        * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/PE, K, K, PE)
 
     Channels can be folded using PE (SIMD from the input perspective)
     """
@@ -74,11 +75,11 @@ class Pool_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("InputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         fxn = self.get_nodeattr("Function")
         odt = DataType[self.get_nodeattr("OutputDataType")]
@@ -98,7 +99,7 @@ class Pool_Batch(HLSCustomOp):
 
         return odt
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ifm_ch = self.get_nodeattr("Channels")
         odims = self.get_nodeattr("OutImgDims")
         batch_size = self.get_nodeattr("BatchSize")
@@ -107,7 +108,7 @@ class Pool_Batch(HLSCustomOp):
         ishape = (batch_size, *odims, k_prod * ifm_ch)
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         normal_ishape = list(self.get_normal_input_shape())
         ifm_ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
@@ -116,14 +117,14 @@ class Pool_Batch(HLSCustomOp):
         folded_ishape = normal_ishape[:-1] + [fold, pe]
         return tuple(folded_ishape)
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         ofm_ch = self.get_nodeattr("Channels")
         odims = self.get_nodeattr("OutImgDims")
         batch_size = self.get_nodeattr("BatchSize")
         oshape = (batch_size, *odims, ofm_ch)
         return oshape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         normal_oshape = list(self.get_normal_output_shape())
         ifm_ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
@@ -147,13 +148,13 @@ class Pool_Batch(HLSCustomOp):
         exp_cycles = ((ifm_ch * k_prod) / pe) * np.prod(odims) * batch_size
         return int(exp_cycles)
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         dt_bits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = int(dt_bits * pe)
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         dt_bits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         out_width = int(dt_bits * pe)

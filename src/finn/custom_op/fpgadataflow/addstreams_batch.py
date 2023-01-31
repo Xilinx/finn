@@ -42,18 +42,21 @@ class AddStreams_Batch(HLSCustomOp):
         super().__init__(onnx_node)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            "NumChannels": ("i", True, ""),
-            "PE": ("i", True, ""),
-            # FINN DataTypes for inputs; output datatype inferred from input
-            "inputDataType": ("s", True, ""),
-            # number of input vectors, examples:
-            # [1] is a single vector (like a FC layer with batch=1)
-            # [4] is four vectors (like a FC layer with batch=4)
-            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
-            "numInputVectors": ("ints", False, [1]),
-        }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs = super().get_nodeattr_types()
+        my_attrs.update(
+            {
+                "NumChannels": ("i", True, ""),
+                "PE": ("i", True, ""),
+                # FINN DataTypes for inputs; output datatype inferred from input
+                "inputDataType": ("s", True, ""),
+                # number of input vectors, examples:
+                # [1] is a single vector (like a FC layer with batch=1)
+                # [4] is four vectors (like a FC layer with batch=4)
+                # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
+                "numInputVectors": ("ints", False, [1]),
+                "inFIFODepths": ("ints", False, [2, 2]),
+            }
+        )
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):
@@ -70,10 +73,10 @@ class AddStreams_Batch(HLSCustomOp):
         ishape = tuple(vecs + [ich // pe, pe])
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
     def make_shape_compatible_op(self, model):
@@ -124,11 +127,11 @@ class AddStreams_Batch(HLSCustomOp):
 
         return info_messages
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         # we need to set output datatype to the next larger int or uint
         # enhancement: consider specifying w/ explicit outputDataType attribute
@@ -139,14 +142,14 @@ class AddStreams_Batch(HLSCustomOp):
         else:
             return DataType.get_smallest_possible(2 * idt.max())
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         """Returns input stream width."""
         ibits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns output stream width."""
         obits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
@@ -357,3 +360,14 @@ class AddStreams_Batch(HLSCustomOp):
         swidth = self.get_instream_width_padded()
         intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
         return intf_names
+
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+                "in1": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

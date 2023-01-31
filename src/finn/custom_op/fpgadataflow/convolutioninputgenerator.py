@@ -99,13 +99,13 @@ class ConvolutionInputGenerator(HLSCustomOp):
             assert ret[0] == ret[1] == 1, "Only dilation=1 supported"
         return ret
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         ishape = (1, ifm_dim_h, ifm_dim_w, ifm_ch)
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         simd = self.get_nodeattr("SIMD")
@@ -114,7 +114,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         folded_ishape = (1, ifm_dim_h, ifm_dim_w, wf, simd)
         return folded_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         k_h, k_w = self.get_nodeattr("ConvKernelDim")
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -126,7 +126,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         oshape = (1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch)
         return oshape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         k_h, k_w = self.get_nodeattr("ConvKernelDim")
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -158,15 +158,15 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         """Returns stream width, input and output stream width are equal for
         the sliding window function"""
         ibits = self.get_input_datatype().bitwidth()
@@ -176,7 +176,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         in_width = simd * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns stream width, input and output stream width are equal for
         the sliding window function, so the function to determine the input
         stream width can be reused."""

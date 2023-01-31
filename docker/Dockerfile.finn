@@ -65,7 +65,7 @@ RUN locale-gen "en_US.UTF-8"
 RUN apt-get install -y git perl python3 make autoconf g++ flex bison ccache libgoogle-perftools-dev numactl perl-doc libfl2 libfl-dev zlibc zlib1g zlib1g-dev
 RUN git clone https://github.com/verilator/verilator
 RUN cd verilator && \
-    git checkout v4.012 && \
+    git checkout v4.224 && \
     autoconf && \
     ./configure && \
     make -j4 && \
@@ -84,7 +84,7 @@ RUN rm requirements.txt
 # extra Python package dependencies (for testing and interaction)
 RUN pip install pygments==2.4.1
 RUN pip install ipykernel==5.5.5
-RUN pip install jupyter==1.0.0
+RUN pip install jupyter==1.0.0 --ignore-installed
 RUN pip install markupsafe==2.0.1
 RUN pip install matplotlib==3.3.1 --ignore-installed
 RUN pip install pytest-dependency==0.5.1

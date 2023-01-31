@@ -29,7 +29,6 @@
 import math
 import numpy as np
 import os
-from math import copysign
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -101,13 +100,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         ishape = (1, ifm_dim_h, ifm_dim_w, ifm_ch)
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         simd = self.get_nodeattr("SIMD")
@@ -116,7 +115,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         folded_ishape = (1, ifm_dim_h, ifm_dim_w, wf, simd)
         return folded_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         k_h, k_w = self.get_nodeattr("ConvKernelDim")
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -128,7 +127,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         oshape = (1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch)
         return oshape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         k_h, k_w = self.get_nodeattr("ConvKernelDim")
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -163,15 +162,15 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -179,7 +178,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         in_width = simd * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         if self.get_nodeattr("parallel_window"):
             # feed all window pixels in parallel
             k_h, k_w = self.get_nodeattr("ConvKernelDim")
@@ -574,10 +573,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             tail_incr_last_window = buffer_min_size - 1
             code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
 
-        code_gen_dict["$TAIL_INCR_W$"] = [str(tail_incr_w)]
-        code_gen_dict["$TAIL_INCR_H$"] = [str(tail_incr_h)]
-        code_gen_dict["$TAIL_INCR_LAST$"] = [str(tail_incr_last_window)]
-
         # support SIMD = IFMChannels and k_w = 1 cases
         # for k = [k_h, k_w] = [1, k_w], no adjustment is needed
         # for k = [k_h, k_w] = [1, 1], do not use this impl. style (mmv_out=K=1)
@@ -595,12 +590,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_SIMD"]
             loop_simd_iterations -= 1  # -1 because state is initial state
 
-        code_gen_dict["$LOOP_H_ITERATIONS$"] = [str(loop_h_iterations - 2)]
-        code_gen_dict["$LOOP_W_ITERATIONS$"] = [str(loop_w_iterations - 2)]
-        code_gen_dict["$LOOP_KH_ITERATIONS$"] = [str(loop_kh_iterations - 2)]
-        code_gen_dict["$LOOP_KW_ITERATIONS$"] = [str(loop_kw_iterations - 2)]
-        code_gen_dict["$LOOP_SIMD_ITERATIONS$"] = [str(loop_simd_iterations - 2)]
-
         cntr_bitwidth = math.ceil(
             math.log2(
                 max(
@@ -613,6 +602,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             )
         )
         code_gen_dict["$CNTR_BITWIDTH$"] = [str(cntr_bitwidth)]
+        code_gen_dict["$LOOP_H_ITERATIONS$"] = [str(loop_h_iterations - 2)]
+        code_gen_dict["$LOOP_W_ITERATIONS$"] = [str(loop_w_iterations - 2)]
+        code_gen_dict["$LOOP_KH_ITERATIONS$"] = [str(loop_kh_iterations - 2)]
+        code_gen_dict["$LOOP_KW_ITERATIONS$"] = [str(loop_kw_iterations - 2)]
+        code_gen_dict["$LOOP_SIMD_ITERATIONS$"] = [str(loop_simd_iterations - 2)]
 
         incr_bitwidth = 1 + math.ceil(
             math.log2(
@@ -629,26 +623,14 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             )
         )
         code_gen_dict["$INCR_BITWIDTH$"] = [str(incr_bitwidth)]
-        code_gen_dict["$ADDR_INCREMENT_MAP$"] = [
-            "'{{ {}'d0, {}'d{}, {}'d{}, {}'d{}, {}'d{}, {}'d{}}}".format(
-                incr_bitwidth,
-                int(copysign(incr_bitwidth, addr_incr_end_simd)),
-                abs(addr_incr_end_simd),
-                int(copysign(incr_bitwidth, addr_incr_end_window_elem)),
-                abs(addr_incr_end_window_elem),
-                int(copysign(incr_bitwidth, addr_incr_end_window_row)),
-                abs(addr_incr_end_window_row),
-                int(copysign(incr_bitwidth, addr_incr_end_window)),
-                abs(addr_incr_end_window),
-                int(copysign(incr_bitwidth, addr_incr_end_row)),
-                abs(addr_incr_end_row),
-            )
-        ]
-        code_gen_dict["$INCR_HEAD_SIMD$"] = [str(addr_incr_end_simd)]
-        code_gen_dict["$INCR_HEAD_KW$"] = [str(addr_incr_end_window_elem)]
-        code_gen_dict["$INCR_HEAD_KH$"] = [str(addr_incr_end_window_row)]
-        code_gen_dict["$INCR_HEAD_W$"] = [str(addr_incr_end_window)]
-        code_gen_dict["$INCR_HEAD_H$"] = [str(addr_incr_end_row)]
+        code_gen_dict["$HEAD_INCR_SIMD$"] = [str(addr_incr_end_simd)]
+        code_gen_dict["$HEAD_INCR_KW$"] = [str(addr_incr_end_window_elem)]
+        code_gen_dict["$HEAD_INCR_KH$"] = [str(addr_incr_end_window_row)]
+        code_gen_dict["$HEAD_INCR_W$"] = [str(addr_incr_end_window)]
+        code_gen_dict["$HEAD_INCR_H$"] = [str(addr_incr_end_row)]
+        code_gen_dict["$TAIL_INCR_W$"] = [str(tail_incr_w)]
+        code_gen_dict["$TAIL_INCR_H$"] = [str(tail_incr_h)]
+        code_gen_dict["$TAIL_INCR_LAST$"] = [str(tail_incr_last_window)]
 
         code_gen_dict["$ELEM_PER_WINDOW$"] = [str(elem_per_window)]
         code_gen_dict["$SIMD$"] = [str(simd)]
@@ -891,11 +873,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "cfg_cntr_kh": (3 * 4, int(code_gen_dict["$LOOP_KH_ITERATIONS$"][0])),
             "cfg_cntr_w": (4 * 4, int(code_gen_dict["$LOOP_W_ITERATIONS$"][0])),
             "cfg_cntr_h": (5 * 4, int(code_gen_dict["$LOOP_H_ITERATIONS$"][0])),
-            "cfg_incr_head_simd": (6 * 4, int(code_gen_dict["$INCR_HEAD_SIMD$"][0])),
-            "cfg_incr_head_kw": (7 * 4, int(code_gen_dict["$INCR_HEAD_KW$"][0])),
-            "cfg_incr_head_kh": (8 * 4, int(code_gen_dict["$INCR_HEAD_KH$"][0])),
-            "cfg_incr_head_w": (9 * 4, int(code_gen_dict["$INCR_HEAD_W$"][0])),
-            "cfg_incr_head_h": (10 * 4, int(code_gen_dict["$INCR_HEAD_H$"][0])),
+            "cfg_incr_head_simd": (6 * 4, int(code_gen_dict["$HEAD_INCR_SIMD$"][0])),
+            "cfg_incr_head_kw": (7 * 4, int(code_gen_dict["$HEAD_INCR_KW$"][0])),
+            "cfg_incr_head_kh": (8 * 4, int(code_gen_dict["$HEAD_INCR_KH$"][0])),
+            "cfg_incr_head_w": (9 * 4, int(code_gen_dict["$HEAD_INCR_W$"][0])),
+            "cfg_incr_head_h": (10 * 4, int(code_gen_dict["$HEAD_INCR_H$"][0])),
             "cfg_incr_tail_w": (11 * 4, int(code_gen_dict["$TAIL_INCR_W$"][0])),
             "cfg_incr_tail_h": (12 * 4, int(code_gen_dict["$TAIL_INCR_H$"][0])),
             "cfg_incr_tail_last": (13 * 4, int(code_gen_dict["$TAIL_INCR_LAST$"][0])),

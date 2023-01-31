@@ -218,21 +218,21 @@ class TLastMarker(HLSCustomOp):
     def get_number_output_values(self):
         return self.get_nodeattr("NumIters")
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         stream_width = self.get_nodeattr("StreamWidth")
         elem_width = self.get_nodeattr("ElemWidth")
         n_packed_elems = stream_width // elem_width
         n_iters = self.get_nodeattr("NumIters")
         return (1, n_iters, n_packed_elems)
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         stream_width = self.get_nodeattr("StreamWidth")
         return stream_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         stream_width = self.get_nodeattr("StreamWidth")
         return stream_width
 
