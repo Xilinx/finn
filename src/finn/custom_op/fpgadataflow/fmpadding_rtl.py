@@ -249,8 +249,8 @@ class FMPadding_rtl(HLSCustomOp):
     def get_template_values(self, ifm_dims, pads, chans, simd, idt):
         dimY, dimX = ifm_dims
         padT, padL, padB, padR = pads
-        y_counter_bits = int(math.ceil(math.log2(padT + dimY + padB)))
-        x_counter_bits = int(math.ceil(math.log2(padL + dimX + padR)))
+        y_counter_bits = int(math.ceil(math.log2(padT + dimY + padB + 1)))
+        x_counter_bits = int(math.ceil(math.log2(padL + dimX + padR + 1)))
         topname = self.get_verilog_top_module_name()
         stream_bits = idt.bitwidth() * simd
         stream_bits = int(roundup_to_integer_multiple(stream_bits, 8))

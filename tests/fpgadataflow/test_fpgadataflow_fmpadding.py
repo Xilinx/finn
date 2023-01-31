@@ -53,9 +53,7 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
 
-def make_single_fmpadding_modelwrapper(
-    optype, idim, padding, num_ch, simd, idt
-):
+def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt):
     pad_h = padding[0] + padding[2]
     pad_w = padding[1] + padding[3]
     idim_h, idim_w = idim
@@ -117,9 +115,7 @@ def make_single_fmpadding_modelwrapper(
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fmpadding(
-    idim, pad, num_ch, simd, idt, mode, impl_style
-):
+def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
     if impl_style == "rtl" and mode == "cppsim":
         pytest.skip("rtl implstyle has no cppsim, skipping")
     if num_ch % simd != 0:
