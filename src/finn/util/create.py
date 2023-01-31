@@ -30,7 +30,11 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor, qonnx_make_model
+from qonnx.util.basic import (
+    calculate_signed_dot_prod_range,
+    gen_finn_dt_tensor,
+    qonnx_make_model,
+)
 
 
 def hls_random_mlp_maker(layer_spec):
