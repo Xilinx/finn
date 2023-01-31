@@ -68,10 +68,6 @@ class FMPadding_rtl(HLSCustomOp):
             "SIMD": ("i", False, 1),
             # FINN input datatype
             "inputDataType": ("s", True, ""),
-            # controls distribution of padded pixels
-            # in case of uneven padding -- see FMPadding fxn
-            # in hlslib
-            "PaddingStyle": ("i", False, 2, {2, 1}),
             # shape describing input vecs per execution
             "numInputVectors": ("i", False, 1),
             # Enable reprogrammable implementation to change FM dimensions,
@@ -136,7 +132,7 @@ class FMPadding_rtl(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert ishape == exp_ishape, "Unexpect input shape for SameResize."
+        assert ishape == exp_ishape, "Unexpected input shape for FMPadding_rtl."
         return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
@@ -160,7 +156,7 @@ class FMPadding_rtl(HLSCustomOp):
         ret = DataType[self.get_nodeattr("inputDataType")]
         # the hlslib op always pads with zeros, so ensure that the DataType
         # is able to represent zeros
-        assert ret.allowed(0), "FMPadding_Batch DataType must support zero"
+        assert ret.allowed(0), "FMPadding_rtl DataType must support zero"
         return ret
 
     def get_output_datatype(self, ind=0):
