@@ -83,10 +83,13 @@ class InsertDWC(Transformation):
                             dwc_out_width = n1.get_instream_width()
                             larger_width = max(dwc_in_width, dwc_out_width)
                             smaller_width = min(dwc_in_width, dwc_out_width)
-                            if larger_width % smaller_width == 0:
-                                impl_style = "hls"
-                            else:
+                            both_8bit_aligned = (larger_width % 8 == 0) and (
+                                smaller_width % 8 == 0
+                            )
+                            if both_8bit_aligned:
                                 impl_style = "vivado"
+                            else:
+                                impl_style = "hls"
 
                             # determine shape for dwc
                             dwc_shape = n0.get_normal_output_shape()
