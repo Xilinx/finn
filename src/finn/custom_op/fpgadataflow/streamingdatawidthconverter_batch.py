@@ -323,7 +323,9 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
         )
         if self.needs_lcm():
-            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW")
+            self.code_gen_dict["$PRAGMAS$"].append(
+                "#pragma HLS DATAFLOW disable_start_propagation"
+            )
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
