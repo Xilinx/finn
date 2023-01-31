@@ -46,6 +46,8 @@ from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from test_fpgadataflow_thresholding_binary_search import make_single_thresholding_binary_search_modelwrapper
+
 
 test_fpga_part = "xczu3eg-sbva484-1-e"
 target_clk_ns = 5
@@ -84,58 +86,6 @@ def convert_np_array_to_finn_data_layout(data):
 # Convert from NHWC to NCHW
 def convert_np_array_to_standard_data_layout(data):
     return np.transpose(data, (0, 3, 1, 2))
-
-
-def make_single_thresholding_binary_search_modelwrapper(
-    thresholds,
-    pe,
-    input_data_type,
-    output_data_type,
-    activation_bias,
-    num_input_vecs,
-):
-    NumChannels = thresholds.shape[0]
-
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, num_input_vecs + [NumChannels]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, num_input_vecs + [NumChannels]
-    )
-
-    node_inp_list = ["inp", "thresh"]
-
-    Thresholding_node = helper.make_node(
-        "Thresholding_Binary_Search",
-        node_inp_list,
-        ["outp"],
-        domain="finn.custom_op.fpgadataflow",
-        backend="fpgadataflow",
-        NumChannels=NumChannels,
-        PE=pe,
-        numSteps=thresholds.shape[1],
-        inputDataType=input_data_type.name,
-        weightDataType=input_data_type.name,
-        outputDataType=output_data_type.name,
-        numInputVectors=num_input_vecs,
-        activation_bias=activation_bias,
-    )
-    graph = helper.make_graph(
-        nodes=[Thresholding_node],
-        name="thresholding_graph",
-        inputs=[inp],
-        outputs=[outp],
-    )
-
-    model = helper.make_model(graph, producer_name="thresholding-model")
-    model = ModelWrapper(model)
-
-    model.set_tensor_datatype("inp", input_data_type)
-    model.set_tensor_datatype("outp", output_data_type)
-
-    model.set_tensor_datatype("thresh", input_data_type)
-    model.set_initializer("thresh", thresholds)
-    return model
 
 
 def make_single_multithresholding_modelwrapper(
