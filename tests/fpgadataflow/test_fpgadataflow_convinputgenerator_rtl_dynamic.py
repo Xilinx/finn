@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Xilinx
+# Copyright (c) 2022, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -197,9 +197,6 @@ def test_fpgadataflow_conv_dynamic():
         getCustomOp(swg_node).set_nodeattr("dynamic_mode", 1)
         getCustomOp(swg_node).set_nodeattr("inFIFODepths", [16])
         getCustomOp(swg_node).set_nodeattr("outFIFODepths", [16])
-        print("SWG initial config:")
-        idim = getCustomOp(swg_node).get_nodeattr("IFMDim")
-        print(getCustomOp(swg_node).get_dynamic_config(idim))
     model = model.transform(InsertFIFO())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
