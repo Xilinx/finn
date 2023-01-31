@@ -72,6 +72,9 @@ class StreamingFIFO(HLSCustomOp):
                 ),
                 # whether depth monitoring is enabled (impl_style=rtl only)
                 "depth_monitor": ("i", False, 0),
+                # the FIFO does not need its own FIFOs
+                "inFIFODepths": ("ints", False, [0]),
+                "outFIFODepths": ("ints", False, [0]),
             }
         )
 
