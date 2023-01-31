@@ -1127,14 +1127,10 @@ class InferThresholdingLayer(Transformation):
 
                 # Perform checks for RTL variant if chosen
                 if self.use_rtl_variant:
-                    # Check memory mode
-                    if self.mem_mode != "decoupled":
-                        warnings.warn(
-                            """%s : RTL Thresholding does not support 'decoupled' memory mode.
-                            Falling back to HLS implementation."""
-                            % node.name
-                        )
-                        is_rtl_variant_compatible = False
+                    assert self.mem_mode == "decoupled", (
+                        """%s : RTL Thresholding only supports 'decoupled' memory mode."""
+                        % node.name
+                    )
 
                     # Check PE/SIMD value
                     if pe != 1:

@@ -142,21 +142,14 @@ def make_single_multithresholding_modelwrapper(
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
 @pytest.mark.parametrize("fold", [-1, 1, 2])
 @pytest.mark.parametrize("num_input_channels", [16])
-@pytest.mark.parametrize("mem_mode", ["decoupled", "const"])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 def test_convert_to_hls_tbs_rtl_variant(
-    activation, input_data_type, fold, num_input_channels, mem_mode
+    activation, input_data_type, fold, num_input_channels,
 ):
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = activation.get_num_possible_values() - 1
-
-    # Cppsim is not supported for this node (as it is an RTL node)
-    if mem_mode == "const":
-        pytest.skip("const memory mode not supported for this node")
-    elif mem_mode != "decoupled":
-        raise Exception("Unknown mem_mode: {}".format(mem_mode))
 
     if activation == DataType["BIPOLAR"]:
         pytest.skip(
@@ -267,7 +260,7 @@ def test_convert_to_hls_tbs_rtl_variant(
 
     # Recreate the model using the ConvertToHLS transform
     new_model = new_model.transform(
-        to_hls.InferThresholdingLayer(mem_mode=mem_mode, use_rtl_variant=True)
+        to_hls.InferThresholdingLayer(mem_mode="decoupled", use_rtl_variant=True)
     )
     new_model = new_model.transform(InsertFIFO(True))
     new_model = new_model.transform(GiveUniqueNodeNames())
