@@ -1128,7 +1128,8 @@ class InferThresholdingLayer(Transformation):
                 # Perform checks for RTL variant if chosen
                 if self.use_rtl_variant:
                     assert self.mem_mode == "decoupled", (
-                        """%s : RTL Thresholding only supports 'decoupled' memory mode."""
+                        """%s : RTL Thresholding only supports 'decoupled' memory
+                        mode."""
                         % node.name
                     )
 
