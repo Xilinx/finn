@@ -55,7 +55,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
 @pytest.mark.parametrize(
     "method", ["largefifo_rtlsim_python", "largefifo_rtlsim_cpp", "characterize"]
 )
-@pytest.mark.parametrize("topology", ["tfc"])
+@pytest.mark.parametrize("topology", ["tfc", "cnv"])
 def test_fifosizing_linear(method, topology):
     force_python_rtlsim = "python" in method
     method_key = "largefifo_rtlsim" if "largefifo_rtlsim" in method else "characterize"
@@ -68,7 +68,7 @@ def test_fifosizing_linear(method, topology):
         force_python_rtlsim=force_python_rtlsim,
         synth_clk_period_ns=10.0,
         board="Pynq-Z1",
-        rtlsim_batch_size=100,
+        rtlsim_batch_size=100 if topology == "tfc" else 2,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
@@ -83,7 +83,7 @@ def test_fifosizing_linear(method, topology):
     with open(tmp_output_dir + "/report/rtlsim_performance.json") as f:
         sim_data = json.load(f)
     assert (
-        float(sim_data["throughput[images/s]"])
+        float(sim_data["stable_throughput[images/s]"])
         / float(est_data["estimated_throughput_fps"])
         > 0.9
     )
