@@ -287,7 +287,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
             getCustomOp(comp_node).set_nodeattr("SIMD", 4)
             getCustomOp(comp_node).set_nodeattr("PE", 4)
     model = model.transform(InsertDWC())
-    model = model.transform(InsertFIFO())
+    model = model.transform(InsertFIFO(create_shallow_fifos=True))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))

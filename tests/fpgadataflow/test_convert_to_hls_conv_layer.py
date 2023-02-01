@@ -175,8 +175,11 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mod
             assert np.isclose(exp_cycles, cycles_rtlsim, atol=11)
             assert exp_cycles != 0
 
-    if pad == 1:
-        padding_node = new_model.get_nodes_by_op_type("FMPadding_Batch")[0]
+    if pad:
+        if use_rtl_swg:
+            padding_node = new_model.get_nodes_by_op_type("FMPadding_rtl")[0]
+        else:
+            padding_node = new_model.get_nodes_by_op_type("FMPadding_Batch")[0]
         padding_inst = getCustomOp(padding_node)
         assert padding_inst.get_nodeattr("SIMD") == in_chn
 
