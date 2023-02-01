@@ -412,8 +412,13 @@ class InsertAndSetFIFODepths(Transformation):
                 node_inst = getCustomOp(node)
                 node_inst.set_nodeattr("depth", depth)
                 node_inst.set_nodeattr("depth_monitor", 0)
+                # exception for top-level IO FIFOs which cause a bug in simulation
+                # (top-level IOs should not have impl_style=vivado)
+                toplevel_in = node.input[0] in [x.name for x in model.graph.input]
+                toplevel_out = node.output[0] in [x.name for x in model.graph.output]
+                toplevel_style_exception = toplevel_in or toplevel_out
                 # Set FIFO implementation/ram styles
-                if depth > self.max_qsrl_depth:
+                if (depth > self.max_qsrl_depth) and (not toplevel_style_exception):
                     node_inst.set_nodeattr("impl_style", "vivado")
                     node_inst.set_nodeattr("ram_style", self.vivado_ram_style)
                 else:

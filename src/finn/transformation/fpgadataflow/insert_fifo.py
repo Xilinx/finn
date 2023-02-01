@@ -209,13 +209,9 @@ class InsertFIFO(Transformation):
                         graph.value_info.append(fifo_output_tensor)
                         model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
-                        if (
-                            self.max_qsrl_depth is None
-                            or fifo_depth <= self.max_qsrl_depth
-                        ):
-                            impl_style = "rtl"
-                        else:
-                            impl_style = "vivado"
+                        # only use rtl-style FIFOs to avoid simulation bug
+                        # (top-level IOs should not have impl_style=vivado)
+                        impl_style = "rtl"
 
                         fifo_node = oh.make_node(
                             "StreamingFIFO",
@@ -271,13 +267,9 @@ class InsertFIFO(Transformation):
                         graph.value_info.append(fifo_input_tensor)
                         model.set_tensor_datatype(fifo_input_tensor.name, dtype)
 
-                        if (
-                            self.max_qsrl_depth is None
-                            or fifo_depth <= self.max_qsrl_depth
-                        ):
-                            impl_style = "rtl"
-                        else:
-                            impl_style = "vivado"
+                        # only use rtl-style FIFOs to avoid simulation bug
+                        # (top-level IOs should not have impl_style=vivado)
+                        impl_style = "rtl"
 
                         fifo_node = oh.make_node(
                             "StreamingFIFO",
