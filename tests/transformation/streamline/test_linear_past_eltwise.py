@@ -35,6 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveLinearPastEltwiseAdd
@@ -78,7 +79,7 @@ def make_model(shape):
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="add-model")
+    model = qonnx_make_model(graph, producer_name="add-model")
     model = ModelWrapper(model)
 
     # set initializers for scalar add/mul nodes
@@ -156,7 +157,7 @@ def test_linear_past_eltwise_add_multiple_forks(ch, ifmdim):
             helper.make_tensor_value_info("p" + str(i), TensorProto.FLOAT, input_shape)
         ]
 
-    modelproto = helper.make_model(
+    modelproto = qonnx_make_model(
         helper.make_graph(
             name="test",
             inputs=[top_in],
