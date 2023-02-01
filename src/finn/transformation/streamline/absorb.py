@@ -492,6 +492,8 @@ class AbsorbConsecutiveTransposes(Transformation):
             if node.op_type == "Transpose":
                 next_nodes = model.find_consumers(node.output[0])
                 perms1 = list(get_by_name(node.attribute, "perm").ints)
+                if len(next_nodes) == 0:
+                    continue
                 # check if all nodes after fork are opposite transposes
                 all_opposite_transposes = True
                 for next_node in next_nodes:
