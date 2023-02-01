@@ -20,7 +20,7 @@ How do I use FINN?
 ==================
 
 We strongly recommend that you first watch one of the pre-recorded `FINN tutorial <https://www.youtube.com/watch?v=zw2aG4PhzmA&amp%3Bindex=2>`_
-videos, then follow the Jupyter notebook tutorials for `training and deploying an MLP for network intrusion detection <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/cybersecurity>`_ .
+videos, then follow the Jupyter notebook tutorials for `training and deploying an MLP for network intrusion detection <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example/cybersecurity>`_ .
 You may also want to check out the other :ref:`tutorials`, and the `FINN examples repository <https://github.com/Xilinx/finn-examples>`_ .
 
 Our aim in FINN is *not* to accelerate common off-the-shelf neural networks, but instead provide you with a set of tools
@@ -28,19 +28,19 @@ to train *customized* networks and create highly-efficient FPGA implementations 
 In general, the approach for using the FINN framework is as follows:
 
 1. Train your own quantized neural network (QNN) in `Brevitas <https://github.com/Xilinx/brevitas>`_. We have some `guidelines <https://bit.ly/finn-hls4ml-qat-guidelines>`_ on quantization-aware training (QAT).
-2. Export to FINN-ONNX by following `this tutorial <https://github.com/Xilinx/finn/blob/master/notebooks/basics/1_brevitas_network_import.ipynb>`_ .
-3. Use FINN's ``build_dataflow`` system on the exported model by following this `tutorial <https://github.com/Xilinx/finn/blob/master/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_
+2. Export to FINN-ONNX by following `this tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/basics/1_brevitas_network_import.ipynb>`_ .
+3. Use FINN's ``build_dataflow`` system on the exported model by following this `tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_
 4. Adjust your QNN topology, quantization settings and ``build_dataflow`` configuration to get the desired results.
 
 Please note that the framework is still under development, and how well this works will depend on how similar your custom network is to the examples we provide.
 If there are substantial differences, you will most likely have to write your own
 Python scripts that call the appropriate FINN compiler
 functions that process your design correctly, or adding new functions (including
-Vivado HLS layers)
+Vitis HLS layers)
 as required.
-The `advanced FINN tutorials <https://github.com/Xilinx/finn/tree/master/notebooks/advanced>`_ can be useful here.
+The `advanced FINN tutorials <https://github.com/Xilinx/finn/tree/main/notebooks/advanced>`_ can be useful here.
 For custom networks, we recommend making a copy of the `BNN-PYNQ end-to-end
-Jupyter notebook tutorials <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/bnn-pynq>`_ as a starting point, visualizing the model at intermediate
+Jupyter notebook tutorials <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example/bnn-pynq>`_ as a starting point, visualizing the model at intermediate
 steps and adding calls to new transformations as needed.
 Once you have a working flow, you can implement a command line entry for this
 by using the "advanced mode" described in the :ref:`command_line` section.
@@ -50,7 +50,8 @@ Running FINN in Docker
 FINN runs inside a Docker container, it comes with a script to easily build and launch the container. If you are not familiar with Docker, there are many excellent `online resources <https://docker-curriculum.com/>`_ to get started.
 You may want to review the :ref:`General FINN Docker tips` and :ref:`Environment variables` as well.
 If you want to use prebuilt images, read :ref:`Using a prebuilt image`.
-The ``run-docker.sh`` script that can be launched in the following modes:
+
+The above mentioned script to build and launch the FINN docker container is called `run-docker.sh <https://github.com/Xilinx/finn/blob/main/run-docker.sh>`_ . It can be launched in the following modes:
 
 Launch interactive shell
 ************************
@@ -214,7 +215,7 @@ We also recommend running the FINN compiler on a system with sufficiently
 strong hardware:
 
 * **RAM.** Depending on your target FPGA platform, your system must have sufficient RAM to be
-  able to run Vivado/Vitis synthesis for that part. See `this page <https://www.xilinx.com/products/design-tools/vivado/memory.html>`_
+  able to run Vivado/Vitis synthesis for that part. See `this page <https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html#memory>`_
   for more information. For targeting Zynq and Zynq UltraScale+ parts, at least 8 GB is recommended. Larger parts may require up to 16 GB.
   For targeting Alveo parts with Vitis, at least 64 GB RAM is recommended.
 
