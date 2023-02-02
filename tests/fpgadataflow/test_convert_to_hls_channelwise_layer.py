@@ -35,7 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -57,7 +57,7 @@ def make_single_maxpool_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, ishape)
     p0 = helper.make_tensor_value_info("p0", TensorProto.FLOAT, pshape)
 
-    model = helper.make_model(
+    model = qonnx_make_model(
         helper.make_graph(
             name="test",
             inputs=[inp],
