@@ -666,9 +666,9 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
                 + "in FINN C++ verilator driver, falling back to Python"
             )
         rtlsim_bs = int(cfg.rtlsim_batch_size)
+        orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
         if force_python_rtlsim:
             # run with single input to get latency
-            orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
             assert rtlsim_bs > 0, "rtlsim batch size must be >0"
             if cfg.verify_save_rtlsim_waveforms:
                 # set depth to 3 for layer-by-layer visibility
