@@ -36,7 +36,7 @@ from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -76,7 +76,7 @@ def make_dupstreams_modelwrapper(ch, pe, idim, idt, n_dupl):
         nodes=[dupstrm_node], name="graph", inputs=[inp], outputs=out_vi
     )
 
-    model = helper.make_model(graph, producer_name="addstreams-model")
+    model = qonnx_make_model(graph, producer_name="addstreams-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)

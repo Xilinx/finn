@@ -38,7 +38,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -107,7 +107,7 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mod
         helper.make_tensor_value_info("p1", TensorProto.FLOAT, conv_param_shape)
     ]
 
-    modelproto = helper.make_model(
+    modelproto = qonnx_make_model(
         helper.make_graph(
             name="conv_test",
             inputs=[top_in],

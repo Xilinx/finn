@@ -43,7 +43,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.insert_topk import InsertTopK
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -123,7 +123,7 @@ def make_model(ch, ifmdim):
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="add-model")
+    model = qonnx_make_model(graph, producer_name="add-model")
     model = ModelWrapper(model)
 
     # set initializers for scalar add/mul nodes

@@ -36,6 +36,7 @@ from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNode
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveTransposePastScalarMul
@@ -71,7 +72,7 @@ def test_move_transpose_past_scalar_mul(perm, scalar, data_layout):
         value_info=[a0],
     )
 
-    model = helper.make_model(graph, producer_name="mv_transpose_model")
+    model = qonnx_make_model(graph, producer_name="mv_transpose_model")
     model = ModelWrapper(model)
 
     # initialize values

@@ -8,6 +8,7 @@ from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNode
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.absorb import AbsorbTransposeIntoFlatten
@@ -45,7 +46,7 @@ def test_absorb_transp_into_flatten(perm, shape, ishape, data_layout):
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="absorb_transpose_model")
+    model = qonnx_make_model(graph, producer_name="absorb_transpose_model")
     model = ModelWrapper(model)
     if shape is not None:
         model.graph.value_info.append(shape0)
