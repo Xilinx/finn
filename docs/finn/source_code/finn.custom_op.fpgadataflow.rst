@@ -8,7 +8,7 @@ HLS Custom Op Nodes
 Base Class
 ----------
 
-.. automodule:: finn.custom_op.fpgadataflow
+.. automodule:: finn.custom_op.fpgadataflow.hlscustomop
    :members:
    :undoc-members:
    :show-inheritance:
@@ -29,9 +29,25 @@ finn.custom\_op.fpgadataflow.channelwise\_op\_batch
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.checksum
+--------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.checksum
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+finn.custom\_op.fpgadataflow.concat
+-------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.concat
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 
 finn.custom\_op.fpgadataflow.convolutioninputgenerator
--------------------------------------------------------------
+--------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.convolutioninputgenerator
    :members:
@@ -42,6 +58,15 @@ finn.custom\_op.fpgadataflow.convolutioninputgenerator1d
 -------------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.convolutioninputgenerator1d
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
+finn.custom\_op.fpgadataflow.convolutioninputgenerator\_rtl
+------------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.convolutioninputgenerator_rtl
    :members:
    :undoc-members:
    :show-inheritance:
@@ -62,6 +87,16 @@ finn.custom\_op.fpgadataflow.duplicatestreams\_batch
    :undoc-members:
    :show-inheritance:
 
+
+finn.custom\_op.fpgadataflow.eltwise
+-------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.eltwise
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.custom\_op.fpgadataflow.fmpadding\_batch
 -----------------------------------------------
 
@@ -79,7 +114,7 @@ finn.custom\_op.fpgadataflow.globalaccpool\_batch
    :show-inheritance:
 
 finn.custom\_op.fpgadataflow.iodma
------------------------------------------------
+------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.iodma
    :members:
@@ -102,6 +137,15 @@ finn.custom\_op.fpgadataflow.lookup
    :undoc-members:
    :show-inheritance:
 
+finn.custom\_op.fpgadataflow.matrixvectoractivation
+-----------------------------------------------------------
+
+.. automodule:: finn.custom_op.fpgadataflow.matrixvectoractivation
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 finn.custom\_op.fpgadataflow.pool\_batch
 -----------------------------------------------
 
@@ -123,14 +167,6 @@ finn.custom\_op.fpgadataflow.streamingdatawidthconverter\_batch
 ----------------------------------------------------------------------
 
 .. automodule:: finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch
-   :members:
-   :undoc-members:
-   :show-inheritance:
-
-finn.custom\_op.fpgadataflow.matrixvectoractivation
------------------------------------------------------------
-
-.. automodule:: finn.custom_op.fpgadataflow.matrixvectoractivation
    :members:
    :undoc-members:
    :show-inheritance:

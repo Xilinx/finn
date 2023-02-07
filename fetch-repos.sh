@@ -27,7 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-QONNX_COMMIT="f702b17cdb9d5e57f85f43a5d33890647e063de6"
+QONNX_COMMIT="ce321742d98f23909a890ed680a9c99640d7aaab"
 FINN_EXP_COMMIT="9cbd2787b5160e2b44e0e8164a0df1457dbd5366"
 BREVITAS_COMMIT="a5b71d6de1389d3e7db898fef72e014842670f03"
 PYVERILATOR_COMMIT="766e457465f5c0dd315490d7b9cc5d74f9a76f4f"
@@ -36,6 +36,7 @@ HLSLIB_COMMIT="d27f6b6c5d8f1bb208db395659389603f63ad4be"
 OMX_COMMIT="d1065a788219ca0eb54d5e57600b1f9d7f67d4cc"
 AVNET_BDF_COMMIT="07b475ef7ae44e094c9aa70a1c568339d4350a3c"
 XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
+KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
 EXP_BOARD_FILES_MD5="30eecc497c31050bd46d10ea20eba232"
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
@@ -47,6 +48,7 @@ HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
 OMX_URL="https://github.com/maltanar/oh-my-xilinx.git"
 AVNET_BDF_URL="https://github.com/Avnet/bdf.git"
 XIL_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
+KV260_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 
 QONNX_DIR="qonnx"
 FINN_EXP_DIR="finn-experimental"
@@ -57,6 +59,7 @@ HLSLIB_DIR="finn-hlslib"
 OMX_DIR="oh-my-xilinx"
 AVNET_BDF_DIR="avnet-bdf"
 XIL_BDF_DIR="xil-bdf"
+KV260_SOM_BDF_DIR="kv260-som-bdf"
 
 # absolute path to this script, e.g. /home/user/bin/foo.sh
 SCRIPT=$(readlink -f "$0")
@@ -104,6 +107,7 @@ fetch_board_files() {
     unzip -q pynq-z2.zip
     cp -r $SCRIPTPATH/deps/$AVNET_BDF_DIR/* $SCRIPTPATH/deps/board_files/
     cp -r $SCRIPTPATH/deps/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $SCRIPTPATH/deps/board_files/;
+    cp -r $SCRIPTPATH/deps/$KV260_SOM_BDF_DIR/boards/Xilinx/kv260_som $SCRIPTPATH/deps/board_files/;
     cd $OLD_PWD
 }
 
@@ -116,6 +120,7 @@ fetch_repo $HLSLIB_URL $HLSLIB_COMMIT $HLSLIB_DIR
 fetch_repo $OMX_URL $OMX_COMMIT $OMX_DIR
 fetch_repo $AVNET_BDF_URL $AVNET_BDF_COMMIT $AVNET_BDF_DIR
 fetch_repo $XIL_BDF_URL $XIL_BDF_COMMIT $XIL_BDF_DIR
+fetch_repo $KV260_BDF_URL $KV260_BDF_COMMIT $KV260_SOM_BDF_DIR
 
 # download extra Pynq board files and extract if needed
 if [ ! -d "$SCRIPTPATH/deps/board_files" ]; then

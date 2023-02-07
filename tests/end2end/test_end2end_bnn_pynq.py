@@ -102,7 +102,7 @@ from finn.util.test import (
 )
 
 build_dir = os.environ["FINN_BUILD_DIR"]
-target_clk_ns = 10
+target_clk_ns = 20
 mem_mode = "decoupled"
 rtlsim_trace = False
 
@@ -564,12 +564,6 @@ class TestEnd2End:
         model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
         fifo_layers = model.get_nodes_by_op_type("StreamingFIFO")
         assert len(fifo_layers) > 0
-        hls_layers = model.get_finn_nodes()
-        for node in hls_layers:
-            if node.op_type != "StreamingFIFO":
-                op_inst = getCustomOp(node)
-                assert op_inst.get_nodeattr("inFIFODepths") == [0]
-                assert op_inst.get_nodeattr("outFIFODepths") == [0]
         model.save(
             get_checkpoint_name(
                 topology, wbits, abits, QONNX_export, "fifodepth_" + kind

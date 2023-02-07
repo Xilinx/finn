@@ -36,7 +36,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -100,7 +100,7 @@ def create_one_fc_model(mem_mode="const"):
         nodes=[fc0], name="fclayer_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="fclayer-model")
+    model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -177,7 +177,7 @@ def create_two_fc_model(mem_mode="decoupled"):
         value_info=[mid],
     )
 
-    model = helper.make_model(graph, producer_name="fclayer-model")
+    model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -348,6 +348,7 @@ def test_fpgadataflow_ipstitch_vitis_end2end(board, period_ns, extw):
         model = load_test_checkpoint_or_skip(sdp_node.get_nodeattr("model"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(fpga_part, period_ns))
+    model = model.transform(HLSSynthIP())
     model = model.transform(VitisBuild(fpga_part, period_ns, platform))
     model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_vitis.onnx")
     assert model.get_metadata_prop("platform") == "alveo"

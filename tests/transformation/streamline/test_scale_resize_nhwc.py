@@ -9,7 +9,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MakeScaleResizeNHWC
@@ -58,7 +58,7 @@ def create_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
         value_info=[outp_up, param, roi],
     )
 
-    model = oh.make_model(graph, producer_name="resize_model1")
+    model = qonnx_make_model(graph, producer_name="resize_model1")
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
@@ -113,7 +113,7 @@ def create_transpose_resize(ifm_dim, ifm_ch, scales, mode, idt):
         value_info=[outp_tr, param, roi],
     )
 
-    model = oh.make_model(graph, producer_name="resize_model2")
+    model = qonnx_make_model(graph, producer_name="resize_model2")
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
@@ -180,7 +180,7 @@ def create_transpose_resize_transpose(ifm_dim, ifm_ch, scales, mode, idt):
         value_info=[outp_up, outp_tr, param, roi],
     )
 
-    model = oh.make_model(graph, producer_name="resize_model3")
+    model = qonnx_make_model(graph, producer_name="resize_model3")
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)

@@ -33,6 +33,7 @@ import onnx.helper as oh
 from onnx import TensorProto
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as ox
 from finn.transformation.streamline import CollapseRepeatedAdd, CollapseRepeatedMul
@@ -46,7 +47,7 @@ def test_collapse_repeated_op():
     add_param_1 = oh.make_tensor_value_info("add_param_1", TensorProto.FLOAT, [2])
     mul_param_1 = oh.make_tensor_value_info("mul_param_1", TensorProto.FLOAT, [2])
     top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, [2])
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],
@@ -96,7 +97,7 @@ def test_collapse_repeated_only_if_linear(test_args):
     value_info += [oh.make_tensor_value_info("p4", TensorProto.FLOAT, [1])]
     value_info += [oh.make_tensor_value_info("p5", TensorProto.FLOAT, [1])]
 
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],

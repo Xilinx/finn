@@ -7,7 +7,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
@@ -56,7 +56,7 @@ def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
         value_info=[outp_mp],
     )
 
-    model = oh.make_model(graph, producer_name="maxpool_model")
+    model = qonnx_make_model(graph, producer_name="maxpool_model")
     model = ModelWrapper(model)
     model.set_tensor_datatype("inp", idt)
     model.set_tensor_datatype("outp", idt)
