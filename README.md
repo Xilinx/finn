@@ -15,6 +15,6 @@ generating dataflow-style architectures customized for each network.
 The resulting FPGA accelerators can yield very high classification rates, or conversely be run with a slow clock for very low power consumption.
 The framework is fully open-source in order to give a higher degree of flexibility, and is intended to enable neural network research spanning several layers of the software/hardware abstraction stack.
 
-For more general information about FINN, please visit the [project page](https://xilinx.github.io/finn/), check out the [publications](https://xilinx.github.io/finn/publications) or some of the [demos](https://xilinx.github.io/finn/demos).
+For more general information about FINN, please visit the [project page](https://xilinx.github.io/finn/).
 
 This particular branch (github-pages) is used to host the FINN project page on GitHub Pages.
