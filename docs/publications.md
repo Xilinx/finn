@@ -1,5 +1,7 @@
 ## Publications
 
+* IEEE Micro'22: <a href="https://ieeexplore.ieee.org/document/9933377">Special Issue on Artificial Intelligence at the Edge: RadioML meets FINN: Enabling Future RF Applications with FPGA Streaming Architectures</a>
+* IEEE TECS'22: <a href="https://arxiv.org/abs/2201.11409">On the RTL Implementation of FINN Matrix Vector Unit</a>
 * ACM TRETS: <a href="https://inaccel.com/wp-content/uploads/ACM_TRETS_DC_2020.pdf">Elastic-DF: Scaling Performance of DNN Inference in FPGA Clouds through Automatic Partitioning</a>
 * FPGA'21: <a href="https://dl.acm.org/doi/abs/10.1145/3431920.3439283" target="_blank">S2N2: A Streaming Accelerator for Streaming Spiking Neural Networks</a> and [repository on GitHub](https://github.com/arkhodamoradi/s2n2)
 * FPT'20: <a href="https://arxiv.org/pdf/2011.07317.pdf">Memory-Efficient Dataflow Inference for Deep CNNs on FPGA</a>
@@ -28,6 +30,8 @@
 If you are using FINN in your
 work and would like to be listed here, please contact us! (yamanu@xilinx.com)
 
+* <a href="https://link.springer.com/chapter/10.1007/978-3-030-81645-2_9">Towards Real-Time Deep Learning-Based Network Intrusion Detection on FPGA (KU Leuven)<\a>
+* <a href="https://arxiv.org/abs/2112.00170">SAMO: Optimised Mapping of Convolutional Neural Networks to Streaming Architectures (Imperial College London)</a>
 * <a href="https://ieeexplore.ieee.org/document/9245522" target="_blank">Spatio-Temporal Optimization of Deep Neural Networks for Reconfigurable FPGA SoCs (Scoula Superiore Sant'Anna)</a>
 * <a href="https://coefs.uncc.edu/htabkhiv/teaching/hardware-software-co-design-real-time-ai/" target="_blank">Hardware-Software Co-Design Real-time AI (UNC Charlotte)</a>
 * <a href="https://ieeexplore.ieee.org/abstract/document/8442108" target="_blank">BinaryEye: A 20 kfps Streaming Camera System on FPGA with Real-Time On-Device Image Recognition Using Binary Neural Networks</a>
@@ -35,16 +39,16 @@ work and would like to be listed here, please contact us! (yamanu@xilinx.com)
 * <a href="https://github.com/mohaghasemzadeh/ReBNet" target="_blank">ReBNet: Residual Binarized Neural Network, FCCM'18 best paper</a>
 
 ## Events, Tutorials and Keynotes
-* DAMON'2019 keynote:  <a href="https://github.com/Xilinx/FINN/blob/master/docs/DAMON2019_Blott_final.pdf" target="_blank">Performance Scaling with Innovative Compute Architectures and FPGAs</a>
-* Future of AI'2019 keynote:  <a href="https://github.com/Xilinx/FINN/blob/master/docs/FutureofAI2019_Blott.pdf" target="_blank">Future of AI: Unconventional Compute Architectures</a>
-* BigData Belfast'2018 talk: <a href="https://github.com/Xilinx/FINN/blob/master/docs/BigDataBelfast2018.pdf" target="_blank">Unconventional Compute Architectures for Enabling the Roll-Out of Deep Learning</a>
-* CLUSTER'2018 keynote: <a href="https://github.com/Xilinx/FINN/blob/master/docs/IEEECluster2018.pdf" target="_blank">Unconventional Compute Architectures with Reconfigurable Devices in the Cloud</a>
-* RCML'2018 invited talk: <a href="https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf" target="_blank">The Emerging Computational Landscape of Neural Networks</a>
-* HotChips'2018 ML tutorial: <a href="https://github.com/Xilinx/FINN/blob/master/docs/Hotchips2018_Tutorial.pdf" target="_blank">Overview of Deep Learning and Computer Architectures for Accelerating DNNs</a>
+* DAMON'2019 keynote:  <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/DAMON2019_Blott_final.pdf" target="_blank">Performance Scaling with Innovative Compute Architectures and FPGAs</a>
+* Future of AI'2019 keynote:  <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/FutureofAI2019_Blott.pdf" target="_blank">Future of AI: Unconventional Compute Architectures</a>
+* BigData Belfast'2018 talk: <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/BigDataBelfast2018.pdf" target="_blank">Unconventional Compute Architectures for Enabling the Roll-Out of Deep Learning</a>
+* CLUSTER'2018 keynote: <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/IEEECluster2018.pdf" target="_blank">Unconventional Compute Architectures with Reconfigurable Devices in the Cloud</a>
+* RCML'2018 invited talk: <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/RCML2018.pdf" target="_blank">The Emerging Computational Landscape of Neural Networks</a>
+* HotChips'2018 ML tutorial: <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/Hotchips2018_Tutorial.pdf" target="_blank">Overview of Deep Learning and Computer Architectures for Accelerating DNNs</a>
   + <a href="https://youtu.be/ydsZ7A0FF0I" target="_blank">Video</a>
-* ASAP'2018 keynote: <a href="https://github.com/Xilinx/FINN/blob/master/docs/ASAP2018.pdf" target="_blank">Design Trade-offs for Machine Learning Solutions on Reconfigurable Devices</a>
-* ARC'2018 keynote: <a href="https://github.com/Xilinx/FINN/blob/master/docs/ARC2018.pdf" target="_blank">Scalable Machine Learning with Reconfigurable Devices</a>
-* FPGA'2018 tutorial: <a href="https://github.com/Xilinx/FINN/blob/master/docs/FPGA2018_tutorial.pdf" target="_blank">Training Quantized Neural Networks</a>
-* MPSoC 2017 talk: <a href="https://github.com/Xilinx/FINN/blob/master/docs/MPSOC2018.pdf" target="_blank">A Framework for Reduced Precision Neural Networks on FPGAs</a>
+* ASAP'2018 keynote: <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/ASAP2018.pdf" target="_blank">Design Trade-offs for Machine Learning Solutions on Reconfigurable Devices</a>
+* ARC'2018 keynote: <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/ARC2018.pdf" target="_blank">Scalable Machine Learning with Reconfigurable Devices</a>
+* FPGA'2018 tutorial: <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/FPGA2018_Tutorial.pdf" target="_blank">Training Quantized Neural Networks</a>
+* MPSoC 2017 talk: <a href="https://github.com/Xilinx/finn/blob/github-pages/docs/MPSOC2018.pdf" target="_blank">A Framework for Reduced Precision Neural Networks on FPGAs</a>
 * TCD 2017 guest lecture on ML: <a href="https://www.youtube.com/watch?v=pIVh-4tqjPc" target="_blank">Machine Learning for Embedded Systems (Video)</a>
 * QPYNQ'2017 tutorial: <a href="https://www.ntnu.edu/ie/eecs/qpynq" target="_blank">Quantized Neural Networks with Xilinx PYNQ</a>
