@@ -16,6 +16,6 @@ Two of the Brevitas-exported ONNX variants can be ingested by FINN:
 
 To work with either type of ONNX model, it is loaded into a :ref:`modelwrapper` provided by FINN.
 
-At this stage we can already use the functional verification flow to simulate the model using Python, this is marked in the graphic with the dotted arrow. For more details please have look at :ref:`verification`.
+At this stage we can already use the functional verification flow to simulate the model using Python. For more details please have look at :ref:`verification`.
 
 The model can now be further processed in FINN, the next flow step is :ref:`nw_prep`.
