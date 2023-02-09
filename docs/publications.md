@@ -27,8 +27,7 @@
 
 ## External Publications and Projects Based on FINN
 
-If you are using FINN in your
-work and would like to be listed here, please contact us! (yamanu@xilinx.com)
+If you are using FINN in your work and would like to be listed here, please contact us! (jakoba.petri-koenig@amd.com)
 
 * <a href="https://link.springer.com/chapter/10.1007/978-3-030-81645-2_9">Towards Real-Time Deep Learning-Based Network Intrusion Detection on FPGA (KU Leuven)<\a>
 * <a href="https://arxiv.org/abs/2112.00170">SAMO: Optimised Mapping of Convolutional Neural Networks to Streaming Architectures (Imperial College London)</a>
