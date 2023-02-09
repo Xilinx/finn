@@ -141,10 +141,7 @@ If you are having trouble building the Docker image or need offline access, you 
 
 Supported FPGA Hardware
 =======================
-**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
-
-.. warning::
-  In previous FINN versions (v0.4b - v0.7) we had support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis 2020.1, see instructions below for Alveo setup that works with older versions. Please note that with the new release with Vitis 2022.1, we do only have experimental support to automatically deployment for Alveo cards.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards, as well as Alveo cards.
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
@@ -182,12 +179,12 @@ On the target side:
 
 On the host side:
 
-1. Install Vitis 2020.1 and set up the ``VITIS_PATH`` environment variable to point to your installation.
+1. Install Vitis 2022.1 and set up the ``VITIS_PATH`` environment variable to point to your installation.
 2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. Set up the ``ALVEO_*`` environment variables accordingly for your target, see description of environment variables above.
 5. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
-6. Done! You can try the ``test_end2end_vitis`` tests in the FINN Docker to verify your setup, although this will take some time.
+6. Done!
 
 Vivado/Vitis license
 *********************
