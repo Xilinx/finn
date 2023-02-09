@@ -1,6 +1,6 @@
 ## What is FINN?
 
-<img align="left" src="img/finn-example.png" alt="drawing" width="300"/>
+<img align="left" src="img/finn-example.png" alt="drawing" width="400"/>
 
 FINN is an
 experimental framework from Xilinx Research Labs to explore deep neural network
@@ -14,7 +14,7 @@ exploring the design space of DNN inference accelerators on FPGAs.
 <br>
 ## Features
 
-* **Templated Vivado HLS library of streaming components:** FINN comes with an
+* **Templated Vitis HLS library of streaming components:** FINN comes with an
 HLS hardware library that implements convolutional, fully-connected, pooling and
 LSTM layer types as streaming components. The library uses C++ templates to
 support a wide range of precisions.
@@ -33,7 +33,7 @@ design space.
 
 The FINN team is part of Xilinx's CTO group under Ivo Bolsens (CTO) and Kees Vissers (Fellow) and working very closely with the Pynq team and Kristof Denolf and Jack Lo for integration with video processing.
 
-<img src="img/finn-team.jpg" alt="The FINN Team" width="400"/>
+<img src="img/finn-team.png" alt="The FINN Team" width="400"/>
 
-From left to right: Lucian Petrica, Giulio Gambardella,
-Alessandro Pappalardo, Ken O’Brien, Michaela Blott, Nick Fraser, Yaman Umuroglu
+From top left to bottom right: Yaman Umuroglu, Michaela Blott, Alessandro Pappalardo, Lucian Petrica, Nicholas Fraser,
+Thomas Preusser, Jakoba Petri-Koenig, Ken O’Brien
