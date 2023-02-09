@@ -1,6 +1,6 @@
 ## What is FINN?
 
-<img align="left" src="img/finn-example.png" alt="drawing" width="400"/>
+<img src="img/finn-example.png" alt="drawing" width="400"/>
 
 FINN is an
 experimental framework from Xilinx Research Labs to explore deep neural network
