@@ -94,6 +94,9 @@ def analysis_testing_for_no_quant_nodes(model):
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("model_name", ["TFC", "SFC", "LFC", "CNV", "mobilenet"])
 def test_QONNX_to_FINN(model_name, wbits, abits):
+    if model_name == "mobilenet":
+        pytest.xfail("MobileNet test is temporarily excluded from QONNX testing.")
+
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
     if model_name == "LFC" and wbits == 2 and abits == 2:

@@ -155,12 +155,14 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
                 % (step_name, step_num, len(build_dataflow_steps))
             )
             # redirect output to logfile
-            sys.stdout = stdout_logger
-            sys.stderr = stderr_logger
-            print(
-                "Running step: %s [%d/%d]"
-                % (step_name, step_num, len(build_dataflow_steps))
-            )
+            if not cfg.verbose:
+                sys.stdout = stdout_logger
+                sys.stderr = stderr_logger
+                # also log current step name to logfile
+                print(
+                    "Running step: %s [%d/%d]"
+                    % (step_name, step_num, len(build_dataflow_steps))
+                )
             # run the step
             step_start = time.time()
             model = transform_step(model, cfg)

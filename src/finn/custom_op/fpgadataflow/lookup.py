@@ -75,21 +75,21 @@ class Lookup(HLSCustomOp):
         exp_cycles = int(n_inputs)
         return exp_cycles
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         return self.get_nodeattr("InputShape")
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         ishape = self.get_normal_input_shape()
         emb_dim = self.get_nodeattr("EmbeddingDim")
         oshape = list(ishape) + [emb_dim]
         return tuple(oshape)
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ishape = self.get_normal_input_shape()
         folded_ishape = list(ishape) + [1]
         return tuple(folded_ishape)
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         ishape = self.get_normal_input_shape()
         mem_mode = self.get_nodeattr("mem_mode")
         emb_dim = self.get_nodeattr("EmbeddingDim")
@@ -135,19 +135,19 @@ class Lookup(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         ret = DataType[self.get_nodeattr("InputType")]
         return ret
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         ret = DataType[self.get_nodeattr("EmbeddingType")]
         return ret
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
         return ibits
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         folded_oshape = self.get_folded_output_shape()
         obits = self.get_output_datatype().bitwidth()
         return obits * folded_oshape[-1]
@@ -159,8 +159,8 @@ class Lookup(HLSCustomOp):
     def global_includes(self):
         mem_mode = self.get_nodeattr("mem_mode")
         global_incls = []
+        global_incls.append('#include "lookup.hpp"')
         if mem_mode == "const":
-            global_incls.append('#include "lookup.hpp"')
             global_incls.append('#include "embeddings.hpp"')
         self.code_gen_dict["$GLOBALS$"] = global_incls
 
@@ -258,17 +258,10 @@ class Lookup(HLSCustomOp):
                 InputType, EmbeddingType >(in0, out, embeddings);"""
             ]
         elif mem_mode == "external":
-            hls_impl = """
-    if(!in0.empty()) {
-        ap_uint<T_SRC::width+EmbeddingAlign> const  base =
-            (in0.read(), ap_uint<EmbeddingAlign>(0));
-        for(unsigned  j = 0; j < EmbeddingSize; j++) {
-#pragma HLS PIPELINE II=1
-            out.write(mem[base+j]);
-        }
-    }
-            """
-            self.code_gen_dict["$DOCOMPUTE$"] = [hls_impl]
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """StreamingLookup_ext<EmbeddingSize>(in0, out, mem, size, oob_count,
+                oob_irq);"""
+            ]
 
     def blackboxfunction(self):
         mem_mode = self.get_nodeattr("mem_mode")
@@ -286,7 +279,8 @@ class Lookup(HLSCustomOp):
                 "void "
                 + self.onnx_node.name
                 + "(hls::stream<T_SRC> &in0, hls::stream<T_DST> &out, "
-                + "T_DST const *const  mem)"
+                + "T_DST const *const  mem, unsigned const size, "
+                + "unsigned &oob_count, bool &oob_irq)"
             ]
 
     def pragmas(self):
@@ -305,6 +299,13 @@ class Lookup(HLSCustomOp):
         elif mem_mode == "external":
             my_pragmas.append("#pragma HLS INTERFACE m_axi offset=slave port=mem")
             my_pragmas.append("#pragma HLS INTERFACE s_axilite port=mem bundle=control")
+            my_pragmas.append(
+                "#pragma HLS INTERFACE s_axilite port=size bundle=control"
+            )
+            my_pragmas.append(
+                "#pragma HLS INTERFACE s_axilite port=oob_count bundle=control"
+            )
+            my_pragmas.append("#pragma HLS INTERFACE ap_none port=oob_irq")
         else:
             raise Exception("Unrecognized mem_mode: " + mem_mode)
         self.code_gen_dict["$PRAGMAS$"] = my_pragmas
@@ -475,4 +476,5 @@ class Lookup(HLSCustomOp):
         if mem_mode == "external":
             intf_names["axilite"] = ["s_axi_control"]
             intf_names["aximm"] = [("m_axi_gmem", self.get_nodeattr("ext_mem_width"))]
+            intf_names["ap_none"] = ["oob_irq"]
         return intf_names

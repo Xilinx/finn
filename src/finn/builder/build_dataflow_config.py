@@ -37,6 +37,13 @@ from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
 from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
 
 
+class AutoFIFOSizingMethod(str, Enum):
+    "Select the type of automatic FIFO sizing strategy."
+
+    CHARACTERIZE = "characterize"
+    LARGEFIFO_RTLSIM = "largefifo_rtlsim"
+
+
 class ShellFlowType(str, Enum):
     """For builds that produce a bitfile, select the shell flow that will integrate
     the FINN-generated accelerator."""
@@ -246,6 +253,20 @@ class DataflowBuildConfig:
     #: for each FIFO.
     auto_fifo_depths: Optional[bool] = True
 
+    #: Whether FIFO nodes with depth larger than 32768 will be split.
+    #: Allow to configure very large FIFOs in the folding_config_file.
+    split_large_fifos: Optional[bool] = False
+
+    #: When `auto_fifo_depths = True`, select which method will be used for
+    #: setting the FIFO sizes.
+    auto_fifo_strategy: Optional[
+        AutoFIFOSizingMethod
+    ] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
+
+    #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
+    #: if set to True, always using Python instead
+    force_python_rtlsim: Optional[bool] = False
+
     #: Memory resource type for large FIFOs
     #: Only relevant when `auto_fifo_depths = True`
     large_fifo_mem_style: Optional[LargeFIFOMemStyle] = LargeFIFOMemStyle.AUTO
@@ -257,6 +278,10 @@ class DataflowBuildConfig:
 
     #: Which memory mode will be used for compute layers
     default_mem_mode: Optional[ComputeEngineMemMode] = ComputeEngineMemMode.DECOUPLED
+
+    #: Force inference of RTL ConvolutionInputGenerator over HLS implementation
+    #: If set to False, falls back to the default behavior of InferConvInpGen()
+    force_rtl_conv_inp_gen: Optional[bool] = False
 
     #: Which Vitis platform will be used.
     #: Only relevant when `shell_flow_type = ShellFlowType.VITIS_ALVEO`
@@ -285,6 +310,10 @@ class DataflowBuildConfig:
     #: Whether pdb postmortem debuggig will be launched when the build fails
     enable_build_pdb_debug: Optional[bool] = True
 
+    #: When True, all warnings and compiler output will be printed in stdout.
+    #: Otherwise, these will be suppressed and only appear in the build log.
+    verbose: Optional[bool] = False
+
     #: If given, only run the steps in the list. If not, run default steps.
     #: See `default_build_dataflow_steps` for the default list of steps.
     #: When specified:
@@ -311,6 +340,10 @@ class DataflowBuildConfig:
 
     #: Override the number of inputs for rtlsim performance measurement.
     rtlsim_batch_size: Optional[int] = 1
+
+    #: If set to True, FIFOs and DWCs with impl_style=vivado will be kept during
+    #: rtlsim, otherwise they will be replaced by HLS implementations.
+    rtlsim_use_vivado_comps: Optional[bool] = True
 
     def _resolve_hls_clk_period(self):
         if self.hls_clk_period_ns is None:

@@ -228,6 +228,22 @@ class CreateStitchedIP(Transformation):
             )
             self.s_axis_idx += 1
 
+    def connect_ap_none_external(self, node):
+        inst_name = node.name
+        node_inst = getCustomOp(node)
+        input_intf_names = node_inst.get_verilog_top_module_intf_names()["ap_none"]
+        # make external
+        for i in range(len(input_intf_names)):
+            input_intf_name = input_intf_names[i]
+            self.connect_cmds.append(
+                "make_bd_pins_external [get_bd_pins %s/%s]"
+                % (inst_name, input_intf_name)
+            )
+            self.connect_cmds.append(
+                "set_property name %s [get_bd_ports %s_0]"
+                % (input_intf_name, input_intf_name)
+            )
+
     def insert_signature(self, checksum_count):
         signature_vlnv = "AMD:user:axi_info_top:1.0"
         signature_name = "axi_info_top0"
@@ -275,7 +291,7 @@ class CreateStitchedIP(Transformation):
             "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi]" % signature_name
         )
         self.connect_cmds.append(
-            "set_property name s_axis_info [get_bd_intf_ports s_axi_0]"
+            "set_property name s_axilite_info [get_bd_intf_ports s_axi_0]"
         )
         self.connect_cmds.append("assign_bd_address")
 
@@ -294,6 +310,14 @@ class CreateStitchedIP(Transformation):
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""
             )
+        if model.graph.node[0].op_type == "StreamingFIFO":
+            firstfifo = getCustomOp(model.graph.node[0])
+            if firstfifo.get_nodeattr("impl_style") == "vivado":
+                warnings.warn(
+                    """First FIFO has impl_style=vivado, which may cause
+                    simulation glitches (e.g. dropping the first input sample
+                    after reset)."""
+                )
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_fpgadataflow_node(
@@ -305,6 +329,7 @@ class CreateStitchedIP(Transformation):
             ip_dirs += [ip_dir_value]
             self.create_cmds += node_inst.code_generation_ipi()
             self.connect_clk_rst(node)
+            self.connect_ap_none_external(node)
             self.connect_axi(node)
             for i in range(len(node.input)):
                 if not is_external_input(model, node, i):
@@ -387,6 +412,7 @@ class CreateStitchedIP(Transformation):
         wrapper_filename = "%s/hdl/%s_wrapper.v" % (bd_base, block_name)
         tcl.append("add_files -norecurse %s" % wrapper_filename)
         model.set_metadata_prop("wrapper_filename", wrapper_filename)
+        tcl.append("set_property top finn_design_wrapper [current_fileset]")
         # synthesize to DCP and export stub, DCP and constraints
         if self.vitis:
             tcl.append(
@@ -565,6 +591,10 @@ class CreateStitchedIP(Transformation):
             if os.path.isfile(wrapper_filename_alt):
                 model.set_metadata_prop("wrapper_filename", wrapper_filename_alt)
             else:
-                raise Exception("CreateStitchedIP failed, no wrapper HDL found.")
+                raise Exception(
+                    """CreateStitchedIP failed, no wrapper HDL found under %s or %s.
+                    Please check logs under the parent directory."""
+                    % (wrapper_filename, wrapper_filename_alt)
+                )
 
         return (model, False)

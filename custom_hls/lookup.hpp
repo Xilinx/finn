@@ -26,14 +26,15 @@
 * CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 * OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
- *******************************************************************************/
+*******************************************************************************/
+#ifndef LOOKUP_HPP
+#define LOOKUP_HPP
 
 #include <ap_int.h>
 #include <hls_stream.h>
 
-#ifndef LOOKUP_HPP
-#define LOOKUP_HPP
+#include "utils.hpp"
+
 
 template <
     unsigned NumEmbeddings,
@@ -57,4 +58,50 @@ void StreamingLookup(
     }
 }
 
+/**
+ * Lookup implementation over a table stored in AXI-accessible memory.
+ */
+template <
+	unsigned  EmbeddingSize,                            // Number of memory words per embedding
+	unsigned  EmbeddingAlign = clog2(EmbeddingSize),    // Alignment of entries = number of word index bits
+	typename  T_SRC,
+	typename  T_DST
+>
+void StreamingLookup_ext(
+	hls::stream<T_SRC> &in0,
+	hls::stream<T_DST> &out,
+	T_DST const *const  mem,
+	unsigned  const     size,
+	unsigned           &oob_count,
+	bool               &oob_irq
+) {
+#pragma HLS pipeline II=EmbeddingSize+9 style=flp
+
+	static unsigned  oob_count_li;
+	static unsigned  oob_count_int;
+#pragma HLS reset variable=oob_count_li
+#pragma HLS reset variable=oob_count_int
+
+	if(oob_count != oob_count_li) {
+		oob_count_int -= oob_count_li;
+		oob_count_li   = oob_count;
+	}
+	if(!in0.empty()) {
+		T_SRC const  x = in0.read();
+
+		// Map out-of-bounds inputs to an offset of zero and increment counter
+		bool  const  oob = x >= T_SRC(size);
+		ap_uint<T_SRC::width+EmbeddingAlign> const  ofs =
+			((oob? T_SRC(0) : x), ap_uint<EmbeddingAlign>(0));
+		oob_count_int += oob;
+
+		// Stream lookup data (burst inferred)
+		for(unsigned  i = 0; i < EmbeddingSize; i++) {
+#pragma HLS pipeline II=1 style=flp
+			out.write(mem[ofs+i]);
+		}
+	}
+	oob_count =  oob_count_int;
+	oob_irq   = (oob_count_int != 0);
+}
 #endif
