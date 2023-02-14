@@ -46,3 +46,8 @@ The notebooks in this folder are more developer oriented. They should help you t
 * 2_custom_op
 
   * Explains the basics of FINN custom ops and how to define a new one.
+
+FINN Example FPGA Flow Using MNIST Numerals
+============================================
+
+Next to the Jupyter notebooks above there is a tutorial about the command-line build_dataflow `here <https://github.com/Xilinx/finn/tree/main/tutorials/fpga_flow>`_ which shows how to bring a FINN compiled model into the Vivado FPGA design environment.
