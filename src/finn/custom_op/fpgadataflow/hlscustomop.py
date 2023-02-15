@@ -43,6 +43,7 @@ from finn.util.basic import (
     pyverilate_get_liveness_threshold_cycles,
 )
 from finn.util.hls import CallHLS
+from finn.util.pyverilator import make_single_source_file
 
 from . import templates
 
@@ -174,7 +175,7 @@ class HLSCustomOp(CustomOp):
         # default impl only returns the HLS verilog codegen dir
         return [verilog_path]
 
-    def get_all_verilog_filenames(self):
+    def get_all_verilog_filenames(self, abspath=False):
         "Return list of all Verilog files used for this node."
 
         verilog_files = []
@@ -182,7 +183,10 @@ class HLSCustomOp(CustomOp):
         for verilog_path in verilog_paths:
             for f in os.listdir(verilog_path):
                 if f.endswith(".v"):
-                    verilog_files += [f]
+                    if abspath:
+                        verilog_files += [verilog_path + "/" + f]
+                    else:
+                        verilog_files += [f]
         return verilog_files
 
     def prepare_rtlsim(self):
@@ -192,13 +196,18 @@ class HLSCustomOp(CustomOp):
 
         if PyVerilator is None:
             raise ImportError("Installation of PyVerilator is required.")
-        verilog_paths = self.get_all_verilog_paths()
-        verilog_files = self.get_all_verilog_filenames()
+
+        verilog_files = self.get_all_verilog_filenames(abspath=True)
+        single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
+        tmp_build_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
+        target_file = single_src_dir + "/" + self.get_verilog_top_module_name() + ".v"
+        make_single_source_file(verilog_files, target_file)
+
         # build the Verilator emu library
         sim = PyVerilator.build(
-            verilog_files,
-            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
-            verilog_path=verilog_paths,
+            self.get_verilog_top_module_name() + ".v",
+            build_dir=tmp_build_dir,
+            verilog_path=[single_src_dir],
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_verilog_top_module_name(),
         )

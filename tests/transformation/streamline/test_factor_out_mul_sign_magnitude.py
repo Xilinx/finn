@@ -33,6 +33,7 @@ import onnx.helper as oh
 from onnx import TensorProto
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as ox
 from finn.transformation.streamline import FactorOutMulSignMagnitude
@@ -43,7 +44,7 @@ def test_factor_out_mul_sign_magnitude():
     top_in = oh.make_tensor_value_info("top_in", TensorProto.FLOAT, [1, 2])
     mul_param = oh.make_tensor_value_info("mul_param", TensorProto.FLOAT, [1, 2])
     top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, [1, 2])
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],

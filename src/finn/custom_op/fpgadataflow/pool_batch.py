@@ -42,12 +42,13 @@ class Pool_Batch(HLSCustomOp):
     Output shape (BatchSize,OutImgDim,OutImgDim,Channels)
 
     Notes:
-    # The input shape was chosen to be compatible with im2col (only true when there
-    is not folding).
 
-    # The actual data layout produced by the hlslib kernels is different
-    for depthwise ops.
-     * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/PE, K, K, PE)
+    * The input shape was chosen to be compatible with im2col (only true when there
+      is not folding).
+    * The actual data layout produced by the hlslib kernels is different
+      for depthwise ops.
+
+        * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/PE, K, K, PE)
 
     Channels can be folded using PE (SIMD from the input perspective)
     """

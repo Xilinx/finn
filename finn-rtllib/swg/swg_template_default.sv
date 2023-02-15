@@ -36,7 +36,6 @@ module $TOP_MODULE_NAME$_controller #(
     int unsigned  LOOP_SIMD_ITERATIONS = $LOOP_SIMD_ITERATIONS$,
 
     int unsigned  INCR_BITWIDTH = $INCR_BITWIDTH$,
-    bit [INCR_BITWIDTH-1:0]  ADDR_INCREMENT_MAP[6] = $ADDR_INCREMENT_MAP$,
 
     bit IS_DEPTHWISE = $IS_DEPTHWISE$
 )(
@@ -60,26 +59,31 @@ module $TOP_MODULE_NAME$_controller #(
     state_e  State = $INNERMOST_STATE$;
     state_e  state_next;
 
-    logic signed [$clog2(LOOP_H_ITERATIONS   +2)+1-1:0]  Counter_loop_h    = LOOP_H_ITERATIONS-1;
-    logic signed [$clog2(LOOP_W_ITERATIONS   +2)+1-1:0]  Counter_loop_w    = LOOP_W_ITERATIONS-1;
-    logic signed [$clog2(LOOP_KH_ITERATIONS  +2)+1-1:0]  Counter_loop_kh   = LOOP_KH_ITERATIONS-1;
-    logic signed [$clog2(LOOP_KW_ITERATIONS  +2)+1-1:0]  Counter_loop_kw   = LOOP_KW_ITERATIONS-1;
-    logic signed [$clog2(LOOP_SIMD_ITERATIONS+2)+1-1:0]  Counter_loop_simd = LOOP_SIMD_ITERATIONS-1;
+    logic signed [$clog2(LOOP_H_ITERATIONS   +2)+1-1:0]  Counter_loop_h    = LOOP_H_ITERATIONS;
+    logic signed [$clog2(LOOP_W_ITERATIONS   +2)+1-1:0]  Counter_loop_w    = LOOP_W_ITERATIONS;
+    logic signed [$clog2(LOOP_KH_ITERATIONS  +2)+1-1:0]  Counter_loop_kh   = LOOP_KH_ITERATIONS;
+    logic signed [$clog2(LOOP_KW_ITERATIONS  +2)+1-1:0]  Counter_loop_kw   = LOOP_KW_ITERATIONS;
+    logic signed [$clog2(LOOP_SIMD_ITERATIONS+2)+1-1:0]  Counter_loop_simd = LOOP_SIMD_ITERATIONS;
 
-    assign  addr_incr = ADDR_INCREMENT_MAP[State];
+    // combinational logic for addr_incr generation
+    always_comb begin : blkHead
+        unique case (State)
+            0 : addr_incr = 0;
+            1 : addr_incr = $HEAD_INCR_SIMD$;
+            2 : addr_incr = $HEAD_INCR_KW$;
+            3 : addr_incr = $HEAD_INCR_KH$;
+            4 : addr_incr = $HEAD_INCR_W$;
+            5 : addr_incr = $HEAD_INCR_H$;
+        endcase
+    end
 
     // combinational logic for tail_incr generation
     uwire  tail_incr_inner_condition = IS_DEPTHWISE? (Counter_loop_kh >= 0) : 0;
-    always_comb begin : blkTail
-        if (tail_incr_inner_condition)
-            tail_incr = 1;
-        else if (Counter_loop_w >= 0)
-            tail_incr = $TAIL_INCR_W$;
-        else if (Counter_loop_h >= 0)
-            tail_incr = $TAIL_INCR_H$;
-        else
-            tail_incr = $TAIL_INCR_LAST$;
-    end
+    assign tail_incr =
+        tail_incr_inner_condition? 1 :
+        Counter_loop_w >= 0?       $TAIL_INCR_W$ :
+        Counter_loop_h >= 0?       $TAIL_INCR_H$ :
+        /* else */                 $TAIL_INCR_LAST$;
 
     // combinational next state logic
     always_comb begin : blkState
@@ -101,29 +105,29 @@ module $TOP_MODULE_NAME$_controller #(
     always_ff @ (posedge clk) begin
         if(!rst_n) begin
             State <= $INNERMOST_STATE$;
-            Counter_loop_h    <= LOOP_H_ITERATIONS-1;
-            Counter_loop_w    <= LOOP_W_ITERATIONS-1;
-            Counter_loop_kh   <= LOOP_KH_ITERATIONS-1;
-            Counter_loop_kw   <= LOOP_KW_ITERATIONS-1;
-            Counter_loop_simd <= LOOP_SIMD_ITERATIONS-1;
+            Counter_loop_h    <= LOOP_H_ITERATIONS;
+            Counter_loop_w    <= LOOP_W_ITERATIONS;
+            Counter_loop_kh   <= LOOP_KH_ITERATIONS;
+            Counter_loop_kw   <= LOOP_KW_ITERATIONS;
+            Counter_loop_simd <= LOOP_SIMD_ITERATIONS;
         end
         else if(advance) begin
             State <= state_next;
             if (State == $INNERMOST_STATE$) begin
                 if(Counter_loop_simd >= 0)  Counter_loop_simd <= Counter_loop_simd-1;
                 else begin
-                    Counter_loop_simd <= LOOP_SIMD_ITERATIONS-1;
+                    Counter_loop_simd <= LOOP_SIMD_ITERATIONS;
                     if(Counter_loop_kw >= 0)  Counter_loop_kw <= Counter_loop_kw-1;
                     else begin
-                        Counter_loop_kw <= LOOP_KW_ITERATIONS-1;
+                        Counter_loop_kw <= LOOP_KW_ITERATIONS;
                         if(Counter_loop_kh >= 0)  Counter_loop_kh <= Counter_loop_kh-1;
                         else begin
-                            Counter_loop_kh <= LOOP_KH_ITERATIONS-1;
+                            Counter_loop_kh <= LOOP_KH_ITERATIONS;
                             if(Counter_loop_w >= 0)  Counter_loop_w <= Counter_loop_w-1;
                             else begin
-                                Counter_loop_w <= LOOP_W_ITERATIONS-1;
+                                Counter_loop_w <= LOOP_W_ITERATIONS;
                                 if(Counter_loop_h >= 0)  Counter_loop_h <= Counter_loop_h-1;
-                                else  Counter_loop_h <= LOOP_H_ITERATIONS-1;
+                                else  Counter_loop_h <= LOOP_H_ITERATIONS;
                             end
                         end
                     end
@@ -139,7 +143,6 @@ module $TOP_MODULE_NAME$_cyclic_buffer_addressable #(
     int unsigned  DEPTH
 )(
     input   logic  clk,
-    input   logic  rst_n,
 
     input   logic  write_enable,
     input   logic [$clog2(DEPTH)-1:0] write_addr,
@@ -182,7 +185,7 @@ module $TOP_MODULE_NAME$_impl #(
     input   logic  out_V_V_TREADY,
     output  logic [BIT_WIDTH * SIMD * MMV_OUT-1:0]  out_V_V_TDATA
 );
-    // derived Constants
+    // derived constants
     localparam int unsigned  BUF_IN_WIDTH = BIT_WIDTH * SIMD * MMV_IN;
     localparam int unsigned  BUF_OUT_ELEM_WIDTH = BIT_WIDTH * SIMD;
     localparam int unsigned  BUF_OUT_WIDTH = BIT_WIDTH * SIMD * MMV_OUT;
@@ -199,7 +202,6 @@ module $TOP_MODULE_NAME$_impl #(
         .DEPTH(BUF_ELEM_TOTAL)
     ) window_buffer_inst (
         .clk(ap_clk),
-        .rst_n(ap_rst_n),
 
         .write_enable(window_buffer_write_enable),
         .write_addr(window_buffer_write_addr),
@@ -234,6 +236,15 @@ module $TOP_MODULE_NAME$_impl #(
     logic        [$clog2(BUF_ELEM_TOTAL)-1:0]      Window_buffer_write_addr_reg = 0;
 
     // Control signals/registers
+    logic  Write_cmd    = 0;
+    logic  Writing_done = 0;
+    uwire  write_ok      = Write_cmd &&  out_V_V_TREADY;
+    uwire  write_blocked = Write_cmd && !out_V_V_TREADY;
+
+    logic  Fetching_done = 0;
+    uwire  fetch_cmd = !($signed(Current_elem) > Newest_buffered_elem) && !write_blocked && !Fetching_done;
+
+    uwire  reading_done = Newest_buffered_elem == LAST_READ_ELEM;
     uwire  read_cmd =
         !reading_done && ( // if there is still an input element left to read
             Fetching_done || ( // if fetching is done (e.g. for skipped rows at FM end due to stride)
@@ -242,15 +253,6 @@ module $TOP_MODULE_NAME$_impl #(
             ) // (over-)write to buffer if oldest buffered element will no longer be needed
         );
     uwire  read_ok      = read_cmd && in0_V_V_TVALID;
-    uwire  reading_done = Newest_buffered_elem == LAST_READ_ELEM;
-
-    uwire  fetch_cmd = !($signed(Current_elem) > Newest_buffered_elem) && !write_blocked && !Fetching_done;
-    logic  Fetching_done = 0;
-
-    logic  Write_cmd    = 0;
-    logic  Writing_done = 0;
-    uwire  write_ok      = Write_cmd &&  out_V_V_TREADY;
-    uwire  write_blocked = Write_cmd && !out_V_V_TREADY;;
 
     //assign buffer control
     assign  window_buffer_write_addr = Window_buffer_write_addr_reg;

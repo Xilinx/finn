@@ -33,7 +33,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveMulPastDWConv
@@ -94,7 +94,7 @@ def test_move_mul_past_dw_conv(ifm_dim, ifm_ch, k, stride, pad_amt, dw):
         value_info=[mul, W],
     )
 
-    model = helper.make_model(graph, producer_name="mulpastconv-model")
+    model = qonnx_make_model(graph, producer_name="mulpastconv-model")
     model = ModelWrapper(model)
     inp_values = gen_finn_dt_tensor(DataType["INT2"], [1, ifm_ch, ifm_dim, ifm_dim])
     mul_values = gen_finn_dt_tensor(DataType["INT2"], [1, ifm_ch, 1, 1])
