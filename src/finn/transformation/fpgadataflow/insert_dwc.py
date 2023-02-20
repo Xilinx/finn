@@ -81,12 +81,11 @@ class InsertDWC(Transformation):
                             dwc_in_width = n0.get_outstream_width()
                             # determine dwc outwidth
                             dwc_out_width = n1.get_instream_width()
-                            larger_width = max(dwc_in_width, dwc_out_width)
-                            smaller_width = min(dwc_in_width, dwc_out_width)
-                            if larger_width % smaller_width == 0:
-                                impl_style = "hls"
-                            else:
-                                impl_style = "vivado"
+                            # use hls mode by default since it supports more configs
+                            # vivado mode can be manually enabled by user, but does not
+                            # support e.g. node-by-node rtlsim neded for
+                            # characterization-based FIFO sizing
+                            impl_style = "hls"
 
                             # determine shape for dwc
                             dwc_shape = n0.get_normal_output_shape()
