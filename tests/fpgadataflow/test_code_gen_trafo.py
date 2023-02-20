@@ -32,7 +32,7 @@ import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.util.basic import gen_finn_dt_tensor, get_by_name
+from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 
@@ -70,7 +70,7 @@ def test_code_gen_trafo():
         nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="fclayer-model")
+    model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)

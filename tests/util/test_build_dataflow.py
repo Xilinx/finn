@@ -30,6 +30,7 @@ import pkg_resources as pk
 
 import pytest
 
+import numpy as np
 import os
 from shutil import copytree
 
@@ -55,7 +56,6 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/driver/driver.py")
     assert os.path.isfile(output_dir + "/report/estimate_layer_cycles.json")
     assert os.path.isfile(output_dir + "/report/estimate_layer_resources.json")
-    assert os.path.isfile(output_dir + "/report/verify_rtlsim.vcd")
     assert os.path.isfile(output_dir + "/report/rtlsim_perf_batch_1.vcd")
     assert os.path.isfile(
         output_dir + "/report/estimate_layer_config_alternatives.json"
@@ -68,8 +68,19 @@ def test_end2end_build_dataflow_directory():
     assert os.path.isfile(output_dir + "/report/post_synth_resources.xml")
     assert os.path.isfile(output_dir + "/report/post_route_timing.rpt")
     # verification outputs
-    verify_out_dir = output_dir + "/verification_output"
-    assert os.path.isfile(verify_out_dir + "/verify_initial_python_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_streamlined_python_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_folded_hls_cppsim_SUCCESS.npy")
-    assert os.path.isfile(verify_out_dir + "/verify_stitched_ip_rtlsim_SUCCESS.npy")
+    verif_batchsize = np.load(target_dir + "/input.npy").shape[0]
+    for i in range(verif_batchsize):
+        verify_out_dir = output_dir + "/verification_output"
+        assert os.path.isfile(
+            verify_out_dir + f"/verify_initial_python_{i}_SUCCESS.npy"
+        )
+        assert os.path.isfile(
+            verify_out_dir + f"/verify_streamlined_python_{i}_SUCCESS.npy"
+        )
+        assert os.path.isfile(
+            verify_out_dir + f"/verify_folded_hls_cppsim_{i}_SUCCESS.npy"
+        )
+        assert os.path.isfile(
+            verify_out_dir + f"/verify_stitched_ip_rtlsim_{i}_SUCCESS.npy"
+        )
+        assert os.path.isfile(output_dir + f"/report/verify_rtlsim_{i}.vcd")

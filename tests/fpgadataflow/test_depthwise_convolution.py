@@ -37,7 +37,11 @@ from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
+from qonnx.util.basic import (
+    calculate_signed_dot_prod_range,
+    gen_finn_dt_tensor,
+    qonnx_make_model,
+)
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -123,7 +127,7 @@ def set_up_reference_model(act, idt, wdt, k, ifm_dim, ifm_ch, stride, padding):
         outputs=[global_out],
         value_info=value_info,
     )
-    model = oh.make_model(graph, producer_name="lowered_dw_cnv-model")
+    model = qonnx_make_model(graph, producer_name="lowered_dw_cnv-model")
     model = ModelWrapper(model)
 
     # initialize model

@@ -45,7 +45,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.util.basic import make_build_dir, pynq_part_map
+from finn.util.basic import make_build_dir, pynq_native_port_width, pynq_part_map
 
 from . import templates
 
@@ -320,6 +320,7 @@ class ZynqBuild(Transformation):
     ):
         super().__init__()
         self.fpga_part = pynq_part_map[platform]
+        self.axi_port_width = pynq_native_port_width[platform]
         self.period_ns = period_ns
         self.platform = platform
         self.enable_debug = enable_debug
@@ -330,7 +331,7 @@ class ZynqBuild(Transformation):
         model = model.transform(InferDataLayouts())
         # prepare at global level, then break up into kernels
         prep_transforms = [
-            InsertIODMA(64),
+            InsertIODMA(self.axi_port_width),
             InsertDWC(),
             Floorplan(),
             CreateDataflowPartition(partition_model_dir=self.partition_model_dir),

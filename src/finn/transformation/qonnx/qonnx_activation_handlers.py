@@ -52,9 +52,7 @@ class QuantActBaseHandler(ABC):
         self._q_node = quant_node
         self._q_index = quant_node_index
 
-    @property
     @classmethod
-    @abstractmethod
     def valid_predecessor_op_types(self):
         """Defines which op types the preceding node is allowed to have for
         this type of activation.
@@ -284,9 +282,11 @@ class QuantReluHandler(QuantActBaseHandler):
     """Class for converting a quantized relu operation expressed in the QONNX
     dialect to the FINN ONNX dialect."""
 
-    valid_predecessor_op_types = [
-        "Relu",
-    ]
+    @classmethod
+    def valid_predecessor_op_types(self):
+        return [
+            "Relu",
+        ]
 
     def _check_compatibility(self):
         if self._q_node.op_type == "Quant":
@@ -391,15 +391,17 @@ class QuantIdentityHandler(QuantActBaseHandler):
     these are equivalent to quantized identity activations.
     """
 
-    valid_predecessor_op_types = [
-        "BatchNormalization",
-        "Sub",
-        "Add",
-        "Mul",
-        "Div",
-        "DebugMarker",
-        None,
-    ]
+    @classmethod
+    def valid_predecessor_op_types(self):
+        return [
+            "BatchNormalization",
+            "Sub",
+            "Add",
+            "Mul",
+            "Div",
+            "DebugMarker",
+            None,
+        ]
 
     def _check_compatibility(self):
         # Gather parameters to check

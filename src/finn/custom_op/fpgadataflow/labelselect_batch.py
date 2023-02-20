@@ -70,13 +70,13 @@ class LabelSelect_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         nlabels = self.get_nodeattr("Labels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         ishape = tuple(vecs + [nlabels])
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         nlabels = self.get_nodeattr("Labels")
         pe = self.get_nodeattr("PE")
         vecs = list(self.get_nodeattr("numInputVectors"))
@@ -85,13 +85,13 @@ class LabelSelect_Batch(HLSCustomOp):
         folded_ishape = tuple(vecs + [folds, pe])
         return folded_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         k = self.get_nodeattr("K")
         vecs = list(self.get_nodeattr("numInputVectors"))
         oshape = tuple(vecs + [k])
         return oshape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         k = self.get_nodeattr("K")
         vecs = list(self.get_nodeattr("numInputVectors"))
         oshape = tuple(vecs + [k, 1])
@@ -152,24 +152,24 @@ class LabelSelect_Batch(HLSCustomOp):
 
         return info_messages
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]
         return ret
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         ret = DataType[self.get_nodeattr("outputDataType")]
         return ret
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         """Returns input stream width."""
         ibits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns output stream width."""
         return self.get_output_datatype().bitwidth()
 
