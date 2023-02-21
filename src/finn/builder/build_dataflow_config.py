@@ -233,6 +233,12 @@ class DataflowBuildConfig:
     #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
 
+    #: (Optional) Whether optimizations that minimize the bit width of the
+    #: weights and accumulator will be applied. Because this optimization relies
+    #: on the the values of the weights, it will only be applied if runtime-
+    #: writeable weights is not enabled.
+    minimize_bit_width: Optional[bool] = True
+
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.
     #: e.g. "Pynq-Z1" or "U250"
