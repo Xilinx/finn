@@ -30,8 +30,9 @@ import pkg_resources as pk
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
+import torch
+from brevitas.export import export_finn_onnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
@@ -63,7 +64,7 @@ def test_streamline_cnv(size, wbits, abits):
     nname = "%s_%dW%dA" % (size, wbits, abits)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
     fc = get_test_model_trained(size, wbits, abits)
-    bo.export_finn_onnx(fc, (1, 3, 32, 32), finn_onnx)
+    export_finn_onnx(fc, torch.randn(1, 3, 32, 32), finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
