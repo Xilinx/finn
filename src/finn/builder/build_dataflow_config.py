@@ -119,6 +119,7 @@ default_build_dataflow_steps = [
     "step_create_dataflow_partition",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
+    "step_minimize_bit_width",
     "step_generate_estimate_reports",
     "step_hls_codegen",
     "step_hls_ipgen",
@@ -140,6 +141,7 @@ estimate_only_dataflow_steps = [
     "step_create_dataflow_partition",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
+    "step_minimize_bit_width",
     "step_generate_estimate_reports",
 ]
 
