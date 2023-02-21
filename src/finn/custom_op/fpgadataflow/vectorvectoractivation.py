@@ -1199,12 +1199,12 @@ class VectorVectorActivation(HLSCustomOp):
         k_h, k_w = self.get_nodeattr("Kernel")
         # if accDataType is not set, then it will default to INT32, which would
         # be a large overestimate in most (if not all) cases. In this scenario,
-        # we would use the minimum accumulator as determined by the data types.
+        # we would use the minimum accumulator as determined by the data types
+        # bound, derived in https://arxiv.org/abs/2301.13376
         alpha = math.log(k_h * k_w, 2) + W + A - 1 - int(idt.signed())
-        phi = lambda x_: math.log(1 + pow(2, -x_), 2)
         acc_bits = min(
             acc_datatype.bitwidth(),
-            np.ceil(alpha + phi(alpha) + 1)
+            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1)
         )
         acc_luts = acc_bits
         # thresholds and threshold comparators
