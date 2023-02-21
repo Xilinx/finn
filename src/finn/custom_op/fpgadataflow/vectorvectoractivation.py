@@ -117,7 +117,8 @@ class VectorVectorActivation(HLSCustomOp):
             else:
                 thresholds = None
             idt = self.get_input_datatype()
-            # calculate minimum and maximum values of accumulator
+            # calculate minimum and maximum values of accumulator according to the
+            # weight values using the bounds derived in https://arxiv.org/abs/2301.13376
             (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
             if thresholds is not None:
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
