@@ -28,12 +28,12 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import os
 import torch
+from brevitas.export import export_finn_onnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -59,7 +59,7 @@ export_onnx_path = "test_convert_to_hls_layers_fc.onnx"
 @pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a1():
     tfc = get_test_model_trained("TFC", 1, 1)
-    bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
+    export_finn_onnx(tfc, torch.randn(1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
@@ -130,7 +130,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
 @pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a2():
     tfc = get_test_model_trained("TFC", 1, 2)
-    bo.export_finn_onnx(tfc, (1, 1, 28, 28), export_onnx_path)
+    export_finn_onnx(tfc, torch.randn(1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
