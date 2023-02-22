@@ -60,8 +60,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     (sliding window) function variants. Generates an RTL ConvolutionInputGenerator
     implementation based on (System-)Verilog templates, defined in finn-rtllib/swg."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
