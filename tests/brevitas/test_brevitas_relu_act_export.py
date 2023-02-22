@@ -28,7 +28,6 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import onnx  # noqa
 import os
@@ -36,7 +35,7 @@ import torch
 from brevitas.core.quant import QuantType
 from brevitas.core.restrict_val import RestrictValueType
 from brevitas.core.scaling import ScalingImplType
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_finn_onnx, export_qonnx
 from brevitas.nn import QuantReLU
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
@@ -51,18 +50,16 @@ export_onnx_path = "test_brevitas_relu_act_export.onnx"
 
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
-@pytest.mark.parametrize("max_val", [1.0, 1.5, 1 - 2 ** (-7)])
 @pytest.mark.parametrize(
     "scaling_impl_type", [ScalingImplType.CONST, ScalingImplType.PARAMETER]
 )
 @pytest.mark.parametrize("QONNX_export", [False, True])
-def test_brevitas_act_export_relu(abits, max_val, scaling_impl_type, QONNX_export):
-    min_val = -1.0
+def test_brevitas_act_export_relu(abits, scaling_impl_type, QONNX_export):
     ishape = (1, 15)
 
     b_act = QuantReLU(
         bit_width=abits,
-        max_val=max_val,
+        max_val=6.0,
         scaling_impl_type=scaling_impl_type,
         restrict_scaling_type=RestrictValueType.LOG_FP,
         quant_type=QuantType.INT,
@@ -79,18 +76,16 @@ scaling_impl.learned_value": torch.tensor(
         b_act.load_state_dict(checkpoint)
     if QONNX_export:
         m_path = export_onnx_path
-        BrevitasONNXManager.export(b_act, ishape, m_path)
+        export_qonnx(b_act, torch.randn(ishape), m_path)
         qonnx_cleanup(m_path, out_file=m_path)
         model = ModelWrapper(m_path)
         model = model.transform(ConvertQONNXtoFINN())
         model.save(m_path)
     else:
-        bo.export_finn_onnx(b_act, ishape, export_onnx_path)
+        export_finn_onnx(b_act, torch.randn(ishape), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
-    inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(
-        np.float32
-    )
+    inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
     idict = {model.graph.input[0].name: inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]
@@ -98,7 +93,7 @@ scaling_impl.learned_value": torch.tensor(
     b_act.eval()
     expected = b_act.forward(inp_tensor).detach().numpy()
     if not np.isclose(produced, expected, atol=1e-3).all():
-        print(abits, max_val, scaling_impl_type)
+        print(abits, scaling_impl_type)
         print("scale: ", b_act.quant_act_scale().type(torch.FloatTensor).detach())
         if abits < 5:
             print(
@@ -115,27 +110,25 @@ scaling_impl.learned_value": torch.tensor(
 
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
-@pytest.mark.parametrize("max_val", [1.0, 1.5, 1 - 2 ** (-7)])
-@pytest.mark.parametrize("scaling_per_channel", [True, False])
+@pytest.mark.parametrize("scaling_per_output_channel", [True, False])
 @pytest.mark.parametrize("QONNX_export", [False, True])
 def test_brevitas_act_export_relu_imagenet(
-    abits, max_val, scaling_per_channel, QONNX_export
+    abits, scaling_per_output_channel, QONNX_export
 ):
     out_channels = 32
     ishape = (1, out_channels, 1, 1)
-    min_val = -1.0
     b_act = QuantReLU(
         bit_width=abits,
         quant_type=QuantType.INT,
         scaling_impl_type=ScalingImplType.PARAMETER,
-        scaling_per_channel=scaling_per_channel,
+        scaling_per_output_channel=scaling_per_output_channel,
         restrict_scaling_type=RestrictValueType.LOG_FP,
         scaling_min_val=2e-16,
         max_val=6.0,
         return_quant_tensor=False,
         per_channel_broadcastable_shape=(1, out_channels, 1, 1),
     )
-    if scaling_per_channel is True:
+    if scaling_per_output_channel is True:
         rand_tensor = (2) * torch.rand((1, out_channels, 1, 1))
     else:
         rand_tensor = torch.tensor(1.2398)
@@ -148,18 +141,16 @@ scaling_impl.learned_value": rand_tensor.type(
     b_act.load_state_dict(checkpoint)
     if QONNX_export:
         m_path = export_onnx_path
-        BrevitasONNXManager.export(b_act, ishape, m_path)
+        export_qonnx(b_act, torch.randn(ishape), m_path)
         qonnx_cleanup(m_path, out_file=m_path)
         model = ModelWrapper(m_path)
         model = model.transform(ConvertQONNXtoFINN())
         model.save(m_path)
     else:
-        bo.export_finn_onnx(b_act, ishape, export_onnx_path)
+        export_finn_onnx(b_act, torch.randn(ishape), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
-    inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(
-        np.float32
-    )
+    inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
     idict = {model.graph.input[0].name: inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]
@@ -167,7 +158,7 @@ scaling_impl.learned_value": rand_tensor.type(
     b_act.eval()
     expected = b_act.forward(inp_tensor).detach().numpy()
     if not np.isclose(produced, expected, atol=1e-3).all():
-        print(abits, max_val)
+        print(abits)
         print("scale: ", b_act.quant_act_scale().type(torch.FloatTensor).detach())
         if abits < 5:
             print(
@@ -190,7 +181,7 @@ class PyTorchTestModel(nn.Module):
             bit_width=abits,
             quant_type=QuantType.INT,
             scaling_impl_type=ScalingImplType.PARAMETER,
-            scaling_per_channel=True,
+            scaling_per_output_channel=True,
             restrict_scaling_type=RestrictValueType.LOG_FP,
             scaling_min_val=2e-16,
             max_val=6.0,
@@ -208,15 +199,13 @@ class PyTorchTestModel(nn.Module):
 
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
-@pytest.mark.parametrize("max_val", [1.0, 1.5, 1 - 2 ** (-7)])
-@pytest.mark.parametrize("scaling_per_channel", [True])
+@pytest.mark.parametrize("scaling_per_output_channel", [True])
 @pytest.mark.parametrize("QONNX_export", [True])
 def test_brevitas_act_export_relu_forking(
-    abits, max_val, scaling_per_channel, QONNX_export
+    abits, scaling_per_output_channel, QONNX_export
 ):
     out_channels = 32
     ishape = (1, out_channels, 1, 1)
-    min_val = -1.0
     model_pyt = PyTorchTestModel(abits)
 
     rand_tensor = (2) * torch.rand((1, out_channels, 1, 1))
@@ -229,7 +218,7 @@ def test_brevitas_act_export_relu_forking(
 
     if QONNX_export:
         m_path = export_onnx_path
-        BrevitasONNXManager.export(model_pyt, ishape, m_path)
+        export_qonnx(model_pyt, torch.randn(ishape), m_path)
         qonnx_cleanup(m_path, out_file=m_path)
         model = ModelWrapper(m_path)
         model = model.transform(ConvertQONNXtoFINN())
@@ -237,9 +226,7 @@ def test_brevitas_act_export_relu_forking(
 
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
-    inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(
-        np.float32
-    )
+    inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
     idict = {model.graph.input[0].name: inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]
@@ -247,7 +234,7 @@ def test_brevitas_act_export_relu_forking(
     model_pyt.eval()
     expected = model_pyt.forward(inp_tensor).detach().numpy()
     if not np.isclose(produced, expected, atol=1e-3).all():
-        print(abits, max_val)
+        print(abits)
         print("scale: ", model_pyt.quant_act_scale().type(torch.FloatTensor).detach())
         if abits < 5:
             print(
