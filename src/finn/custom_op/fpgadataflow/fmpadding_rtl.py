@@ -49,8 +49,8 @@ class FMPadding_rtl(HLSCustomOp):
     Supports adjusting the padding amount and spatial feature sizes at
     runtime."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
