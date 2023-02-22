@@ -31,12 +31,11 @@ import pkg_resources as pk
 
 import pytest
 
-import brevitas.export.onnx.generic as b_onnx
-import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
+from brevitas.export import export_finn_onnx, export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
@@ -117,8 +116,10 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     torch_input_tensor = torch.from_numpy(input_tensor).float()
     brev_output = brev_model.forward(torch_input_tensor).detach().numpy()
 
-    # Get "clean" FINN model and it's output
-    _ = bo.export_finn_onnx(brev_model, in_shape, finn_base_path.format("raw"))
+    # Get "clean" FINN model and its output
+    _ = export_finn_onnx(
+        brev_model, torch.randn(in_shape), finn_base_path.format("raw")
+    )
     model = ModelWrapper(finn_base_path.format("raw"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferShapes())
@@ -137,10 +138,7 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
         ).all(), "The output of the Brevitas model and the FINN model should match."
 
     # Get the equivalent QONNX model
-    b_onnx.function.DOMAIN_STRING = "qonnx.custom_op.general"
-    _ = b_onnx.manager.BrevitasONNXManager.export(
-        brev_model, in_shape, qonnx_base_path.format("raw")
-    )
+    _ = export_qonnx(brev_model, torch.randn(in_shape), qonnx_base_path.format("raw"))
     cleanup(qonnx_base_path.format("raw"), out_file=qonnx_base_path.format("clean"))
 
     # Compare output

@@ -59,8 +59,8 @@ class HLSCustomOp(CustomOp):
     custom node should have. Some as abstract methods, these have to be filled
     when writing a new fpgadataflow custom op node."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
         self.code_gen_dict = {}
 
