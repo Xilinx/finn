@@ -118,6 +118,8 @@ from finn.util.basic import (
 from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import execute_parent
 
+from finn.transformation.fpgadataflow.minimize_accumulator_width import MinimizeAccumulatorWidth
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import MinimizeWeightBitWidth
 
 def verify_step(
     model: ModelWrapper,
@@ -474,6 +476,14 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
         estimate_network_performance["estimated_latency_ns"] = est_latency_ns
         with open(report_dir + "/estimate_network_performance.json", "w") as f:
             json.dump(estimate_network_performance, f, indent=2)
+    return model
+
+
+def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Tighten the weight and accumulator bit widths for each layer."""
+    if cfg.minimize_bit_width:
+        model = model.transform(MinimizeWeightBitWidth())
+        model = model.transform(MinimizeAccumulatorWidth())
     return model
 
 
