@@ -851,6 +851,7 @@ build_dataflow_step_lookup = {
     "step_create_dataflow_partition": step_create_dataflow_partition,
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
+    "step_minimize_bit_width": step_minimize_bit_width,
     "step_generate_estimate_reports": step_generate_estimate_reports,
     "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
