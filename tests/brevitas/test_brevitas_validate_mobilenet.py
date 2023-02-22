@@ -35,6 +35,7 @@ import os
 import torch
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
+from brevitas.export import export_finn_onnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
@@ -113,7 +114,7 @@ def test_brevitas_compare_exported_mobilenet():
     # export preprocessing
     preproc_onnx = export_onnx_path + "/quant_mobilenet_v1_4b_preproc.onnx"
     preproc = NormalizePreProc(mean, std, ch)
-    bo.export_finn_onnx(preproc, (1, 3, 224, 224), preproc_onnx)
+    export_finn_onnx(preproc, torch.randn(1, 3, 224, 224), preproc_onnx)
     preproc_model = ModelWrapper(preproc_onnx)
     preproc_model = preproc_model.transform(InferShapes())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
@@ -124,7 +125,7 @@ def test_brevitas_compare_exported_mobilenet():
     mobilenet = get_test_model_trained("mobilenet", 4, 4)
     if debug_mode:
         dbg_hook = bo.enable_debug(mobilenet)
-    bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
+    export_finn_onnx(mobilenet, torch.randn(1, 3, 224, 224), finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())

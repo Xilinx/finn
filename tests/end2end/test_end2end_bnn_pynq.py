@@ -28,7 +28,6 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
@@ -38,7 +37,7 @@ import os
 import subprocess
 import torch
 import warnings
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_finn_onnx, export_qonnx
 from collections import OrderedDict
 from dataset_loading import cifar, mnist
 from datetime import datetime
@@ -323,13 +322,13 @@ class TestEnd2End:
         (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
         chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "export")
         if QONNX_export:
-            BrevitasONNXManager.export(model, ishape, chkpt_name)
+            export_qonnx(model, torch.randn(ishape), chkpt_name)
             qonnx_cleanup(chkpt_name, out_file=chkpt_name)
             model = ModelWrapper(chkpt_name)
             model = model.transform(ConvertQONNXtoFINN())
             model.save(chkpt_name)
         else:
-            bo.export_finn_onnx(model, ishape, chkpt_name)
+            export_finn_onnx(model, torch.randn(ishape), chkpt_name)
         nname = "%s_w%da%d" % (topology, wbits, abits)
         update_dashboard_data(topology, wbits, abits, "network", nname)
         dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -369,7 +368,7 @@ class TestEnd2End:
         chkpt_preproc_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "preproc"
         )
-        bo.export_finn_onnx(totensor_pyt, ishape, chkpt_preproc_name)
+        export_finn_onnx(totensor_pyt, torch.randn(ishape), chkpt_preproc_name)
         assert os.path.isfile(chkpt_preproc_name)
         # join preprocessing and core model
         pre_model = ModelWrapper(chkpt_preproc_name)

@@ -34,7 +34,7 @@ import onnx
 import onnx.numpy_helper as nph
 import os
 import torch
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_finn_onnx, export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
@@ -58,7 +58,7 @@ def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
     ishape = (1, 1, 28, 28)
     if QONNX_export:
         dbg_hook = bo.enable_debug(fc, proxy_level=True)
-        BrevitasONNXManager.export(fc, ishape, finn_onnx)
+        export_qonnx(fc, torch.randn(ishape), finn_onnx)
         # DebugMarkers have the brevitas.onnx domain, so that needs adjusting
         model = ModelWrapper(finn_onnx)
         dbg_nodes = model.get_nodes_by_op_type("DebugMarker")
@@ -72,7 +72,7 @@ def test_brevitas_debug(QONNX_export, QONNX_FINN_conversion):
             model.save(finn_onnx)
     else:
         dbg_hook = bo.enable_debug(fc)
-        bo.export_finn_onnx(fc, ishape, finn_onnx)
+        export_finn_onnx(fc, torch.randn(ishape), finn_onnx)
         model = ModelWrapper(finn_onnx)
         # DebugMarkers have the brevitas.onnx domain, so that needs adjusting
         # ToDo: We should probably have transformation pass, which does this
