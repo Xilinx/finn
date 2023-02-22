@@ -28,7 +28,6 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import onnx  # noqa
 import os
@@ -36,7 +35,7 @@ import torch
 from brevitas.core.quant import QuantType
 from brevitas.core.restrict_val import RestrictValueType
 from brevitas.core.scaling import ScalingImplType
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_finn_onnx, export_qonnx
 from brevitas.nn import QuantHardTanh
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
@@ -78,13 +77,13 @@ def test_brevitas_act_export_qhardtanh_nonscaled(
     )
     if QONNX_export:
         m_path = export_onnx_path
-        BrevitasONNXManager.export(b_act, ishape, m_path)
+        export_qonnx(b_act, torch.randn(ishape), m_path)
         qonnx_cleanup(m_path, out_file=m_path)
         model = ModelWrapper(m_path)
         model = model.transform(ConvertQONNXtoFINN())
         model.save(m_path)
     else:
-        bo.export_finn_onnx(b_act, ishape, export_onnx_path)
+        export_finn_onnx(b_act, torch.randn(ishape), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(
