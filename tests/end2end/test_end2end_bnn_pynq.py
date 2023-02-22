@@ -78,6 +78,12 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -89,8 +95,6 @@ from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
-from finn.transformation.fpgadataflow.minimize_accumulator_width import MinimizeAccumulatorWidth
-from finn.transformation.fpgadataflow.minimize_weight_bit_width import MinimizeWeightBitWidth
 from finn.util.basic import get_finn_root
 from finn.util.gdrive import upload_to_end2end_dashboard
 from finn.util.pytorch import ToTensor

@@ -1128,7 +1128,8 @@ class InferThresholdingLayer(Transformation):
                     PE=pe,
                     numSteps=thl_thres_shape[1],
                     inputDataType=idt.name,
-                    weightDataType=idt.name,  # can be tightened by MinimizeAccumulatorWidth
+                    # weightDataType can be tightened by MinimizeAccumulatorWidth
+                    weightDataType=idt.name,
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,

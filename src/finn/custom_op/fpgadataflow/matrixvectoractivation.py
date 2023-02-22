@@ -358,7 +358,7 @@ class MatrixVectorActivation(HLSCustomOp):
         alpha = math.log(MW, 2) + W + A - 1 - int(idt.signed())
         acc_bits = min(
             acc_datatype.bitwidth(),
-            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1)
+            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
         )
         acc_luts = acc_bits
         # thresholds and threshold comparators
@@ -618,10 +618,14 @@ class MatrixVectorActivation(HLSCustomOp):
                 if min_threshold < acc_min:
                     clip_lower = acc_min
                 if (clip_lower is not None) or (clip_upper is not None):
-                    warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
+                    warnings.warn(
+                        "Clipping some thresholds in %s" % self.onnx_node.name
+                    )
                     thresholds = np.clip(thresholds, clip_lower, clip_upper)
                     model.set_initializer(self.onnx_node.input[2], thresholds)
-                    threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                    threshold_tensor = self.get_hls_compatible_threshold_tensor(
+                        thresholds
+                    )
                     min_threshold = thresholds.min()
                     max_threshold = thresholds.max()
                 # get range required by threshold values
