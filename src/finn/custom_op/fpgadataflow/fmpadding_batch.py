@@ -39,8 +39,8 @@ class FMPadding_Batch(HLSCustomOp):
     """Corresponds to finn-hlslib FMPadding_Batch function.
     Pads input image by given amount."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {

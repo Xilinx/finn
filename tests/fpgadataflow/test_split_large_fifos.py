@@ -31,7 +31,8 @@ import pytest
 
 import json
 import shutil
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+import torch
+from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 
@@ -46,7 +47,7 @@ def fetch_test_model(topology, wbits=2, abits=2):
     tmp_output_dir = make_build_dir("build_fifosizing_%s_" % topology)
     (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
     chkpt_name = tmp_output_dir + "/model.onnx"
-    BrevitasONNXManager.export(model, ishape, chkpt_name)
+    export_qonnx(model, torch.randn(ishape), chkpt_name)
     return tmp_output_dir
 
 

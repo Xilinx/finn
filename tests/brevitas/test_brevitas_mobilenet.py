@@ -28,9 +28,9 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import torch
+from brevitas.export import export_finn_onnx
 from PIL import Image
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -54,7 +54,6 @@ from finn.util.test import crop_center, get_test_model_trained, resize_smaller_s
 
 
 @pytest.mark.brevitas_export
-@pytest.mark.xfail
 def test_brevitas_mobilenet():
     # get single image as input and prepare image
     img = Image.open(get_finn_root() + "/tests/brevitas/king_charles.jpg")
@@ -76,7 +75,7 @@ def test_brevitas_mobilenet():
     std = 0.226
     ch = 3
     preproc = NormalizePreProc(mean, std, ch)
-    bo.export_finn_onnx(preproc, (1, 3, 224, 224), preproc_onnx)
+    export_finn_onnx(preproc, torch.randn(1, 3, 224, 224), preproc_onnx)
     preproc_model = ModelWrapper(preproc_onnx)
     # set input finn datatype to UINT8
     preproc_model.set_tensor_datatype(
@@ -89,7 +88,7 @@ def test_brevitas_mobilenet():
 
     finn_onnx = export_onnx_path + "/quant_mobilenet_v1_4b_exported.onnx"
     mobilenet = get_test_model_trained("mobilenet", 4, 4)
-    bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
+    export_finn_onnx(mobilenet, torch.randn(1, 3, 224, 224), finn_onnx)
 
     # do forward pass in PyTorch/Brevitas
     input_tensor = preproc.forward(img_torch)

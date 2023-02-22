@@ -50,8 +50,8 @@ from finn.util.data_packing import (
 class VectorVectorActivation(HLSCustomOp):
     """Class that corresponds to finn-hlslib Vector_Vector_Activate_Batch function"""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {

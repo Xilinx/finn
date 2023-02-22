@@ -57,8 +57,8 @@ from . import templates
 class Thresholding_Batch(HLSCustomOp):
     """Class that corresponds to finn-hls Thresholding_Batch function."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
         self.decoupled_wrapper = templates.decoupled_wrapper
 
     def get_nodeattr_types(self):
