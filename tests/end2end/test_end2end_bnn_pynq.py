@@ -268,7 +268,7 @@ def measure_top1_accuracy(model_chkpt, dataset, parent_chkpt=None):
         raise Exception("Unrecognized dataset")
     # move from dataset_loader layout to ONNX layout: NHWC -> NCHW
     testx = testx.transpose(0, 3, 1, 2)
-    model = ModelWrapper(model_chkpt)
+    model = load_test_checkpoint_or_skip(model_chkpt)
     iname = model.graph.input[0].name
     oname = model.graph.output[0].name
     if parent_chkpt is None:
