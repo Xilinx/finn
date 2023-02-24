@@ -173,6 +173,15 @@ finn.transformation.fpgadataflow.minimize\_accumulator\_width
   :show-inheritance:
 
 
+finn.transformation.fpgadataflow.minimize\_weight\_bit\_width
+--------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.minimize_weight_bit_width
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 finn.transformation.fpgadataflow.prepare\_cppsim
 -------------------------------------------------------
 

@@ -101,7 +101,7 @@ def test_res_estimate():
         "MatrixVectorActivation_0": {
             "BRAM_18K": 0,
             "BRAM_efficiency": 1,
-            "LUT": 357,
+            "LUT": 317,
             "DSP": 0,
             "URAM_efficiency": 1,
             "URAM": 0,
@@ -119,7 +119,7 @@ def test_res_estimate():
             {
                 "BRAM_18K": 0,
                 "BRAM_efficiency": 1,
-                "LUT": 352,
+                "LUT": 313,
                 "DSP": 1,
                 "URAM": 0,
                 "URAM_efficiency": 1,
@@ -127,7 +127,7 @@ def test_res_estimate():
             {
                 "BRAM_18K": 0,
                 "BRAM_efficiency": 1,
-                "LUT": 357,
+                "LUT": 317,
                 "DSP": 0,
                 "URAM": 0,
                 "URAM_efficiency": 1,

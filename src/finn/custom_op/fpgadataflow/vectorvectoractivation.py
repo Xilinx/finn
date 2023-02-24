@@ -104,70 +104,94 @@ class VectorVectorActivation(HLSCustomOp):
         return my_attrs
 
     def minimize_accumulator_width(self, model):
-        weights = model.get_initializer(self.onnx_node.input[1])
-        k_h, k_w = self.get_nodeattr("Kernel")
-        fm = self.get_nodeattr("Channels")
-        # put weights into the shape expected by calculate_matvec_accumulator_range
-        weights = weights.reshape(fm, k_h * k_w).transpose()
-        if len(self.onnx_node.input) > 2:
-            thresholds = model.get_initializer(self.onnx_node.input[2])
-        else:
-            thresholds = None
-        idt = self.get_input_datatype()
-        # calculate minimum and maximum values of accumulator
-        (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
-        if thresholds is not None:
-            threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-            # set threshold datatype (and accumulator datatype implicitly)
-            min_threshold = thresholds.min()
-            max_threshold = thresholds.max()
-            # clip threshold values
-            clip_upper = None
-            clip_lower = None
-            if max_threshold > acc_max + 1:
-                clip_upper = acc_max + 1
-            if min_threshold < acc_min:
-                clip_lower = acc_min
-            if (clip_lower is not None) or (clip_upper is not None):
-                warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
-                thresholds = np.clip(thresholds, clip_lower, clip_upper)
-                model.set_initializer(self.onnx_node.input[2], thresholds)
+        """Minimize the accumulator bit width according to the weight values,
+        input data types, and size of dot product"""
+        if not self.get_nodeattr("runtime_writeable_weights"):
+            weights = model.get_initializer(self.onnx_node.input[1])
+            k_h, k_w = self.get_nodeattr("Kernel")
+            fm = self.get_nodeattr("Channels")
+            # put weights into the shape expected by calculate_matvec_accumulator_range
+            weights = weights.reshape(fm, k_h * k_w).transpose()
+            if len(self.onnx_node.input) > 2:
+                thresholds = model.get_initializer(self.onnx_node.input[2])
+            else:
+                thresholds = None
+            idt = self.get_input_datatype()
+            # calculate minimum and maximum values of accumulator according to the
+            # weight values using the bounds derived in https://arxiv.org/abs/2301.13376
+            (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
+            if thresholds is not None:
                 threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
+                # set threshold datatype (and accumulator datatype implicitly)
                 min_threshold = thresholds.min()
                 max_threshold = thresholds.max()
-            # get range required by threshold values
-            tdt_min = min(acc_min, min_threshold)
-            tdt_max = max(acc_max, max_threshold)
-            if tdt_min < 0:
-                if abs(tdt_min) > tdt_max:
-                    tdt = DataType.get_smallest_possible(tdt_min)
+                # clip threshold values
+                clip_upper = None
+                clip_lower = None
+                if max_threshold > acc_max + 1:
+                    clip_upper = acc_max + 1
+                if min_threshold < acc_min:
+                    clip_lower = acc_min
+                if (clip_lower is not None) or (clip_upper is not None):
+                    warnings.warn(
+                        "Clipping some thresholds in %s" % self.onnx_node.name
+                    )
+                    thresholds = np.clip(thresholds, clip_lower, clip_upper)
+                    model.set_initializer(self.onnx_node.input[2], thresholds)
+                    threshold_tensor = self.get_hls_compatible_threshold_tensor(
+                        thresholds
+                    )
+                    min_threshold = thresholds.min()
+                    max_threshold = thresholds.max()
+                # get range required by threshold values
+                tdt_min = min(acc_min, min_threshold)
+                tdt_max = max(acc_max, max_threshold)
+                if tdt_min < 0:
+                    if abs(tdt_min) > tdt_max:
+                        tdt = DataType.get_smallest_possible(tdt_min)
+                    else:
+                        tdt = DataType.get_smallest_possible(-tdt_max - 1)
                 else:
-                    tdt = DataType.get_smallest_possible(-tdt_max - 1)
+                    tdt = DataType.get_smallest_possible(tdt_max)
+                assert np.vectorize(tdt.allowed)(
+                    threshold_tensor
+                ).all(), "Thresholds in %s can't be expressed with type %s" % (
+                    self.onnx_node.name,
+                    str(tdt),
+                )
+                self.set_nodeattr("accDataType", tdt.name)
             else:
-                tdt = DataType.get_smallest_possible(tdt_max)
-            assert np.vectorize(tdt.allowed)(
-                threshold_tensor
-            ).all(), "Thresholds in %s can't be expressed with type %s" % (
-                self.onnx_node.name,
-                str(tdt),
-            )
-            self.set_nodeattr("accDataType", tdt.name)
-        else:
-            if acc_min < 0:
-                if abs(acc_min) > acc_max:
-                    adt = DataType.get_smallest_possible(acc_min)
+                if acc_min < 0:
+                    if abs(acc_min) > acc_max:
+                        adt = DataType.get_smallest_possible(acc_min)
+                    else:
+                        adt = DataType.get_smallest_possible(-acc_max - 1)
                 else:
-                    adt = DataType.get_smallest_possible(-acc_max - 1)
-            else:
-                adt = DataType.get_smallest_possible(acc_max)
-            # ensure a datatype divisible by 8-bits in case this is the last node
-            bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
-            new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
-            adt = DataType[new_adt_name]
-            self.set_nodeattr("accDataType", adt.name)
-            # for no-activation nodes, output dt = acc dt
-            self.set_nodeattr("outputDataType", adt.name)
+                    adt = DataType.get_smallest_possible(acc_max)
+                # ensure a datatype divisible by 8-bits in case this is the last node
+                bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
+                new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
+                adt = DataType[new_adt_name]
+                self.set_nodeattr("accDataType", adt.name)
+                # for no-activation nodes, output dt = acc dt
+                self.set_nodeattr("outputDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
+
+    def minimize_weight_bit_width(self, model):
+        """Minimize the bit width based on the values of the weights"""
+        if not self.get_nodeattr("runtime_writeable_weights"):
+            weights = model.get_initializer(self.onnx_node.input[1])
+            w_min = weights.min()
+            w_max = weights.max()
+            if w_min < 0:
+                if abs(w_min) > w_max:
+                    wdt = DataType.get_smallest_possible(w_min)
+                else:
+                    wdt = DataType.get_smallest_possible(-w_max - 1)
+            else:
+                wdt = DataType.get_smallest_possible(w_max)
+            self.set_nodeattr("weightDataType", wdt.name)
+        return DataType[self.get_nodeattr("weightDataType")]
 
     def calc_wmem(self):
         """Calculates and returns WMEM."""
@@ -215,6 +239,10 @@ class VectorVectorActivation(HLSCustomOp):
     def get_weight_datatype(self):
         """Returns FINN DataType of weights."""
         return DataType[self.get_nodeattr("weightDataType")]
+
+    def get_accumulator_datatype(self):
+        """Returns FINN DataType of accumulator"""
+        return DataType[self.get_nodeattr("accDataType")]
 
     def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
@@ -1174,13 +1202,24 @@ class VectorVectorActivation(HLSCustomOp):
         else:
             mult_luts = (2 * math.ceil((W + A) / 6) - 1) * (W + A)
         # accumulator
+        acc_datatype = self.get_accumulator_datatype()
+        acc_bits = acc_datatype.bitwidth()
         k_h, k_w = self.get_nodeattr("Kernel")
-        acc_bits = W + A + math.ceil(math.log(k_h * k_w, 2))
+        # if accDataType is not set, then it will default to INT32, which would
+        # be a large overestimate in most (if not all) cases. In this scenario,
+        # we would use the minimum accumulator as determined by the data types
+        # bound, derived in https://arxiv.org/abs/2301.13376
+        alpha = math.log(k_h * k_w, 2) + W + A - 1 - int(idt.signed())
+        acc_bits = min(
+            acc_datatype.bitwidth(),
+            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
+        )
         acc_luts = acc_bits
         # thresholds and threshold comparators
         thr_luts = 0
         comp_luts = 0
         noact = self.get_nodeattr("noActivation")
+        # TODO - add 'ram_style_threshold' node attribute
         if noact == 0:
             odt = self.get_output_datatype()
             B = odt.bitwidth()
