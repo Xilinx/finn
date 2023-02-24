@@ -265,7 +265,7 @@ def numpy_to_hls_code(
     # define a function to convert a single element into a C++ init string
     # a single element can be a hex string if we are using packing
     def elem2str(x):
-        if type(x) == str or type(x) == np.str_ or type(x) == np.str:
+        if type(x) == str or type(x) == np.str_:
             return '%s("%s", 16)' % (hls_dtype, x)
         elif type(x) == np.float32:
             if dtype.is_integer():

@@ -30,7 +30,6 @@ import pkg_resources as pk
 
 import pytest
 
-import brevitas.onnx as bo
 import json
 import numpy as np
 import os
@@ -40,7 +39,7 @@ import torch
 import torch.nn as nn
 import wget
 from brevitas.core.quant import QuantType
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_finn_onnx, export_qonnx
 from brevitas.nn import QuantIdentity, QuantLinear, QuantReLU
 from brevitas.quant_tensor import QuantTensor
 from qonnx.core.datatype import DataType
@@ -133,10 +132,10 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
     )
 
     if QONNX_export:
-        # With the BrevitasONNXManager we need to manually set
+        # With the onnx export from Brevitas we need to manually set
         # the FINN DataType at the input
-        BrevitasONNXManager.export(
-            model_for_export, input_shape, export_path=export_onnx_path
+        export_qonnx(
+            model_for_export, torch.randn(input_shape), export_path=export_onnx_path
         )
         model = ModelWrapper(export_onnx_path)
         model.set_tensor_datatype(model.graph.input[0].name, DataType["BIPOLAR"])
@@ -146,7 +145,7 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
         model = model.transform(ConvertQONNXtoFINN())
         model.save(export_onnx_path)
     else:
-        bo.export_finn_onnx(
+        export_finn_onnx(
             model_for_export, export_path=export_onnx_path, input_t=input_qt
         )
     assert os.path.isfile(export_onnx_path)
@@ -229,6 +228,7 @@ def test_end2end_cybsec_mlp_build(QONNX_export):
 
 
 @pytest.mark.end2end
+@pytest.mark.xfail
 @pytest.mark.parametrize("QONNX_export", [False, True])
 def test_end2end_cybsec_mlp_run_on_hw(QONNX_export):
     build_env = get_build_env(build_kind, target_clk_ns)

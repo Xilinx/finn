@@ -32,19 +32,19 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
-def make_single_dwc_modelwrapper(Shape, INWidth, OUTWidth, finn_dtype):
+def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style):
 
-    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, Shape)
-    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, Shape)
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
 
     DWC_node = helper.make_node(
         "StreamingDataWidthConverter_Batch",
@@ -52,17 +52,18 @@ def make_single_dwc_modelwrapper(Shape, INWidth, OUTWidth, finn_dtype):
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
         backend="fpgadataflow",
-        shape=Shape,
-        inWidth=INWidth,
-        outWidth=OUTWidth,
+        shape=shape,
+        inWidth=inWidth,
+        outWidth=outWidth,
         dataType=str(finn_dtype.name),
+        impl_style=impl_style,
     )
 
     graph = helper.make_graph(
         nodes=[DWC_node], name="dwc_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="dwc-model")
+    model = qonnx_make_model(graph, producer_name="dwc-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", finn_dtype)
@@ -75,34 +76,42 @@ def prepare_inputs(input_tensor, dt):
     return {"inp": input_tensor}
 
 
-# shape
-@pytest.mark.parametrize("Shape", [[1, 4], [1, 2, 8]])
-# inWidth
-@pytest.mark.parametrize("INWidth", [2, 4])
-# outWidth
-@pytest.mark.parametrize("OUTWidth", [2, 4])
-# finn_dtype
-@pytest.mark.parametrize("finn_dtype", [DataType["BIPOLAR"], DataType["INT2"]])
+@pytest.mark.parametrize(
+    "config",
+    [
+        ([1, 24], 6, 4, DataType["INT2"], "hls"),
+        ([1, 24], 4, 6, DataType["INT2"], "hls"),
+        ([1, 4], 2, 4, DataType["BIPOLAR"], "hls"),
+        ([1, 2, 8], 2, 4, DataType["BIPOLAR"], "hls"),
+        ([1, 4], 4, 2, DataType["INT2"], "hls"),
+        ([1, 2, 8], 4, 4, DataType["INT2"], "hls"),
+        ([1, 2, 8], 8, 16, DataType["INT2"], "vivado"),
+    ],
+)
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_dwc_rtlsim(Shape, INWidth, OUTWidth, finn_dtype):
-
+def test_fpgadataflow_dwc_rtlsim(config):
+    shape, inWidth, outWidth, finn_dtype, impl_style = config
+    test_fpga_part = "xc7z020clg400-1"
+    target_clk_ns = 10.0
     # generate input data
-    x = gen_finn_dt_tensor(finn_dtype, Shape)
+    x = gen_finn_dt_tensor(finn_dtype, shape)
     input_dict = prepare_inputs(x, finn_dtype)
 
-    model = make_single_dwc_modelwrapper(Shape, INWidth, OUTWidth, finn_dtype)
-
-    model = model.transform(SetExecMode("rtlsim"))
+    model = make_single_dwc_modelwrapper(
+        shape, inWidth, outWidth, finn_dtype, impl_style
+    )
+    model = model.transform(InsertFIFO(create_shallow_fifos=True))
     model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(PrepareIP("xc7z020clg400-1", 5))
+    model = model.transform(PrepareIP(test_fpga_part, 5))
     model = model.transform(HLSSynthIP())
-    model = model.transform(PrepareRTLSim())
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns))
+    model.set_metadata_prop("exec_mode", "rtlsim")
     y = oxe.execute_onnx(model, input_dict)["outp"]
 
     assert (
         y == x
     ).all(), """The output values are not the same as the
         input values anymore."""
-    assert y.shape == tuple(Shape), """The output shape is incorrect."""
+    assert y.shape == tuple(shape), """The output shape is incorrect."""

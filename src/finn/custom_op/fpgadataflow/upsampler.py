@@ -41,8 +41,8 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
     The layer expects square feature maps for the in and output.
     """
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {

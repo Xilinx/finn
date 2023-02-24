@@ -39,8 +39,8 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 class LabelSelect_Batch(HLSCustomOp):
     """Class that corresponds to finn-hlslib LabelSelect_Batch function."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
         odt_name = self.get_nodeattr("outputDataType")
         if odt_name == "":
             # If not provided compute min size

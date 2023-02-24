@@ -59,8 +59,8 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
     attributes (e.g. depthwise or not, whether dilation is 0) a different
     variant will be picked for the actual HLS implementation."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {

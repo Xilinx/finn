@@ -28,10 +28,11 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
+import torch
+from brevitas.export import export_finn_onnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
@@ -66,7 +67,7 @@ def test_streamline_fc(size, wbits, abits):
     nname = "%s_%dW%dA" % (size, wbits, abits)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
     fc = get_test_model_trained(size, wbits, abits)
-    bo.export_finn_onnx(fc, (1, 1, 28, 28), finn_onnx)
+    export_finn_onnx(fc, torch.randn(1, 1, 28, 28), finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())

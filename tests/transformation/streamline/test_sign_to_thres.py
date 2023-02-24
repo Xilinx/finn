@@ -28,10 +28,11 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import onnx
 import onnx.numpy_helper as nph
 import os
+import torch
+from brevitas.export import export_finn_onnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
@@ -47,7 +48,7 @@ export_onnx_path = "test_sign_to_thres.onnx"
 @pytest.mark.streamline
 def test_sign_to_thres():
     lfc = get_test_model_trained("LFC", 1, 1)
-    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
+    export_finn_onnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())

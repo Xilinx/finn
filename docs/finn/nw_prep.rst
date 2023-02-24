@@ -10,7 +10,7 @@ Network Preparation
 
 The main principle of FINN are analysis and transformation passes. If you like to have more information about these please have a look at section :ref:`analysis_pass` and :ref:`transformation_pass` or at chapter :ref:`tutorials` about the provided Jupyter notebooks.
 
-This page is about the network preparation, the flow step that comes after the :ref:`brevitas_export`. Its main idea is to optimize the network and convert the nodes to custom nodes that correspond to `finn-hlslib <https://github.com/Xilinx/finn-hlslib>`_ functions. In this way we get a network that we can bring to hardware with the help of Vivado. For that we have to apply several transformations on the ONNX model, which this flow step receives wrapped in the :ref:`modelwrapper`.
+This page is about the network preparation, the flow step that comes after the :ref:`brevitas_export`. Its main idea is to optimize the network and convert the nodes to custom nodes that correspond to `finn-hlslib <https://github.com/Xilinx/finn-hlslib>`_ functions. In this way we get a network that we can bring to hardware with the help of Vitis and Vivado. For that we have to apply several transformations on the ONNX model, which this flow step receives wrapped in the :ref:`modelwrapper`.
 
 Various transformations are involved in the network preparation. The following is a short overview of these.
 
