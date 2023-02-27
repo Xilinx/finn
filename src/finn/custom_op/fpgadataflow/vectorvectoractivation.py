@@ -253,9 +253,6 @@ class VectorVectorActivation(HLSCustomOp):
     def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
-        # if simd > 1:
-        # pe = self.get_nodeattr("Channels")
-        # else:
         pe = self.get_nodeattr("PE")
         in_width = i_bits * simd * pe
         return in_width
@@ -270,11 +267,13 @@ class VectorVectorActivation(HLSCustomOp):
         dim_h, dim_w = self.get_nodeattr("Dim")
         ch = self.get_nodeattr("Channels")
         simd = self.get_nodeattr("SIMD")
-        # if simd > 1:
-        # pe = self.get_nodeattr("Channels")
-        # else:
         pe = self.get_nodeattr("PE")
-        sf = k_h * k_w // simd
+        kernel_2 = k_h * k_w
+        assert (
+            kernel_2 % simd == 0
+        ), "Requirement kernel (k_h * k_w) divisable by SIMD is violated."
+        sf = kernel_2 // simd
+        assert ch % pe == 0, "Requirement Channels divisable by PE is violated."
         nf = ch // pe
 
         if ind == 0:
