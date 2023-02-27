@@ -180,12 +180,12 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("simd", [1, 9])
 # Input image shape
 @pytest.mark.parametrize("dim_h", [10])
-@pytest.mark.parametrize("dim_w", [10])
+@pytest.mark.parametrize("dim_w", [10, 1])
 # Kernel shape
 @pytest.mark.parametrize("k_h", [3])
-@pytest.mark.parametrize("k_w", [3])
+@pytest.mark.parametrize("k_w", [3, 1])
 # Number of input and output channels
-@pytest.mark.parametrize("channels", [6])
+@pytest.mark.parametrize("channels", [3, 6])
 # memory mode
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 # execution mode
@@ -196,14 +196,14 @@ def prepare_inputs(input_tensor):
 def test_fpgadataflow_vvau(
     idt, wdt, act, pe, simd, dim_h, dim_w, k_h, k_w, channels, mem_mode, exec_mode
 ):
-    if pe == "channels":
-        pe = channels
-
     if dim_w == 1 and k_w != 1:
         pytest.skip("1D image requires 1D kernel, skipping.")
 
     if channels % pe != 0:
         pytest.skip("Requirement Channels divisable by PE is violated.")
+
+    if (k_h * k_w) % simd != 0:
+        pytest.skip("Requirement kernel (k_h * k_w) divisable by SIMD is violated.")
 
     # Generate weights in expected shape for ONNX and HLS node
     W = gen_finn_dt_tensor(wdt, (channels, 1, k_h, k_w))  # shape: [channels, 1, k, k]
