@@ -187,7 +187,7 @@ def prepare_inputs(input_tensor):
 # Number of input and output channels
 @pytest.mark.parametrize("channels", [6])
 # memory mode
-@pytest.mark.parametrize("mem_mode", ["const"])
+@pytest.mark.parametrize("mem_mode", ["const", "decoupled"])
 # execution mode
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.fpgadataflow
