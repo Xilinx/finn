@@ -130,7 +130,6 @@ class VectorVectorActivation(HLSCustomOp):
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
             acc_max = max(max(upper_range), max(upper_range))
-            thresholds = None # range of thresholds are also runtime-writeable
         # if not runtime-writeable weights, then we can calculate the min
         # and max values of the accumulation range using knowledge of the
         # weights and input data types since they are fixed
