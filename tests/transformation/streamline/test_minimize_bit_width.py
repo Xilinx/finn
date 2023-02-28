@@ -108,7 +108,7 @@ weight_data_types = [
     DataType['UINT7'],
     DataType['INT3'],
     DataType['UINT3'],
-    DataType["BIPOLAR"],
+    # DataType["BIPOLAR"], # TODO - investigate bipolar weights
     DataType["TERNARY"],
 ]
 
