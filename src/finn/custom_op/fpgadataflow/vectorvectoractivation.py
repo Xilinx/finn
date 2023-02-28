@@ -126,7 +126,7 @@ class VectorVectorActivation(HLSCustomOp):
             wdt = self.get_weight_datatype()
             lower_worst = wdt.min() * np.ones_like(weights)
             lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
-            upper_worst = wdt.min() * np.ones_like(weights)
+            upper_worst = wdt.max() * np.ones_like(weights)
             upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
             acc_min = min(min(lower_range), min(upper_range))
             acc_max = max(max(upper_range), max(upper_range))
