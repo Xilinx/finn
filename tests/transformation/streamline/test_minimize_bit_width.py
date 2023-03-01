@@ -62,8 +62,8 @@ def make_unit_test_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] =
         inputDataType=idt.name,
         outputDataType=idt.name,
         weightDataType=wdt.name,
-        noActivation=tdt.min() if tdt is not None else 0,
-        ActVal=0 if tdt is not None else 1,
+        ActVal=tdt.min() if tdt is not None else 0,
+        noActivation=0 if tdt is not None else 1,
     )
     layer2 = helper.make_node(
         "MatrixVectorActivation",
@@ -78,8 +78,8 @@ def make_unit_test_model(wdt: DataType, idt: DataType, tdt: Optional[DataType] =
         inputDataType=idt.name,
         outputDataType=idt.name,
         weightDataType=wdt.name,
-        noActivation=tdt.min() if tdt is not None else 0,
-        ActVal=0 if tdt is not None else 1,
+        ActVal=tdt.min() if tdt is not None else 0,
+        noActivation=0 if tdt is not None else 1,
         binaryXnorMode=0
     )
     graph = helper.make_graph(
