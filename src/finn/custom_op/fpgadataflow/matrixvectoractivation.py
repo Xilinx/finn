@@ -631,14 +631,10 @@ class MatrixVectorActivation(HLSCustomOp):
             if min_threshold < acc_min:
                 clip_lower = acc_min
             if (clip_lower is not None) or (clip_upper is not None):
-                warnings.warn(
-                    "Clipping some thresholds in %s" % self.onnx_node.name
-                )
+                warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
                 thresholds = np.clip(thresholds, clip_lower, clip_upper)
                 model.set_initializer(self.onnx_node.input[2], thresholds)
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(
-                    thresholds
-                )
+                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
                 min_threshold = thresholds.min()
                 max_threshold = thresholds.max()
             # get range required by threshold values
@@ -657,7 +653,7 @@ class MatrixVectorActivation(HLSCustomOp):
                 self.onnx_node.name,
                 str(tdt),
             )
-            adt = tdt # Set activation datatype to the threshold datatype
+            adt = tdt  # Set activation datatype to the threshold datatype
         else:
             if acc_min < 0:
                 if abs(acc_min) > acc_max:
