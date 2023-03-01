@@ -32,7 +32,6 @@ import numpy as np
 import onnx  # noqa
 import os
 import torch
-from brevitas.core.quant import QuantType
 from brevitas.core.scaling import ScalingImplType
 from brevitas.export import export_finn_onnx, export_qonnx
 from brevitas.nn import QuantReLU
@@ -49,28 +48,56 @@ export_onnx_path = "test_brevitas_relu_act_export.onnx"
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
 @pytest.mark.parametrize("ishape", [(1, 15), (1, 32, 1, 1)])
-@pytest.mark.parametrize(
-    "scaling_impl_type", [ScalingImplType.CONST]  # , ScalingImplType.PARAMETER]
-)
-@pytest.mark.parametrize("scaling_per_output_channel", [True, False])
-@pytest.mark.parametrize("per_channel_broadcastable_shape", [None, (1, 32, 1, 1)])
 @pytest.mark.parametrize("QONNX_export", [False, True])
 def test_brevitas_act_export_relu(
     abits,
     ishape,
-    scaling_impl_type,
-    scaling_per_output_channel,
-    per_channel_broadcastable_shape,
     QONNX_export,
 ):
 
     b_act = QuantReLU(
         bit_width=abits,
+    )
+    if QONNX_export:
+        m_path = export_onnx_path
+        export_qonnx(b_act, torch.randn(ishape), m_path)
+        qonnx_cleanup(m_path, out_file=m_path)
+        model = ModelWrapper(m_path)
+        model = model.transform(ConvertQONNXtoFINN())
+        model.save(m_path)
+    else:
+        export_finn_onnx(b_act, torch.randn(ishape), export_onnx_path)
+    model = ModelWrapper(export_onnx_path)
+    model = model.transform(InferShapes())
+    inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
+    idict = {model.graph.input[0].name: inp_tensor}
+    odict = oxe.execute_onnx(model, idict, True)
+    produced = odict[model.graph.output[0].name]
+    inp_tensor = torch.from_numpy(inp_tensor).float()
+    b_act.eval()
+    expected = b_act.forward(inp_tensor).detach().numpy()
+
+    assert np.isclose(produced, expected, atol=1e-3).all()
+    os.remove(export_onnx_path)
+
+
+@pytest.mark.brevitas_export
+@pytest.mark.parametrize("abits", [2, 4, 8])
+@pytest.mark.parametrize("ishape", [(1, 15, 4, 4), (1, 32, 1, 1)])
+@pytest.mark.parametrize("QONNX_export", [False, True])
+def test_brevitas_act_export_relu_channel(
+    abits,
+    ishape,
+    QONNX_export,
+):
+
+    ch = ishape[1]
+    b_act = QuantReLU(
+        bit_width=abits,
         max_val=6.0,
-        scaling_impl_type=scaling_impl_type,
-        quant_type=QuantType.INT,
-        scaling_per_output_channel=scaling_per_output_channel,
-        per_channel_broadcastable_shape=per_channel_broadcastable_shape,
+        scaling_impl_type=ScalingImplType.CONST,
+        scaling_per_output_channel=True,
+        per_channel_broadcastable_shape=(1, ch, 1, 1),
     )
     if QONNX_export:
         m_path = export_onnx_path
