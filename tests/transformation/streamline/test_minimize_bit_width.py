@@ -30,7 +30,7 @@ import pytest
 import numpy as np
 from typing import Optional, Union
 from onnx import TensorProto, helper
-from qonnx.core.datatype import DataType, IntType
+from qonnx.core.datatype import DataType, IntType, BipolarType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.util.basic import (
@@ -125,9 +125,7 @@ weight_data_types = [
     DataType['UINT7'],
     DataType['INT3'],
     DataType['UINT3'],
-    # TODO - current MinimizeWeightBitWidth sets {-1,1} to INT2, need to check
-    # for 0 in weights to minimize weight bit width to bipolar
-    # DataType["BIPOLAR"],
+    DataType["BIPOLAR"],
     DataType["TERNARY"],
 ]
 
@@ -149,6 +147,10 @@ def test_minimize_weight_bit_width(wdt: DataType, rww: bool):
     
     :param wdt: (DataType) The data type that we are testing for the weights
     :param rww: (bool) Whether or not to use runtime-writeable weights"""
+    if isinstance(wdt, BipolarType):
+        # current MinimizeWeightBitWidth sets {-1,1} to INT2, need to check
+        # for 0 in weights to minimize weight bit width to bipolar
+        pytest.skip("Not well-supported for this optimization")
 
     # Create a w8a8 model
     def_wdt = DataType['UINT8'] 
@@ -248,7 +250,7 @@ def test_minimize_accumulator_width(wdt: DataType, idt: DataType, tdt: DataType,
     :param idt: (DataType) The data type that we are testing for the activations
     :param tdt: (DataType) The data type that we are testing for the thresholds
     :param rww: (bool) Whether or not to use runtime-writeable weights"""
-    if not wdt.signed():
+    if (not wdt.signed()) or isinstance(wdt, BipolarType):
         pytest.skip("Closed-form accumulator calculation is designed to consider only signed weights")
 
     # Create uniform-precision model
