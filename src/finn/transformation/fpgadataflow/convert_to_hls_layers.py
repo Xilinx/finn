@@ -40,10 +40,6 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 from qonnx.util.onnx import nchw_to_nhwc
 
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
-
 
 class InferConvInpGen(Transformation):
     """Convert Im2Col layers to ConvolutionInputGenerator layers."""
@@ -749,7 +745,6 @@ class InferBinaryMatrixVectorActivation(Transformation):
                     graph.node.remove(n)
                     graph_modified = True
         if graph_modified:
-            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -892,7 +887,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         graph.node.remove(n)
                         graph_modified = True
         if graph_modified:
-            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -1045,7 +1039,6 @@ class InferVectorVectorActivation(Transformation):
                         graph.node.remove(n)
                         graph_modified = True
         if graph_modified:
-            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -1123,7 +1116,8 @@ class InferThresholdingLayer(Transformation):
                     PE=pe,
                     numSteps=thl_thres_shape[1],
                     inputDataType=idt.name,
-                    weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
+                    # weightDataType can be tightened by MinimizeAccumulatorWidth
+                    weightDataType=idt.name,
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,
@@ -1136,7 +1130,6 @@ class InferThresholdingLayer(Transformation):
                 graph_modified = True
 
         if graph_modified:
-            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)

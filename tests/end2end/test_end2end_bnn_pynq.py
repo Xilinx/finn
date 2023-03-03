@@ -77,6 +77,12 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -268,7 +274,7 @@ def measure_top1_accuracy(model_chkpt, dataset, parent_chkpt=None):
         raise Exception("Unrecognized dataset")
     # move from dataset_loader layout to ONNX layout: NHWC -> NCHW
     testx = testx.transpose(0, 3, 1, 2)
-    model = ModelWrapper(model_chkpt)
+    model = load_test_checkpoint_or_skip(model_chkpt)
     iname = model.graph.input[0].name
     oname = model.graph.output[0].name
     if parent_chkpt is None:
@@ -510,11 +516,23 @@ class TestEnd2End:
         model = folding_fxn(model)
         model.save(get_checkpoint_name(topology, wbits, abits, QONNX_export, "fold"))
 
+    def test_minimize_bit_width(self, topology, wbits, abits, QONNX_export):
+        prev_chkpt_name = get_checkpoint_name(
+            topology, wbits, abits, QONNX_export, "fold"
+        )
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        model = model.transform(MinimizeAccumulatorWidth())
+        model = model.transform(MinimizeWeightBitWidth())
+        curr_chkpt_name = get_checkpoint_name(
+            topology, wbits, abits, QONNX_export, "minimize_bit_width"
+        )
+        model.save(curr_chkpt_name)
+
     @pytest.mark.slow
     @pytest.mark.vivado
     def test_cppsim(self, topology, wbits, abits, QONNX_export):
         prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "fold"
+            topology, wbits, abits, QONNX_export, "minimize_bit_width"
         )
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(PrepareCppSim())
