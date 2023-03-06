@@ -224,7 +224,7 @@ This RTL version is an alternative to the original `HLS implementation <https://
 The component is implemented by generating (System-)Verilog code for each individual instance, realized via the template + replacement dictionary mechanism found in other FINN components.
 Despite the HDL implementation, the component is managed by its own HLSCustomOp (!) named "ConvolutionInputGenerator_rtl". Naturally, HLS simulation & synthesis are not supported.
 
-The RTL SWG is currently disabled by default and can be enabled either in the corresponding HLS conversion transformation (:py:mod:`convert_to_hls_layers.InferConvInpGen(use_rtl_variant = True)`) or in the build configuration (:py:mod:`DataflowBuildConfig.force_rtl_conv_inp_gen = True`).
+The RTL SWG is currently disabled by default and can be enabled either in the corresponding HLS conversion transformation (:py:mod:`finn.transformation.fpgadataflow.convert_to_hls_layers.InferConvInpGen`) with `use_rtl_variant=True` or in the build configuration (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.force_rtl_conv_inp_gen` set to True).
 
 Implementation styles
 ---------------------
