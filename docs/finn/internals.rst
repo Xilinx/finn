@@ -213,9 +213,13 @@ FINN implements convolution operations by pairing a ConvolutionInputGenerator (o
 This RTL version is an alternative to the original `HLS implementation <https://github.com/Xilinx/finn-hlslib/blob/master/slidingwindow.h>`_ and aims to improve on it in the following ways:
 
 * Support a wider range of hyperparameters without the fragmentation into 16+ separate HLS functions
+
 * Support additional degrees of parallelism (i.e., across the output window or multiple input samples) that are difficult to implement in HLS
+
 * Support additional features, such as dynamic feature map sizing
+
 * Improve resource efficiency
+
 
 The component is implemented by generating (System-)Verilog code for each individual instance, realized via the template + replacement dictionary mechanism found in other FINN components.
 Despite the HDL implementation, the component is managed by its own HLSCustomOp (!) named "ConvolutionInputGenerator_rtl". Naturally, HLS simulation & synthesis are not supported.
@@ -277,7 +281,7 @@ The "default" style also supports a dynamic mode, which provides an interface to
 
 Folding
 -------
-The RTL SWG is supported by the basic automatic folding algorithm in FINN (:py:mod:`SetFolding()`). Consider the following implications:
+The RTL SWG is supported by the basic automatic folding algorithm in FINN (:py:mod:`finn.transformation.fpgadataflow.set_folding.SetFolding`). Consider the following implications:
 
 **MVAU:** Although it is recommended to unfold SIMD first, SIMD and PE can be set independently. Full (and balanced) parallelism is achieved by using the SWG in parallel window mode and setting MVAU SIMD and PE to their maximum values (SIMD = MW = C_in * K, PE = MH = C_out).
 
