@@ -71,12 +71,13 @@ class SetFolding(Transformation):
 
     When folding depthwise convolutions ("VVAU"/VectorVectorActivation)
     or spatial reduction ops (Pool_Batch):
-        * the producer of the node is expected to be a ConvolutionInputGenerator
-        with depthwise=1, whose SIMD value will be set equal to the PE value of
-        its consumer node
-        * the VVAU also supports SIMD ("input window") parallelism next to
-        PE ("channels"), but current ConvInpGen limitations require PE to be fully
-        unfolded before SIMD is increased
+
+    * the producer of the node is expected to be a ConvolutionInputGenerator
+      with depthwise=1, whose SIMD value will be set equal to the PE value of
+      its consumer node
+    * the VVAU also supports SIMD ("input window") parallelism next to
+      PE ("channels"), but current ConvInpGen limitations require PE to be fully
+      unfolded before SIMD is increased
     """
 
     def __init__(
