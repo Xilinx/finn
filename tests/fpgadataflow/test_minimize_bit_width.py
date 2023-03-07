@@ -146,6 +146,7 @@ input_data_types = [
 
 @pytest.mark.parametrize("wdt", weight_data_types)
 @pytest.mark.parametrize("rww", [True, False])
+@pytest.mark.fpgadataflow
 def test_minimize_weight_bit_width(wdt: DataType, rww: bool):
     """Testing MinimizeWeightBitWidth for VVAU and MVAU.
 
@@ -251,6 +252,7 @@ thresh_data_types = [
 @pytest.mark.parametrize("idt", input_data_types)
 @pytest.mark.parametrize("tdt", thresh_data_types)
 @pytest.mark.parametrize("rww", [True, False])
+@pytest.mark.fpgadataflow
 def test_minimize_accumulator_width(
     wdt: DataType, idt: DataType, tdt: DataType, rww: bool
 ):
