@@ -129,7 +129,7 @@ weight_data_types = [
     DataType["UINT7"],
     DataType["INT3"],
     DataType["UINT3"],
-    DataType["BIPOLAR"],
+    # DataType["BIPOLAR"], # TODO - add support for bipolar weights
     DataType["TERNARY"],
 ]
 
@@ -245,6 +245,15 @@ thresh_data_types = [
     DataType["INT32"],
     DataType["INT24"],
     DataType["INT16"],
+]
+
+# Removing unsigned data types fro weights
+weight_data_types = [
+    DataType["INT8"],
+    DataType["INT7"],
+    DataType["INT3"],
+    # DataType["BIPOLAR"], # TODO - add support for bipolar weights
+    DataType["TERNARY"],
 ]
 
 
