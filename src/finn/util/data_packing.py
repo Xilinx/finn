@@ -220,7 +220,7 @@ def unpack_innermost_dim_from_hex_string(
         if conv_dtype == DataType["BIPOLAR"]:
             ar_list = [2 * x - 1 for x in ar_list]
         # interpret values as signed values
-        elif dtype.signed():
+        elif conv_dtype.signed() and conv_dtype.is_integer():
             mask = 2 ** (conv_dtype.bitwidth() - 1)
             ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
 
