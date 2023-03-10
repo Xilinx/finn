@@ -189,14 +189,10 @@ class FINNExampleOverlay(Overlay):
             layer_ind = int(w_filename.split("_")[1])
             rt_weight_dict[(sdp_ind, layer_ind)] = layer_w
         for sdp_ind, layer_ind in rt_weight_dict.keys():
-            cand_if_name = "StreamingDataflowPartition_%d/s_axilite_%d" % (
-                sdp_ind,
-                layer_ind,
-            )
+            cand_if_name = "StreamingDataflowPartition_%d" % sdp_ind
             if cand_if_name in self.ip_dict.keys():
                 layer_mmio = getattr(
-                    getattr(self, "StreamingDataflowPartition_%d" % sdp_ind),
-                    "s_axilite_%d" % layer_ind,
+                    self, "StreamingDataflowPartition_%d" % sdp_ind
                 ).mmio
                 layer_w = rt_weight_dict[(sdp_ind, layer_ind)]
                 layer_mmio.write_mm(0, layer_w.tobytes())
