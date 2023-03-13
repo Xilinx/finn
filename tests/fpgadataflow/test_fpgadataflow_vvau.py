@@ -43,9 +43,6 @@ import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -156,8 +153,6 @@ def _make_single_vvau_modelwrapper(
         model.set_tensor_datatype("thresh", tdt)
         model.set_initializer("thresh", T)
 
-    # Minimize accumulator width to obtain realistic HLS reports
-    model = model.transform(MinimizeAccumulatorWidth())
     model = model.transform(InferShapes())
     model = model.transform(InferDataTypes())
 
