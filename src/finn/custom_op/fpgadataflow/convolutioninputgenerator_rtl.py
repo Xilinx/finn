@@ -29,6 +29,7 @@
 import math
 import numpy as np
 import os
+import shutil
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -616,13 +617,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             # skip innermost SIMD loop completely
             if loop_kw_iterations == 1:
                 # skip innermost KW loop completely
-                code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_KH"]
+                code_gen_dict["$INNERMOST_STATE$"] = [str(3)] # STATE_LOOP_KH
                 loop_kh_iterations -= 1  # -1 because state is initial state
             else:
-                code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_KW"]
+                code_gen_dict["$INNERMOST_STATE$"] = [str(2)] # STATE_LOOP_KW
                 loop_kw_iterations -= 1  # -1 because state is initial state
         else:
-            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_SIMD"]
+            code_gen_dict["$INNERMOST_STATE$"] = [str(1)] # STATE_LOOP_SIMD
             loop_simd_iterations -= 1  # -1 because state is initial state
 
         cntr_bitwidth = math.ceil(
@@ -735,10 +736,10 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         loop_simd_iterations = 1
 
         if loop_w_iterations == 1:
-            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_H"]
+            code_gen_dict["$INNERMOST_STATE$"] = [str(5)] # STATE_LOOP_H
             loop_h_iterations -= 1  # -1 because state is initial state
         else:
-            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_W"]
+            code_gen_dict["$INNERMOST_STATE$"] = [str(4)] # STATE_LOOP_W
             loop_w_iterations -= 1  # -1 because state is initial state
 
         # set head and tail address increment values
@@ -846,7 +847,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 wire [IN_WIDTH-1:0] reg_fifo_{id}_in;
                 wire [IN_WIDTH-1:0] reg_fifo_{id}_out;
                 wire [IN_WIDTH*{len}-1:0] reg_fifo_{id};
-                {name}_reg_buffer
+                swg_reg_buffer
                 #(
                 .WIDTH(IN_WIDTH),
                 .DEPTH({len})
@@ -871,10 +872,11 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 """
                 wire [IN_WIDTH-1:0] bram_fifo_{id}_in;
                 wire [IN_WIDTH-1:0] bram_fifo_{id}_out;
-                {name}_ram_buffer
+                swg_ram_buffer
                 #(
                 .WIDTH(IN_WIDTH),
-                .DEPTH({len})
+                .DEPTH({len}),
+                .RAM_STYLE("{ram_style}")
                 )
                 ram_buffer_inst_{id}
                 (
@@ -887,6 +889,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     name=self.get_verilog_top_module_name(),
                     id=i,
                     len=bram_fifo_depth,
+                    ram_style=self.get_nodeattr("ram_style")
                 )
             )
 
@@ -1012,10 +1015,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
         code_gen_dict["$BIT_WIDTH$"] = [str(self.get_input_datatype().bitwidth())]
         ram_style = self.get_nodeattr("ram_style")
-        if ram_style == "auto":
-            code_gen_dict["$RAM_STYLE$"] = [""]
-        else:
-            code_gen_dict["$RAM_STYLE$"] = ['(* ram_style = "{}" *)'.format(ram_style)]
+        code_gen_dict["$RAM_STYLE$"] = ["\"{}\"".format(ram_style)]
 
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -1062,6 +1062,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             ) as f:
                 f.write(template_axilite)
 
+        # Copy static source file for common core components
+        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_common.sv", code_gen_dir)
+
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -1081,6 +1084,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         verilog_files = [
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
+            "swg_common.sv"
         ]
         if self.get_nodeattr("dynamic_mode"):
             verilog_files.append(self.get_nodeattr("gen_top_module") + "_axilite.v")
@@ -1104,6 +1108,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         sourcefiles = [
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
+            "swg_common.sv"
         ]
 
         if self.get_nodeattr("dynamic_mode"):
