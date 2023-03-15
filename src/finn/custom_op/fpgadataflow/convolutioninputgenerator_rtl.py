@@ -617,13 +617,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             # skip innermost SIMD loop completely
             if loop_kw_iterations == 1:
                 # skip innermost KW loop completely
-                code_gen_dict["$INNERMOST_STATE$"] = [str(3)] # STATE_LOOP_KH
+                code_gen_dict["$INNERMOST_STATE$"] = [str(3)]  # STATE_LOOP_KH
                 loop_kh_iterations -= 1  # -1 because state is initial state
             else:
-                code_gen_dict["$INNERMOST_STATE$"] = [str(2)] # STATE_LOOP_KW
+                code_gen_dict["$INNERMOST_STATE$"] = [str(2)]  # STATE_LOOP_KW
                 loop_kw_iterations -= 1  # -1 because state is initial state
         else:
-            code_gen_dict["$INNERMOST_STATE$"] = [str(1)] # STATE_LOOP_SIMD
+            code_gen_dict["$INNERMOST_STATE$"] = [str(1)]  # STATE_LOOP_SIMD
             loop_simd_iterations -= 1  # -1 because state is initial state
 
         cntr_bitwidth = math.ceil(
@@ -736,10 +736,10 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         loop_simd_iterations = 1
 
         if loop_w_iterations == 1:
-            code_gen_dict["$INNERMOST_STATE$"] = [str(5)] # STATE_LOOP_H
+            code_gen_dict["$INNERMOST_STATE$"] = [str(5)]  # STATE_LOOP_H
             loop_h_iterations -= 1  # -1 because state is initial state
         else:
-            code_gen_dict["$INNERMOST_STATE$"] = [str(4)] # STATE_LOOP_W
+            code_gen_dict["$INNERMOST_STATE$"] = [str(4)]  # STATE_LOOP_W
             loop_w_iterations -= 1  # -1 because state is initial state
 
         # set head and tail address increment values
@@ -860,7 +860,6 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     .shift_out(reg_fifo_{id}_out),
                     .data_out(reg_fifo_{id})
                 );""".format(
-                    name=self.get_verilog_top_module_name(),
                     id=i,
                     len=len(reg_fifo),
                 )
@@ -886,10 +885,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     .shift_in(bram_fifo_{id}_in),
                     .shift_out(bram_fifo_{id}_out)
                 );""".format(
-                    name=self.get_verilog_top_module_name(),
                     id=i,
                     len=bram_fifo_depth,
-                    ram_style=self.get_nodeattr("ram_style")
+                    ram_style=self.get_nodeattr("ram_style"),
                 )
             )
 
@@ -1015,7 +1013,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
         code_gen_dict["$BIT_WIDTH$"] = [str(self.get_input_datatype().bitwidth())]
         ram_style = self.get_nodeattr("ram_style")
-        code_gen_dict["$RAM_STYLE$"] = ["\"{}\"".format(ram_style)]
+        code_gen_dict["$RAM_STYLE$"] = ['"{}"'.format(ram_style)]
 
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -1063,7 +1061,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 f.write(template_axilite)
 
         # Copy static source file for common core components
-        shutil.copy2(os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_common.sv", code_gen_dir)
+        shutil.copy2(
+            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_common.sv", code_gen_dir
+        )
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -1084,7 +1084,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         verilog_files = [
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
-            "swg_common.sv"
+            "swg_common.sv",
         ]
         if self.get_nodeattr("dynamic_mode"):
             verilog_files.append(self.get_nodeattr("gen_top_module") + "_axilite.v")
@@ -1108,7 +1108,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         sourcefiles = [
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
-            "swg_common.sv"
+            "swg_common.sv",
         ]
 
         if self.get_nodeattr("dynamic_mode"):
