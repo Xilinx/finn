@@ -51,8 +51,10 @@ module thresholding #(
 	bit SIGNED,	// signed inputs
 	int BIAS,  // offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
 
-	int unsigned  C_BITS,
-	int unsigned O_BITS
+	localparam int unsigned  C_BITS = C < 2? 1 : $clog2(C),
+	localparam int unsigned  O_BITS = BIAS >= 0?
+		/* unsigned */ $clog2(2**N+BIAS) :
+		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
 )(
 	// Global Control
 	input	logic  clk,

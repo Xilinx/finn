@@ -85,7 +85,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	output	[((O_BITS+7)/8)*8-1:0]  out_V_TDATA
 );
 
-	thresholding_axi #(.N(N), .M(M), .C(C), .SIGNED(SIGNED), .BIAS(BIAS), .O_BITS(O_BITS)) inst (
+	thresholding_axi #(.N(N), .M(M), .C(C), .SIGNED(SIGNED), .BIAS(BIAS)) inst (
 		//- Global Control ------------------
 		.ap_clk(ap_clk),
 		.ap_rst_n(ap_rst_n),

@@ -46,7 +46,10 @@ module thresholding_axi #(
 	bit SIGNED,	// signed inputs
 	int BIAS,  // offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
 
-	int unsigned O_BITS
+	localparam int unsigned  C_BITS = C < 2? 1 : $clog2(C),
+	localparam int unsigned  O_BITS = BIAS >= 0?
+		/* unsigned */ $clog2(2**N+BIAS) :
+		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
 )(
 	//- Global Control ------------------
 	input	logic  ap_clk,
@@ -173,7 +176,6 @@ module thresholding_axi #(
 
 	end : blkOutputDecouple
 
-	localparam int unsigned  C_BITS = C < 2? 1 : $clog2(C);
 	uwire  ivld = s_axis_tvalid;
 	uwire [C_BITS-1:0]  icnl;
 	uwire [M     -1:0]  idat = s_axis_tdata[M-1:0];
@@ -198,7 +200,7 @@ module thresholding_axi #(
 	end
 
 	// Core Thresholding Module
-	thresholding #(.N(N), .M(M), .C(C), .SIGNED(SIGNED), .BIAS(BIAS), .O_BITS(O_BITS), .C_BITS(C_BITS)) core (
+	thresholding #(.N(N), .M(M), .C(C), .SIGNED(SIGNED), .BIAS(BIAS)) core (
 		.clk, .rst,
 		.twe, .twa, .twd,
 		.en,
