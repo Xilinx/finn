@@ -259,11 +259,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         their key value(s) in the RTL template files"""
         code_gen_dict = {}
 
-        # Identify the module names
-        code_gen_dict["$MODULE_NAME$"] = [self.get_verilog_top_module_name()]
-        code_gen_dict["$MODULE_NAME_AXI$"] = [
-            self.get_verilog_top_module_name() + "_axi"
-        ]
+        # Identify the module name
         code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
             self.get_verilog_top_module_name() + "_axi_wrapper"
         ]

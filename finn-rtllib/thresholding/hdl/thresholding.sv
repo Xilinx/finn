@@ -43,7 +43,7 @@
  *  threshold configuration relies on a channel address prefix. Inputs are
  *  accompanied by a channel selector.
  *****************************************************************************/
-module $MODULE_NAME$ #(
+module thresholding #(
 	int unsigned  N,  // output precision
 	int unsigned  M,  // input/threshold precision
 	int unsigned  C,  // number of channels
@@ -153,4 +153,4 @@ module $MODULE_NAME$ #(
 	assign	ocnl = pipe[N].cnl;
 	assign	odat = pipe[N].res + BIAS;
 
-endmodule : $MODULE_NAME$
+endmodule : thresholding

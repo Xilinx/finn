@@ -38,7 +38,7 @@
  *	- performs aligned byte address to parameter word address translation.
  *****************************************************************************/
 
-module $MODULE_NAME_AXI$ #(
+module thresholding_axi #(
 	int unsigned  N,	// output precision
 	int unsigned  M,	// input/threshold precision
 	int unsigned  C,	// Channels
@@ -197,7 +197,7 @@ module $MODULE_NAME_AXI$ #(
 	end
 
 	// Core Thresholding Module
-	$MODULE_NAME$ #(.N(N), .M(M), .C(C), .BIAS(BIAS), .O_BITS(O_BITS), .C_BITS(C_BITS)) core (
+	thresholding #(.N(N), .M(M), .C(C), .BIAS(BIAS), .O_BITS(O_BITS), .C_BITS(C_BITS)) core (
 		.clk, .rst,
 		.twe, .twa, .twd,
 		.en,
@@ -205,4 +205,4 @@ module $MODULE_NAME_AXI$ #(
 		.ovld, .ocnl(), .odat
 	);
 
-endmodule : $MODULE_NAME_AXI$
+endmodule : thresholding_axi
