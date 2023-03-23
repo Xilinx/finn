@@ -489,6 +489,8 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     if cfg.minimize_bit_width:
         model = model.transform(MinimizeWeightBitWidth())
         model = model.transform(MinimizeAccumulatorWidth())
+        # make sure the changed datatypes are propagated through the network
+        model = model.transform(InferDataTypes())
     return model
 
 
