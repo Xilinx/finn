@@ -48,6 +48,7 @@ module thresholding #(
 	int unsigned  M,  // input/threshold precision
 	int unsigned  C,  // number of channels
 
+	bit SIGNED,	// signed inputs
 	int BIAS,  // offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
 
 	int unsigned  C_BITS,
@@ -68,7 +69,7 @@ module thresholding #(
 	// Input Stream
 	input	logic  ivld,
 	input	logic        [C_BITS-1:0]  icnl,	// Ignored for C == 1
-	input	logic $SIGN$ [M     -1:0]  idat,
+	input	logic [M     -1:0]  idat,
 
 	// Output Stream
 	output	logic  ovld,
@@ -80,7 +81,7 @@ module thresholding #(
 	typedef struct packed {
 		logic                      vld;	// Valid data identification
 		logic        [C_BITS-1:0]  cnl;	// Channel
-		logic $SIGN$ [M     -1:0]  val;	// Original input value
+		logic [M     -1:0]  val;	// Original input value
 		logic        [0:N-1]       res;	// Assembling result with valid prefix [0:stage] after stage #stage
 	} pipe_t;
 	uwire pipe_t  pipe[0:N];
@@ -91,13 +92,13 @@ module thresholding #(
 	for(genvar  stage = 0; stage < N; stage++) begin : genStages
 
 		// Threshold Memory
-		uwire $SIGN$ [M-1:0]  thresh;
+		uwire [M-1:0]  thresh;
 		if(1) begin : blkUpdate
 
 			// Write control: local select from global address
 			uwire  we = twe && tws[stage];
 			if((C == 1) && (stage == 0)) begin
-				logic $SIGN$ [M-1:0]  Thresh = 'x;
+				logic [M-1:0]  Thresh = 'x;
 				always_ff @(posedge clk) begin
 					if(rst)      Thresh <= 'x;
 					else if(we)  Thresh <= twd;
@@ -105,7 +106,7 @@ module thresholding #(
 				assign  thresh = Thresh;
 			end
 			else begin
-				logic $SIGN$ [M-1:0]  Threshs[C * 2**stage];
+				logic [M-1:0]  Threshs[C * 2**stage];
 				uwire [$clog2(C)+stage-1:0]  wa = twa[$left(twa):N-stage];
 				uwire [$clog2(C)+stage-1:0]  ra;
 				if(C > 1)  assign  ra[stage+:C_BITS] = pipe[stage].cnl;
@@ -117,7 +118,7 @@ module thresholding #(
 				end
 
 				// Read
-				logic $SIGN$ [M-1:0]  RdReg;
+				logic [M-1:0]  RdReg;
 				always_ff @(posedge clk) begin
 					if(en)  RdReg <= Threshs[ra];
 				end
@@ -135,9 +136,12 @@ module thresholding #(
 
 		// Assemble pipeline data
 		logic [0:N-1]  res;
+		uwire  cmp =
+			SIGNED?      $signed(thresh) <=   $signed(State.val) :
+			/* else */ $unsigned(thresh) <= $unsigned(State.val);
 		always_comb begin
 			res        = State.res;
-			res[stage] = thresh <= State.val;	// Patch in next result bit
+			res[stage] = cmp;	// Patch in next result bit
 		end
 		assign	pipe[stage+1] = '{
 			vld: State.vld,

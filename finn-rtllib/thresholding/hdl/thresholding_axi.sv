@@ -43,6 +43,7 @@ module thresholding_axi #(
 	int unsigned  M,	// input/threshold precision
 	int unsigned  C,	// Channels
 
+	bit SIGNED,	// signed inputs
 	int BIAS,  // offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
 
 	int unsigned O_BITS
@@ -197,7 +198,7 @@ module thresholding_axi #(
 	end
 
 	// Core Thresholding Module
-	thresholding #(.N(N), .M(M), .C(C), .BIAS(BIAS), .O_BITS(O_BITS), .C_BITS(C_BITS)) core (
+	thresholding #(.N(N), .M(M), .C(C), .SIGNED(SIGNED), .BIAS(BIAS), .O_BITS(O_BITS), .C_BITS(C_BITS)) core (
 		.clk, .rst,
 		.twe, .twa, .twd,
 		.en,

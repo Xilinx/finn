@@ -36,6 +36,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  N = $N$,	// output precision
 	parameter  M = $M$,	// input/threshold precision
 	parameter  C = $C$,	// Channels
+	parameter  SIGNED = $SIGNED$,	// signed inputs
 	int BIAS = $BIAS$,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 
 	parameter  O_BITS = BIAS > 0?
@@ -84,7 +85,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	output	[((O_BITS+7)/8)*8-1:0]  out_V_TDATA
 );
 
-	thresholding_axi #(.N(N), .M(M), .C(C), .BIAS(BIAS), .O_BITS(O_BITS)) inst (
+	thresholding_axi #(.N(N), .M(M), .C(C), .SIGNED(SIGNED), .BIAS(BIAS), .O_BITS(O_BITS)) inst (
 		//- Global Control ------------------
 		.ap_clk(ap_clk),
 		.ap_rst_n(ap_rst_n),
