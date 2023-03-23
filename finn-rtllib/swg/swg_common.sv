@@ -185,25 +185,25 @@ module swg_reg_buffer
     int unsigned DEPTH = 1
 )
 (
-    input logic CLK,
+    input logic clk,
     input logic shift_enable,
     input logic [WIDTH-1:0] shift_in,
     output logic [WIDTH-1:0] shift_out,
     output logic [WIDTH*DEPTH-1:0] data_out
 );
 
-reg [WIDTH-1:0] data [DEPTH-1:0];
+logic [WIDTH-1:0] Data [DEPTH-1:0];
 
-assign shift_out = data[DEPTH-1];
+assign shift_out = Data[DEPTH-1];
 
-for (genvar e=0; e<DEPTH; e=e+1)
-    assign data_out[e*WIDTH +: WIDTH] = data[e];
+for (genvar e=0; e<DEPTH; e++)
+    assign data_out[e*WIDTH +: WIDTH] = Data[e];
 
-always @ (posedge CLK) begin
+always @ (posedge clk) begin
     if (shift_enable) begin
-        for (integer i=DEPTH-1; i>0; i=i-1)
-            data[i] <= data[i-1];
-        data[0] <= shift_in;
+        for (int i=DEPTH-1; i>0; i--)
+            Data[i] <= Data[i-1];
+        Data[0] <= shift_in;
     end
 end
 endmodule : swg_reg_buffer
@@ -216,38 +216,39 @@ module swg_ram_buffer
     parameter RAM_STYLE = "auto"
 )
 (
-    input logic CLK,
-    input logic RST,
+    input logic clk,
+    input logic rst_n,
     input logic shift_enable,
     input logic [WIDTH-1:0] shift_in,
     output logic [WIDTH-1:0] shift_out
 );
 
-reg [WIDTH-1:0] out_reg;
-assign shift_out = out_reg;
+logic [WIDTH-1:0] Out_reg;
+assign shift_out = Out_reg;
 
-integer addr_w, addr_r;
+logic [$clog2(DEPTH)-1:0] Addr_w = 0;
+logic [$clog2(DEPTH)-1:0] Addr_r = 0;
 
-(*ram_style=RAM_STYLE*) reg [WIDTH-1:0] ram [DEPTH-1:0];
+(*ram_style=RAM_STYLE*) logic [WIDTH-1:0] Ram [DEPTH-1:0];
 
-always @(posedge CLK) begin
-    if (RST == 1'b0) begin
-        addr_w <= 0;
-        addr_r <= 1;
+always_ff @(posedge clk) begin
+    if (rst_n == 1'b0) begin
+        Addr_w <= 0;
+        Addr_r <= 1;
     end else begin
         if (shift_enable) begin
-            ram[addr_w] <= shift_in;
-            out_reg <= ram[addr_r];
+            Ram[Addr_w] <= shift_in;
+            Out_reg <= Ram[Addr_r];
 
-            if (addr_w == DEPTH-1)
-                addr_w <= 0;
+            if (Addr_w == DEPTH-1)
+                Addr_w <= 0;
             else
-                addr_w <= addr_w + 1;
+                Addr_w <= Addr_w + 1;
 
-            if (addr_r == DEPTH-1)
-                addr_r <= 0;
+            if (Addr_r == DEPTH-1)
+                Addr_r <= 0;
             else
-                addr_r <= addr_r + 1;
+                Addr_r <= Addr_r + 1;
         end
     end
 end

@@ -37,8 +37,8 @@ module $TOP_MODULE_NAME$_wb
     int unsigned BUFFER_ELEM_TOTAL = 1
 )
 (
-    input logic CLK,
-    input logic RST,
+    input logic clk,
+    input logic rst_n,
     input logic shift_enable,
     input logic [IN_WIDTH-1:0] data_in,
     output logic [OUT_WIDTH-1:0] data_out
@@ -96,8 +96,8 @@ module $TOP_MODULE_NAME$_impl #(
     )
     window_buffer_inst
     (
-        .CLK(ap_clk),
-        .RST(ap_rst_n),
+        .clk(ap_clk),
+        .rst_n(ap_rst_n),
         .data_in(window_buffer_in),
         .shift_enable(window_buffer_shift_enable),
         .data_out(window_buffer_out)

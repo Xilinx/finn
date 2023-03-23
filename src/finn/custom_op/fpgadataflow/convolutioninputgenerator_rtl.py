@@ -854,7 +854,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 )
                 reg_buffer_inst_{id}
                 (
-                    .CLK(CLK),
+                    .clk(clk),
                     .shift_enable(shift_enable),
                     .shift_in(reg_fifo_{id}_in),
                     .shift_out(reg_fifo_{id}_out),
@@ -879,8 +879,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 )
                 ram_buffer_inst_{id}
                 (
-                    .CLK(CLK),
-                    .RST(RST),
+                    .clk(clk),
+                    .rst_n(rst_n),
                     .shift_enable(shift_enable),
                     .shift_in(bram_fifo_{id}_in),
                     .shift_out(bram_fifo_{id}_out)
