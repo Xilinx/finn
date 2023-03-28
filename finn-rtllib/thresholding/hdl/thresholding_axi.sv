@@ -42,11 +42,14 @@ module thresholding_axi #(
 	int unsigned  N,	// output precision
 	int unsigned  M,	// input/threshold precision
 	int unsigned  C,	// Channels
+	int unsigned  PE,	// Processing Parallelism, requires C = M*PE
 
 	bit SIGNED,	// signed inputs
 	int BIAS,  // offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
 
-	localparam int unsigned  C_BITS = C < 2? 1 : $clog2(C),
+    localparam int unsigned  CF = 1 + (C-1)/PE,	// Channel Fold
+	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
+	localparam int unsigned  C_BITS = C/PE < 2? 1 : $clog2(C/PE),
 	localparam int unsigned  O_BITS = BIAS >= 0?
 		/* unsigned */ $clog2(2**N+BIAS) :
 		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
@@ -57,9 +60,9 @@ module thresholding_axi #(
 
 	//- AXI Lite ------------------------
 	// Writing
-	input	logic                    s_axilite_AWVALID,
-	output	logic                    s_axilite_AWREADY,
-	input	logic [$clog2(C)+N+1:0]  s_axilite_AWADDR,	// lowest 2 bits (byte selectors) are ignored
+	input	logic                  s_axilite_AWVALID,
+	output	logic                  s_axilite_AWREADY,
+	input	logic [ADDR_BITS-1:0]  s_axilite_AWADDR,	// lowest 2 bits (byte selectors) are ignored
 
 	input	logic         s_axilite_WVALID,
 	output	logic         s_axilite_WREADY,
@@ -83,33 +86,53 @@ module thresholding_axi #(
 	//- AXI Stream - Input --------------
 	output	logic  s_axis_tready,
 	input	logic  s_axis_tvalid,
-	input	logic [((M+7)/8)*8-1:0]  s_axis_tdata,
+	input	logic [((PE*M+7)/8)*8-1:0]  s_axis_tdata,
 
 	//- AXI Stream - Output -------------
 	input	logic  m_axis_tready,
 	output	logic  m_axis_tvalid,
-	output	logic [((O_BITS+7)/8)*8-1:0]  m_axis_tdata
+	output	logic [((PE*O_BITS+7)/8)*8-1:0]  m_axis_tdata
 );
+	//- Parameter Constraints Checking --------------------------------------
+	initial begin
+		if(C%PE != 0) begin
+			$error("%m: Channel count C=%0d is not a multiple of PE=%0d.", C, PE);
+			$finish;
+		end
+	end
+
 	//- Global Control ------------------------------------------------------
 	uwire  clk = ap_clk;
 	uwire  rst = !ap_rst_n;
 
 	//- AXI Lite: Threshold Configuration -----------------------------------
-	uwire  twe;
-	uwire [$clog2(C)+N-1:0]  twa;
-	uwire [          M-1:0]  twd;
+	uwire  twe[PE];
+	uwire [$clog2(CF)+N-1:0]  twa;
+	uwire [           M-1:0]  twd;
 	if(1) begin : blkAxiLite
 		logic  WABusy = 0;
 		logic  WDBusy = 0;
-		logic [$clog2(C)+N-1:0]  Addr = 'x;
-		logic [          M-1:0]  Data = 'x;
+		logic  Sel[PE] = '{ default: 'x };
+		logic [$clog2(CF)+N-1:0]  Addr = 'x;
+		logic [           M-1:0]  Data = 'x;
 
-		assign	twe = WABusy && WDBusy;
+		for(genvar  pe = 0; pe < PE; pe++) begin
+			assign	twe[pe] = WABusy && WDBusy && Sel[pe];
+		end
 		assign	twa = Addr;
 		assign	twd = Data;
 
-		uwire  clr_wr = rst || (twe && s_axilite_BREADY);
-		always_ff @(posedge clk) begin : blockName
+		if(PE == 1)  always_comb  Sel[0] = 1;
+		else begin
+			always_ff @(posedge clk) begin
+				if(!WABusy) begin
+					foreach(Sel[pe])  Sel[pe] <= s_axilite_AWADDR[N+2+:$clog2(PE)] == pe;
+				end
+			end
+		end
+
+		uwire  clr_wr = rst || (WABusy && WDBusy && s_axilite_BREADY);
+		always_ff @(posedge clk) begin
 			if(clr_wr) begin
 				WABusy <= 0;
 				Addr <= 'x;
@@ -119,7 +142,8 @@ module thresholding_axi #(
 			else begin
 				if(!WABusy) begin
 					WABusy <= s_axilite_AWVALID;
-					Addr   <= s_axilite_AWADDR[$clog2(C)+N+1:2];
+					Addr[0+:N] <= s_axilite_AWADDR[2+:N];
+					if(C > 1)  Addr[N+:$clog2(CF)] <= s_axilite_AWADDR[2+N+$clog2(PE)+:$clog2(CF)];
 				end
 				if(!WDBusy) begin
 					WDBusy <= s_axilite_WVALID;
@@ -148,39 +172,48 @@ module thresholding_axi #(
 
 	//- IO-Sandwich with two-stage output buffer for containing a local enable
 	uwire  en;
-	uwire [O_BITS-1:0]  odat;
-	uwire  ovld;
+	uwire [PE-1:0][O_BITS-1:0]  odat;
+	uwire  ovld[PE];
 	if(1) begin : blkOutputDecouple
 		typedef struct {
-			logic          vld;
-			logic [O_BITS-1:0]  dat;
+			logic  vld;
+			logic [PE-1:0][O_BITS-1:0]  dat;
 		} buf_t;
-		buf_t  Buf[2] = '{ default: '{ vld: 0, dat: 'x } };
+		buf_t  A = '{ vld: 0, dat: 'x };
+		buf_t  B = '{ vld: 0, dat: 'x };
 		always_ff @(posedge clk) begin
-			if(rst)  Buf <= '{ default: '{ vld: 0, dat: 'x } };
+			if(rst) begin
+				A <= '{ vld: 0, dat: 'x };
+				B <= '{ vld: 0, dat: 'x };
+			end
 			else begin
-				if(!Buf[1].vld || m_axis_tready) begin
-					Buf[1] <= '{
-						vld: Buf[0].vld || ovld,
-						dat: Buf[0].vld? Buf[0].dat : odat
+				if(!B.vld || m_axis_tready) begin
+					B <= '{
+						vld: A.vld || ovld[0],
+						dat: A.vld? A.dat : odat
 					};
 				end
-				Buf[0].vld <= Buf[1].vld && !m_axis_tready && (Buf[0].vld || ovld);
-				if(!Buf[0].vld)  Buf[0].dat <= odat;
+				A.vld <= B.vld && !m_axis_tready && (A.vld || ovld[0]);
+				if(!A.vld)  A.dat <= odat;
 			end
 		end
-		assign	en = !Buf[0].vld;
+		assign	en = !A.vld;
 
-		assign	m_axis_tvalid = Buf[1].vld;
-		assign	m_axis_tdata  = Buf[1].dat;
+		assign	m_axis_tvalid = B.vld;
+		assign	m_axis_tdata  = B.dat;
 
 	end : blkOutputDecouple
 
+	// localparam int unsigned  C_BITS = C/PE < 2? 1 : $clog2(C/PE);
 	uwire  ivld = s_axis_tvalid;
 	uwire [C_BITS-1:0]  icnl;
-	uwire [M     -1:0]  idat = s_axis_tdata[M-1:0];
+	uwire [M     -1:0]  idat[PE];
+	for(genvar  pe = 0; pe < PE; pe++) begin
+		assign	idat[pe] = s_axis_tdata[pe*M+:M];
+	end
+
 	assign	s_axis_tready = en;
-	if(C == 1)  assign  icnl = 'x;
+	if(C == PE)  assign  icnl = 'x;
 	else begin
 		logic [C_BITS-1:0]  Chnl = 0;
 		logic               Last = 0;
@@ -193,19 +226,21 @@ module thresholding_axi #(
 			end
 			else if(inc) begin
 				Chnl <= Chnl + 1;
-				Last <= (~Chnl & (C-2)) == 0;
+				Last <= (~Chnl & (C/PE-2)) == 0;
 			end
 		end
 		assign	icnl = Chnl;
 	end
 
-	// Core Thresholding Module
-	thresholding #(.N(N), .M(M), .C(C), .SIGNED(SIGNED), .BIAS(BIAS)) core (
-		.clk, .rst,
-		.twe, .twa, .twd,
-		.en,
-		.ivld, .icnl, .idat,
-		.ovld, .ocnl(), .odat
-	);
+	// Core Thresholding Modules
+	for(genvar  pe = 0; pe < PE; pe++) begin : genCores
+		thresholding #(.N(N), .M(M), .C(C/PE), .SIGNED(SIGNED), .BIAS(BIAS)) core (
+			.clk, .rst,
+			.twe(twe[pe]), .twa, .twd,
+			.en,
+			.ivld, .icnl, .idat(idat[pe]),
+			.ovld(ovld[pe]), .ocnl(), .odat(odat[pe])
+		);
+	end : genCores
 
 endmodule : thresholding_axi
