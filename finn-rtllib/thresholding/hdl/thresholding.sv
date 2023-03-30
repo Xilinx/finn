@@ -102,8 +102,7 @@ module thresholding #(
 			if((C == 1) && (stage == 0)) begin
 				logic [M-1:0]  Thresh = 'x;
 				always_ff @(posedge clk) begin
-					if(rst)      Thresh <= 'x;
-					else if(we)  Thresh <= twd;
+					if(we)  Thresh <= twd;
 				end
 				assign  thresh = Thresh;
 			end
