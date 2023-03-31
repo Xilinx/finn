@@ -32,7 +32,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
@@ -63,7 +63,7 @@ def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_styl
         nodes=[DWC_node], name="dwc_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="dwc-model")
+    model = qonnx_make_model(graph, producer_name="dwc-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", finn_dtype)

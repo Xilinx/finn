@@ -30,11 +30,12 @@ import pkg_resources as pk
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import os
+import torch
+from brevitas.export import export_finn_onnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.batchnorm_to_affine import BatchNormToAffine
@@ -50,7 +51,7 @@ export_onnx_path = "test_output_bn2affine.onnx"
 @pytest.mark.transform
 def test_batchnorm_to_affine_cnv_w1a1():
     lfc = get_test_model_trained("CNV", 1, 1)
-    bo.export_finn_onnx(lfc, (1, 3, 32, 32), export_onnx_path)
+    export_finn_onnx(lfc, torch.randn(1, 3, 32, 32), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
@@ -75,7 +76,7 @@ def test_batchnorm_to_affine_cnv_w1a1():
 @pytest.mark.transform
 def test_batchnorm_to_affine_lfc_w1a1():
     lfc = get_test_model_trained("LFC", 1, 1)
-    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
+    export_finn_onnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())

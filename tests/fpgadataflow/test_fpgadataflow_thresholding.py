@@ -37,7 +37,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.multithreshold import multithreshold
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -93,7 +93,7 @@ def make_single_thresholding_modelwrapper(
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="thresholding-model")
+    model = qonnx_make_model(graph, producer_name="thresholding-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -132,10 +132,6 @@ def test_fpgadataflow_thresholding(idt, act, nf, ich, exec_mode, mem_mode):
     odt = act
     n_steps = act.get_num_possible_values() - 1
     T = np.random.randint(idt.min(), idt.max() + 1, (ich, n_steps)).astype(np.float32)
-    # make the vivado_hls threshold bug appear (incorrect rtlsim result when first
-    # threshold of first channel is zero, while using BIPOLAR output)
-    if act == DataType["BIPOLAR"]:
-        T[0][0] = 0
     # provide non-decreasing thresholds
     T = np.sort(T, axis=1)
 

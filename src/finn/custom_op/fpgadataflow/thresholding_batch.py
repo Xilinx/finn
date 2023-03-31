@@ -57,8 +57,8 @@ from . import templates
 class Thresholding_Batch(HLSCustomOp):
     """Class that corresponds to finn-hls Thresholding_Batch function."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
         self.decoupled_wrapper = templates.decoupled_wrapper
 
     def get_nodeattr_types(self):
@@ -319,13 +319,6 @@ class Thresholding_Batch(HLSCustomOp):
             np.mod(orig_thres_matrix, 1), 0
         ).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
-        # workaround for vivado_hls threshold bug
-        if ret[0][0] == 0 and n_thres_steps == 1:
-            ret = np.copy(ret)
-            ret[0][0] = 1
-            warnings.warn(
-                "Setting 0-valued first threshold to 1 to avoid vivado_hls bug"
-            )
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))

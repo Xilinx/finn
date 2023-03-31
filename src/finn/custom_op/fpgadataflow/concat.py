@@ -39,8 +39,8 @@ class StreamingConcat(HLSCustomOp):
     """Streaming concatenation node with dynamically generated HLS.
     Only supports concatenating along the last axis."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {

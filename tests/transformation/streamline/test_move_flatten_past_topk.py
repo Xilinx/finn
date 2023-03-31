@@ -36,7 +36,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.insert_topk import InsertTopK
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveFlattenPastTopK
@@ -67,7 +67,7 @@ def test_move_flatten_past_topk(data_layout, batch_size):
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="move_flatten_model")
+    model = qonnx_make_model(graph, producer_name="move_flatten_model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", DataType["INT2"])

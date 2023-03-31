@@ -1,4 +1,4 @@
-# Copyright (c) 2020, Xilinx
+# Copyright (C) 2023, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -26,45 +26,24 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-exclude: '^docs/conf.py'
+from qonnx.custom_op.registry import getCustomOp
+from qonnx.transformation.base import Transformation
 
-default_language_version:
-    python: python3.8
+from finn.util.fpgadataflow import is_fpgadataflow_node
 
-repos:
-- repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v4.2.0
-  hooks:
-  - id: trailing-whitespace
-    exclude: '\.dat$'
-  - id: check-added-large-files
-  - id: check-ast
-  - id: check-json
-  - id: check-merge-conflict
-  - id: check-xml
-  - id: check-yaml
-  - id: debug-statements
-    exclude: '^src/finn/builder/build_dataflow.py$'
-  - id: end-of-file-fixer
-  - id: requirements-txt-fixer
-  - id: mixed-line-ending
-    args: ['--fix=no']
 
-- repo: https://github.com/PyCQA/isort
-  rev: 5.12.0
-  hooks:
-  - id: isort
+class MinimizeWeightBitWidth(Transformation):
+    """For relevant nodes, call the weight bit width minimization
+    functions to save on resources. May alter tensor weightDataType
+    if the node does not have runtime writeable weights."""
 
-- repo: https://github.com/psf/black
-  rev: 22.3.0
-  hooks:
-  - id: black
-    language_version: python3
+    def __init__(self):
+        super().__init__()
 
-- repo: https://github.com/PyCQA/flake8
-  rev: 3.9.2
-  hooks:
-  - id: flake8
-    # black-compatible flake-8 config
-    args: ['--max-line-length=88',  # black default
-           '--extend-ignore=E203']  # E203 is not PEP8 compliant
+    def apply(self, model):
+        for node in model.graph.node:
+            if is_fpgadataflow_node(node) is True:
+                inst = getCustomOp(node)
+                if hasattr(inst, "minimize_weight_bit_width"):
+                    inst.minimize_weight_bit_width(model)
+        return (model, False)

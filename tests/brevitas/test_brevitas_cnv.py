@@ -30,11 +30,10 @@ import pkg_resources as pk
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import os
 import torch
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_finn_onnx, export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
@@ -58,13 +57,13 @@ def test_brevitas_cnv_export_exec(wbits, abits, QONNX_export):
     cnv = get_test_model_trained("CNV", wbits, abits)
     ishape = (1, 3, 32, 32)
     if QONNX_export:
-        BrevitasONNXManager.export(cnv, ishape, export_onnx_path)
+        export_qonnx(cnv, torch.randn(ishape), export_onnx_path)
         qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
         model = ModelWrapper(export_onnx_path)
         model = model.transform(ConvertQONNXtoFINN())
         model.save(export_onnx_path)
     else:
-        bo.export_finn_onnx(cnv, ishape, export_onnx_path)
+        export_finn_onnx(cnv, torch.randn(ishape), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferShapes())

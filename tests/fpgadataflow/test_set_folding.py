@@ -34,6 +34,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import qonnx_make_model
 
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
@@ -91,7 +92,7 @@ def make_multi_fclayer_model(ch, wdt, adt, tdt, nnodes):
         outputs=[tensors[-1]],
     )
 
-    model = helper.make_model(graph, producer_name="fclayer-model")
+    model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", adt)

@@ -37,8 +37,8 @@ class TLastMarker(HLSCustomOp):
     (needed by the FINN PYNQ shell) or at the beginning to remove the end-of-burst
     from DMA read."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {

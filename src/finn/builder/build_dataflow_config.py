@@ -119,6 +119,7 @@ default_build_dataflow_steps = [
     "step_create_dataflow_partition",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
+    "step_minimize_bit_width",
     "step_generate_estimate_reports",
     "step_hls_codegen",
     "step_hls_ipgen",
@@ -140,6 +141,7 @@ estimate_only_dataflow_steps = [
     "step_create_dataflow_partition",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
+    "step_minimize_bit_width",
     "step_generate_estimate_reports",
 ]
 
@@ -232,6 +234,12 @@ class DataflowBuildConfig:
     #: instead of being part of MatrixVectorActivation layer. This gives larger
     #: flexibility, and makes it possible to have runtime-writable thresholds.
     standalone_thresholds: Optional[bool] = False
+
+    #: (Optional) Whether optimizations that minimize the bit width of the
+    #: weights and accumulator will be applied. Because this optimization relies
+    #: on the the values of the weights, it will only be applied if runtime-
+    #: writeable weights is not enabled.
+    minimize_bit_width: Optional[bool] = True
 
     #: Target board, only needed for generating full bitfiles where the FINN
     #: design is integrated into a shell.

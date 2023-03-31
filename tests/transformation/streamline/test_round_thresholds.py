@@ -32,6 +32,7 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline import RoundAndClipThresholds
@@ -46,7 +47,7 @@ def test_round_thresholds():
         "MultiThreshold", ["v", "thresholds"], ["out"], domain="qonnx.custom_op.general"
     )
     graph_def = helper.make_graph([node_def], "test_model", [v, thresholds], [out])
-    model_def = helper.make_model(graph_def)
+    model_def = qonnx_make_model(graph_def)
     model = ModelWrapper(model_def)
     threshold_val = np.asarray([[-1.1], [0.7], [2.3], [5.1]], dtype=np.float32)
     model.set_initializer("thresholds", threshold_val)

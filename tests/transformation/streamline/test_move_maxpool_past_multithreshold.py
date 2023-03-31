@@ -32,6 +32,7 @@ from onnx import TensorProto, helper
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveMaxPoolPastMultiThreshold
@@ -99,7 +100,7 @@ def test_move_maxpool_past_multithreshold():
         )
     ]
 
-    modelproto = helper.make_model(
+    modelproto = qonnx_make_model(
         helper.make_graph(
             name="test",
             inputs=[top_in],
