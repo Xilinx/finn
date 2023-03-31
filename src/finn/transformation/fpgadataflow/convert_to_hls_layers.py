@@ -1137,16 +1137,6 @@ class InferThresholdingLayer(Transformation):
                         % node.name
                     )
 
-                    # Check PE/SIMD value
-                    if pe != 1:
-                        warnings.warn(
-                            """%s : RTL Thresholding does not support paralellisation.
-                            Only a PE value of 1 is supported.
-                            Falling back to HLS implementation."""
-                            % node.name
-                        )
-                        is_rtl_variant_compatible = False
-
                 if self.use_rtl_variant and is_rtl_variant_compatible:
                     new_node = helper.make_node(
                         "Thresholding_Binary_Search",

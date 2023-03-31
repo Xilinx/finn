@@ -138,10 +138,10 @@ def make_single_multithresholding_modelwrapper(
     model.set_initializer("thresh", thresholds)
     return model
 
-
+# N.B. Fold values where C % PE != 0 fail
 @pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
-@pytest.mark.parametrize("fold", [-1, 1, 2])
+@pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
 @pytest.mark.parametrize("num_input_channels", [16])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -159,12 +159,6 @@ def test_convert_to_hls_tbs_rtl_variant(
         pytest.skip(
             "Only negative activations are supported for "
             "RTL Thresholding Binary Search node"
-        )
-
-    # Paralellisation not supported for thresholding binary search rtl node
-    if pe != 1:
-        pytest.skip(
-            "Paralellisation not supported for RTL Thresholding Binary Search node"
         )
 
     # Other non-input parameters

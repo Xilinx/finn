@@ -186,10 +186,10 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 
 # Test brief: Create a Thresholding binary search layer using various parameters
 # and test against a SW generated & simulated dataset
-# N.B. - fold factor of '-1' is supported only (no PE/SIMD support)
+# N.B. Fold values where C % PE != 0 fail
 @pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
-@pytest.mark.parametrize("fold", [-1, 1, 2])
+@pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
 @pytest.mark.parametrize("num_input_channels", [16])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
@@ -200,13 +200,6 @@ def test_fpgadataflow_thresholding_binary_search(
     # Handle inputs to the test
     pe = generate_pe_value(fold, num_input_channels)
     num_steps = activation.get_num_possible_values() - 1
-
-    # Paralellisation not supported for thresholding binary search rtl node
-    if pe != 1:
-        pytest.skip(
-            "Paralellisation of IP not supported for "
-            "RTL Thresholding Binary Search node"
-        )
 
     # Other non-input parameters
     num_input_vecs = [1, 2, 2]
