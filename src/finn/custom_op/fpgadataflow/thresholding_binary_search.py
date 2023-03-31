@@ -283,7 +283,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         ]  # input/threshold precision - convert bitwidth to string
         code_gen_dict["$C$"] = [str(num_channels)]  # number of channels
         code_gen_dict["$BIAS$"] = [str(bias)]  # activation bias value
-        code_gen_dict["$PE$"] = [str(pe)] # requires C = M*PE
+        code_gen_dict["$PE$"] = [str(pe)]  # requires C = M*PE
 
         # Is the input datatype signed or unsigned?
         # The thresholding core needs to know this when comparing weights to inputs

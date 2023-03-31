@@ -138,6 +138,7 @@ def make_single_multithresholding_modelwrapper(
     model.set_initializer("thresh", thresholds)
     return model
 
+
 # N.B. Fold values where C % PE != 0 fail
 @pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
 @pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
