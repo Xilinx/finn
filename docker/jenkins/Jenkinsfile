@@ -13,15 +13,13 @@ pipeline {
   stages {
     stage('Quicktest') {
       steps {
-        dir("finn") {
-            sh 'echo "Hello FINN"'
-            sh 'hostname'
-            sh 'whoami'
-            sh 'pwd'
-            sh 'docker login'
-            sh 'printenv | sort'
-            sh './run-docker.sh quicktest'
-        }
+        sh 'echo "Hello FINN"'
+        sh 'hostname'
+        sh 'whoami'
+        sh 'pwd'
+        sh 'docker login'
+        sh 'printenv | sort'
+        sh 'run-docker.sh quicktest'
       }
     }
   }
