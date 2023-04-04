@@ -1,46 +1,23 @@
-node('finn-build') {
-    def app
-    stage('Clone repository') {
-        /* Let's make sure we have the repository cloned to our workspace */
-        checkout scm
+pipeline {
+  agent { node { label 'finn-build' } }
+   environment {
+    FINN_XILINX_PATH="/proj/xbuilds/SWIP/2022.1_0420_0327/installs/lin64"
+    FINN_XILINX_VERSION="2022.1"
+    FINN_DOCKER_TAG="xilinx/finn:jenkins"
+    FINN_HOST_BUILD_DIR="/scratch/users/finn_ci"
+    PLATFORM_REPO_PATHS="/opt/xilinx/platforms"
+  }
+  stages {
+    stage('Quicktest') {
+      steps {
+        sh 'echo "Hello FINN"'
+        sh 'hostname'
+        sh 'whoami'
+        sh 'pwd'
+        sh 'docker login'
+        sh 'printenv | sort'
+        sh 'run-docker.sh quicktest'
+      }
     }
-    withEnv([
-        "FINN_XILINX_PATH=/proj/xbuilds/SWIP/2022.1_0420_0327/installs/lin64",
-        "FINN_XILINX_VERSION=2022.1",
-        "FINN_DOCKER_TAG=xilinx/finn:jenkins",
-        "FINN_HOST_BUILD_DIR=/scratch/users/finn_ci",
-        "PLATFORM_REPO_PATHS=/opt/xilinx/platforms"
-    ]){
-        parallel firstBranch: {
-            stage('Brevitas export') {
-                dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh python setup.py test --addopts -mbrevitas_export")
-                }
-            }
-        }, secondBranch: {
-            stage('Streamlining transformations') {
-                dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh python setup.py test --addopts -mstreamline")
-                }
-            }
-        }, thirdBranch: {
-            stage('Util functions') {
-                dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh python setup.py test --addopts -mutil")
-                }
-            }
-        }, fourthBranch: {
-            stage('General transformations') {
-                dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh python setup.py test --addopts -mtransform")
-                }
-            }
-        }, fifthBranch: {
-            stage('Fpgadataflow transformations and simulations') {
-                dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh python setup.py test --addopts -mfpgadataflow")
-                }
-            }
-        }
-    }
+  }
 }
