@@ -19,7 +19,7 @@ pipeline {
         sh 'pwd'
         sh 'docker login'
         sh 'printenv | sort'
-        sh 'run-docker.sh quicktest'
+        sh './run-docker.sh quicktest'
       }
     }
   }
