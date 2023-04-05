@@ -564,13 +564,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             )
             addr_incr_end_simd = -buffer_min_size + (channel_factor + 1)
 
-        # sanity check
+        # sanity check for wrap logic
         assert not (
             abs(addr_incr_end_window) > buffer_actual_size
-        ), "ERROR: W increment > buffer size, wrap logic doesn't account for this"
+        ), "ERROR: W increment > buffer size, try setting parallel_window=1"
         assert not (
             abs(addr_incr_end_row) > buffer_actual_size
-        ), "ERROR: H increment > buffer size, wrap logic doesn't account for this"
+        ), "ERROR: H increment > buffer size, try setting parallel_window=1"
 
         # set certain threshold indices to detect when reading/writing finishes
         code_gen_dict["$LAST_READ_ELEM$"] = [str(h * w * channel_factor - 1)]
@@ -753,7 +753,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         tail_incr_w = addr_incr_end_window + buffer_min_size - 1
         tail_incr_h = addr_incr_end_row + buffer_min_size - 1
-        tail_incr_last_window = buffer_min_size - 1
+        tail_incr_last_window = stride_w
 
         addr_incr_end_simd = 1
         addr_incr_end_window_elem = 1

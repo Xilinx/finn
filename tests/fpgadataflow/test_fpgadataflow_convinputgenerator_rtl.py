@@ -198,12 +198,13 @@ def test_fpgadataflow_slidingwindow_rtl(
         pytest.skip(
             "Illegal convolution configuration: kernel or stride > FM dimension"
         )
-    if (k_h == 1 and (stride_h != 1 or dilation_h != 1)) or (
-        k_w == 1 and (stride_w != 1 or dilation_w != 1)
-    ):
+    if (k_h == 1 and dilation_h != 1) or (k_w == 1 and dilation_w != 1):
         pytest.skip(
-            """Illegal convolution configuration:
-            stride or dilation defined for unitary kernel dim"""
+            "Illegal convolution configuration: dilation for unitary kernel dim"
+        )
+    if (stride_h > k_h) or (stride_w > k_w) and not parallel_window:
+        pytest.skip(
+           "Not all combinations for stride > k edge case supported in default mode"
         )
     if k_h == 1 and k_w == 1 and simd != ifm_ch:
         pytest.skip("1x1 Kernel only supported in parallel mode (SIMD=C)")
