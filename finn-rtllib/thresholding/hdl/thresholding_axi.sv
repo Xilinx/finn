@@ -143,7 +143,7 @@ module thresholding_axi #(
 				if(!WABusy) begin
 					WABusy <= s_axilite_AWVALID;
 					Addr[0+:N] <= s_axilite_AWADDR[2+:N];
-					if(C > 1)  Addr[N+:$clog2(CF)] <= s_axilite_AWADDR[2+N+$clog2(PE)+:$clog2(CF)];
+					if(CF > 1)  Addr[N+:$clog2(CF)] <= s_axilite_AWADDR[2+N+$clog2(PE)+:$clog2(CF)];
 				end
 				if(!WDBusy) begin
 					WDBusy <= s_axilite_WVALID;
