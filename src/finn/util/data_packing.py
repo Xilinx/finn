@@ -220,7 +220,7 @@ def unpack_innermost_dim_from_hex_string(
         if conv_dtype == DataType["BIPOLAR"]:
             ar_list = [2 * x - 1 for x in ar_list]
         # interpret values as signed values
-        elif conv_dtype.name.startswith("INT"):
+        elif conv_dtype.signed() and conv_dtype.is_integer():
             mask = 2 ** (conv_dtype.bitwidth() - 1)
             ar_list = [-(x & mask) + (x & ~mask) for x in ar_list]
 
@@ -265,7 +265,7 @@ def numpy_to_hls_code(
     # define a function to convert a single element into a C++ init string
     # a single element can be a hex string if we are using packing
     def elem2str(x):
-        if type(x) == str or type(x) == np.str_ or type(x) == np.str:
+        if type(x) == str or type(x) == np.str_:
             return '%s("%s", 16)' % (hls_dtype, x)
         elif type(x) == np.float32:
             if dtype.is_integer():

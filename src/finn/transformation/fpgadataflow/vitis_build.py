@@ -358,16 +358,16 @@ class VitisBuild(Transformation):
     """Best-effort attempt at building the accelerator with Vitis.
     It assumes the model has only fpgadataflow nodes
 
-    fpga_part: string identifying the target FPGA
-    period_ns: target clock period
-    platform: target Alveo platform, one of ["U50", "U200", "U250", "U280"]
-    strategy: Vitis optimization strategy
-    enable_debug: add Chipscope to all AXI interfaces
-    floorplan_file: path to a JSON containing a dictionary with SLR assignments
-                    for each node in the ONNX graph. Must be parse-able by
-                    the ApplyConfig transform.
-    enable_link: enable linking kernels (.xo files), otherwise just synthesize
-                    them independently.
+    :parameter fpga_part: string identifying the target FPGA
+    :parameter period_ns: target clock period
+    :parameter platform: target Alveo platform, one of ["U50", "U200", "U250", "U280"]
+    :parameter strategy: Vitis optimization strategy
+    :parameter enable_debug: add Chipscope to all AXI interfaces
+    :parameter floorplan_file: path to a JSON containing a dictionary with
+        SLR assignments for each node in the ONNX graph.
+        Must be parse-able by the ApplyConfig transform.
+    :parameter enable_link: enable linking kernels (.xo files),
+        otherwise just synthesize them independently.
     """
 
     def __init__(

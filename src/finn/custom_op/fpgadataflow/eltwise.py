@@ -38,8 +38,8 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 class StreamingEltwise(HLSCustomOp):
     """Class that corresponds to finn-hlslib StreamingEltwise function."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
 
@@ -398,7 +398,7 @@ class StreamingEltwise(HLSCustomOp):
                 "StreamingEltwise",
                 self.get_nodeattr("NumChannels"),
                 self.get_nodeattr("PE"),
-                self.get_number_output_values(),
+                int(np.prod(self.get_folded_output_shape()[:-2])),
                 slice_in0,
                 slice_in1,
                 slice_out,

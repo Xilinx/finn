@@ -28,7 +28,6 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
@@ -38,7 +37,7 @@ import os
 import subprocess
 import torch
 import warnings
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_finn_onnx, export_qonnx
 from collections import OrderedDict
 from dataset_loading import cifar, mnist
 from datetime import datetime
@@ -78,6 +77,12 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
@@ -269,7 +274,7 @@ def measure_top1_accuracy(model_chkpt, dataset, parent_chkpt=None):
         raise Exception("Unrecognized dataset")
     # move from dataset_loader layout to ONNX layout: NHWC -> NCHW
     testx = testx.transpose(0, 3, 1, 2)
-    model = ModelWrapper(model_chkpt)
+    model = load_test_checkpoint_or_skip(model_chkpt)
     iname = model.graph.input[0].name
     oname = model.graph.output[0].name
     if parent_chkpt is None:
@@ -323,13 +328,13 @@ class TestEnd2End:
         (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
         chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "export")
         if QONNX_export:
-            BrevitasONNXManager.export(model, ishape, chkpt_name)
+            export_qonnx(model, torch.randn(ishape), chkpt_name)
             qonnx_cleanup(chkpt_name, out_file=chkpt_name)
             model = ModelWrapper(chkpt_name)
             model = model.transform(ConvertQONNXtoFINN())
             model.save(chkpt_name)
         else:
-            bo.export_finn_onnx(model, ishape, chkpt_name)
+            export_finn_onnx(model, torch.randn(ishape), chkpt_name)
         nname = "%s_w%da%d" % (topology, wbits, abits)
         update_dashboard_data(topology, wbits, abits, "network", nname)
         dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -369,7 +374,7 @@ class TestEnd2End:
         chkpt_preproc_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "preproc"
         )
-        bo.export_finn_onnx(totensor_pyt, ishape, chkpt_preproc_name)
+        export_finn_onnx(totensor_pyt, torch.randn(ishape), chkpt_preproc_name)
         assert os.path.isfile(chkpt_preproc_name)
         # join preprocessing and core model
         pre_model = ModelWrapper(chkpt_preproc_name)
@@ -511,11 +516,23 @@ class TestEnd2End:
         model = folding_fxn(model)
         model.save(get_checkpoint_name(topology, wbits, abits, QONNX_export, "fold"))
 
+    def test_minimize_bit_width(self, topology, wbits, abits, QONNX_export):
+        prev_chkpt_name = get_checkpoint_name(
+            topology, wbits, abits, QONNX_export, "fold"
+        )
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        model = model.transform(MinimizeAccumulatorWidth())
+        model = model.transform(MinimizeWeightBitWidth())
+        curr_chkpt_name = get_checkpoint_name(
+            topology, wbits, abits, QONNX_export, "minimize_bit_width"
+        )
+        model.save(curr_chkpt_name)
+
     @pytest.mark.slow
     @pytest.mark.vivado
     def test_cppsim(self, topology, wbits, abits, QONNX_export):
         prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "fold"
+            topology, wbits, abits, QONNX_export, "minimize_bit_width"
         )
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(PrepareCppSim())
@@ -564,12 +581,6 @@ class TestEnd2End:
         model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
         fifo_layers = model.get_nodes_by_op_type("StreamingFIFO")
         assert len(fifo_layers) > 0
-        hls_layers = model.get_finn_nodes()
-        for node in hls_layers:
-            if node.op_type != "StreamingFIFO":
-                op_inst = getCustomOp(node)
-                assert op_inst.get_nodeattr("inFIFODepths") == [0]
-                assert op_inst.get_nodeattr("outFIFODepths") == [0]
         model.save(
             get_checkpoint_name(
                 topology, wbits, abits, QONNX_export, "fifodepth_" + kind

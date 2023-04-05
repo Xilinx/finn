@@ -28,12 +28,11 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_finn_onnx, export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
@@ -68,13 +67,13 @@ def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits, QONNX_export):
     fc = get_test_model_trained(size, wbits, abits)
     ishape = (1, 1, 28, 28)
     if QONNX_export:
-        BrevitasONNXManager.export(fc, ishape, finn_onnx)
+        export_qonnx(fc, torch.randn(ishape), finn_onnx)
         qonnx_cleanup(finn_onnx, out_file=finn_onnx)
         model = ModelWrapper(finn_onnx)
         model = model.transform(ConvertQONNXtoFINN())
         model.save(finn_onnx)
     else:
-        bo.export_finn_onnx(fc, ishape, finn_onnx)
+        export_finn_onnx(fc, torch.randn(ishape), finn_onnx)
     model = ModelWrapper(finn_onnx)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())

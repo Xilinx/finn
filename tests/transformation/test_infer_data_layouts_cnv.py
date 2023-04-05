@@ -28,9 +28,10 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import os
 import qonnx.core.data_layout as DataLayout
+import torch
+from brevitas.export import export_finn_onnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
@@ -51,7 +52,7 @@ export_onnx_path_cnv = "test_infer_data_layouts.onnx"
 @pytest.mark.transform
 def test_infer_data_layouts_cnv():
     cnv = get_test_model_trained("CNV", 1, 1)
-    bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path_cnv)
+    export_finn_onnx(cnv, torch.randn(1, 3, 32, 32), export_onnx_path_cnv)
     model = ModelWrapper(export_onnx_path_cnv)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())

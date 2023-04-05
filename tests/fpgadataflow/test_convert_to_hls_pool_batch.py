@@ -35,7 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -78,7 +78,7 @@ def make_single_maxpool_modelwrapper(
         nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="mp-model")
+    model = qonnx_make_model(graph, producer_name="mp-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -112,7 +112,7 @@ def make_single_quantavpool_modelwrapper(k, stride, ifm_ch, ifm_dim, ofm_dim, id
         nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="mp-model")
+    model = qonnx_make_model(graph, producer_name="mp-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)

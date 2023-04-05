@@ -33,6 +33,7 @@ import onnx.helper as oh
 from onnx import TensorProto
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as ox
 from finn.transformation.streamline import MoveAddPastMul
@@ -44,7 +45,7 @@ def test_move_add_past_mul_single():
     add_param = oh.make_tensor_value_info("add_param", TensorProto.FLOAT, [2])
     mul_param = oh.make_tensor_value_info("mul_param", TensorProto.FLOAT, [2])
     top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, [2])
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],
@@ -76,7 +77,7 @@ def test_move_add_past_mul_multi():
     add_param_1 = oh.make_tensor_value_info("add_param_1", TensorProto.FLOAT, [2])
     mul_param_1 = oh.make_tensor_value_info("mul_param_1", TensorProto.FLOAT, [2])
     top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, [2])
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],
@@ -116,7 +117,7 @@ def test_move_add_past_mul_only_if_linear():
     value_info += [oh.make_tensor_value_info("mul1_param", TensorProto.FLOAT, [1])]
     value_info += [oh.make_tensor_value_info("mul2_param", TensorProto.FLOAT, [1])]
     value_info += [oh.make_tensor_value_info("mul3_param", TensorProto.FLOAT, [1])]
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],

@@ -30,6 +30,7 @@ import json
 import numpy as np
 import os
 import shutil
+import warnings
 from copy import deepcopy
 from distutils.dir_util import copy_tree
 from qonnx.core.modelwrapper import ModelWrapper
@@ -88,6 +89,12 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
+from finn.transformation.fpgadataflow.minimize_accumulator_width import (
+    MinimizeAccumulatorWidth,
+)
+from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
+    MinimizeWeightBitWidth,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
@@ -98,6 +105,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
     RemoveShallowFIFOs,
+    SplitLargeFIFOs,
 )
 from finn.transformation.fpgadataflow.set_folding import SetFolding
 from finn.transformation.fpgadataflow.synth_ooc import SynthOutOfContext
@@ -113,6 +121,7 @@ from finn.util.basic import (
     get_rtlsim_trace_depth,
     pyverilate_get_liveness_threshold_cycles,
 )
+from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import execute_parent
 
 
@@ -474,6 +483,16 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
+def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Tighten the weight and accumulator bit widths for each layer."""
+    if cfg.minimize_bit_width:
+        model = model.transform(MinimizeWeightBitWidth())
+        model = model.transform(MinimizeAccumulatorWidth())
+        # make sure the changed datatypes are propagated through the network
+        model = model.transform(InferDataTypes())
+    return model
+
+
 def step_hls_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     "Generate Vivado HLS code to prepare HLSCustomOp nodes for IP generation."
 
@@ -525,19 +544,32 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
             model = model.transform(DeriveFIFOSizes())
             model = model.transform(
                 InsertFIFO(
-                    vivado_ram_style=cfg.large_fifo_mem_style, max_qsrl_depth=256
+                    vivado_ram_style=cfg.large_fifo_mem_style,
+                    max_qsrl_depth=256,
+                    create_shallow_fifos=True,
                 )
             )
             model = model.transform(GiveUniqueNodeNames())
             model = model.transform(GiveReadableTensorNames())
         elif cfg.auto_fifo_strategy == "largefifo_rtlsim":
+            # multi-in/out streams currently not supported in our C++ verilator driver
+            model_multi_io = len(model.graph.input) > 1 or len(model.graph.output) > 1
+            force_python_sim = model_multi_io or cfg.force_python_rtlsim
+            if model_multi_io:
+                warnings.warn(
+                    "Multi-in/out streams currently not supported "
+                    + "in FINN C++ verilator driver, falling back to Python"
+                )
             model = model.transform(
                 InsertAndSetFIFODepths(
                     cfg._resolve_fpga_part(),
                     cfg._resolve_hls_clk_period(),
                     vivado_ram_style=cfg.large_fifo_mem_style,
+                    force_python_sim=force_python_sim,
                 )
             )
+            # InsertAndSetFIFODepths internally removes any shallow FIFOs
+            # so no need to call RemoveShallowFIFOs here
         else:
             assert "Unsupported auto_fifo_strategy: " + cfg.auto_fifo_strategy
     else:
@@ -551,8 +583,6 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveReadableTensorNames())
         if cfg.folding_config_file is not None:
             model = model.transform(ApplyConfig(cfg.folding_config_file))
-        # remove any shallow FIFOs
-        model = model.transform(RemoveShallowFIFOs())
 
     # extract the final configuration and save it as json
     hw_attrs = [
@@ -564,10 +594,19 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
         "resType",
         "mem_mode",
         "runtime_writeable_weights",
+        "inFIFODepths",
+        "outFIFODepths",
     ]
     extract_model_config_to_json(
         model, cfg.output_dir + "/final_hw_config.json", hw_attrs
     )
+
+    # perform FIFO splitting and shallow FIFO removal only after the final config
+    # json file has been written. otherwise, since these transforms may add/remove
+    # FIFOs, we get name mismatch problems when trying to reuse the final config.
+    if cfg.split_large_fifos:
+        model = model.transform(SplitLargeFIFOs())
+    model = model.transform(RemoveShallowFIFOs())
 
     # after FIFOs are ready to go, call PrepareIP and HLSSynthIP again
     # this will only run for the new nodes (e.g. FIFOs and DWCs)
@@ -632,20 +671,62 @@ def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfi
         # prepare ip-stitched rtlsim
         rtlsim_model = deepcopy(model)
         rtlsim_model = prepare_for_stitched_ip_rtlsim(rtlsim_model, cfg)
-        # run with single input to get latency
-        orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
-        rtlsim_bs = int(cfg.rtlsim_batch_size)
-        assert rtlsim_bs > 0, "rtlsim batch size must be >0"
-        if cfg.verify_save_rtlsim_waveforms:
-            # set depth to 3 for layer-by-layer visibility
-            os.environ["RTLSIM_TRACE_DEPTH"] = "3"
-            rtlsim_model.set_metadata_prop(
-                "rtlsim_trace", "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs)
+        # multi-in/out streams currently not supported in our C++ verilator driver
+        model_multi_io = (
+            len(rtlsim_model.graph.input) > 1 or len(rtlsim_model.graph.output) > 1
+        )
+        force_python_rtlsim = cfg.force_python_rtlsim or model_multi_io
+        if model_multi_io:
+            warnings.warn(
+                "Multi-in/out streams currently not supported "
+                + "in FINN C++ verilator driver, falling back to Python"
             )
-        rtlsim_model.set_metadata_prop("extra_verilator_args", str(["-CFLAGS", "-O3"]))
-        rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
-        rtlsim_latency = rtlsim_perf_dict["cycles"]
-        rtlsim_perf_dict["latency_cycles"] = rtlsim_latency
+        rtlsim_bs = int(cfg.rtlsim_batch_size)
+        orig_rtlsim_trace_depth = get_rtlsim_trace_depth()
+        if force_python_rtlsim:
+            assert rtlsim_bs > 0, "rtlsim batch size must be >0"
+            if cfg.verify_save_rtlsim_waveforms:
+                # set depth to 3 for layer-by-layer visibility
+                os.environ["RTLSIM_TRACE_DEPTH"] = "3"
+                rtlsim_model.set_metadata_prop(
+                    "rtlsim_trace",
+                    "%s/rtlsim_perf_batch_%d.vcd" % (report_dir, rtlsim_bs),
+                )
+            rtlsim_model.set_metadata_prop(
+                "extra_verilator_args", str(["-CFLAGS", "-O3"])
+            )
+            # run with single input to get latency
+            rtlsim_latency_dict = throughput_test_rtlsim(rtlsim_model, 1)
+            # run with batch to get stable-state throughput
+            rtlsim_perf_dict = throughput_test_rtlsim(rtlsim_model, rtlsim_bs)
+            rtlsim_perf_dict["latency_cycles"] = rtlsim_latency_dict["cycles"]
+        else:
+            rtlsim_perf_dict = verilator_fifosim(model, rtlsim_bs)
+            # keep keys consistent between the Python and C++-styles
+            cycles = rtlsim_perf_dict["cycles"]
+            clk_ns = float(model.get_metadata_prop("clk_ns"))
+            fclk_mhz = 1 / (clk_ns * 0.001)
+            runtime_s = (cycles * clk_ns) * (10**-9)
+            rtlsim_perf_dict["runtime[ms]"] = runtime_s * 1000
+            rtlsim_perf_dict["throughput[images/s]"] = rtlsim_bs / runtime_s
+            rtlsim_perf_dict["fclk[mhz]"] = fclk_mhz
+            for (key, val) in rtlsim_perf_dict.items():
+                if "max_count" in key:
+                    del rtlsim_perf_dict[key]
+        # estimate stable-state throughput based on latency+throughput
+        if rtlsim_bs == 1:
+            rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_perf_dict[
+                "throughput[images/s]"
+            ]
+        else:
+            total_cycles = rtlsim_perf_dict["cycles"]
+            latency_cycles = rtlsim_perf_dict["latency_cycles"]
+            stablestate_cycles = total_cycles - latency_cycles
+            clk_ns = float(model.get_metadata_prop("clk_ns"))
+            fclk_mhz = 1 / (clk_ns * 0.001)
+            runtime_s = (stablestate_cycles * clk_ns) * (10**-9)
+            rtlsim_perf_dict["stable_throughput[images/s]"] = rtlsim_bs / runtime_s
+
         with open(report_dir + "/rtlsim_performance.json", "w") as f:
             json.dump(rtlsim_perf_dict, f, indent=2)
         if cfg.verify_save_rtlsim_waveforms:
@@ -772,6 +853,7 @@ build_dataflow_step_lookup = {
     "step_create_dataflow_partition": step_create_dataflow_partition,
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
+    "step_minimize_bit_width": step_minimize_bit_width,
     "step_generate_estimate_reports": step_generate_estimate_reports,
     "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,

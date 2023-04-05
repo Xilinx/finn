@@ -62,6 +62,14 @@ finn.transformation.fpgadataflow.create\_stitched\_ip
    :undoc-members:
    :show-inheritance:
 
+finn.transformation.fpgadataflow.derive\_characteristic
+------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.derive_characteristic
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 finn.transformation.fpgadataflow.externalize\_params
 ------------------------------------------------------------
 
@@ -102,6 +110,17 @@ finn.transformation.fpgadataflow.insert\_fifo
    :members:
    :undoc-members:
    :show-inheritance:
+
+
+finn.transformation.fpgadataflow.insert\_hook
+----------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.insert_hook
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 
 finn.transformation.fpgadataflow.insert\_iodma
 ----------------------------------------------------
@@ -149,6 +168,15 @@ finn.transformation.fpgadataflow.minimize\_accumulator\_width
 --------------------------------------------------------------
 
 .. automodule:: finn.transformation.fpgadataflow.minimize_accumulator_width
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+finn.transformation.fpgadataflow.minimize\_weight\_bit\_width
+--------------------------------------------------------------
+
+.. automodule:: finn.transformation.fpgadataflow.minimize_weight_bit_width
   :members:
   :undoc-members:
   :show-inheritance:

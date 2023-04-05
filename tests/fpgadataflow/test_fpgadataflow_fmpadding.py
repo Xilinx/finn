@@ -36,7 +36,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -53,7 +53,7 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
 
-def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
+def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt):
     pad_h = padding[0] + padding[2]
     pad_w = padding[1] + padding[3]
     idim_h, idim_w = idim
@@ -70,7 +70,7 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
     )
 
     FMPadding = helper.make_node(
-        "FMPadding_Batch",
+        optype,
         ["inp"],
         ["outp"],
         domain="finn.custom_op.fpgadataflow",
@@ -87,7 +87,7 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
         nodes=[FMPadding], name="fmpadding_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="fmpadding-model")
+    model = qonnx_make_model(graph, producer_name="fmpadding-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -110,10 +110,14 @@ def make_single_fmpadding_modelwrapper(idim, padding, num_ch, simd, idt):
 @pytest.mark.parametrize("idt", [DataType["INT2"], DataType["INT4"]])
 # execution mode
 @pytest.mark.parametrize("mode", ["cppsim", "rtlsim"])
+# implementation style
+@pytest.mark.parametrize("impl_style", ["rtl", "hls"])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
+def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
+    if impl_style == "rtl" and mode == "cppsim":
+        pytest.skip("rtl implstyle has no cppsim, skipping")
     if num_ch % simd != 0:
         pytest.skip(" num_ch % simd != 0, skipping")
 
@@ -127,7 +131,9 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
     odim_h = idim_h + pad_h
     odim_w = idim_w + pad_w
 
-    model = make_single_fmpadding_modelwrapper(idim, pad, num_ch, simd, idt)
+    optype = {"hls": "FMPadding_Batch", "rtl": "FMPadding_rtl"}[impl_style]
+
+    model = make_single_fmpadding_modelwrapper(optype, idim, pad, num_ch, simd, idt)
     model = model.transform(InferShapes())
     model = model.transform(SetExecMode(mode))
     model = model.transform(GiveUniqueNodeNames())
@@ -138,6 +144,7 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
+
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     expected_oshape = (1, odim_h, odim_w, num_ch)
     assert y_produced.shape == expected_oshape
@@ -149,7 +156,7 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode):
     assert (y_produced == y_expected).all()
 
     if mode == "rtlsim":
-        node = model.get_nodes_by_op_type("FMPadding_Batch")[0]
+        node = model.get_nodes_by_op_type(optype)[0]
         inst = getCustomOp(node)
         cycles_rtlsim = inst.get_nodeattr("cycles_rtlsim")
         exp_cycles_dict = model.analysis(exp_cycles_per_layer)

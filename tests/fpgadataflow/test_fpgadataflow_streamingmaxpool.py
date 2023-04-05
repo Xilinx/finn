@@ -35,7 +35,7 @@ from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -74,7 +74,7 @@ def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_
         nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="mp-model")
+    model = qonnx_make_model(graph, producer_name="mp-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
