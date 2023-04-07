@@ -120,4 +120,6 @@ def test_brevitas_mobilenet():
     produced = odict[model.graph.output[0].name]
     produced_prob = odict["TopK_0_out0"] * a0
     assert (produced.flatten() == expected_top5).all()
-    assert np.isclose(produced_prob.flatten(), expected_top5_prob, atol=2.2*1e-1).all()
+    assert np.isclose(
+        produced_prob.flatten(), expected_top5_prob, atol=2.2 * 1e-1
+    ).all()
