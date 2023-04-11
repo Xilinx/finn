@@ -41,36 +41,36 @@ module mvu_8sx9_axi #(
     int unsigned ACCU_WIDTH,
     bit SIGNED_ACTIVATIONS = 0,
     int unsigned SEGMENTLEN = 0,
-		parameter RAM_STYLE = "auto",
+	parameter RAM_STYLE = "auto",
 
     localparam int unsigned WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
     localparam int unsigned INPUT_STREAM_WIDTH_BA = (SIMD*ACTIVATION_WIDTH+7)/8 * 8,
-		localparam int unsigned WEIGHT_STREAM_WIDTH = PE*SIMD*WEIGHT_WIDTH,
-		localparam int unsigned INPUT_STREAM_WIDTH = SIMD*ACTIVATION_WIDTH,
+	localparam int unsigned WEIGHT_STREAM_WIDTH = PE*SIMD*WEIGHT_WIDTH,
+	localparam int unsigned INPUT_STREAM_WIDTH = SIMD*ACTIVATION_WIDTH,
     localparam int unsigned SF = MW/SIMD,
-		localparam int unsigned NF = MH/PE,
+	localparam int unsigned NF = MH/PE,
     localparam int unsigned OUTPUT_LANES = PE,
     localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (OUTPUT_LANES*ACCU_WIDTH + 7)/8 * 8
 )
 (
 	// Global Control
-	input		logic  ap_clk,
-	input		logic  ap_rst_n,
+	input	logic  ap_clk,
+	input	logic  ap_rst_n,
 
 	// Weight Stream
-	input		logic [WEIGHT_STREAM_WIDTH_BA-1:0]  s_axis_weights_tdata,
-	input		logic  s_axis_weights_tvalid,
+	input	logic [WEIGHT_STREAM_WIDTH_BA-1:0]  s_axis_weights_tdata,
+	input	logic  s_axis_weights_tvalid,
 	output	logic  s_axis_weights_tready,
 
 	// Input Stream
-	input		logic [INPUT_STREAM_WIDTH_BA-1:0]  s_axis_input_tdata,
-	input		logic  s_axis_input_tvalid,
+	input	logic [INPUT_STREAM_WIDTH_BA-1:0]  s_axis_input_tdata,
+	input	logic  s_axis_input_tvalid,
 	output	logic  s_axis_input_tready,
 
 	// Output Stream
 	output	logic [OUTPUT_STREAM_WIDTH_BA-1:0]  m_axis_output_tdata,
 	output	logic  m_axis_output_tvalid,
-	input		logic  m_axis_output_tready
+	input	logic  m_axis_output_tready
 );
 
 //-------------------- Parameter sanity checks --------------------\\
@@ -121,13 +121,13 @@ module mvu_8sx9_axi #(
 		.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast), .ofin(afin)
 	);
 
-	//-------------------- Input control --------------------\\
+//-------------------- Input control --------------------\\
 	uwire en;
 	uwire istb = avld && s_axis_weights_tvalid;
 	assign ardy = en && s_axis_weights_tvalid;
 	assign s_axis_weights_tready = en && avld;
 
-	//-------------------- Core MVU --------------------\\
+//-------------------- Core MVU --------------------\\
 	uwire ovld;
 	uwire [PE-1:0][57:0] odat;
 	typedef logic [WEIGHT_STREAM_WIDTH-1 : 0] mvauin_weight_t;
@@ -138,7 +138,7 @@ module mvu_8sx9_axi #(
 		.vld(ovld), .p(odat)
 	);
 
-	//-------------------- Output register slice --------------------\\
+//-------------------- Output register slice --------------------\\
 	struct {
 		logic vld;
 		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
@@ -148,7 +148,7 @@ module mvu_8sx9_axi #(
 
 	uwire  b_load;
 	always_ff @(posedge clk) begin
-		if(rst)  A <= '{ vld: 0, default: 'x };
+		if(rst)		A <= '{ vld: 0, default: 'x };
 		else if(!A.vld || b_load) begin
 			A.vld <= ovld && en;
 			for(int unsigned  i = 0; i < PE; i++) begin
@@ -169,7 +169,7 @@ module mvu_8sx9_axi #(
 	always_ff @(posedge clk) begin
 		if(rst)		B <= '{ default: 'x };
 		else begin
-			if(b_load)	 B <= '{ vld: A.vld, dat: A.dat};
+			if(b_load)	B <= '{ vld: A.vld, dat: A.dat};
 		end	
 	end
 
