@@ -36,19 +36,25 @@ module mvu_8sx9 #(
     int unsigned SIMD,
     int unsigned ACTIVATION_WIDTH,
     int unsigned WEIGHT_WIDTH,
+	int unsigned ACCU_WIDTH,
     bit SIGNED_ACTIVATIONS = 0,
     int unsigned SEGMENTLEN = 0 // Default to 0 (which implies a single segment)
   )
   (
-    input   logic clk,
+    // Global Control
+	input   logic clk,
     input   logic rst,
     input   logic en,
+
+	// Input
     input   logic last,
-    input   logic zero,
-    input   logic [SIMD-1:0][ACTIVATION_WIDTH-1:0] a,
-    input   logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] w,
-    output  logic vld,
-    output  logic [PE-1:0][57:0] p 
+    input   logic zero, // ignore current inputs and force this partial product to zero
+    input   logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] w, // weights
+	input   logic [SIMD-1:0][ACTIVATION_WIDTH-1:0] a, // activations
+    
+	// Ouput
+	output  logic vld,
+    output  logic [PE-1:0][ACCU_WIDTH-1:0] p
   );
 
 //-------------------- Declare global signals --------------------\\
@@ -146,7 +152,7 @@ module mvu_8sx9 #(
 			uwire [57:0] pp;
 
 			if (LAST) begin : genPOUT
-				assign p[j] = pp;
+				assign p[j] = pp[ACCU_WIDTH-1:0];
 			end      
 
 			DSP58 #(
@@ -281,4 +287,4 @@ module mvu_8sx9 #(
 		end : genDSPChain  
 	end : genDSPPE
     
-endmodule
+endmodule : mvu_8sx9
