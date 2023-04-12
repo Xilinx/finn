@@ -32,25 +32,25 @@
  *****************************************************************************/
 
 module mvu_8sx9_axi #(
-    int unsigned MW,
-    int unsigned MH,
-    int unsigned PE,
-    int unsigned SIMD,
-    int unsigned ACTIVATION_WIDTH,
-    int unsigned WEIGHT_WIDTH,
-    int unsigned ACCU_WIDTH,
-    bit SIGNED_ACTIVATIONS = 0,
-    int unsigned SEGMENTLEN = 0,
+	int unsigned MW,
+	int unsigned MH,
+	int unsigned PE,
+	int unsigned SIMD,
+	int unsigned ACTIVATION_WIDTH,
+	int unsigned WEIGHT_WIDTH,
+	int unsigned ACCU_WIDTH,
+	bit SIGNED_ACTIVATIONS = 0,
+	int unsigned SEGMENTLEN = 0,
 	parameter RAM_STYLE = "auto",
 
-    localparam int unsigned WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-    localparam int unsigned INPUT_STREAM_WIDTH_BA = (SIMD*ACTIVATION_WIDTH+7)/8 * 8,
+	localparam int unsigned WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
+	localparam int unsigned INPUT_STREAM_WIDTH_BA = (SIMD*ACTIVATION_WIDTH+7)/8 * 8,
 	localparam int unsigned WEIGHT_STREAM_WIDTH = PE*SIMD*WEIGHT_WIDTH,
 	localparam int unsigned INPUT_STREAM_WIDTH = SIMD*ACTIVATION_WIDTH,
-    localparam int unsigned SF = MW/SIMD,
+	localparam int unsigned SF = MW/SIMD,
 	localparam int unsigned NF = MH/PE,
-    localparam int unsigned OUTPUT_LANES = PE,
-    localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (OUTPUT_LANES*ACCU_WIDTH + 7)/8 * 8
+	localparam int unsigned OUTPUT_LANES = PE,
+	localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (OUTPUT_LANES*ACCU_WIDTH + 7)/8 * 8
 )
 (
 	// Global Control
@@ -76,31 +76,31 @@ module mvu_8sx9_axi #(
 //-------------------- Parameter sanity checks --------------------\\
 	initial begin
 		if (MW % SIMD != 0) begin
-		$error("Matrix width (%0d) is not a multiple of SIMD (%0d).", MW, SIMD);
-		$finish;
+			$error("Matrix width (%0d) is not a multiple of SIMD (%0d).", MW, SIMD);
+			$finish;
 		end
 		if (MH % PE != 0) begin
-		$error("Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
-		$finish;
+			$error("Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
+			$finish;
 		end
 		if (ACTIVATION_WIDTH > 9) begin
-		$error("Activation width of %0d-bits exceeds maximum of 9-bits", ACTIVATION_WIDTH);
-		$finish;
+			$error("Activation width of %0d-bits exceeds maximum of 9-bits", ACTIVATION_WIDTH);
+			$finish;
 		end
 		if (WEIGHT_WIDTH > 8) begin
-		$error("Weight width of %0d-bits exceeds maximum of 8-bits", WEIGHT_WIDTH);
-		$finish;
+			$error("Weight width of %0d-bits exceeds maximum of 8-bits", WEIGHT_WIDTH);
+			$finish;
 		end
 		if (SIGNED_ACTIVATIONS == 0 && ACTIVATION_WIDTH==9) begin
-		$error("Activation width of %0d-bits exceeds maximum of 8-bits for unsigned numbers", ACTIVATION_WIDTH);
-		$finish;
+			$error("Activation width of %0d-bits exceeds maximum of 8-bits for unsigned numbers", ACTIVATION_WIDTH);
+			$finish;
 		end
 		if (SEGMENTLEN == 0) begin
-		$warning("Segment length of %0d defaults to chain length", SEGMENTLEN);
+			$warning("Segment length of %0d defaults to chain length", SEGMENTLEN);
 		end
 		if (SEGMENTLEN > (SIMD+2)/3) begin
-		$error("Segment length of %0d exceeds chain length of %0d", SEGMENTLEN, (SIMD+2)/3);
-		$finish;
+			$error("Segment length of %0d exceeds chain length of %0d", SEGMENTLEN, (SIMD+2)/3);
+			$finish;
 		end
 	end
 
