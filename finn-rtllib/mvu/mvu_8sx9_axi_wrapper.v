@@ -41,7 +41,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter 	ACCU_WIDTH = $ACCU_WIDTH$,
 	parameter 	SIGNED_ACTIVATIONS = $SIGNED_ACTIVATIONS$,
 	parameter 	SEGMENTLEN = $SEGMENTLEN$,
-	parameter 	RAM_STYLE = $IBUF_RAM_STYLE$,
+	parameter 	RAM_STYLE = "$IBUF_RAM_STYLE$",
 
 	// Safely deducible parameters
 	parameter 	WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
@@ -85,6 +85,6 @@ mvu_8sx9_axi #(
 	.m_axis_output_tdata(m_axis_output_tdata),
 	.m_axis_output_tvalid(m_axis_output_tvalid),
 	.m_axis_output_tready(m_axis_output_tready)
-)
+);
 
-endmodule : mvau_8sx9_axi_wrapper
+endmodule : $MODULE_NAME_AXI_WRAPPER$
