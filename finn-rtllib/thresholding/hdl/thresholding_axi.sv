@@ -40,16 +40,15 @@
 
 module thresholding_axi #(
 	int unsigned  N,	// output precision
-	int unsigned  M,	// input/threshold precision
+	int unsigned  K,	// input/threshold precision
 	int unsigned  C,	// Channels
-	int unsigned  PE,	// Processing Parallelism, requires C = M*PE
+	int unsigned  PE,	// Processing Parallelism, requires C = k*PE
 
-	bit SIGNED,	// signed inputs
-	int BIAS,  // offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
+	bit  SIGNED = 1,	// signed inputs
+	int  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-    localparam int unsigned  CF = 1 + (C-1)/PE,	// Channel Fold
+	localparam int unsigned  CF = 1 + (C-1)/PE,	// Channel Fold
 	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
-	localparam int unsigned  C_BITS = C/PE < 2? 1 : $clog2(C/PE),
 	localparam int unsigned  O_BITS = BIAS >= 0?
 		/* unsigned */ $clog2(2**N+BIAS) :
 		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
@@ -86,7 +85,7 @@ module thresholding_axi #(
 	//- AXI Stream - Input --------------
 	output	logic  s_axis_tready,
 	input	logic  s_axis_tvalid,
-	input	logic [((PE*M+7)/8)*8-1:0]  s_axis_tdata,
+	input	logic [((PE*K+7)/8)*8-1:0]  s_axis_tdata,
 
 	//- AXI Stream - Output -------------
 	input	logic  m_axis_tready,
@@ -108,13 +107,13 @@ module thresholding_axi #(
 	//- AXI Lite: Threshold Configuration -----------------------------------
 	uwire  twe[PE];
 	uwire [$clog2(CF)+N-1:0]  twa;
-	uwire [           M-1:0]  twd;
+	uwire [           K-1:0]  twd;
 	if(1) begin : blkAxiLite
 		logic  WABusy = 0;
 		logic  WDBusy = 0;
 		logic  Sel[PE] = '{ default: 'x };
 		logic [$clog2(CF)+N-1:0]  Addr = 'x;
-		logic [           M-1:0]  Data = 'x;
+		logic [           K-1:0]  Data = 'x;
 
 		for(genvar  pe = 0; pe < PE; pe++) begin
 			assign	twe[pe] = WABusy && WDBusy && Sel[pe];
@@ -147,7 +146,7 @@ module thresholding_axi #(
 				end
 				if(!WDBusy) begin
 					WDBusy <= s_axilite_WVALID;
-					Data   <= s_axilite_WDATA[M-1:0];
+					Data   <= s_axilite_WDATA[K-1:0];
 				end
 			end
 		end
@@ -204,12 +203,12 @@ module thresholding_axi #(
 
 	end : blkOutputDecouple
 
-	// localparam int unsigned  C_BITS = C/PE < 2? 1 : $clog2(C/PE);
+	localparam int unsigned  C_BITS = C/PE < 2? 1 : $clog2(C/PE);
 	uwire  ivld = s_axis_tvalid;
 	uwire [C_BITS-1:0]  icnl;
-	uwire [M     -1:0]  idat[PE];
+	uwire [K     -1:0]  idat[PE];
 	for(genvar  pe = 0; pe < PE; pe++) begin
-		assign	idat[pe] = s_axis_tdata[pe*M+:M];
+		assign	idat[pe] = s_axis_tdata[pe*K+:K];
 	end
 
 	assign	s_axis_tready = en;
@@ -234,7 +233,7 @@ module thresholding_axi #(
 
 	// Core Thresholding Modules
 	for(genvar  pe = 0; pe < PE; pe++) begin : genCores
-		thresholding #(.N(N), .M(M), .C(C/PE), .SIGNED(SIGNED), .BIAS(BIAS)) core (
+		thresholding #(.N(N), .K(K), .C(C/PE), .SIGNED(SIGNED), .BIAS(BIAS)) core (
 			.clk, .rst,
 			.twe(twe[pe]), .twa, .twd,
 			.en,

@@ -45,11 +45,11 @@
  *****************************************************************************/
 module thresholding #(
 	int unsigned  N,  // output precision
-	int unsigned  M,  // input/threshold precision
+	int unsigned  K,  // input/threshold precision
 	int unsigned  C,  // number of channels
 
-	bit SIGNED,	// signed inputs
-	int BIAS,  // offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
+	bit  SIGNED = 1,  // signed inputs
+	int  BIAS   = 0,  // offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
 	localparam int unsigned  C_BITS = C < 2? 1 : $clog2(C),
 	localparam int unsigned  O_BITS = BIAS >= 0?
@@ -63,15 +63,15 @@ module thresholding #(
 	// Threshold Configuration
 	input	logic  twe,
 	input	logic [$clog2(C)+N-1:0]  twa,
-	input	logic [          M-1:0]  twd,
+	input	logic [          K-1:0]  twd,
 
 	// Clock Enable for Stream Processing
 	input	logic  en,
 
 	// Input Stream
 	input	logic  ivld,
-	input	logic        [C_BITS-1:0]  icnl,	// Ignored for C == 1
-	input	logic [M     -1:0]  idat,
+	input	logic [C_BITS-1:0]  icnl,	// Ignored for C == 1
+	input	logic [K     -1:0]  idat,
 
 	// Output Stream
 	output	logic  ovld,
@@ -81,10 +81,10 @@ module thresholding #(
 
 	// Pipeline Links & Feed
 	typedef struct packed {
-		logic                      vld;	// Valid data identification
-		logic        [C_BITS-1:0]  cnl;	// Channel
-		logic [M     -1:0]  val;	// Original input value
-		logic        [0:N-1]       res;	// Assembling result with valid prefix [0:stage] after stage #stage
+		logic               vld;	// Valid data identification
+		logic [C_BITS-1:0]  cnl;	// Channel
+		logic [K     -1:0]  val;	// Original input value
+		logic [0:N-1]       res;	// Assembling result with valid prefix [0:stage] after stage #stage
 	} pipe_t;
 	uwire pipe_t  pipe[0:N];
 	assign	pipe[0] = pipe_t'{ vld: ivld, cnl: icnl, val: idat, res: {N{1'bx}} };	// Feed original input
@@ -94,20 +94,20 @@ module thresholding #(
 	for(genvar  stage = 0; stage < N; stage++) begin : genStages
 
 		// Threshold Memory
-		uwire [M-1:0]  thresh;
+		uwire [K-1:0]  thresh;
 		if(1) begin : blkUpdate
 
 			// Write control: local select from global address
 			uwire  we = twe && tws[stage];
 			if((C == 1) && (stage == 0)) begin
-				logic [M-1:0]  Thresh = 'x;
+				logic [K-1:0]  Thresh = 'x;
 				always_ff @(posedge clk) begin
 					if(we)  Thresh <= twd;
 				end
 				assign  thresh = Thresh;
 			end
 			else begin
-				logic [M-1:0]  Threshs[C * 2**stage];
+				logic [K-1:0]  Threshs[C * 2**stage];
 				uwire [$clog2(C)+stage-1:0]  wa = twa[$left(twa):N-stage];
 				uwire [$clog2(C)+stage-1:0]  ra;
 				if(C > 1)  assign  ra[stage+:C_BITS] = pipe[stage].cnl;
@@ -119,7 +119,7 @@ module thresholding #(
 				end
 
 				// Read
-				logic [M-1:0]  RdReg;
+				logic [K-1:0]  RdReg;
 				always_ff @(posedge clk) begin
 					if(en)  RdReg <= Threshs[ra];
 				end

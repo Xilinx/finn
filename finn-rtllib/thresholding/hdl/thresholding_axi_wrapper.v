@@ -34,20 +34,20 @@
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  N = $N$,	// output precision
-	parameter  M = $M$,	// input/threshold precision
+	parameter  K = $M$,	// input/threshold precision
 	parameter  C = $C$,	// Channels
-	parameter  SIGNED = $SIGNED$,	// signed inputs
-	int BIAS = $BIAS$,  // offsetting the output [0, 2^N-1) -> [-BIAS, 2^N-1 - BIAS)
 	parameter  PE = $PE$,
+	parameter  SIGNED = $SIGNED$,	// signed inputs
+	parameter  BIAS = $BIAS$,		// offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
 
 	parameter  O_BITS = BIAS > 0?
-		/* unsigned */ $clog2(2**N-BIAS) :
-		/* signed */ 1+$clog2(BIAS >= 2**(N-1)? BIAS : 2**N-BIAS)
+		/* unsigned */ $clog2(2**N+BIAS) :
+		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
 )(
 	//- Global Control ------------------
-		(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V" *)
 	input	ap_clk,
-		(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V" *)
 	input	ap_rst_n,
 
 	//- AXI Lite ------------------------
@@ -78,7 +78,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	//- AXI Stream - Input --------------
 	output	in0_V_TREADY,
 	input	in0_V_TVALID,
-	input	[((PE*M+7)/8)*8-1:0]  in0_V_TDATA,
+	input	[((PE*K+7)/8)*8-1:0]  in0_V_TDATA,
 
 	//- AXI Stream - Output -------------
 	input	out_V_TREADY,
@@ -86,7 +86,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	output	[((PE*O_BITS+7)/8)*8-1:0]  out_V_TDATA
 );
 
-	thresholding_axi #(.N(N), .M(M), .C(C), .PE(PE), .SIGNED(SIGNED), .BIAS(BIAS)) inst (
+	thresholding_axi #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .BIAS(BIAS)) inst (
 		//- Global Control ------------------
 		.ap_clk(ap_clk),
 		.ap_rst_n(ap_rst_n),
