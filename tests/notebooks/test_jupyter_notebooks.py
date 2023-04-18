@@ -12,61 +12,27 @@ notebook_cyber_dir = get_finn_root() + "/notebooks/end2end_example/cybersecurity
 notebook_bnn_dir = get_finn_root() + "/notebooks/end2end_example/bnn-pynq/"
 
 basics_notebooks = [
-    pytest.param(
-        notebook_basic_dir + "0_how_to_work_with_onnx.ipynb",
-        marks=pytest.mark.notebooks_basic,
-    ),
-    pytest.param(
-        notebook_basic_dir + "1a_brevitas_network_import_via_FINN-ONNX.ipynb",
-        marks=pytest.mark.notebooks_basic,
-    ),
-    pytest.param(
-        notebook_basic_dir + "1b_brevitas_network_import_via_QONNX.ipynb",
-        marks=pytest.mark.notebooks_basic,
-    ),
+    pytest.param(notebook_basic_dir + "0_how_to_work_with_onnx.ipynb"),
+    pytest.param(notebook_basic_dir + "1a_brevitas_network_import_via_FINN-ONNX.ipynb"),
+    pytest.param(notebook_basic_dir + "1b_brevitas_network_import_via_QONNX.ipynb"),
 ]
 
 advanced_notebooks = [
-    pytest.param(
-        notebook_advanced_dir + "0_custom_analysis_pass.ipynb",
-        marks=pytest.mark.notebooks_advanced,
-    ),
-    pytest.param(
-        notebook_advanced_dir + "1_custom_transformation_pass.ipynb",
-        marks=pytest.mark.notebooks_advanced,
-    ),
-    pytest.param(
-        notebook_advanced_dir + "2_custom_op.ipynb",
-        marks=pytest.mark.notebooks_advanced,
-    ),
+    pytest.param(notebook_advanced_dir + "0_custom_analysis_pass.ipynb"),
+    pytest.param(notebook_advanced_dir + "1_custom_transformation_pass.ipynb"),
+    pytest.param(notebook_advanced_dir + "2_custom_op.ipynb"),
 ]
 
 cyber_notebooks = [
-    pytest.param(
-        notebook_cyber_dir + "1-train-mlp-with-brevitas.ipynb",
-        marks=pytest.mark.notebooks_cyber,
-    ),
-    pytest.param(
-        notebook_cyber_dir + "2-import-into-finn-and-verify.ipynb",
-        marks=pytest.mark.notebooks_cyber,
-    ),
-    pytest.param(
-        notebook_cyber_dir + "3-build-accelerator-with-finn.ipynb",
-        marks=pytest.mark.notebooks_cyber,
-    ),
+    pytest.param(notebook_cyber_dir + "1-train-mlp-with-brevitas.ipynb"),
+    pytest.param(notebook_cyber_dir + "2-import-into-finn-and-verify.ipynb"),
+    pytest.param(notebook_cyber_dir + "3-build-accelerator-with-finn.ipynb"),
 ]
 
 bnn_notebooks = [
-    pytest.param(
-        notebook_bnn_dir + "cnv_end2end_example.ipynb", marks=pytest.mark.notebooks_bnn
-    ),
-    pytest.param(
-        notebook_bnn_dir + "tfc_end2end_example.ipynb", marks=pytest.mark.notebooks_bnn
-    ),
-    pytest.param(
-        notebook_bnn_dir + "tfc_end2end_verification.ipynb",
-        marks=pytest.mark.notebooks_bnn,
-    ),
+    pytest.param(notebook_bnn_dir + "cnv_end2end_example.ipynb"),
+    pytest.param(notebook_bnn_dir + "tfc_end2end_example.ipynb"),
+    pytest.param(notebook_bnn_dir + "tfc_end2end_verification.ipynb"),
 ]
 
 
