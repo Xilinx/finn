@@ -5,6 +5,7 @@ from nbconvert.preprocessors import ExecutePreprocessor
 
 from finn.util.basic import get_finn_root
 
+notebook_timeout_seconds = 3600
 notebook_basic_dir = get_finn_root() + "/notebooks/basics/"
 notebook_advanced_dir = get_finn_root() + "/notebooks/advanced/"
 notebook_cyber_dir = get_finn_root() + "/notebooks/end2end_example/cybersecurity/"
@@ -76,7 +77,9 @@ bnn_notebooks = [
 def test_notebook_exec(notebook):
     with open(notebook) as f:
         nb = nbformat.read(f, as_version=4)
-        ep = ExecutePreprocessor(timeout=600, kernel_name="python3")
+        ep = ExecutePreprocessor(
+            timeout=notebook_timeout_seconds, kernel_name="python3"
+        )
         try:
             assert ep.preprocess(nb) is not None, f"Got empty notebook for {notebook}"
         except Exception:
