@@ -59,15 +59,15 @@ module memstream_axi #(
 	output	logic [1:0]  bresp,
 
 	// AXI-lite Read
-	output	loigc  arready,
-	input	loigc  arvalid,
-	input	loigc [2:0]  arprot,
-	input	loigc [AXILITE_ADDR_WIDTH-1:0]  araddr,
+	output	logic  arready,
+	input	logic  arvalid,
+	input	logic [2:0]  arprot,
+	input	logic [AXILITE_ADDR_WIDTH-1:0]  araddr,
 
-	input	loigc  rready,
-	output	loigc  rvalid,
+	input	logic  rready,
+	output	logic  rvalid,
 	output	logic [ 1:0]  rresp,
-	output	loigc [31:0]  rdata,
+	output	logic [31:0]  rdata,
 
 	// Continuous output stream
 	input	logic  m_axis_0_tready,
