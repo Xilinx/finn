@@ -204,7 +204,7 @@ def test_fpgadataflow_slidingwindow_rtl(
         )
     if (stride_h > k_h) or (stride_w > k_w) and not parallel_window:
         pytest.skip(
-           "Not all combinations for stride > k edge case supported in default mode"
+            "Not all combinations for stride > k edge case supported in default mode"
         )
     if k_h == 1 and k_w == 1 and simd != ifm_ch:
         pytest.skip("1x1 Kernel only supported in parallel mode (SIMD=C)")
