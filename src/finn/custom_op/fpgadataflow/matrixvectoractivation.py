@@ -1090,7 +1090,6 @@ class MatrixVectorActivation(HLSCustomOp):
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
         self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
-        self.code_gen_dict["$GLOBALS$"] += ['#include "streamtools.h"']  # unnecessary?
 
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode not in ["const", "decoupled", "external"]:
