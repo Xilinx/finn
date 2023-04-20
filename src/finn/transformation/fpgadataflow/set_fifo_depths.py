@@ -78,8 +78,9 @@ def optimize_depth(depth):
         # Q_srl FIFOs do not benefit from size < 32
         # add some slack
         return 32
-    # round to nearest power of two for Vivado IP FIFO implementation
-    return int(2 ** math.ceil(math.log2(depth)))
+    # otherwise leave as is
+    # will be rounded to nearest power of two for Vivado-style FIFO
+    return int(depth)
 
 
 class RemoveShallowFIFOs(Transformation):
@@ -131,14 +132,17 @@ class CapConvolutionFIFODepths(Transformation):
     constructor flag is set.
 
     Constructor arguments:
-    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
-                       Verilog FIFOs (Q_srl.v)
+
+    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
+        instead of Verilog FIFOs (Q_srl.v)
 
     Assumed input graph properties:
+
     - all nodes are fpgadataflow nodes
     - FIFOs inserted with InsertAndSetFIFODepths
 
     Output:
+
     - graph with smaller-depth FIFOs for convolutions
 
     Background:
@@ -194,22 +198,25 @@ class InsertAndSetFIFODepths(Transformation):
     throughput in the created accelerator.
 
     Constructor arguments:
-    - clk_ns : clock period (used for IP preparation)
-    - max_qsrl_depth : FIFOs deeper than this will use Vivado IP instead of
-                       Verilog FIFOs (Q_srl.v)
-    - max_depth : how deep the "max"-sized FIFOs initially inserted will be
-                   if set to None, use the tensor size as the depth
-    - swg_exception : call CapConvolutionFIFODepths to make convolution FIFOs
-                        smaller where appropriate
-    - vivado_ram_style : the StreamingFIFO.ram_style attribute to be used for
-                          large FIFOs implemented by Vivado afterwards
+
+    :parameter clk_ns: clock period (used for IP preparation)
+    :parameter max_qsrl_depth: FIFOs deeper than this will use Vivado IP
+        instead of Verilog FIFOs (Q_srl.v)
+    :parameter max_depth: how deep the "max"-sized FIFOs initially inserted
+        will be. If set to None, use the tensor size as the depth
+    :parameter swg_exception: call CapConvolutionFIFODepths to make convolution FIFOs
+        smaller where appropriate
+    :parameter vivado_ram_style: the StreamingFIFO.ram_style attribute to be used
+        for large FIFOs implemented by Vivado afterwards
 
     Assumed input graph properties:
+
     - all nodes are fpgadataflow nodes
     - no FIFOs inserted,
-    - (inFIFODepth/outFIFODepth attrs will be ignored)
+    - (inFIFODepths/outFIFODepths attrs will be ignored)
 
     Output:
+
     - graph with appropriate-depth FIFOs inserted
 
     Background:
@@ -217,12 +224,14 @@ class InsertAndSetFIFODepths(Transformation):
     necessary to insert FIFOs between them to prevent stalls due to bursty
     behavior. The sizes of those FIFOs are hard to predict analytically, so
     we do the following:
+
     - insert deep (=tensor size) FIFOs between all fpgadataflow nodes
     - create stitched design
     - run through rtlsim with stream of multiple random input images (to fill pipeline)
     - keep track of observed maximum occupancy for each FIFO during rtlsim
     - when sim finished, update each FIFO depth to maximum observed occupancy
-      and set inFIFODepth/outFIFODepth attrs to 0 on relevant nodes
+      and set inFIFODepths/outFIFODepths attrs to 0 on relevant nodes
+
     """
 
     def __init__(
@@ -391,7 +400,7 @@ class InsertAndSetFIFODepths(Transformation):
             fifos[node.name] = sim[maxcount_name]
 
         # Apply depths back into the model;
-        # also set in/outFIFODepth to zero for non-FIFO
+        # also set in/outFIFODepths to zero for non-FIFO
         # nodes, preventing further FIFO insertion
         for node in model.graph.node:
             # set FIFO depth, reset FIFO implementation,
@@ -442,16 +451,74 @@ class InsertAndSetFIFODepths(Transformation):
         return (model, False)
 
 
-class SplitLargeFifos(Transformation):
-    """Split FIFOs with a depth larger than 32768 into smaller ones
-    to ensure that they can be correctly generated."""
+def get_fifo_split_configs(depth, max_qsrl_depth=256, max_vivado_depth=32768):
+    """Break non-power-of-2 sized FIFO depths into several ones"""
 
-    def __init__(
-        self,
-        max_qsrl_depth=256,
-    ):
+    def floor_pow2(x):
+        if (x & (x - 1) == 0) and x != 0:
+            return x
+        else:
+            return 1 << ((x - 1).bit_length() - 1)
+
+    def decompose_pow2(x):
+        if x <= max_qsrl_depth:
+            return [x]
+        else:
+            r = floor_pow2(x)
+            if x == r:
+                return [x]
+            else:
+                return [r, *decompose_pow2(x - r)]
+
+    ret = []
+    # trivial case: for small FIFOs, return as-is with rtl style
+    if depth <= max_qsrl_depth:
+        return [(depth, "rtl")]
+    # first pass: ensure max depth is respected
+    # (restricted by Vivado AXIS infra IP)
+    remainder = depth
+    while remainder != 0:
+        if remainder > max_vivado_depth:
+            ret.append(max_vivado_depth)
+            remainder -= max_vivado_depth
+        else:
+            ret.append(remainder)
+            remainder = 0
+    # second pass: break non-power-of-2 sized FIFOs
+    # into several ones
+
+    ret_pass2 = list(map(decompose_pow2, ret))
+    # unpack list of lists
+    ret_pass2 = [x for dec_list in ret_pass2 for x in dec_list]
+
+    # finally, add impl_style to each split FIFO
+    ret_final = []
+    for cand_depth in ret_pass2:
+        if cand_depth <= max_qsrl_depth:
+            ret_final.append((cand_depth, "rtl"))
+        else:
+            ret_final.append((cand_depth, "vivado"))
+
+    return ret_final
+
+
+class SplitLargeFIFOs(Transformation):
+    """Split large FIFOs before implementation, for two reasons:
+
+    - impl_style="vivado" supports a max depth of 32k. Any larger
+      FIFOs must be implemented as a sequence of smaller FIFOs.
+    - impl_style="vivado" requires power-of-two depths, which is
+      normally handled by rounding up to the nearest power-of-two.
+      So a FIFO of size 8196 normally gets rounded-up to a depth of
+      16384 and wastes a lot of resources. Here, instead, we split
+      this up into two FIFOs of depth 8192 + 4.
+
+    """
+
+    def __init__(self, max_qsrl_depth=256, max_vivado_depth=32768):
         super().__init__()
         self.max_qsrl_depth = max_qsrl_depth
+        self.max_vivado_depth = max_vivado_depth
 
     def get_split_configs(self, depth):
         max_size = 32768
@@ -505,7 +572,9 @@ class SplitLargeFifos(Transformation):
             if node.op_type == "StreamingFIFO":
                 n_inst = getCustomOp(node)
                 depth = n_inst.get_nodeattr("depth")
-                cfgs = self.get_split_configs(depth)
+                cfgs = get_fifo_split_configs(
+                    depth, self.max_qsrl_depth, self.max_vivado_depth
+                )
                 if len(cfgs) > 1:
                     fld_shape = n_inst.get_folded_output_shape()
                     dtype = n_inst.get_nodeattr("dataType")

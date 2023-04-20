@@ -1,4 +1,4 @@
-# Copyright (c) 2022, Xilinx
+# Copyright (c) 2022, Advanced Micro Devices, Inc.
 # All rights reserved.
 #
 # Redistribution and use in source and binary forms, with or without
@@ -358,8 +358,6 @@ def test_fpgadataflow_conv_dynamic(cfg):
         ctx = {"global_in": inp.transpose(0, 2, 3, 1)}
         liveness_prev = pyverilate_get_liveness_threshold_cycles()
         os.environ["LIVENESS_THRESHOLD"] = "100000"
-        # model.set_metadata_prop("rtlsim_trace", "trace_%d.vcd" % idim)
-        # import pdb; pdb.set_trace()
         rtlsim_exec(model, ctx, pre_hook=config_hook(configs))
         os.environ["LIVENESS_THRESHOLD"] = str(liveness_prev)
         ret = ctx["global_out"].transpose(0, 3, 1, 2)
@@ -485,6 +483,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("m", [1])
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.fpgadataflow
 def test_fpgadataflow_slidingwindow_rtl_dynamic(
     idt, k, ifm_dim_series, ifm_ch, stride, dilation, dw, simd, m, parallel_window
 ):
@@ -567,7 +566,7 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
 
             # Generate config, also overwrites IFMDim/OFMDim attributes:
             config = swg_inst.get_dynamic_config(ifm_dim)
-            configs = [("s_axi_cfg_0_", config)]
+            configs = [("s_axilite_0_", config)]
 
             # Also update FIFO nodes and corresponding tensors
             fifo_node = model.get_nodes_by_op_type("StreamingFIFO")[0]

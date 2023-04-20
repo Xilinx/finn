@@ -101,19 +101,21 @@ def get_stream_if_stats(vcd_file, if_base_name):
     <stream_state>: (<num_samples>, <fraction_of_time>),
 
     where <stream_state> is the combination of (V)alid/(R)eady values,
-    <num_samples> is the approximate number of rising clock edges spent in <state>
-    , and <fraction_of_time> is the fraction of <num_samples> to total
+    <num_samples> is the approximate number of rising clock edges spent in <state>,
+    and <fraction_of_time> is the fraction of <num_samples> to total
     amount of time recorded by the trace.
 
     Example:
-    {"{'V': 0, 'R': 0}": (5, 0.0006060606060606061),
-     "{'V': 1, 'R': 0}": (0, 0.0),
-     "{'V': 0, 'R': 1}": (7605, 0.9218181818181819),
-     "{'V': 1, 'R': 1}": (640, 0.07757575757575758)}
-
+    {
+    "{'V': 0, 'R': 0}": (5, 0.0006060606060606061),
+    "{'V': 1, 'R': 0}": (0, 0.0),
+    "{'V': 0, 'R': 1}": (7605, 0.9218181818181819),
+    "{'V': 1, 'R': 1}": (640, 0.07757575757575758)
+    }
     Here we can see the stream was transmitting values 7.7% of the time,
     and 9.2% of the time there was no incoming data (valid 0, ready 1)
     """
+
     if_valid = if_base_name + vname
     if_ready = if_base_name + rname
     v = VCDVCD(vcd_file, signals=[if_valid], store_tvs=True)

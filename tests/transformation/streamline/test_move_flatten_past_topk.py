@@ -47,7 +47,7 @@ from finn.transformation.streamline.reorder import MoveFlattenPastTopK
 @pytest.mark.parametrize("data_layout", [DataLayout.NHWC, DataLayout.NCHW])
 # batch size
 @pytest.mark.parametrize("batch_size", [1, 2])
-def test_move_flatten_past_affine(data_layout, batch_size):
+def test_move_flatten_past_topk(data_layout, batch_size):
     if data_layout == DataLayout.NHWC:
         ishape = [batch_size, 1, 1, 1024]
         oshape = [batch_size, 1024]

@@ -127,7 +127,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
 class DeriveFIFOSizes(NodeLocalTransformation):
     """Prerequisite: DeriveCharacteristic already called on graph.
     For each node in the graph, use the accumulated I/O characteristic function
-    to perform FIFO sizing, setting the in/outFIFODepth attributes of HLSCustomOp
+    to perform FIFO sizing, setting the in/outFIFODepths attributes of HLSCustomOp
     nodes.
 
     * num_workers (int or None) number of parallel workers, see documentation in
@@ -178,7 +178,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                     fifo_depth = int((prod_chrc_part - cons_chrc_part).max())
                     out_fifo_depths.append(fifo_depth)
                 # set output FIFO depth for this (producing) node
-                # InsertFIFO looks at the max of (outFIFODepth, inFIFODepth)
+                # InsertFIFO looks at the max of (outFIFODepths, inFIFODepths)
                 # for each tensor
                 prod.set_nodeattr("outFIFODepths", out_fifo_depths)
 
