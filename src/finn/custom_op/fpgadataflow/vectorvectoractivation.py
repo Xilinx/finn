@@ -580,28 +580,10 @@ class VectorVectorActivation(HLSCustomOp):
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
-                # note that we provide two different .dat files, one for synth
-                # and one for synthesis. this is because URAM-based weights always
-                # need zero weights for synthesis, otherwise they get inferred
-                # as BRAM
-                weight_filename_rtl_synth = "{}/memblock_synth_0.dat".format(
-                    code_gen_dir
-                )
-                weight_filename_rtl_sim = "{}/memblock_sim_0.dat".format(code_gen_dir)
-                # sim weights are always the true weights
+                # This file will be ignored when synthesizing UltraScale memory.
+                weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
                 self.make_weight_file(
-                    weights, "decoupled_verilog_dat", weight_filename_rtl_sim
-                )
-                ram_style = self.get_nodeattr("ram_style")
-                if ram_style == "ultra":
-                    # UltraRAM must have no memory initializer, or only zeroes
-                    # otherwise BRAM will be inferred instead of URAM
-                    # as a workaround we provide a zero-weight init here
-                    synth_weights = np.zeros_like(weights, dtype=np.float32)
-                else:
-                    synth_weights = weights
-                self.make_weight_file(
-                    synth_weights, "decoupled_verilog_dat", weight_filename_rtl_synth
+                    weights, "decoupled_verilog_dat", weight_filename_rtl
                 )
         else:
             raise Exception(
@@ -1068,7 +1050,7 @@ class VectorVectorActivation(HLSCustomOp):
                 % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
             )
             # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "xilinx.com:user:memstream:1.0"
+            strm_vlnv = "amd.com:FINN:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type ip -vlnv %s /%s/%s"
@@ -1076,22 +1058,16 @@ class VectorVectorActivation(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict [list "
-                "CONFIG.NSTREAMS {1} "
-                "CONFIG.MEM_DEPTH {%d} "
-                "CONFIG.MEM_WIDTH {%d} "
-                "CONFIG.MEM_INIT {%s} "
+                "CONFIG.DEPTH {%d} "
+                "CONFIG.WIDTH {%d} "
+                "CONFIG.INIT_FILE {%s} "
                 "CONFIG.RAM_STYLE {%s} "
-                "CONFIG.STRM0_DEPTH {%d} "
-                "CONFIG.STRM0_WIDTH {%d} "
-                "CONFIG.STRM0_OFFSET {0} "
                 "] [get_bd_cells /%s/%s]"
                 % (
                     self.calc_wmem(),
                     self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/",
+                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
                     self.get_nodeattr("ram_style"),
-                    self.calc_wmem(),
-                    self.get_weightstream_width_padded(),
                     node_name,
                     strm_inst,
                 )
