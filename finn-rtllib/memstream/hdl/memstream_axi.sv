@@ -130,7 +130,7 @@ module memstream_axi #(
 		.odat(m_axis_0_tdata[WIDTH-1:0])
 	);
 	if($bits(m_axis_0_tdata) > WIDTH) begin
-		assign	m_axis_0_tdata[$left(m_axis_0_tdata):WIDTH] <= '0;
+		assign	m_axis_0_tdata[$left(m_axis_0_tdata):WIDTH] = '0;
 	end
 
 endmodule : memstream_axi

@@ -31,13 +31,13 @@
  */
 
 module memstream_axi_wrapper #(
-	parameter  DEPTH = $DEPTH$,
-	parameter  WIDTH = $WIDTH$,
+	parameter  DEPTH = 512,
+	parameter  WIDTH = 32,
 
-	parameter  INIT_FILE = $INIT_FILE$,
-	parameter  RAM_STYLE = $RAM_STYLE$,
+	parameter  INIT_FILE = "",
+	parameter  RAM_STYLE = "auto",
 
-	localparam  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2
+	parameter  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axis_0" *)
@@ -77,9 +77,15 @@ module memstream_axi_wrapper #(
 	output	[((WIDTH+7)/8)*8-1:0]  m_axis_0_tdata
 );
 
+	localparam  INIT_FILTERED =
+`ifdef SYNTHESIS
+		RAM_STYLE == "ultra"? "" :
+`endif
+		INIT_FILE;
+
 	memstream_axi #(
 		.DEPTH(DEPTH), .WIDTH(WIDTH),
-		.INIT_FILE(INIT_FILE),
+		.INIT_FILE(INIT_FILTERED),
 		.RAM_STYLE(RAM_STYLE)
 	) core (
 		.clk(ap_clk), .rst(!ap_rst_n),
