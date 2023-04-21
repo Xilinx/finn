@@ -46,8 +46,6 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 
-from . import templates
-
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
 # input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
@@ -62,7 +60,6 @@ class MatrixVectorActivation(HLSCustomOp):
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
-        self.decoupled_wrapper = templates.decoupled_wrapper
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -869,7 +866,9 @@ class MatrixVectorActivation(HLSCustomOp):
                 # also save weights as Verilog .dat file
                 # This file will be ignored when synthesizing UltraScale memory.
                 weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
-                self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
+                self.make_weight_file(
+                    weights, "decoupled_verilog_dat", weight_filename_rtl
+                )
         else:
             raise Exception(
                 """Please set mem_mode to "const", "decoupled", or "external",
@@ -1378,7 +1377,7 @@ class MatrixVectorActivation(HLSCustomOp):
                     self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
                     self.get_nodeattr("ram_style"),
                     node_name,
-                    strm_inst
+                    strm_inst,
                 )
             )
             cmd.append(
