@@ -73,4 +73,3 @@ proc update_MODELPARAM_VALUE.AXILITE_ADDR_WIDTH { MODELPARAM_VALUE.AXILITE_ADDR_
 	# WARNING: There is no corresponding user parameter named "AXILITE_ADDR_WIDTH". Setting updated value from the model parameter.
 set_property value 11 ${MODELPARAM_VALUE.AXILITE_ADDR_WIDTH}
 }
-
