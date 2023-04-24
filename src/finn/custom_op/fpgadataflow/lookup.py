@@ -44,8 +44,8 @@ from finn.util.data_packing import (
 class Lookup(HLSCustomOp):
     "Streaming elementwise HLS lookup, mapping indices to values."
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {

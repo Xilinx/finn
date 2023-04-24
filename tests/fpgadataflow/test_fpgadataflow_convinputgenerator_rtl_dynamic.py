@@ -45,7 +45,7 @@ from qonnx.transformation.lower_convs_to_matmul import (
     LowerConvsToMatMul,
     _auto_pad_to_explicit_padding,
 )
-from qonnx.util.basic import gen_finn_dt_tensor, get_by_name
+from qonnx.util.basic import gen_finn_dt_tensor, get_by_name, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -213,6 +213,7 @@ cfg2 = {
 @pytest.mark.parametrize("cfg", [cfg0, cfg1, cfg2])
 @pytest.mark.slow
 @pytest.mark.vivado
+@pytest.mark.fpgadataflow
 def test_fpgadataflow_conv_dynamic(cfg):
     pad_mode = cfg["pad_mode"]
     depthwise = cfg["depthwise"]
@@ -286,7 +287,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
             getCustomOp(comp_node).set_nodeattr("SIMD", 4)
             getCustomOp(comp_node).set_nodeattr("PE", 4)
     model = model.transform(InsertDWC())
-    model = model.transform(InsertFIFO())
+    model = model.transform(InsertFIFO(create_shallow_fifos=True))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
@@ -395,7 +396,7 @@ def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilatio
         nodes=[im2col_node], name="im2col_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="im2col-model")
+    model = qonnx_make_model(graph, producer_name="im2col-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -448,7 +449,7 @@ def make_single_slidingwindow_modelwrapper(
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="slidingwindow-model")
+    model = qonnx_make_model(graph, producer_name="slidingwindow-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)

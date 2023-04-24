@@ -177,14 +177,9 @@ class InsertFIFO(Transformation):
                             for idx, inp in enumerate(consumer.input):
                                 if inp == output_name:
                                     consumer.input[idx] = fifo_output_tensor.name
-                            # ensure created FIFO depth is reflected on both sides
-                            odepths = n0.get_nodeattr("outFIFODepths")
-                            odepths[idx_out] = fifo_depth
-                            n0.set_nodeattr("outFIFODepths", odepths)
-                            idepths = n1.get_nodeattr("inFIFODepths")
-                            idepths[idx_inp] = fifo_depth
-                            n1.set_nodeattr("inFIFODepths", idepths)
-
+                            # removed setting of node attributes based on created
+                            # FIFO sizes here, better to preserve original attrs
+                            # as they are.
                             graph_modified = True
 
         if graph_modified is False:
@@ -204,41 +199,44 @@ class InsertFIFO(Transformation):
                     dtype = n0.get_input_datatype(inp_ind)
                     fifo_depth = n0.get_nodeattr("inFIFODepths")[inp_ind]
 
-                    if fifo_depth <= 2:
-                        warnings.warn("Overriding input FIFO depth to 32")
-                        fifo_depth = 32
+                    if fifo_depth > 2 or self.create_shallow_fifos:
+                        # create fifo node
+                        fifo_output_tensor = oh.make_tensor_value_info(
+                            model.make_new_valueinfo_name(),
+                            TensorProto.FLOAT,
+                            n0.get_normal_input_shape(),
+                        )
+                        graph.value_info.append(fifo_output_tensor)
+                        model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
-                    # create fifo node
-                    fifo_output_tensor = oh.make_tensor_value_info(
-                        model.make_new_valueinfo_name(),
-                        TensorProto.FLOAT,
-                        n0.get_normal_input_shape(),
-                    )
-                    graph.value_info.append(fifo_output_tensor)
-                    model.set_tensor_datatype(fifo_output_tensor.name, dtype)
-
-                    if self.max_qsrl_depth is None or fifo_depth <= self.max_qsrl_depth:
+                        # only use rtl-style FIFOs to avoid simulation bug
+                        # (top-level IOs should not have impl_style=vivado)
                         impl_style = "rtl"
+
+                        fifo_node = oh.make_node(
+                            "StreamingFIFO",
+                            [n_input],
+                            [fifo_output_tensor.name],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            depth=fifo_depth,
+                            folded_shape=fld_shape,
+                            dataType=str(dtype.name),
+                            impl_style=impl_style,
+                            ram_style=self.vivado_ram_style,
+                        )
+                        # insert fifo
+                        graph.node.insert(0, fifo_node)
+
+                        # set fifo output tensor as new input tensor of second node
+                        first_node.input[inp_ind] = fifo_output_tensor.name
                     else:
-                        impl_style = "vivado"
-
-                    fifo_node = oh.make_node(
-                        "StreamingFIFO",
-                        [n_input],
-                        [fifo_output_tensor.name],
-                        domain="finn.custom_op.fpgadataflow",
-                        backend="fpgadataflow",
-                        depth=fifo_depth,
-                        folded_shape=fld_shape,
-                        dataType=str(dtype.name),
-                        impl_style=impl_style,
-                        ram_style=self.vivado_ram_style,
-                    )
-                    # insert fifo
-                    graph.node.insert(0, fifo_node)
-
-                    # set fifo output tensor as new input tensor of second node
-                    first_node.input[inp_ind] = fifo_output_tensor.name
+                        warnings.warn(
+                            """Input FIFO for %s has depth %d and won't
+                        be created. This may cause RTL simulation issues.
+                        """
+                            % (graph_in_name, fifo_depth)
+                        )
 
             # insert FIFO as last node, except when last node is DMA
             graph_out_names = [x.name for x in model.graph.output]
@@ -259,40 +257,43 @@ class InsertFIFO(Transformation):
                     dtype = n0.get_output_datatype(out_ind)
                     fifo_depth = n0.get_nodeattr("outFIFODepths")[out_ind]
 
-                    if fifo_depth <= 2:
-                        warnings.warn("Overriding output FIFO depth to 32")
-                        fifo_depth = 32
+                    if fifo_depth > 2 or self.create_shallow_fifos:
+                        # create fifo node
+                        fifo_input_tensor = oh.make_tensor_value_info(
+                            model.make_new_valueinfo_name(),
+                            TensorProto.FLOAT,
+                            n0.get_normal_output_shape(),
+                        )
+                        graph.value_info.append(fifo_input_tensor)
+                        model.set_tensor_datatype(fifo_input_tensor.name, dtype)
 
-                    # create fifo node
-                    fifo_input_tensor = oh.make_tensor_value_info(
-                        model.make_new_valueinfo_name(),
-                        TensorProto.FLOAT,
-                        n0.get_normal_output_shape(),
-                    )
-                    graph.value_info.append(fifo_input_tensor)
-                    model.set_tensor_datatype(fifo_input_tensor.name, dtype)
-
-                    if self.max_qsrl_depth is None or fifo_depth <= self.max_qsrl_depth:
+                        # only use rtl-style FIFOs to avoid simulation bug
+                        # (top-level IOs should not have impl_style=vivado)
                         impl_style = "rtl"
+
+                        fifo_node = oh.make_node(
+                            "StreamingFIFO",
+                            [fifo_input_tensor.name],
+                            [graph_out_name],
+                            domain="finn.custom_op.fpgadataflow",
+                            backend="fpgadataflow",
+                            depth=fifo_depth,
+                            folded_shape=fld_shape,
+                            dataType=str(dtype.name),
+                            impl_style=impl_style,
+                            ram_style=self.vivado_ram_style,
+                        )
+                        # insert fifo
+                        graph.node.append(fifo_node)
+
+                        # set fifo output tensor as new input tensor of second node
+                        final_node.output[0] = fifo_input_tensor.name
                     else:
-                        impl_style = "vivado"
-
-                    fifo_node = oh.make_node(
-                        "StreamingFIFO",
-                        [fifo_input_tensor.name],
-                        [graph_out_name],
-                        domain="finn.custom_op.fpgadataflow",
-                        backend="fpgadataflow",
-                        depth=fifo_depth,
-                        folded_shape=fld_shape,
-                        dataType=str(dtype.name),
-                        impl_style=impl_style,
-                        ram_style=self.vivado_ram_style,
-                    )
-                    # insert fifo
-                    graph.node.append(fifo_node)
-
-                    # set fifo output tensor as new input tensor of second node
-                    final_node.output[0] = fifo_input_tensor.name
+                        warnings.warn(
+                            """Output FIFO for %s has depth %d and won't
+                        be created. This may cause RTL simulation issues.
+                        """
+                            % (graph_out_name, fifo_depth)
+                        )
 
         return (model, graph_modified)

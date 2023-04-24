@@ -28,8 +28,9 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import os
+import torch
+from brevitas.export import export_finn_onnx
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
@@ -45,7 +46,7 @@ export_onnx_path = "test_infer_datatypes.onnx"
 @pytest.mark.transform
 def test_infer_datatypes_lfc():
     lfc = get_test_model_trained("LFC", 1, 1)
-    bo.export_finn_onnx(lfc, (1, 1, 28, 28), export_onnx_path)
+    export_finn_onnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())

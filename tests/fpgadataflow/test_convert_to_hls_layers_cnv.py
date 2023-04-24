@@ -30,9 +30,10 @@ import pkg_resources as pk
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import os
+import torch
+from brevitas.export import export_finn_onnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
@@ -61,7 +62,7 @@ export_onnx_path_cnv = "test_convert_to_hls_layers_cnv.onnx"
 @pytest.mark.parametrize("fused_activation", [True, False])
 def test_convert_to_hls_layers_cnv_w1a1(fused_activation):
     cnv = get_test_model_trained("CNV", 1, 1)
-    bo.export_finn_onnx(cnv, (1, 3, 32, 32), export_onnx_path_cnv)
+    export_finn_onnx(cnv, torch.randn(1, 3, 32, 32), export_onnx_path_cnv)
     model = ModelWrapper(export_onnx_path_cnv)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())

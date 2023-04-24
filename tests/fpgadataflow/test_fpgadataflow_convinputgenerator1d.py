@@ -35,7 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -82,7 +82,7 @@ def make_single_im2col_modelwrapper(
         nodes=[im2col_node], name="im2col_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="im2col-model")
+    model = qonnx_make_model(graph, producer_name="im2col-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -133,7 +133,7 @@ def make_single_slidingwindow_modelwrapper(
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="slidingwindow-model")
+    model = qonnx_make_model(graph, producer_name="slidingwindow-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)

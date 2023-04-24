@@ -39,8 +39,8 @@ class DownSampler(HLSCustomOp):
     """Corresponds to finn-hlslib ConvolutionInputGenerator_*_kernel1 function.
     Basically performs a down sampling of the image removing rows and columns."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {

@@ -9,14 +9,14 @@ Hardware Build and Deployment
    :align: center
 
 A model where all layers have been converted to HLS layers can be processed by
-FINN to build a bitfile and driver targeting a Zynq system or to generate a Vivado IP Integrator (IPI)
+FINN to build a bitfile and driver targeting a Zynq or Alveo system or to generate a Vivado IP Integrator (IPI)
 design with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system.
 
 
 Hardware Build
 ==============
 
-Internally, the hardware build for Zynq devices consists of the following steps:
+Internally, the hardware build consists of the following steps:
 
 1. Driver generation
 2. DMA and DWC node insertion
@@ -89,9 +89,4 @@ Deployment
 Deployment and Remote Execution
 -------------------------------
 
-The bitfile and the driver file(s) are copied to the PYNQ board and can be executed there using the *onnx_exec* function with the right *exec_mode* settings. For details please have a look at transformation :py:mod:`finn.transformation.fpgadataflow.make_deployment.DeployToPYNQ` and the execution function :py:mod:`finn.core.onnx_exec`.
-
-Throughput Test
----------------
-
-FINN also offers the possibility to measure the network performance directly on the PYNQ board. This can be done by using :py:mod:`finn.core.throughput_test`. When running this function the metrics of the network are returned as dictionary.
+The bitfile and the driver file(s) are copied to the PYNQ board and can be executed there. For more information see the description in the `end2end_example <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example>`_ Jupyter notebooks.

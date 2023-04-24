@@ -41,8 +41,8 @@ from . import templates
 
 
 class StreamingFIFO(HLSCustomOp):
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
         self.strm_fifo_wrapper = templates.strm_fifo_wrapper
 
     def get_nodeattr_types(self):
@@ -72,6 +72,9 @@ class StreamingFIFO(HLSCustomOp):
                 ),
                 # whether depth monitoring is enabled (impl_style=rtl only)
                 "depth_monitor": ("i", False, 0),
+                # the FIFO does not need its own FIFOs
+                "inFIFODepths": ("ints", False, [0]),
+                "outFIFODepths": ("ints", False, [0]),
             }
         )
 

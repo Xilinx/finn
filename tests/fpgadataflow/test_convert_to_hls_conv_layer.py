@@ -38,7 +38,7 @@ from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -73,9 +73,6 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mod
     if use_rtl_swg and exec_mode == "cppsim":
         pytest.skip("cppsim not supported for RTL SWG")
 
-    if use_rtl_swg and kernel_size == 1:
-        pytest.skip("1x1 kernel not supported by current RTL SWG")
-
     if depthwise is True:
         group = out_chn = in_chn
         conv_param_shape = [out_chn, 1, kernel_size, kernel_size]
@@ -107,7 +104,7 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mod
         helper.make_tensor_value_info("p1", TensorProto.FLOAT, conv_param_shape)
     ]
 
-    modelproto = helper.make_model(
+    modelproto = qonnx_make_model(
         helper.make_graph(
             name="conv_test",
             inputs=[top_in],
@@ -164,7 +161,7 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mod
     inp_dict = {model.graph.input[0].name: x}
     assert oxe.compare_execution(model, new_model, inp_dict)
 
-    if kernel_size == 1 and stride > 1 and pad == 0:
+    if not use_rtl_swg and kernel_size == 1 and stride > 1 and pad == 0:
         assert new_model.graph.node[1].op_type == "DownSampler"
         if exec_mode == "rtlsim":
             node = new_model.get_nodes_by_op_type("DownSampler")[0]
@@ -175,8 +172,11 @@ def test_convert_to_hls_conv_layer(conv_config, depthwise, use_rtl_swg, exec_mod
             assert np.isclose(exp_cycles, cycles_rtlsim, atol=11)
             assert exp_cycles != 0
 
-    if pad == 1:
-        padding_node = new_model.get_nodes_by_op_type("FMPadding_Batch")[0]
+    if pad:
+        if use_rtl_swg:
+            padding_node = new_model.get_nodes_by_op_type("FMPadding_rtl")[0]
+        else:
+            padding_node = new_model.get_nodes_by_op_type("FMPadding_Batch")[0]
         padding_inst = getCustomOp(padding_node)
         assert padding_inst.get_nodeattr("SIMD") == in_chn
 

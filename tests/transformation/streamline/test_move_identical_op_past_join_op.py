@@ -30,7 +30,7 @@ import pytest
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveTransposePastJoinAdd
@@ -81,7 +81,7 @@ def create_model(perm):
         ],
     )
 
-    onnx_model = oh.make_model(graph, producer_name="test_model")
+    onnx_model = qonnx_make_model(graph, producer_name="test_model")
     model = ModelWrapper(onnx_model)
 
     return model

@@ -32,6 +32,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
+from qonnx.util.basic import qonnx_make_model
 
 from finn.analysis.fpgadataflow.res_estimation import (
     res_estimation,
@@ -87,7 +88,7 @@ def test_res_estimate():
         nodes=[FCLayer_node], name="fclayer_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="fclayer-model")
+    model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -100,7 +101,7 @@ def test_res_estimate():
         "MatrixVectorActivation_0": {
             "BRAM_18K": 0,
             "BRAM_efficiency": 1,
-            "LUT": 357,
+            "LUT": 317,
             "DSP": 0,
             "URAM_efficiency": 1,
             "URAM": 0,
@@ -118,7 +119,7 @@ def test_res_estimate():
             {
                 "BRAM_18K": 0,
                 "BRAM_efficiency": 1,
-                "LUT": 352,
+                "LUT": 313,
                 "DSP": 1,
                 "URAM": 0,
                 "URAM_efficiency": 1,
@@ -126,7 +127,7 @@ def test_res_estimate():
             {
                 "BRAM_18K": 0,
                 "BRAM_efficiency": 1,
-                "LUT": 357,
+                "LUT": 317,
                 "DSP": 0,
                 "URAM": 0,
                 "URAM_efficiency": 1,

@@ -36,7 +36,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -87,7 +87,7 @@ def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt)
         nodes=[FMPadding], name="fmpadding_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="fmpadding-model")
+    model = qonnx_make_model(graph, producer_name="fmpadding-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -125,12 +125,6 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
     pad_h = pad[0] + pad[2]
     pad_w = pad[1] + pad[3]
 
-    if idim_h == idim_w and pad_h != pad_w and impl_style != "rtl":
-        pytest.skip(
-            """Only equal padding along the dimensions for square images
-            is supported for HLS, skipping"""
-        )
-
     # generate input data
     x = gen_finn_dt_tensor(idt, [1, idim_h, idim_w, num_ch])
     input_dict = {"inp": x}
@@ -150,8 +144,6 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(PrepareRTLSim())
-        node = model.get_nodes_by_op_type(optype)[0]
-        inst = getCustomOp(node)
 
     y_produced = oxe.execute_onnx(model, input_dict)["outp"]
     expected_oshape = (1, odim_h, odim_w, num_ch)

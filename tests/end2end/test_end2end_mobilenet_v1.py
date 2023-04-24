@@ -27,11 +27,11 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import os
 import time
 import torch
+from brevitas.export import export_finn_onnx
 from PIL import Image
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -95,7 +95,7 @@ def test_end2end_mobilenet_export():
     std = 0.226
     ch = 3
     preproc = NormalizePreProc(mean, std, ch)
-    bo.export_finn_onnx(preproc, (1, 3, 224, 224), preproc_onnx)
+    export_finn_onnx(preproc, torch.randn(1, 3, 224, 224), preproc_onnx)
     preproc_model = ModelWrapper(preproc_onnx)
     # set input finn datatype to UINT8
     preproc_model.set_tensor_datatype(
@@ -111,7 +111,7 @@ def test_end2end_mobilenet_export():
     # export mobilenet
     finn_onnx = build_dir + "/end2end_mobilenet_export.onnx"
     mobilenet = get_test_model_trained("mobilenet", 4, 4)
-    bo.export_finn_onnx(mobilenet, (1, 3, 224, 224), finn_onnx)
+    export_finn_onnx(mobilenet, torch.randn(1, 3, 224, 224), finn_onnx)
 
     # calculate golden output with pytorch/brevitas and save as .npy
     # get single image as input and prepare image

@@ -33,7 +33,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
@@ -72,7 +72,7 @@ def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilatio
         nodes=[im2col_node], name="im2col_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="im2col-model")
+    model = qonnx_make_model(graph, producer_name="im2col-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -124,7 +124,7 @@ def make_single_slidingwindow_modelwrapper(
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="slidingwindow-model")
+    model = qonnx_make_model(graph, producer_name="slidingwindow-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -140,9 +140,9 @@ def prepare_inputs(input_tensor):
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["UINT4"]])
 # kernel size
-@pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 3]])
+@pytest.mark.parametrize("k", [[3, 3], [1, 5]])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[24, 24], [15, 6], [13, 13], [1, 14]])
+@pytest.mark.parametrize("ifm_dim", [[13, 13], [1, 21]])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [6])
 # Stride
@@ -152,9 +152,9 @@ def prepare_inputs(input_tensor):
 # depthwise
 @pytest.mark.parametrize("dw", [0, 1])
 # input channel parallelism ("SIMD")
-@pytest.mark.parametrize("simd", [1, 2, 3, 6])
+@pytest.mark.parametrize("simd", [1, 3, 6])
 # parallel_window enable (MMV_out = M*K)
-@pytest.mark.parametrize("parallel_window", [0])
+@pytest.mark.parametrize("parallel_window", [0, 1])
 # in/out MMV ("M")
 @pytest.mark.parametrize("m", [1])
 # Flip dimensions
@@ -198,12 +198,13 @@ def test_fpgadataflow_slidingwindow_rtl(
         pytest.skip(
             "Illegal convolution configuration: kernel or stride > FM dimension"
         )
-    if (k_h == 1 and (stride_h != 1 or dilation_h != 1)) or (
-        k_w == 1 and (stride_w != 1 or dilation_w != 1)
-    ):
+    if (k_h == 1 and dilation_h != 1) or (k_w == 1 and dilation_w != 1):
         pytest.skip(
-            """Illegal convolution configuration:
-            stride or dilation defined for unitary kernel dim"""
+            "Illegal convolution configuration: dilation for unitary kernel dim"
+        )
+    if (stride_h > k_h) or (stride_w > k_w) and not parallel_window:
+        pytest.skip(
+            "Not all combinations for stride > k edge case supported in default mode"
         )
     if k_h == 1 and k_w == 1 and simd != ifm_ch:
         pytest.skip("1x1 Kernel only supported in parallel mode (SIMD=C)")
