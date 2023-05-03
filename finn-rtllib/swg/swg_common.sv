@@ -29,6 +29,18 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
+`ifndef FINN_SWG_ENUM_DEFINED
+`define FINN_SWG_ENUM_DEFINED
+typedef enum logic [2:0] {
+    STATE_START,
+    STATE_LOOP_SIMD,
+    STATE_LOOP_KW,
+    STATE_LOOP_KH,
+    STATE_LOOP_W,
+    STATE_LOOP_H
+}  state_e;
+`endif
+
 // loop controller used for both, "default" and "parallel", implementation styles
 module swg_controller #(
     int unsigned  LOOP_H_ITERATIONS,
@@ -61,14 +73,6 @@ module swg_controller #(
 );
 
     // state and counters
-    typedef enum logic [2:0] {
-        STATE_START,
-        STATE_LOOP_SIMD,
-        STATE_LOOP_KW,
-        STATE_LOOP_KH,
-        STATE_LOOP_W,
-        STATE_LOOP_H
-    }  state_e;
     state_e  State = INNERMOST_STATE;
     state_e  state_next;
 

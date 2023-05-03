@@ -1,3 +1,15 @@
+`ifndef FINN_SWG_ENUM_DEFINED
+`define FINN_SWG_ENUM_DEFINED
+typedef enum logic [2:0] {
+    STATE_START,
+    STATE_LOOP_SIMD,
+    STATE_LOOP_KW,
+    STATE_LOOP_KH,
+    STATE_LOOP_W,
+    STATE_LOOP_H
+}  state_e;
+`endif
+
 module $TOP_MODULE_NAME$_controller #(
     int unsigned  CNTR_BITWIDTH,
     int unsigned  INCR_BITWIDTH,
@@ -62,14 +74,6 @@ module $TOP_MODULE_NAME$_controller #(
     end
 
     // state and counters
-    typedef enum logic [2:0] {
-        STATE_START,
-        STATE_LOOP_SIMD,
-        STATE_LOOP_KW,
-        STATE_LOOP_KH,
-        STATE_LOOP_W,
-        STATE_LOOP_H
-    }  state_e;
     state_e  State = $INNERMOST_STATE$;
     state_e  state_next;
 
