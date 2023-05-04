@@ -39,15 +39,16 @@
  *****************************************************************************/
 
 module thresholding_axi #(
-	int unsigned  N,	// output precision
-	int unsigned  K,	// input/threshold precision
-	int unsigned  C,	// Channels
-	int unsigned  PE,	// Processing Parallelism, requires C = k*PE
+	int unsigned  N =  4,	// output precision
+	int unsigned  K = 16,	// input/threshold precision
+	int unsigned  C = 1,	// Channels
+	int unsigned  PE = 1,	// Processing Parallelism, requires C = k*PE
 
 	bit  SIGNED = 1,	// signed inputs
+	bit  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
 	int  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-	localparam int unsigned  CF = 1 + (C-1)/PE,	// Channel Fold
+	localparam int unsigned  CF = C/PE,	// Channel Fold
 	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
 	localparam int unsigned  O_BITS = BIAS >= 0?
 		/* unsigned */ $clog2(2**N+BIAS) :
@@ -73,9 +74,9 @@ module thresholding_axi #(
 	output	logic [1:0]  s_axilite_BRESP,
 
 	// Reading
-	input	logic        s_axilite_ARVALID,
-	output	logic        s_axilite_ARREADY,
-	input	logic [0:0]  s_axilite_ARADDR,
+	input	logic                  s_axilite_ARVALID,
+	output	logic                  s_axilite_ARREADY,
+	input	logic [ADDR_BITS-1:0]  s_axilite_ARADDR,
 
 	output	logic         s_axilite_RVALID,
 	input	logic         s_axilite_RREADY,
@@ -92,154 +93,39 @@ module thresholding_axi #(
 	output	logic  m_axis_tvalid,
 	output	logic [((PE*O_BITS+7)/8)*8-1:0]  m_axis_tdata
 );
-	//- Parameter Constraints Checking --------------------------------------
-	initial begin
-		if(C%PE != 0) begin
-			$error("%m: Channel count C=%0d is not a multiple of PE=%0d.", C, PE);
-			$finish;
-		end
-	end
 
-	//- Global Control ------------------------------------------------------
-	uwire  clk = ap_clk;
-	uwire  rst = !ap_rst_n;
+	//-----------------------------------------------------------------------
+	// AXI-lite Configuration Interface
+	uwire  cfg_en;
+	uwire  cfg_we;
+	uwire [ADDR_BITS-1:0]  cfg_a;
+	uwire [K        -1:0]  cfg_d;
+	uwire  cfg_rack;
+	uwire [K        -1:0]  cfg_q;
+	axi4lite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(K)) axi (
+		.aclk(ap_clk), .aresetn(ap_rst_n),
 
-	//- AXI Lite: Threshold Configuration -----------------------------------
-	uwire  twe[PE];
-	uwire [$clog2(CF)+N-1:0]  twa;
-	uwire [           K-1:0]  twd;
-	if(1) begin : blkAxiLite
-		logic  WABusy = 0;
-		logic  WDBusy = 0;
-		logic  Sel[PE] = '{ default: 'x };
-		logic [$clog2(CF)+N-1:0]  Addr = 'x;
-		logic [           K-1:0]  Data = 'x;
+		.awready(s_axilite_AWREADY), .awvalid(s_axilite_AWVALID), .awaddr(s_axilite_AWADDR), .awprot('x),
+		.wready(s_axilite_WREADY),   .wvalid(s_axilite_WVALID),   .wdata(s_axilite_WDATA),   .wstrb(s_axilite_WSTRB),
+		.bready(s_axilite_BREADY),   .bvalid(s_axilite_BVALID),   .bresp(s_axilite_BRESP),
 
-		for(genvar  pe = 0; pe < PE; pe++) begin
-			assign	twe[pe] = WABusy && WDBusy && Sel[pe];
-		end
-		assign	twa = Addr;
-		assign	twd = Data;
+		.arready(s_axilite_ARREADY), .arvalid(s_axilite_ARVALID), .araddr(s_axilite_ARADDR), .arprot('x),
+		.rready(s_axilite_RREADY),   .rvalid(s_axilite_RVALID),   .rresp(s_axilite_RRESP),   .rdata(s_axilite_RDATA),
 
-		if(PE == 1)  always_comb  Sel[0] = 1;
-		else begin
-			always_ff @(posedge clk) begin
-				if(!WABusy) begin
-					foreach(Sel[pe])  Sel[pe] <= s_axilite_AWADDR[N+2+:$clog2(PE)] == pe;
-				end
-			end
-		end
+		.ip_en(cfg_en), .ip_wen(cfg_we), .ip_addr(cfg_a), .ip_wdata(cfg_d),
+		.ip_rack(cfg_rack), .ip_rdata(cfg_q)
+	);
 
-		uwire  clr_wr = rst || (WABusy && WDBusy && s_axilite_BREADY);
-		always_ff @(posedge clk) begin
-			if(clr_wr) begin
-				WABusy <= 0;
-				Addr <= 'x;
-				WDBusy <= 0;
-				Data <= 'x;
-			end
-			else begin
-				if(!WABusy) begin
-					WABusy <= s_axilite_AWVALID;
-					Addr[0+:N] <= s_axilite_AWADDR[2+:N];
-					if(CF > 1)  Addr[N+:$clog2(CF)] <= s_axilite_AWADDR[2+N+$clog2(PE)+:$clog2(CF)];
-				end
-				if(!WDBusy) begin
-					WDBusy <= s_axilite_WVALID;
-					Data   <= s_axilite_WDATA[K-1:0];
-				end
-			end
-		end
-		assign	s_axilite_AWREADY = !WABusy;
-		assign	s_axilite_WREADY  = !WDBusy;
-		assign	s_axilite_BVALID  = WABusy && WDBusy;
-		assign	s_axilite_BRESP   = '0; // OK
+	//-----------------------------------------------------------------------
+	// Kernel Implementation
+	thresholding #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS)) impl (
+		.clk(ap_clk), .rst(!ap_rst_n),
 
-		// Answer all reads with '1
-		logic  RValid =  0;
-		uwire  clr_rd = rst || (RValid && s_axilite_RREADY);
-		always_ff @(posedge clk) begin
-			if(clr_rd)        RValid <=  0;
-			else if(!RValid)  RValid <= s_axilite_ARVALID;
-		end
-		assign	s_axilite_ARREADY = !RValid;
-		assign	s_axilite_RVALID  = RValid;
-		assign	s_axilite_RDATA   = '1;
-		assign	s_axilite_RRESP   = '0; // OK
+		.cfg_en, .cfg_we, .cfg_a, .cfg_d,
+		.cfg_rack, .cfg_q,
 
-	end : blkAxiLite
-
-	//- IO-Sandwich with two-stage output buffer for containing a local enable
-	uwire  en;
-	uwire [PE-1:0][O_BITS-1:0]  odat;
-	uwire  ovld[PE];
-	if(1) begin : blkOutputDecouple
-		typedef struct {
-			logic  vld;
-			logic [PE-1:0][O_BITS-1:0]  dat;
-		} buf_t;
-		buf_t  A = '{ vld: 0, dat: 'x };
-		buf_t  B = '{ vld: 0, dat: 'x };
-		always_ff @(posedge clk) begin
-			if(rst) begin
-				A <= '{ vld: 0, dat: 'x };
-				B <= '{ vld: 0, dat: 'x };
-			end
-			else begin
-				if(!B.vld || m_axis_tready) begin
-					B <= '{
-						vld: A.vld || ovld[0],
-						dat: A.vld? A.dat : odat
-					};
-				end
-				A.vld <= B.vld && !m_axis_tready && (A.vld || ovld[0]);
-				if(!A.vld)  A.dat <= odat;
-			end
-		end
-		assign	en = !A.vld;
-
-		assign	m_axis_tvalid = B.vld;
-		assign	m_axis_tdata  = B.dat;
-
-	end : blkOutputDecouple
-
-	localparam int unsigned  C_BITS = C/PE < 2? 1 : $clog2(C/PE);
-	uwire  ivld = s_axis_tvalid;
-	uwire [C_BITS-1:0]  icnl;
-	uwire [K     -1:0]  idat[PE];
-	for(genvar  pe = 0; pe < PE; pe++) begin
-		assign	idat[pe] = s_axis_tdata[pe*K+:K];
-	end
-
-	assign	s_axis_tready = en;
-	if(C == PE)  assign  icnl = 'x;
-	else begin
-		logic [C_BITS-1:0]  Chnl = 0;
-		logic               Last = 0;
-		uwire  inc = ivld && en;
-		uwire  clr = rst || (Last && inc);
-		always_ff @(posedge clk) begin
-			if(clr) begin
-				Chnl <= 0;
-				Last <= 0;
-			end
-			else if(inc) begin
-				Chnl <= Chnl + 1;
-				Last <= (~Chnl & (C/PE-2)) == 0;
-			end
-		end
-		assign	icnl = Chnl;
-	end
-
-	// Core Thresholding Modules
-	for(genvar  pe = 0; pe < PE; pe++) begin : genCores
-		thresholding #(.N(N), .K(K), .C(C/PE), .SIGNED(SIGNED), .BIAS(BIAS)) core (
-			.clk, .rst,
-			.twe(twe[pe]), .twa, .twd,
-			.en,
-			.ivld, .icnl, .idat(idat[pe]),
-			.ovld(ovld[pe]), .ocnl(), .odat(odat[pe])
-		);
-	end : genCores
+		.irdy(s_axis_tready), .ivld(s_axis_tvalid), .idat(s_axis_tdata),
+		.ordy(m_axis_tready), .ovld(m_axis_tvalid), .odat(m_axis_tdata)
+	);
 
 endmodule : thresholding_axi
