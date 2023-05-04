@@ -6,7 +6,7 @@ cd $FINN_ROOT
 # check if command line argument is empty or not present
 if [ -z $1 ]; then
   echo "Running quicktest: not (vivado or slow or board) with pytest-xdist"
-  python setup.py test --addopts "-m 'not (vivado or slow or vitis or board)' --dist=loadfile -n $PYTEST_PARALLEL"
+  python setup.py test --addopts "-m 'not (vivado or slow or vitis or board or notebooks)' --dist=loadfile -n $PYTEST_PARALLEL"
 elif [ $1 = "main" ]; then
   echo "Running main test suite: not (rtlsim or end2end) with pytest-xdist"
   python setup.py test --addopts "-k 'not (rtlsim or end2end)' --dist=loadfile -n $PYTEST_PARALLEL"

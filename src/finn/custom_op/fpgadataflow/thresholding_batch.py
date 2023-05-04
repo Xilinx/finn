@@ -45,8 +45,6 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 
-from . import templates
-
 # ONNX i/o tensor shape assumptions for Thresholding:
 # input 0 is the input tensor, shape (..., NumChannels)
 # input 1 is the threshold tensor, shape (NumChannels, n_thres)
@@ -59,7 +57,6 @@ class Thresholding_Batch(HLSCustomOp):
 
     def __init__(self, onnx_node, **kwargs):
         super().__init__(onnx_node, **kwargs)
-        self.decoupled_wrapper = templates.decoupled_wrapper
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -457,26 +454,10 @@ class Thresholding_Batch(HLSCustomOp):
             weight_filename_sim = "{}/thresholds.npy".format(code_gen_dir)
             self.make_weight_file(thresholds, "decoupled_npy", weight_filename_sim)
             # also save weights as Verilog .dat file
-            # note that we provide two different .dat files, one for synth
-            # and one for synthesis. this is because URAM-based weights always
-            # need zero weights for synthesis, otherwise they get inferred
-            # as BRAM
-            weight_filename_rtl_synth = "{}/memblock_synth_0.dat".format(code_gen_dir)
-            weight_filename_rtl_sim = "{}/memblock_sim_0.dat".format(code_gen_dir)
-            # sim weights are always the true weights
+            # This file will be ignored when synthesizing UltraScale memory.
+            weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
             self.make_weight_file(
-                thresholds, "decoupled_verilog_dat", weight_filename_rtl_sim
-            )
-            ram_style = self.get_nodeattr("ram_style")
-            if ram_style == "ultra":
-                # UltraRAM must have no memory initializer, or only zeroes
-                # otherwise BRAM will be inferred instead of URAM
-                # as a workaround we provide a zero-weight init here
-                synth_thresholds = np.zeros_like(thresholds, dtype=np.float32)
-            else:
-                synth_thresholds = thresholds
-            self.make_weight_file(
-                synth_thresholds, "decoupled_verilog_dat", weight_filename_rtl_synth
+                thresholds, "decoupled_verilog_dat", weight_filename_rtl
             )
         else:
             raise Exception("Unrecognized mem_mode")
@@ -843,7 +824,7 @@ class Thresholding_Batch(HLSCustomOp):
                 % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
             )
             # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "xilinx.com:user:memstream:1.0"
+            strm_vlnv = "amd.com:FINN:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type ip -vlnv %s /%s/%s"
@@ -851,22 +832,16 @@ class Thresholding_Batch(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict [list "
-                "CONFIG.NSTREAMS {1} "
-                "CONFIG.MEM_DEPTH {%d} "
-                "CONFIG.MEM_WIDTH {%d} "
-                "CONFIG.MEM_INIT {%s} "
+                "CONFIG.DEPTH {%d} "
+                "CONFIG.WIDTH {%d} "
+                "CONFIG.INIT_FILE {%s} "
                 "CONFIG.RAM_STYLE {%s} "
-                "CONFIG.STRM0_DEPTH {%d} "
-                "CONFIG.STRM0_WIDTH {%d} "
-                "CONFIG.STRM0_OFFSET {0} "
                 "] [get_bd_cells /%s/%s]"
                 % (
                     self.calc_tmem(),
                     self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/",
+                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
                     self.get_nodeattr("ram_style"),
-                    self.calc_tmem(),
-                    self.get_weightstream_width_padded(),
                     node_name,
                     strm_inst,
                 )
@@ -877,11 +852,11 @@ class Thresholding_Batch(HLSCustomOp):
                 % (node_name, strm_inst, node_name, node_name, sname)
             )
             cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aresetn]"
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
                 % (node_name, rst_name, node_name, strm_inst)
             )
             cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aclk]"
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
             cmd.append(

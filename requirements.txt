@@ -13,6 +13,8 @@ pyscaffold==3.2.1
 scipy==1.5.2
 setupext-janitor>=1.1.2
 sigtools==2.0.3
+sphinx==5.0.2
+sphinx_rtd_theme==0.5.0
 toposort==1.5
 vcdvcd==1.0.5
 wget==3.2
