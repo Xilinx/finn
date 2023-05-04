@@ -617,13 +617,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             # skip innermost SIMD loop completely
             if loop_kw_iterations == 1:
                 # skip innermost KW loop completely
-                code_gen_dict["$INNERMOST_STATE$"] = [str(3)]  # STATE_LOOP_KH
+                code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_KH"]
                 loop_kh_iterations -= 1  # -1 because state is initial state
             else:
-                code_gen_dict["$INNERMOST_STATE$"] = [str(2)]  # STATE_LOOP_KW
+                code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_KW"]
                 loop_kw_iterations -= 1  # -1 because state is initial state
         else:
-            code_gen_dict["$INNERMOST_STATE$"] = [str(1)]  # STATE_LOOP_SIMD
+            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_SIMD"]
             loop_simd_iterations -= 1  # -1 because state is initial state
 
         cntr_bitwidth = math.ceil(
@@ -736,10 +736,10 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         loop_simd_iterations = 1
 
         if loop_w_iterations == 1:
-            code_gen_dict["$INNERMOST_STATE$"] = [str(5)]  # STATE_LOOP_H
+            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_H"]
             loop_h_iterations -= 1  # -1 because state is initial state
         else:
-            code_gen_dict["$INNERMOST_STATE$"] = [str(4)]  # STATE_LOOP_W
+            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_W"]
             loop_w_iterations -= 1  # -1 because state is initial state
 
         # set head and tail address increment values
