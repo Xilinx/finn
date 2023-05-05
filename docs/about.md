@@ -31,7 +31,7 @@ design space.
 
 ## Who are we?
 
-The FINN team consists of members of AMD Research under Ivo Bolsens (CTO) and members of Custom Solutions Engineering under Allen Chen (CommsDC Solutions Engineering), working very closely with the Pynq team and Kristof Denolf and Jack Lo for integration with video processing.
+The FINN team consists of members of AMD Research under Ivo Bolsens (CTO) and members of CommsDC Solutions Engineering under Allen Chen (AECG-CommsDCSolnEng), working very closely with the Pynq team and Kristof Denolf and Jack Lo for integration with video processing.
 
 <img src="img/finn-team.png" alt="The FINN Team (CTO)" width="400"/>
 
