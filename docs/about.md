@@ -31,9 +31,17 @@ design space.
 
 ## Who are we?
 
-The FINN team is part of Xilinx's CTO group under Ivo Bolsens (CTO) and Kees Vissers (Fellow) and working very closely with the Pynq team and Kristof Denolf and Jack Lo for integration with video processing.
+The FINN team consists of members of AMD Research under Ivo Bolsens (CTO) and members of Custom Solutions Engineering under Allen Chen (CommsDC Solutions Engineering), working very closely with the Pynq team and Kristof Denolf and Jack Lo for integration with video processing.
 
-<img src="img/finn-team.png" alt="The FINN Team" width="400"/>
+<img src="img/finn-team.png" alt="The FINN Team (CTO)" width="400"/>
 
 From top left to bottom right: Yaman Umuroglu, Michaela Blott, Alessandro Pappalardo, Lucian Petrica, Nicholas Fraser,
 Thomas Preusser, Jakoba Petri-Koenig, Ken O’Brien
+
+<img src="img/finn-team1.png" alt="The FINN Team (CommsDC Solutions Engineering)" width="400"/>
+
+From top left to bottom right: Eamonn Dunbar, Kasper Feurer, Aziz Bahri, Fionn O'Donohoe, Mirza Mrahorovic
+
+
+
+
