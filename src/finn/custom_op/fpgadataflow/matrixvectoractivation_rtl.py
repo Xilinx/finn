@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import math
+from shutil import copy
 import numpy as np
 import os
 import textwrap
@@ -45,6 +46,12 @@ from finn.util.data_packing import (
     pack_innermost_dim_as_hex_string,
     rtlsim_output_to_npy,
 )
+from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
 
 from . import templates
 
@@ -60,8 +67,8 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
     """Class that corresponds to finn-hls Matrix_Vector_Activate(_Stream)_Batch
     function."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
         self.decoupled_wrapper = templates.decoupled_wrapper
 
     def get_nodeattr_types(self):
@@ -78,11 +85,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             "outputDataType": ("s", True, ""),
             # FINN DataType for accumulator -- auto-computed and updated
             "accDataType": ("s", False, "INT32"),
-            # use xnor-popcount for binary weights/inputs, thus treating them
-            # as bipolar
-            "binaryXnorMode": ("i", False, 0, {0, 1}),
-            # no-activation mode (produce accumulators)
-            "noActivation": ("i", False, 0, {0, 1}),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -105,16 +107,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 "auto",
                 {"auto", "block", "distributed", "ultra"},
             ),
-            # FPGA resource type for threshold memories (if noActivation is False)
-            # auto -- let Vivado decide
-            # block -- use BRAM
-            # distributed -- use LUTRAM
-            "ram_style_thresholds": (
-                "s",
-                False,
-                "auto",
-                {"auto", "block", "distributed"},
-            ),
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -125,6 +117,8 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+            # attribute to save top module name - not user configurable
+            "gen_top_module": ("s", False, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -142,7 +136,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
 
     def calc_tmem(self):
         """Calculates and returns TMEM."""
-        assert self.get_nodeattr("noActivation")==1, "RTL-based MVAU does not support thresholding currently, please infer a standalone Thresholding_Batch layer"
         return 0
 
     def make_shape_compatible_op(self, model):
@@ -192,27 +185,9 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 """The required MatrixVectorActivation attributes do not exist."""
             )
 
-        # verify the number of inputs depending on noActivation value
-        # check noActivation value to determine the number of inputs
-        no_act = self.get_nodeattr("noActivation")
-
-        if no_act == 1:
-            if len(self.onnx_node.input) == 2:
-                info_messages.append("The number of inputs is correct")
-            else:
-                info_messages.append(
-                    """RTL-based MatrixVectorActivation needs in no
-                            activation mode 2 inputs (data input and weights)"""
-                )
-        elif no_act == 0:
-            info_messages.append("RTL-based MVAU does not support thresholding currently, please infer a standalone Thresholding_Batch layer")
-        else:
-            info_messages.append(
-                """noActivation attribute contains {} should
-                be 1 for RTL-based MatrixVectorActivation""".format(
-                    no_act
-                )
-            )
+        num_of_inputs = len(self.onnx_node.input)
+        if num_of_inputs!=2:
+            info_messages.append("RTL-based MatrixVectorActivation expects two inputs (weights and activation), but got {} inputs.".format(len(self.onnx_node.input)))
 
         mem_mode = self.get_nodeattr("mem_mode")
 
@@ -221,6 +196,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
 
         return info_messages
 
+# TODO: Add in replay_buffer estimation
     def uram_estimation(self):
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
@@ -242,6 +218,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         depth_multiplier = math.ceil(omega / 4096)
         return width_multiplier * depth_multiplier
 
+# TODO: Add in replay_buffer estimation
     def bram_estimation(self):
         """Calculates resource estimation for BRAM based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
@@ -268,7 +245,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         ):
             return 0
         # assuming SDP mode RAMB18s (see UG573 Table 1-10)
-        # assuming decoupled (RTL) memory, which is more efficient than const (HLS)
+        # assuming decoupled (RTL) memory
         if mem_width == 1:
             return math.ceil(omega / 16384)
         elif mem_width == 2:
@@ -282,6 +259,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         else:
             return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
 
+# TODO: Add in replay_buffer estimation
     def bram_efficiency_estimation(self):
         wdt = self.get_weight_datatype()
         W = wdt.bitwidth()
@@ -294,6 +272,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
 
+# TODO: Add in replay_buffer estimation
     def uram_efficiency_estimation(self):
         """Function for URAM efficiency estimation: actual parameter storage
         needed divided by the allocated URAM storage (from estimation)"""
@@ -308,7 +287,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         uram_est_capacity = uram_est * 72 * 4096
         return wbits / uram_est_capacity
 
-#TODO: FIX
+#TODO: FIX: worst case estimates since segmentlen is not known at this point?
     def lut_estimation(self):
         """Calculates resource estimations for LUTs based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
@@ -348,23 +327,14 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         # accumulator
         acc_bits = W + A + np.ceil(math.log(MW, 2))
         acc_luts = acc_bits
-        # thresholds and threshold comparators
-        thr_luts = 0
-        comp_luts = 0
-        noact = self.get_nodeattr("noActivation")
-        if noact == 0:
-            odt = self.get_output_datatype()
-            B = odt.bitwidth()
-            thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
-            comp_luts = (2**B - 1) * acc_bits
 
         return int(
             c0
-            + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts))
+            + c1 * (P * (mult_luts + addertree_luts + acc_luts))
             + c2
         )
 
-#TODO: FIX
+#TODO: FIX: worst case estimates since segmentlen is not known at this point?
     def dsp_estimation(self):
         # multiplication
         P = self.get_nodeattr("PE")
@@ -380,7 +350,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             mult_dsp = 0
         return int(mult_dsp)
 
-#TODO: FIX
+#TODO: FIX: worst case estimates since segmentlen is not known at this point
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
@@ -389,6 +359,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         mw = self.get_nodeattr("MW")
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
+        # Actual exp_cycles is probably slightly larger (say 3 cycles (DSP A/B, M, P - reg) + additional pipeline buffer cycles. Most probably <10)
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
 
@@ -413,7 +384,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
 
     def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
-        assert i_bits<=9, "RTL-based MVAU only supports activations with bit-width up to 9-bits"
+        assert (i_bits<=9), "RTL-based MVAU only supports activations with bit-width up to 9-bits"
         in_width = i_bits * self.get_nodeattr("SIMD")
         return in_width
 
@@ -431,8 +402,8 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
             wp = self.get_weight_datatype().bitwidth()
+            assert (wp <= 8), "RTL-based MVAU only supports weights with bit-width up to 8-bits"
             w_width = pe * simd * wp
-            assert wp<=8, "RTL-based MVAU only supports weights with bit-width up to 8-bits"
             return w_width
         else:
             return 0
@@ -544,10 +515,8 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 adt = DataType.get_smallest_possible(-acc_max - 1)
         else:
             adt = DataType.get_smallest_possible(acc_max)
-        # ensure a datatype divisible by 8-bits in case this is the last node
-        bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
-        new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
-        adt = DataType[new_adt_name]
+        # Note: we are interested in simply the width of the output dot product.
+        # Padding the actual output stream to a multiple of 8-bits is done in the RTL component
         self.set_nodeattr("accDataType", adt.name)
         # for no-activation nodes, output dt = acc dt
         self.set_nodeattr("outputDataType", adt.name)
@@ -588,7 +557,10 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 1, -1, pe * simd
             )
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
-            if weight_file_mode == "decoupled_verilog_dat":
+            if weight_file_mode == "decoupled_npy":
+                # save weight stream into npy for cppsim
+                np.save(weight_file_name, weight_tensor_simd_flipped)
+            elif weight_file_mode == "decoupled_verilog_dat":
                 # convert weight values into hexstring
                 weight_width = self.get_weightstream_width()
                 # pad to nearest 4 bits to get hex strings
@@ -638,7 +610,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
             # save decoupled weights for cppsim
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
-            # also save weights as Verilog .dat file
+            # Also save weights as Verilog .dat file
             # note that we provide two different .dat files, one for synth
             # and one for synthesis. this is because URAM-based weights always
             # need zero weights for synthesis, otherwise they get inferred
@@ -693,7 +665,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         for inputs in node.input:
             # it is assumed that the first input of the node is the data input
             # the second input are the weights
-            # the third input are the thresholds
             if in_ind == 0:
                 assert (
                     str(context[inputs].dtype) == "float32"
@@ -709,7 +680,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                     reshaped_input,
                 )
             elif in_ind > 2:
-                raise Exception("Unexpected input found for MatrixVectorActivation")
+                raise Exception("Unexpected input found for MatrixVectorActivation_rtl")
             in_ind += 1
 
         if mode == "rtlsim":
@@ -759,7 +730,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
     def code_generation_ipgen(self, model, fpgapart, clk):
         """Normally: Generates C++ code and tcl script for IP generation.
         Here: Generates (System-)Verilog code for IP generation."""
-        self.generate_hdl()
+        self.generate_hdl(model, fpgapart, clk)
 
     def ipgen_singlenode_code(self):
         """Normally: Builds the bash script for IP generation."""
@@ -828,11 +799,21 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 "create_bd_intf_pin -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
-            # instantiate the hls ip
-            cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s"
-                % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
-            )
+            # instantiate the RTL block
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+            sourcefiles = [
+                os.path.join(code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"),
+                rtllib_dir + "mvu_axi.sv",
+                rtllib_dir + "replay_buffer.sv",
+                rtllib_dir + "mvu_4sx4u.sv",
+                rtllib_dir + "mvu_8sx9.sv",
+                rtllib_dir + "mvu_8sx8u_dsp48.sv"
+            ]
+            for f in sourcefiles:
+                cmd.append("add_files -norecurse %s" % (f))
+            cmd.append("create_bd_cell -type hier -reference %s /%s/%s" % (self.get_nodeattr("gen_top_module"), self.onnx_node.name, self.onnx_node.name))
+
             # instantiate a streamer and connect it to the HLS IP
             strm_vlnv = "xilinx.com:user:memstream:1.0"
             strm_inst = node_name + "_wstrm"
@@ -947,12 +928,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         weight_param_type = "param_weight_%db" % (weight_bits)
         weight_count = in_features * out_features
         ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
-        if self.get_nodeattr("noActivation") == 0:
-            tdt = DataType[self.get_nodeattr("accDataType")]
-            thres_bits = tdt.bitwidth()
-            thres_param_type = "param_threshold_%db" % (thres_bits)
-            thres_count = out_features
-            ret_dict[thres_param_type] = thres_count
         return ret_dict
 
     def derive_characteristic_fxns(self, period):
@@ -972,65 +947,113 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             ]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
 
-    def generate_hdl(self):
-#TODO: add distinction between (PE=MH or PE=1) and where MH dimension is folded
-        template_path, code_gen_dict = self.prepare_codegen_default()
+# TODO: characterize max_clk and implement this function in look-up style
+    def _resolve_segment_len(self, clk):
+        # Insert pipeline registers in the DSP chain to meet target clock frequency
+        segmentlen = 0
+        return segmentlen
 
+    def _resolve_impl_style(self, fpgapart):
+        # Based on target device and activation/weight-width, choose the supported RTL module
+        act_width = self.get_input_datatype(0).bitwidth()
+        weight_width = self.get_input_datatype(1).bitwidth()
+        is_versal = fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"] or fpgapart[0:5] == "xqrvc"
+        if (act_width == 4 and weight_width == 4):
+            return "mvu_4sx4u"
+        else:
+            if (is_versal):
+                return "mvu_8sx9_dsp58"
+            else:
+                return "mvu_8sx8u_dsp48"
+
+    def generate_hdl(self, model, fpgapart, clk):
+        # Generate params as part of IP preparation
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        self.generate_params(model, code_gen_dir)
+
+        template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
         # add general parameters to dictionary
-        code_gen_dict["$TOP_MODULE_NAME$"] = [self.get_verilog_top_module_name()]
+        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [self.get_verilog_top_module_name()]
         # save top module name so we can refer to it after this node has been renamed
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
-#TODO: currently only ram_style=auto is supported
-        ram_style = self.get_nodeattr("ram_style")
-        if ram_style == "auto":
-            continue
-        else:
-            raise Exception("Unrecognized ram_style for MatrixVectorActivation")
 
-        # apply code generation to templates
-        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        ram_style = self.get_nodeattr("ram_style")
+        assert (ram_style=="auto"), "Unrecognized ram_style for MatrixVectorActivation_rtl"
+
+        # apply code generation to template
         with open(template_path, "r") as f:
-            template = f.read()
+            template_wrapper = f.read()
         for key in code_gen_dict:
             # transform list into long string separated by '\n'
             code_gen_line = "\n".join(code_gen_dict[key])
-            template = template.replace(key, code_gen_line)
             template_wrapper = template_wrapper.replace(key, code_gen_line)
-        with open(
-            os.path.join(
-                code_gen_dir, self.get_nodeattr("gen_top_module") + "_impl.sv"
-            ),
-            "w",
-        ) as f:
-            f.write(template)
         with open(
             os.path.join(
                 code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
             ),
             "w",
         ) as f:
-            f.write(template_wrapper)
+            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(0)))
+        with open(
+            os.path.join(
+                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"
+            ),
+            "w",
+        ) as f:
+            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
-        self.set_nodeattr("ip_path", code_gen_dir)    
+        self.set_nodeattr("ip_path", code_gen_dir)
 
-    def prepare_codegen_default(self):
-        # TODO: Differentiate between PE folding and fully unrolled along MH dimension
+    def prepare_codegen_default(self, fpgapart, clk):
         template_path = (
-            os.environ["FINN_ROOT"] + "/finn-rtllib/mvau/dsp58_mvau_template.vhdl"
+            os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_axi_wrapper.v"
         )
+        
         code_gen_dict = {}
-
-        code_gen_dict["$PE$"] = self.get_nodeattr("PE")
-        code_gen_dict["$SIMD$"] = self.get_nodeattr("SIMD")
-        code_gen_dict["$MW$"] = self.get_nodeattr("MW")
-        code_gen_dict["$MH$"] = self.get_nodeattr("MH")
-        code_gen_dict["$ACTIVATION_WIDTH$"] = self.get_input_datatype(0).bitwidth()
-        code_gen_dict["$WEIGHT_WIDTH$"] = self.get_input_datatype(1).bitwidth()
-        code_gen_dict["$ACCU_WIDTH_BA$"] = self.get_output_datatype().bitwidth()
+        code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
+        code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
+        code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
+        code_gen_dict["$SIMD$"] = [str(self.get_nodeattr("SIMD"))]
+        code_gen_dict["$ACTIVATION_WIDTH$"] = [str(self.get_input_datatype(0).bitwidth())]
+        code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
+        code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
+        code_gen_dict["$SIGNED_ACTIVATIONS$"] = [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
+        code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
+        code_gen_dict["$MVU_IMPL_STYLE$"] = [self._resolve_impl_style(fpgapart)]
 
         return template_path, code_gen_dict
 
+    def prepare_rtlsim(self):
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")        
+        # Path to (System-)Verilog files used by top-module & path to top-module
+        verilog_paths = [
+            code_gen_dir,
+            os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"
+        ]
+        verilog_files = [
+            self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"
+        ]
+
+        # build the Verilator emu library
+        sim = PyVerilator.build(
+            verilog_files,
+            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            verilog_path=verilog_paths,
+            trace_depth=get_rtlsim_trace_depth(),
+            top_module_name=self.get_verilog_top_module_name()
+        )
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", sim.lib._name)
+        
+        return sim
