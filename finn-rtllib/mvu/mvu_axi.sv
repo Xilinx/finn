@@ -41,8 +41,8 @@ module mvu_axi #(
 	int unsigned ACCU_WIDTH,
 	bit SIGNED_ACTIVATIONS = 0,
 	int unsigned SEGMENTLEN = 0,
-	parameter RAM_STYLE = "auto",
-	parameter MVU_IMPL_STYLE,
+	bit FORCE_BEHAVIORAL = 0,
+	string MVU_IMPL_STYLE,
 
 	localparam int unsigned WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
 	localparam int unsigned INPUT_STREAM_WIDTH_BA = (SIMD*ACTIVATION_WIDTH+7)/8 * 8,
@@ -96,12 +96,14 @@ module mvu_axi #(
 			$error("Activation width of %0d-bits exceeds maximum of 8-bits for unsigned numbers", ACTIVATION_WIDTH);
 			$finish;
 		end
-		if (SEGMENTLEN == 0) begin
-			$warning("Segment length of %0d defaults to chain length", SEGMENTLEN);
-		end
-		if (SEGMENTLEN > (SIMD+2)/3) begin
-			$error("Segment length of %0d exceeds chain length of %0d", SEGMENTLEN, (SIMD+2)/3);
-			$finish;
+		if (MVU_IMPL_STYLE == "mvu_8sx9") begin
+			if (SEGMENTLEN == 0) begin
+				$warning("Segment length of %0d defaults to chain length", SEGMENTLEN);
+			end
+			if (SEGMENTLEN > (SIMD+2)/3) begin
+				$error("Segment length of %0d exceeds chain length of %0d", SEGMENTLEN, (SIMD+2)/3);
+				$finish;
+			end
 		end
 	end
 
@@ -116,7 +118,7 @@ module mvu_axi #(
 	uwire avld;
 	uwire ardy;
 
-	replay_buffer #(.LEN(SF), .REP(NF), .W($bits(mvauin_t)), .RAM_STYLE(RAM_STYLE)) activation_replay (
+	replay_buffer #(.LEN(SF), .REP(NF), .W($bits(mvauin_t))) activation_replay (
 		.clk, .rst,
 		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvauin_t'(s_axis_input_tdata)),
 		.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast), .ofin(afin)
@@ -133,28 +135,37 @@ module mvu_axi #(
 	uwire [PE-1:0][ACCU_WIDTH-1:0] odat;
 	typedef logic [WEIGHT_STREAM_WIDTH-1 : 0] mvauin_weight_t;
 	
-	if (MVU_IMPL_STYLE == "mvu_8sx9") begin : genMVU8sx9
+	if (MVU_IMPL_STYLE == "mvu_8sx9_dsp58") begin : genMVU8sx9
 		mvu_8sx9 #(.PE(PE), .SIMD(SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
-		.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN)) core (
+		.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
+		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
-			.last(alast), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
+			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
 			.vld(ovld), .p(odat)
 		);
 	end
 	else if (MVU_IMPL_STYLE == "mvu_4sx4u") begin : genMVU4sx4u
-		mvu_4sx4u #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .FORCE_BEHAVIORAL(0)) core (
+		mvu_4sx4u #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
-			.last(alast), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
+			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
 			.vld(ovld), .p(odat)
 		);
 	end
-	//else begin
-	//	$error("Unrecognized MVU_IMPL_STYLE!");
-	//	$finish;
-	//end
+	else if (MVU_IMPL_STYLE == "mvu_8sx8u_dsp48") begin : genMVU8sx8u
+		mvu_8sx8u_dsp48 #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
+		 .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
+			.clk, .rst, .en,
+			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
+			.vld(ovld), .p(odat)
+		);
+	end
+	else initial begin
+		$error("Unrecognized MVU_IMPL_STYLE!");
+		$finish;
+	end
 
 //-------------------- Output register slice --------------------\\
-	struct {
+	struct packed {
 		logic vld;
 		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
 	} A = '{ vld: 0, default: 'x};
@@ -175,7 +186,7 @@ module mvu_axi #(
 		end
 	end
 	
-	struct {
+	struct packed {
 		logic vld;
 		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
 	} B = '{ vld: 0, default: 'x};

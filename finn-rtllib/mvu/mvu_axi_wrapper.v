@@ -41,7 +41,8 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter 	ACCU_WIDTH = $ACCU_WIDTH$,
 	parameter 	SIGNED_ACTIVATIONS = $SIGNED_ACTIVATIONS$,
 	parameter 	SEGMENTLEN = $SEGMENTLEN$,
-	parameter 	RAM_STYLE = "$IBUF_RAM_STYLE$",
+	parameter	MVU_IMPL_STYLE = "$MVU_IMPL_STYLE$",
+	parameter	FORCE_BEHAVIORAL = $FORCE_BEHAVIORAL$,
 
 	// Safely deducible parameters
 	parameter 	WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
@@ -50,41 +51,38 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter 	OUTPUT_STREAM_WIDTH_BA = (OUTPUT_LANES*ACCU_WIDTH + 7)/8 * 8
 )(
   	// Global Control
-	input	logic  ap_clk,
-	input	logic  ap_rst_n,
-
+	input	ap_clk,
+	input	ap_rst_n,
 	// Weight Stream
-	input	logic [WEIGHT_STREAM_WIDTH_BA-1:0]  s_axis_weights_tdata,
-	input	logic  s_axis_weights_tvalid,
-	output	logic  s_axis_weights_tready,
-
+	input	[WEIGHT_STREAM_WIDTH_BA-1:0]  weights_V_TDATA,
+	input   weights_V_TVALID,
+	output  weights_V_TREADY,
 	// Input Stream
-	input	logic [INPUT_STREAM_WIDTH_BA-1:0]  s_axis_input_tdata,
-	input	logic  s_axis_input_tvalid,
-	output	logic  s_axis_input_tready,
-
+	input	[INPUT_STREAM_WIDTH_BA-1:0]  in0_V_TDATA,
+	input	in0_V_TVALID,
+	output	in0_V_TREADY,
 	// Output Stream
-	output	logic [OUTPUT_STREAM_WIDTH_BA-1:0]  m_axis_output_tdata,
-	output	logic  m_axis_output_tvalid,
-	input	logic  m_axis_output_tready
+	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  out_V_TDATA,
+	output	out_V_TVALID,
+	input	out_V_TREADY
 );
 
 mvu_axi #(
 	.MW(MW), .MH(MH), .PE(PE), .SIMD(SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH),
 	.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
-	.SEGMENTLEN(SEGMENTLEN), .RAM_STYLE(RAM_STYLE)
+	.SEGMENTLEN(SEGMENTLEN), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL), .MVU_IMPL_STYLE(MVU_IMPL_STYLE)
 	) inst (
 	.ap_clk(ap_clk),
 	.ap_rst_n(ap_rst_n),
-	.s_axis_weights_tdata(s_axis_weights_tdata),
-	.s_axis_weights_tvalid(s_axis_weights_tvalid),
-	.s_axis_weights_tready(s_axis_weights_tready),
-	.s_axis_input_tdata(s_axis_input_tdata),
-	.s_axis_input_tvalid(s_axis_input_tvalid),
-	.s_axis_input_tready(s_axis_input_tready),
-	.m_axis_output_tdata(m_axis_output_tdata),
-	.m_axis_output_tvalid(m_axis_output_tvalid),
-	.m_axis_output_tready(m_axis_output_tready)
+	.s_axis_weights_tdata(weights_V_TDATA),
+	.s_axis_weights_tvalid(weights_V_TVALID),
+	.s_axis_weights_tready(weights_V_TREADY),
+	.s_axis_input_tdata(in0_V_TDATA),
+	.s_axis_input_tvalid(in0_V_TVALID),
+	.s_axis_input_tready(in0_V_TREADY),
+	.m_axis_output_tdata(out_V_TDATA),
+	.m_axis_output_tvalid(out_V_TVALID),
+	.m_axis_output_tready(out_V_TREADY)
 );
 
 endmodule : $MODULE_NAME_AXI_WRAPPER$
