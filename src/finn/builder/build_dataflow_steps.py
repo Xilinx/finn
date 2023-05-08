@@ -123,6 +123,7 @@ from finn.util.basic import (
 )
 from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import execute_parent
+import finn.transformation.fpgadataflow.specialize_to_rtl_layers as to_rtl
 
 
 def verify_step(
@@ -482,6 +483,16 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
             json.dump(estimate_network_performance, f, indent=2)
     return model
 
+
+def step_specialize_to_rtl(model: ModelWrapper, cfg: DataflowBuildConfig):
+    """Convert layers implemented in HLS to an equivalent specialized RTL implementation if possible."""
+    specialize_to_rtl_transforms = [
+        to_rtl.InferRTLMatrixVectorActivation()
+    ]
+    for trn in specialize_to_rtl_transforms:
+        model = model.transform(trn)
+    return model
+    
 
 def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Tighten the weight and accumulator bit widths for each layer."""
@@ -855,6 +866,7 @@ build_dataflow_step_lookup = {
     "step_apply_folding_config": step_apply_folding_config,
     "step_minimize_bit_width": step_minimize_bit_width,
     "step_generate_estimate_reports": step_generate_estimate_reports,
+    "step_specialize_to_rtl": step_specialize_to_rtl,
     "step_hls_codegen": step_hls_codegen,
     "step_hls_ipgen": step_hls_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
