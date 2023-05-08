@@ -35,8 +35,7 @@
 module replay_buffer #(
 	int unsigned  LEN,	// Sequence length
 	int unsigned  REP,	// Sequence replay count
-	int unsigned  W,	// Data width
-	parameter RAM_STYLE = "auto" 	// ram style for buffer {block, distributed, ultra, auto}
+	int unsigned  W 	// Data width
 )(
 	input	logic  clk,
 	input	logic  rst,
@@ -54,7 +53,7 @@ module replay_buffer #(
 
 	typedef logic [$clog2(REP)+$clog2(LEN)-1:0]  count_t;
 	count_t  Count = 0;
-	uwire  done_len = ((LEN-1) & ~Count[$clog2(LEN)-1:0]) == 0;
+	uwire  done_len = LEN == 1 ? 1 : ((LEN-1) & ~Count[$clog2(LEN)-1:0]) == 0;
 	uwire  done_rep;
 	uwire  done_all = done_len && done_rep;
 
@@ -83,7 +82,6 @@ module replay_buffer #(
 		end
 		assign	first_rep = FirstRep;
 
-		(* RAM_STYLE = RAM_STYLE *)
 		data_t  Buf[LEN];
 		if(LEN == 1) begin : genTrivial
 			always_ff @(posedge clk) begin
@@ -92,7 +90,10 @@ module replay_buffer #(
 		end : genTrivial
 		else begin : genShift
 			always_ff @(posedge clk) begin
-				if(shift)  Buf <= { odat, Buf[0:LEN-2] };
+				if(shift) begin
+					Buf[0] <= odat;
+					Buf[1:LEN-1] <= Buf[0:LEN-2];
+				end
 			end
 		end : genShift
 
