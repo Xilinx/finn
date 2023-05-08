@@ -35,17 +35,18 @@ module mvu_axi_tb();
 
 //-------------------- Simulation parameters --------------------\\
 	// Matrix & parallelism config
-	localparam int unsigned MW = 90;
-	localparam int unsigned MH = 16;
-	localparam int unsigned SIMD = 9;
-	localparam int unsigned PE = 4;
-	localparam int unsigned SEGMENTLEN = 1;
-	localparam string MVU_IMPL_STYLE = "mvu_8sx9";
+	localparam int unsigned MW = 50;
+	localparam int unsigned MH = 8;
+	localparam int unsigned SIMD = 10;
+	localparam int unsigned PE = 2;
+	localparam int unsigned SEGMENTLEN = 2;
+	localparam string MVU_IMPL_STYLE = "mvu_8sx8u_dsp48";
+	localparam bit FORCE_BEHAVIORAL = 1;
 	// Bit-width config  
 	localparam int unsigned ACTIVATION_WIDTH = 8;
-	localparam int unsigned WEIGHT_WIDTH = 4;
+	localparam int unsigned WEIGHT_WIDTH = 8;
 	localparam int unsigned ACCU_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
-	localparam bit SIGNED_ACTIVATIONS = 1;
+	localparam bit SIGNED_ACTIVATIONS = 0;
 	// Simulation constants  
 	localparam int unsigned NF = MH/PE;
 	localparam int unsigned SF = MW/SIMD;
@@ -94,7 +95,7 @@ module mvu_axi_tb();
 		for (int i=0; i<SF; i++) begin
 			activations.dat <= ACTIVATIONS[i];
 			do begin 
-				activations.vld = $urandom()%7 > 1;
+				activations.vld = $urandom()%7 >= 1;
 				@(posedge clk);
 			end while (!(activations.vld === 1 && activations.rdy === 1));
 		end
@@ -201,6 +202,7 @@ module mvu_axi_tb();
 		.ACCU_WIDTH(ACCU_WIDTH),
 		.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
 		.SEGMENTLEN(SEGMENTLEN),
+		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL),
 		.MVU_IMPL_STYLE(MVU_IMPL_STYLE)
 	)
 	dut (
