@@ -70,7 +70,7 @@ class MatrixVectorActivation(HLSCustomOp):
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
-            "resType": ("s", False, "lut", {"auto", "lut", "dsp"}),
+            "resType": ("s", False, "dsp", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
@@ -125,6 +125,8 @@ class MatrixVectorActivation(HLSCustomOp):
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
+            # Flag to specify whether RTL-based or HLS-based implementation is preferred
+            "impl": ("s", False, "rtl", {"hls", "rtl"})
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
