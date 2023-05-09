@@ -152,31 +152,6 @@ module $TOP_MODULE_NAME$_controller #(
 
 endmodule :  $TOP_MODULE_NAME$_controller
 
-module $TOP_MODULE_NAME$_cyclic_buffer_addressable #(
-    int unsigned  WIDTH,
-    int unsigned  DEPTH
-)(
-    input   logic  clk,
-
-    input   logic  write_enable,
-    input   logic [$clog2(DEPTH)-1:0] write_addr,
-    input   logic [WIDTH-1:0]  data_in,
-
-    input   logic  read_enable,
-    input   logic [$clog2(DEPTH)-1:0]  read_addr, // absolute (!) read address of cyclic buffer
-    output  logic [WIDTH-1:0]  data_out
-);
-
-    $RAM_STYLE$ logic [WIDTH-1:0] Ram[DEPTH];
-    logic [WIDTH-1:0]  Out = 'x;
-    always_ff @(posedge clk) begin
-        if (read_enable)  Out <= Ram[read_addr];
-        if (write_enable) Ram[write_addr] <= data_in;
-    end
-    assign  data_out = Out;
-
-endmodule : $TOP_MODULE_NAME$_cyclic_buffer_addressable
-
 module $TOP_MODULE_NAME$_impl #(
     int  BIT_WIDTH,
     int  SIMD,
@@ -242,9 +217,10 @@ module $TOP_MODULE_NAME$_impl #(
     uwire  window_buffer_read_enable;
     uwire [$clog2(BUF_ELEM_TOTAL)-1:0]  window_buffer_write_addr;
     uwire [$clog2(BUF_ELEM_TOTAL)-1:0]  window_buffer_read_addr;
-    $TOP_MODULE_NAME$_cyclic_buffer_addressable #(
+    swg_cyclic_buffer_addressable #(
         .WIDTH(BUF_IN_WIDTH),
-        .DEPTH(BUF_ELEM_TOTAL)
+        .DEPTH(BUF_ELEM_TOTAL),
+        .RAM_STYLE($RAM_STYLE$)
     ) window_buffer_inst (
         .clk(ap_clk),
 
