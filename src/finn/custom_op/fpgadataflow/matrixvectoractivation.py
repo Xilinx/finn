@@ -655,14 +655,28 @@ class MatrixVectorActivation(HLSCustomOp):
                     adt = DataType.get_smallest_possible(-acc_max - 1)
             else:
                 adt = DataType.get_smallest_possible(acc_max)
-        # if this is the last node in the graph, then ensure the datatype is
-        # divisibly by 8 bits
+        # if this is the last node in the graph, then ensure the datatype of the
+        # output is divisible by 8
         if model.find_direct_successors(self.onnx_node) is None:
-            bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
-            new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
-            adt = DataType[new_adt_name]
-            # for no-activation nodes, output dt = acc dt
-            self.set_nodeattr("outputDataType", adt.name)
+            if self.get_nodeattr("noActivation"):
+                bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
+                new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
+                adt = DataType[new_adt_name]
+                # for no-activation nodes, output dt = acc dt
+                self.set_nodeattr("outputDataType", adt.name)
+            else:
+                odt = DataType[self.get_nodeattr("outputDataType")]
+                bw = roundup_to_integer_multiple(odt.bitwidth(), 8)
+                new_odt_name = odt.name.replace(str(odt.bitwidth()), str(bw))
+                if bw != odt.bitwidth():
+                    warn_str = "outputDataType changing for %s: %s -> %s " % (
+                        self.onnx_node.name,
+                        odt.name,
+                        new_odt_name,
+                    )
+                    warnings.warn(warn_str)
+                    odt = DataType[new_odt_name]
+                    self.set_nodeattr("outputDataType", odt.name)
         self.set_nodeattr("accDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
 
