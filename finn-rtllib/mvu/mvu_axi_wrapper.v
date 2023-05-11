@@ -50,8 +50,10 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter 	OUTPUT_LANES = PE,
 	parameter 	OUTPUT_STREAM_WIDTH_BA = (OUTPUT_LANES*ACCU_WIDTH + 7)/8 * 8
 )(
-  	// Global Control
+	// Global Control
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF weights_V:in0_V:out_V" *)
 	input	ap_clk,
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF weights_V:in0_V:out_V" *)
 	input	ap_rst_n,
 	// Weight Stream
 	input	[WEIGHT_STREAM_WIDTH_BA-1:0]  weights_V_TDATA,
