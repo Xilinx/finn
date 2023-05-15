@@ -612,7 +612,11 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         code_gen_dir = path
         # weights, if not external
         weights = model.get_initializer(self.onnx_node.input[1])
+<<<<<<< HEAD
         if mem_mode in ["decoupled", "external"]:
+=======
+        if mem_mode == "decoupled" or mem_mode == "external":
+>>>>>>> 72fe4c5b ([rtlmvu] More fixes for memstream and param gen)
             weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
             # save decoupled weights for cppsim
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
@@ -821,22 +825,16 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict [list "
-                "CONFIG.NSTREAMS {1} "
-                "CONFIG.MEM_DEPTH {%d} "
-                "CONFIG.MEM_WIDTH {%d} "
-                "CONFIG.MEM_INIT {%s} "
+                "CONFIG.DEPTH {%d} "
+                "CONFIG.WIDTH {%d} "
+                "CONFIG.INIT_FILE {%s} "
                 "CONFIG.RAM_STYLE {%s} "
-                "CONFIG.STRM0_DEPTH {%d} "
-                "CONFIG.STRM0_WIDTH {%d} "
-                "CONFIG.STRM0_OFFSET {0} "
                 "] [get_bd_cells /%s/%s]"
                 % (
                     self.calc_wmem(),
                     self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/",
+                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
                     self.get_nodeattr("ram_style"),
-                    self.calc_wmem(),
-                    self.get_weightstream_width_padded(),
                     node_name,
                     strm_inst,
                 )
