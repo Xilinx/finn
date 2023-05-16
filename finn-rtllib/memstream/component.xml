@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <spirit:component xmlns:xilinx="http://www.xilinx.com" xmlns:spirit="http://www.spiritconsortium.org/XMLSchema/SPIRIT/1685-2009" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
   <spirit:vendor>amd.com</spirit:vendor>
-  <spirit:library>FINN</spirit:library>
+  <spirit:library>finn</spirit:library>
   <spirit:name>memstream</spirit:name>
   <spirit:version>1.0</spirit:version>
   <spirit:busInterfaces>
@@ -219,10 +219,6 @@
           <spirit:name>POLARITY</spirit:name>
           <spirit:value spirit:id="BUSIFPARAM_VALUE.AP_RST_N.POLARITY" spirit:choiceRef="choice_list_9d8b0d81">ACTIVE_LOW</spirit:value>
         </spirit:parameter>
-        <spirit:parameter>
-          <spirit:name>ASSOCIATED_BUSIF</spirit:name>
-          <spirit:value spirit:id="BUSIFPARAM_VALUE.AP_RST_N.ASSOCIATED_BUSIF">m_axis_0</spirit:value>
-        </spirit:parameter>
       </spirit:parameters>
     </spirit:busInterface>
     <spirit:busInterface>
@@ -284,7 +280,7 @@
         <spirit:parameters>
           <spirit:parameter>
             <spirit:name>viewChecksum</spirit:name>
-            <spirit:value>4d23c8e5</spirit:value>
+            <spirit:value>4c694b82</spirit:value>
           </spirit:parameter>
         </spirit:parameters>
       </spirit:view>
@@ -785,7 +781,7 @@
       <spirit:file>
         <spirit:name>hdl/memstream_axi_wrapper.v</spirit:name>
         <spirit:fileType>verilogSource</spirit:fileType>
-        <spirit:userFileType>CHECKSUM_a3b36ea4</spirit:userFileType>
+        <spirit:userFileType>CHECKSUM_1dcfa744</spirit:userFileType>
       </spirit:file>
     </spirit:fileSet>
     <spirit:fileSet>
@@ -853,20 +849,20 @@
       <xilinx:autoFamilySupportLevel>level_1</xilinx:autoFamilySupportLevel>
       <xilinx:definitionSource>package_project</xilinx:definitionSource>
       <xilinx:vendorDisplayName>AMD</xilinx:vendorDisplayName>
-      <xilinx:coreRevision>2</xilinx:coreRevision>
+      <xilinx:coreRevision>3</xilinx:coreRevision>
       <xilinx:upgrades>
         <xilinx:canUpgradeFrom>user.org:user:memstream_axi_wrapper:1.0</xilinx:canUpgradeFrom>
       </xilinx:upgrades>
-      <xilinx:coreCreationDateTime>2023-05-09T10:21:56Z</xilinx:coreCreationDateTime>
+      <xilinx:coreCreationDateTime>2023-05-16T13:58:39Z</xilinx:coreCreationDateTime>
       <xilinx:tags>
         <xilinx:tag xilinx:name="nopcore"/>
       </xilinx:tags>
     </xilinx:coreExtensions>
     <xilinx:packagingInfo>
-      <xilinx:xilinxVersion>2022.1</xilinx:xilinxVersion>
-      <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="733f6ab8"/>
+      <xilinx:xilinxVersion>2022.2</xilinx:xilinxVersion>
+      <xilinx:checksum xilinx:scope="busInterfaces" xilinx:value="aace24af"/>
       <xilinx:checksum xilinx:scope="memoryMaps" xilinx:value="b683eac1"/>
-      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="3364bcf8"/>
+      <xilinx:checksum xilinx:scope="fileGroups" xilinx:value="eaf33d0b"/>
       <xilinx:checksum xilinx:scope="ports" xilinx:value="8c876e99"/>
       <xilinx:checksum xilinx:scope="hdlParameters" xilinx:value="6488ba6f"/>
       <xilinx:checksum xilinx:scope="parameters" xilinx:value="10eb550f"/>

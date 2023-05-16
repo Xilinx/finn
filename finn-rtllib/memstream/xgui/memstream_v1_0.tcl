@@ -12,8 +12,6 @@ proc init_gui { IPINST } {
   ipgui::add_param $IPINST -name "INIT_FILE" -parent ${Page_0}
   ipgui::add_param $IPINST -name "RAM_STYLE" -parent ${Page_0}
   ipgui::add_param $IPINST -name "WIDTH" -parent ${Page_0}
-
-
 }
 
 proc update_PARAM_VALUE.AXILITE_ADDR_WIDTH { PARAM_VALUE.AXILITE_ADDR_WIDTH PARAM_VALUE.DEPTH PARAM_VALUE.WIDTH } {
