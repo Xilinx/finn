@@ -40,9 +40,10 @@ module memstream_axi_wrapper #(
 	parameter  AXILITE_ADDR_WIDTH = $clog2(DEPTH * (2**$clog2((WIDTH+31)/32))) + 2
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axis_0" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axis_0" *)
+	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)
 	input	ap_rst_n,
 
 	// AXI-lite Write
