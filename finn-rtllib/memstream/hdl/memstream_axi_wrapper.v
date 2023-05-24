@@ -43,7 +43,7 @@ module memstream_axi_wrapper #(
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF m_axis_0, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
-	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_HIGH" *)
+	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
 	// AXI-lite Write
