@@ -69,7 +69,7 @@ module mvu_8sx8u_dsp48 #(
 				for(genvar  pe = 0; pe < PE_END - PE_BEG; pe++) begin
 					assign	ww[pe] = w[PE_BEG + pe][s];
 					if(pe) begin
-						if(BEHAVIORAL)  assign  xx[pe] = zero? 0 : ww[pe] * a[s];
+						if(BEHAVIORAL)  assign  xx = zero? 0 : ww[pe] * a[s];
 `ifndef VERILATOR
 						else begin
 							LUT6_2 #(.INIT(64'h0000_6AC0_0000_8888)) lut_x (
