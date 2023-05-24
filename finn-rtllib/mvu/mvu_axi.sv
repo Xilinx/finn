@@ -31,12 +31,13 @@
  * @brief	Matrix Vector Unit (MVU) AXI-lite interface wrapper.
  * @details
  *  Folding hints:
- *	 - 4-bit MVU:          PE scaling should aim at a full multiple of 4.
- *	 - 8-bit MVU - DSP48:  PE scaling should aim at a full multiple of 2.
- *	 - 8-bit MVU - DSP58:  SIMD scaling should aim at a full multiple of 3.
+ *	 - 4-bit MVU:          PE scaling should divide MH.
+ *	 - 8-bit MVU - DSP48:  PE scaling should divide MH.
+ *	 - 8-bit MVU - DSP58:  SIMD scaling should aim at a full multiple of 3 and divide MW.
  *	 - Otherwise, keep SIMD and PE somewhat balanced. SIMD scaling tends to
  *	   impact critical paths more than PE scaling. PE scaling implies a
  *	   bigger fanout on the input activations.
+ *	 - Full unfolding along MH (PE=MH) results in no replay buffer instantiated
  *****************************************************************************/
 
 module mvu_axi #(
