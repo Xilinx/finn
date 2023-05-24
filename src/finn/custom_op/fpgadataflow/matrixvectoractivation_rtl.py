@@ -813,7 +813,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             )
 
             # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "amd.com:FINN:memstream:1.0"
+            strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type ip -vlnv %s /%s/%s"
@@ -911,8 +911,14 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                     self.onnx_node.name,
                 )
             )
-            cmd.append("set_property CONFIG.FREQ_HZ 333333333.333333 [get_bd_intf_pins %s/in0_V]" % (self.onnx_node.name))
-            cmd.append("set_property CONFIG.FREQ_HZ 333333333.333333 [get_bd_intf_pins %s/out_V]" % (self.onnx_node.name))
+            cmd.append(
+                "set_property CONFIG.FREQ_HZ 333333333.333333 "
+                "[get_bd_intf_pins %s/in0_V]" % (self.onnx_node.name)
+            )
+            cmd.append(
+                "set_property CONFIG.FREQ_HZ 333333333.333333 "
+                "[get_bd_intf_pins %s/out_V]" % (self.onnx_node.name)
+            )
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
