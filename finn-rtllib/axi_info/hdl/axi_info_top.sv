@@ -38,7 +38,10 @@ module axi_info_top #(
 	bit [31:0]  CHECKSUM_COUNT
 )(
 	//- Global Control ------------------
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	logic  ap_clk,
+	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	logic  ap_rst_n,
 
 	//- AXI Lite ------------------------
