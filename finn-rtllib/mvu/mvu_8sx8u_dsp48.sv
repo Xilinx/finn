@@ -23,7 +23,7 @@ module mvu_8sx8u_dsp48 #(
 	output	logic  vld,
 	output	logic signed [PE-1:0][ACCU_WIDTH-1:0]  p
 );
-	// Verilator always to use behavioral code
+	// for verilator always use behavioral code
 	localparam bit  BEHAVIORAL =
 `ifdef VERILATOR
 		1 ||
