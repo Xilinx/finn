@@ -50,25 +50,26 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter 	OUTPUT_STREAM_WIDTH_BA = (OUTPUT_LANES*ACCU_WIDTH + 7)/8 * 8
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_weights:s_axis_input:m_axis_output" *)
-	input	logic  ap_clk,
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_weights:s_axis_input:m_axis_output" *)
-	input	logic  ap_rst_n,
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_weights:s_axis_input:m_axis_output, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
+	input	ap_clk,
+	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
+	input	ap_rst_n,
 
 	// Weight Stream
-	input	logic [WEIGHT_STREAM_WIDTH_BA-1:0]  s_axis_weights_tdata,
-	input	logic  s_axis_weights_tvalid,
-	output	logic  s_axis_weights_tready,
+	input	[WEIGHT_STREAM_WIDTH_BA-1:0]  s_axis_weights_tdata,
+	input	s_axis_weights_tvalid,
+	output	s_axis_weights_tready,
 
 	// Input Stream
-	input	logic [INPUT_STREAM_WIDTH_BA-1:0]  s_axis_input_tdata,
-	input	logic  s_axis_input_tvalid,
-	output	logic  s_axis_input_tready,
+	input	[INPUT_STREAM_WIDTH_BA-1:0]  s_axis_input_tdata,
+	input	s_axis_input_tvalid,
+	output	s_axis_input_tready,
 
 	// Output Stream
-	output	logic [OUTPUT_STREAM_WIDTH_BA-1:0]  m_axis_output_tdata,
-	output	logic  m_axis_output_tvalid,
-	input	logic  m_axis_output_tready
+	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  m_axis_output_tdata,
+	output	m_axis_output_tvalid,
+	input	m_axis_output_tready
 );
 
 mvu_8sx9_axi #(
