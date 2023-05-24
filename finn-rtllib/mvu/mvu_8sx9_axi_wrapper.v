@@ -28,65 +28,66 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Verilog AXI-lite wrapper for MVU & VVU.
+ * @brief	Verilog AXI-lite wrapper for MVU.
  *****************************************************************************/
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
-	parameter	IS_MVU = $IS_MVU$,
-	parameter	COMPUTE_CORE = "$COMPUTE_CORE$",
-	parameter	MW = $MW$,
+	parameter 	MW = $MW$,
 	parameter	MH = $MH$,
-	parameter	PE = $PE$,
-	parameter	SIMD = $SIMD$,
-	parameter	ACTIVATION_WIDTH = $ACTIVATION_WIDTH$,
-	parameter	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
-	parameter	ACCU_WIDTH = $ACCU_WIDTH$,
-	parameter	SIGNED_ACTIVATIONS = $SIGNED_ACTIVATIONS$,
-	parameter	SEGMENTLEN = $SEGMENTLEN$,
-	parameter	FORCE_BEHAVIORAL = $FORCE_BEHAVIORAL$,
+	parameter 	PE = $PE$,
+	parameter 	SIMD = $SIMD$,
+	parameter 	ACTIVATION_WIDTH = $ACTIVATION_WIDTH$,
+	parameter 	WEIGHT_WIDTH = $WEIGHT_WIDTH$,
+	parameter 	ACCU_WIDTH = $ACCU_WIDTH$,
+	parameter 	SIGNED_ACTIVATIONS = $SIGNED_ACTIVATIONS$,
+	parameter 	SEGMENTLEN = $SEGMENTLEN$,
+	parameter 	RAM_STYLE = "$IBUF_RAM_STYLE$",
 
 	// Safely deducible parameters
-	parameter	WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-	parameter 	INPUT_STREAM_WIDTH_BA = ((IS_MVU == 1 ? 1 : PE) * SIMD * ACTIVATION_WIDTH + 7) / 8 * 8,
-	parameter 	OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
+	parameter 	WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
+	parameter 	INPUT_STREAM_WIDTH_BA = (SIMD*ACTIVATION_WIDTH+7)/8 * 8,
+	parameter 	OUTPUT_LANES = PE,
+	parameter 	OUTPUT_STREAM_WIDTH_BA = (OUTPUT_LANES*ACCU_WIDTH + 7)/8 * 8
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF weights_V:in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
+	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axis_weights:s_axis_input:m_axis_output, ASSOCIATED_RESET ap_rst_n" *)
 	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
 	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
 	// Weight Stream
-	input	[WEIGHT_STREAM_WIDTH_BA-1:0]  weights_V_TDATA,
-	input   weights_V_TVALID,
-	output  weights_V_TREADY,
+	input	[WEIGHT_STREAM_WIDTH_BA-1:0]  s_axis_weights_tdata,
+	input	s_axis_weights_tvalid,
+	output	s_axis_weights_tready,
+
 	// Input Stream
-	input	[INPUT_STREAM_WIDTH_BA-1:0]  in0_V_TDATA,
-	input	in0_V_TVALID,
-	output	in0_V_TREADY,
+	input	[INPUT_STREAM_WIDTH_BA-1:0]  s_axis_input_tdata,
+	input	s_axis_input_tvalid,
+	output	s_axis_input_tready,
+
 	// Output Stream
-	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  out_V_TDATA,
-	output	out_V_TVALID,
-	input	out_V_TREADY
+	output	[OUTPUT_STREAM_WIDTH_BA-1:0]  m_axis_output_tdata,
+	output	m_axis_output_tvalid,
+	input	m_axis_output_tready
 );
 
-mvu_vvu_axi #(
-	.IS_MVU(IS_MVU), .COMPUTE_CORE(COMPUTE_CORE), .MW(MW), .MH(MH), .PE(PE), .SIMD(SIMD),
-	.ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH), .ACCU_WIDTH(ACCU_WIDTH),
-	.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)
+mvu_8sx9_axi #(
+	.MW(MW), .MH(MH), .PE(PE), .SIMD(SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH),
+	.WEIGHT_WIDTH(WEIGHT_WIDTH), .ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS),
+	.SEGMENTLEN(SEGMENTLEN), .RAM_STYLE(RAM_STYLE)
 	) inst (
 	.ap_clk(ap_clk),
 	.ap_rst_n(ap_rst_n),
-	.s_axis_weights_tdata(weights_V_TDATA),
-	.s_axis_weights_tvalid(weights_V_TVALID),
-	.s_axis_weights_tready(weights_V_TREADY),
-	.s_axis_input_tdata(in0_V_TDATA),
-	.s_axis_input_tvalid(in0_V_TVALID),
-	.s_axis_input_tready(in0_V_TREADY),
-	.m_axis_output_tdata(out_V_TDATA),
-	.m_axis_output_tvalid(out_V_TVALID),
-	.m_axis_output_tready(out_V_TREADY)
+	.s_axis_weights_tdata(s_axis_weights_tdata),
+	.s_axis_weights_tvalid(s_axis_weights_tvalid),
+	.s_axis_weights_tready(s_axis_weights_tready),
+	.s_axis_input_tdata(s_axis_input_tdata),
+	.s_axis_input_tvalid(s_axis_input_tvalid),
+	.s_axis_input_tready(s_axis_input_tready),
+	.m_axis_output_tdata(m_axis_output_tdata),
+	.m_axis_output_tvalid(m_axis_output_tvalid),
+	.m_axis_output_tready(m_axis_output_tready)
 );
 
 endmodule : $MODULE_NAME_AXI_WRAPPER$
