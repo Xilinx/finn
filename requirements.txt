@@ -18,3 +18,4 @@ sphinx_rtd_theme==0.5.0
 toposort==1.5
 vcdvcd==1.0.5
 wget==3.2
+ipython==8.12.2
