@@ -57,7 +57,7 @@ module mvu_8sx9 #(
 	output  logic vld,
     output  logic [PE-1:0][ACCU_WIDTH-1:0] p
   );
-	// Verilator always to use behavioral code
+	// for verilator always use behavioral code
 	localparam bit  BEHAVIORAL =
 `ifdef VERILATOR
 		1 ||
