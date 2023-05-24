@@ -52,11 +52,17 @@ module mvu_8sx9 #(
     input   logic zero, // ignore current inputs and force this partial product to zero
     input   logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] w, // weights
 	input   logic [SIMD-1:0][ACTIVATION_WIDTH-1:0] a, // activations
-    
+
 	// Ouput
 	output  logic vld,
     output  logic [PE-1:0][ACCU_WIDTH-1:0] p
   );
+	// Verilator always to use behavioral code
+	localparam bit  BEHAVIORAL =
+`ifdef VERILATOR
+		1 ||
+`endif
+		FORCE_BEHAVIORAL;
 
 //-------------------- Declare global signals --------------------\\
 	localparam int unsigned CHAINLEN = (SIMD+2)/3;
@@ -75,7 +81,7 @@ module mvu_8sx9 #(
 			L[1+MAX_PIPELINE_STAGES] <= last;
 			L[0:MAX_PIPELINE_STAGES] <= L[1:1+MAX_PIPELINE_STAGES];
 		end
-	end  
+	end
 	assign vld = L[0];
 
 //-------------------- Shift register for ZERO flag --------------------\\
@@ -87,7 +93,7 @@ module mvu_8sx9 #(
 			else if(en) begin
 				Z[0] <= zero;
 				if (MAX_PIPELINE_STAGES > 2)  Z[1:MAX_PIPELINE_STAGES-1] <= Z[0:MAX_PIPELINE_STAGES-2];
-			end    
+			end
 		end
 	end;
 
@@ -157,12 +163,12 @@ module mvu_8sx9 #(
 
 			if (LAST) begin : genPOUT
 				assign p[j] = pp[ACCU_WIDTH-1:0];
-			end      
+			end
 
 			// Note: Since the product B * AD is computed,
 			//       rst can be only applied to AD and zero only to B
 			//       with the same effect as zeroing both.
-			if (FORCE_BEHAVIORAL) begin : genBehav
+			if(BEHAVIORAL) begin : genBehav
 				// Stage #1: Input A/B
 				logic signed [33:0] Areg [INTERNAL_PREGS];
 				always_ff @(posedge clk) begin
@@ -233,7 +239,7 @@ module mvu_8sx9 #(
 				assign pp = Preg;
 				assign pcout[j][i] = pp;
 			end : genBehav
-
+`ifndef VERILATOR
 			else begin: genDSP
 				DSP58 #(
 					// Feature Control Attributes: Data Path Selection
@@ -263,8 +269,8 @@ module mvu_8sx9 #(
 					.IS_CLK_INVERTED(1'b0),             // Optional inversion for CLK
 					.IS_INMODE_INVERTED(5'b00000),      // Optional inversion for INMODE
 					.IS_NEGATE_INVERTED(3'b000),        // Optional inversion for NEGATE
-					.IS_OPMODE_INVERTED({ LAST ? 2'b01 : 2'b00 , // W: LAST ? (L[1] ? 0 : P) : 0 
-										FIRST ? 3'b000 : 3'b001, // Z: FIRST ? 0 : PCIN 
+					.IS_OPMODE_INVERTED({ LAST ? 2'b01 : 2'b00 , // W: LAST ? (L[1] ? 0 : P) : 0
+										FIRST ? 3'b000 : 3'b001, // Z: FIRST ? 0 : PCIN
 										2'b01, // Y : M
 										2'b01  // X: M
 					}), // Optional inversion for OPMODE
@@ -325,7 +331,7 @@ module mvu_8sx9 #(
 							INTERNAL_PREGS==2 ? 1'b0 : 1'b1,
 							2'b00,
 							TOTAL_PREGS > 0 ? Z[TOTAL_PREGS-1] : zero,
-							INTERNAL_PREGS==2 ? 1'b0 : 1'b1        
+							INTERNAL_PREGS==2 ? 1'b0 : 1'b1
 					}),                                 // 5-bit input: INMODE control
 					.NEGATE('0),                        // 3-bit input: Negates the input of the multiplier
 					.OPMODE({
@@ -365,7 +371,8 @@ module mvu_8sx9 #(
 					.RSTP(PREG && rst)                  // 1-bit input: Reset for PREG
 				);
 			end : genDSP
-		end : genDSPChain  
+`endif
+		end : genDSPChain
 	end : genDSPPE
-    
+
 endmodule : mvu_8sx9

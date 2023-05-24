@@ -29,6 +29,14 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * @brief	Matrix Vector Unit (MVU) AXI-lite interface wrapper.
+ * @details
+ *  Folding hints:
+ *	 - 4-bit MVU:          PE scaling should aim at a full multiple of 4.
+ *	 - 8-bit MVU - DSP48:  PE scaling should aim at a full multiple of 2.
+ *	 - 8-bit MVU - DSP58:  SIMD scaling should aim at a full multiple of 3.
+ *	 - Otherwise, keep SIMD and PE somewhat balanced. SIMD scaling tends to
+ *	   impact critical paths more than PE scaling. PE scaling implies a
+ *	   bigger fanout on the input activations.
  *****************************************************************************/
 
 module mvu_axi #(
@@ -134,8 +142,9 @@ module mvu_axi #(
 	uwire ovld;
 	uwire [PE-1:0][ACCU_WIDTH-1:0] odat;
 	typedef logic [WEIGHT_STREAM_WIDTH-1 : 0] mvauin_weight_t;
-	
-	if (MVU_IMPL_STYLE == "mvu_8sx9_dsp58") begin : genMVU8sx9
+
+	case(MVU_IMPL_STYLE)
+	"mvu_8sx9_dsp58":
 		mvu_8sx9 #(.PE(PE), .SIMD(SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
 		.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
 		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
@@ -143,26 +152,27 @@ module mvu_axi #(
 			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
 			.vld(ovld), .p(odat)
 		);
-	end
-	else if (MVU_IMPL_STYLE == "mvu_4sx4u") begin : genMVU4sx4u
+
+	"mvu_4sx4u":
 		mvu_4sx4u #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
 			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
 			.vld(ovld), .p(odat)
 		);
-	end
-	else if (MVU_IMPL_STYLE == "mvu_8sx8u_dsp48") begin : genMVU8sx8u
+
+	"mvu_8sx8u_dsp48":
 		mvu_8sx8u_dsp48 #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
 		 .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
 			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
 			.vld(ovld), .p(odat)
 		);
-	end
-	else initial begin
-		$error("Unrecognized MVU_IMPL_STYLE!");
+
+	default: initial begin
+		$error("Unrecognized MVU_IMPL_STYLE '%s'", MVU_IMPL_STYLE);
 		$finish;
 	end
+	endcase
 
 //-------------------- Output register slice --------------------\\
 	struct packed {
@@ -185,7 +195,7 @@ module mvu_axi #(
 			end
 		end
 	end
-	
+
 	struct packed {
 		logic vld;
 		logic [PE-1:0][ACCU_WIDTH-1:0] dat;
@@ -196,7 +206,7 @@ module mvu_axi #(
 		if(rst)		B <= '{ default: 'x };
 		else begin
 			if(b_load)	B <= '{ vld: A.vld, dat: A.dat};
-		end	
+		end
 	end
 
 	assign	m_axis_output_tvalid = B.vld;

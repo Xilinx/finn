@@ -23,6 +23,12 @@ module mvu_8sx8u_dsp48 #(
 	output	logic  vld,
 	output	logic signed [PE-1:0][ACCU_WIDTH-1:0]  p
 );
+	// Verilator always to use behavioral code
+	localparam bit  BEHAVIORAL =
+`ifdef VERILATOR
+		1 ||
+`endif
+		FORCE_BEHAVIORAL;
 
 	typedef int unsigned  leave_load_t[2*SIMD-1];
 	function leave_load_t init_leave_loads();
@@ -63,17 +69,21 @@ module mvu_8sx8u_dsp48 #(
 				for(genvar  pe = 0; pe < PE_END - PE_BEG; pe++) begin
 					assign	ww[pe] = w[PE_BEG + pe][s];
 					if(pe) begin
-//						assign  xx[pe] = zero? 0 : ww[pe] * a[s];
-						LUT6_2 #(.INIT(64'h0000_6AC0_0000_8888)) lut_x (
-							.O6(xx[1]),
-							.O5(xx[0]),
-							.I5(1'b1),
-							.I4(zero),
-							.I3(ww[pe][1]),
-							.I2(a[s][1]),
-							.I1(ww[pe][0]),
-							.I0(a[s][0])
-						);
+						if(BEHAVIORAL)  assign  xx = zero? 0 : ww[pe] * a[s];
+`ifndef VERILATOR
+						else begin
+							LUT6_2 #(.INIT(64'h0000_6AC0_0000_8888)) lut_x (
+								.O6(xx[1]),
+								.O5(xx[0]),
+								.I5(1'b1),
+								.I4(zero),
+								.I3(ww[pe][1]),
+								.I2(a[s][1]),
+								.I1(ww[pe][0]),
+								.I0(a[s][0])
+							);
+						end
+`endif
 					end
 				end
 				always_comb begin
@@ -91,7 +101,7 @@ module mvu_8sx8u_dsp48 #(
 			// Note: Since the product B * AD is computed,
 			//       rst can be only applied to AD and zero only to B
 			//       with the same effect as zeroing both.
-			if (FORCE_BEHAVIORAL) begin : genBehav
+			if(BEHAVIORAL) begin : genBehav
 				// Stage #1: Input Refine
 				logic signed [23:0]  B1  = 0;
 				always_ff @(posedge clk) begin
@@ -125,6 +135,7 @@ module mvu_8sx8u_dsp48 #(
 
 				assign	pp = P3;
 			end : genBehav
+`ifndef VERILATOR
 			else begin : genDSP
 				DSP48E2 #(
 					// Feature Control Attributes: Data Path Selection
@@ -256,6 +267,7 @@ module mvu_8sx8u_dsp48 #(
 					.RSTP(rst)			// 1-bit input: Reset for PREG
 				);
 			end : genDSP
+`endif
 
 			// External Canary Pipeline
 			logic [1:0]  X1 = '{ default: 0 };
