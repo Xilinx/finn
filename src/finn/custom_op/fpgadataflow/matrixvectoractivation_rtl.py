@@ -192,9 +192,9 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
 
         mem_mode = self.get_nodeattr("mem_mode")
 
-        if mem_mode != "decoupled":
+        if mem_mode not in ["decoupled", "external"]:
             info_messages.append(
-                "RTL-based MVAU supports only decoupled weights currently"
+                "RTL-based MVAU supports only decoupled or external weights."
             )
 
         return info_messages
@@ -612,7 +612,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         code_gen_dir = path
         # weights, if not external
         weights = model.get_initializer(self.onnx_node.input[1])
-        if mem_mode == "decoupled" or mem_mode == "external":
+        if mem_mode in ["decoupled", "external"]:
             weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
             # save decoupled weights for cppsim
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
@@ -625,7 +625,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 )
         else:
             raise Exception(
-                """Please set mem_mode to "decoupled",
+                """Please set mem_mode to "const", "decoupled", or "external",
                 currently no other parameter value is supported!"""
             )
 
@@ -680,7 +680,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            if mem_mode == "external" or mem_mode == "decoupled":
+            if mem_mode in ["external", "decoupled"]:
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
                 wei = npy_to_rtlsim_input(
@@ -813,7 +813,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             )
 
             # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "amd.com:FINN:memstream:1.0"
+            strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type ip -vlnv %s /%s/%s"
@@ -882,9 +882,37 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                 # TODO calculate and pass in segment size here
                 cmd.append("assign_bd_address")
             cmd.append("save_bd_design")
-        elif mem_mode == "const" or mem_mode == "external":
-            # base class impl sufficient for const/external modes
-            return super().code_generation_ipi()
+        elif mem_mode == "external":
+            # instantiate the RTL block
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+            sourcefiles = [
+                os.path.join(
+                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
+                ),
+                rtllib_dir + "mvu_axi.sv",
+                rtllib_dir + "replay_buffer.sv",
+                rtllib_dir + "mvu_4sx4u.sv",
+                rtllib_dir + "mvu_8sx9.sv",
+                rtllib_dir + "mvu_8sx8u_dsp48.sv",
+            ]
+            for f in sourcefiles:
+                cmd.append("add_files -norecurse %s" % (f))
+            cmd.append(
+                "create_bd_cell -type module -reference %s %s"
+                % (
+                    self.get_nodeattr("gen_top_module"),
+                    self.onnx_node.name,
+                )
+            )
+            cmd.append(
+                "set_property CONFIG.FREQ_HZ 333333333.333333 "
+                "[get_bd_intf_pins %s/in0_V]" % (self.onnx_node.name)
+            )
+            cmd.append(
+                "set_property CONFIG.FREQ_HZ 333333333.333333 "
+                "[get_bd_intf_pins %s/out_V]" % (self.onnx_node.name)
+            )
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
