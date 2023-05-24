@@ -39,12 +39,18 @@ from qonnx.util.basic import (
 )
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.util.basic import get_rtlsim_trace_depth, make_build_dir
 from finn.util.data_packing import (
     npy_to_rtlsim_input,
-    numpy_to_hls_code,
     pack_innermost_dim_as_hex_string,
     rtlsim_output_to_npy,
 )
+
+try:
+    from pyverilator import PyVerilator
+except ModuleNotFoundError:
+    PyVerilator = None
+
 
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
@@ -54,7 +60,7 @@ from finn.util.data_packing import (
 # the ... here can be any shape (representing groups of vectors)
 
 
-class MatrixVectorActivation(HLSCustomOp):
+class MatrixVectorActivation_rtl(HLSCustomOp):
     """Class that corresponds to finn-hls Matrix_Vector_Activate(_Stream)_Batch
     function."""
 
@@ -67,7 +73,7 @@ class MatrixVectorActivation(HLSCustomOp):
             "SIMD": ("i", True, 0),
             "MW": ("i", True, 0),
             "MH": ("i", True, 0),
-            "resType": ("s", False, "dsp", {"auto", "lut", "dsp"}),
+            "resType": ("s", False, "lut", {"auto", "lut", "dsp"}),
             "ActVal": ("i", False, 0),
             # FINN DataTypes for inputs, weights, outputs
             "inputDataType": ("s", True, ""),
@@ -75,11 +81,6 @@ class MatrixVectorActivation(HLSCustomOp):
             "outputDataType": ("s", True, ""),
             # FINN DataType for accumulator -- auto-computed and updated
             "accDataType": ("s", False, "INT32"),
-            # use xnor-popcount for binary weights/inputs, thus treating them
-            # as bipolar
-            "binaryXnorMode": ("i", False, 0, {0, 1}),
-            # no-activation mode (produce accumulators)
-            "noActivation": ("i", False, 0, {0, 1}),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -102,16 +103,6 @@ class MatrixVectorActivation(HLSCustomOp):
                 "auto",
                 {"auto", "block", "distributed", "ultra"},
             ),
-            # FPGA resource type for threshold memories (if noActivation is False)
-            # auto -- let Vivado decide
-            # block -- use BRAM
-            # distributed -- use LUTRAM
-            "ram_style_thresholds": (
-                "s",
-                False,
-                "auto",
-                {"auto", "block", "distributed"},
-            ),
             # (mem_mode = decoupled only) whether weights will be writable through
             # an AXI-lite interface during runtime
             # 1 for enabled, 0 for disabled.
@@ -122,8 +113,8 @@ class MatrixVectorActivation(HLSCustomOp):
             # vector through the accelerator. This will get rid of any old
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
-            # Flag to specify whether RTL-based or HLS-based implementation is preferred
-            "impl": ("s", False, "rtl", {"hls", "rtl"})
+            # attribute to save top module name - not user configurable
+            "gen_top_module": ("s", False, ""),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -141,12 +132,7 @@ class MatrixVectorActivation(HLSCustomOp):
 
     def calc_tmem(self):
         """Calculates and returns TMEM."""
-        if self.get_nodeattr("noActivation") == 1:
-            return 0
-        else:
-            mh = self.get_nodeattr("MH")
-            pe = self.get_nodeattr("PE")
-            return mh // pe
+        return 0
 
     def make_shape_compatible_op(self, model):
         oshape = self.get_normal_output_shape()
@@ -195,36 +181,25 @@ class MatrixVectorActivation(HLSCustomOp):
                 """The required MatrixVectorActivation attributes do not exist."""
             )
 
-        # verify the number of inputs depending on noActivation value
-        # check noActivation value to determine the number of inputs
-        no_act = self.get_nodeattr("noActivation")
-
-        if no_act == 1:
-            if len(self.onnx_node.input) == 2:
-                info_messages.append("The number of inputs is correct")
-            else:
-                info_messages.append(
-                    """MatrixVectorActivation needs in no
-                            activation mode 2 inputs (data input and weights)"""
-                )
-        elif no_act == 0:
-            if len(self.onnx_node.input) == 3:
-                info_messages.append("The number of inputs is correct")
-            else:
-                info_messages.append(
-                    """MatrixVectorActivation needs 3 inputs
-                            (data input and weights and threshold values)"""
-                )
-        else:
+        num_of_inputs = len(self.onnx_node.input)
+        if num_of_inputs != 2:
             info_messages.append(
-                """noActivation attribute contains {} should
-                be 0 or 1""".format(
-                    no_act
+                "RTL-based MatrixVectorActivation expects two inputs "
+                "(weights and activation), but got {} inputs.".format(
+                    len(self.onnx_node.input)
                 )
+            )
+
+        mem_mode = self.get_nodeattr("mem_mode")
+
+        if mem_mode not in ["decoupled", "external"]:
+            info_messages.append(
+                "RTL-based MVAU supports only decoupled or external weights."
             )
 
         return info_messages
 
+    # TODO: Add in replay_buffer estimation
     def uram_estimation(self):
         P = self.get_nodeattr("PE")
         Q = self.get_nodeattr("SIMD")
@@ -246,6 +221,7 @@ class MatrixVectorActivation(HLSCustomOp):
         depth_multiplier = math.ceil(omega / 4096)
         return width_multiplier * depth_multiplier
 
+    # TODO: Add in replay_buffer estimation
     def bram_estimation(self):
         """Calculates resource estimation for BRAM based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
@@ -272,7 +248,7 @@ class MatrixVectorActivation(HLSCustomOp):
         ):
             return 0
         # assuming SDP mode RAMB18s (see UG573 Table 1-10)
-        # assuming decoupled (RTL) memory, which is more efficient than const (HLS)
+        # assuming decoupled (RTL) memory
         if mem_width == 1:
             return math.ceil(omega / 16384)
         elif mem_width == 2:
@@ -286,6 +262,7 @@ class MatrixVectorActivation(HLSCustomOp):
         else:
             return (math.ceil(omega / 512)) * (math.ceil(mem_width / 36))
 
+    # TODO: Add in replay_buffer estimation
     def bram_efficiency_estimation(self):
         wdt = self.get_weight_datatype()
         W = wdt.bitwidth()
@@ -298,6 +275,7 @@ class MatrixVectorActivation(HLSCustomOp):
         bram16_est_capacity = bram16_est * 36 * 512
         return wbits / bram16_est_capacity
 
+    # TODO: Add in replay_buffer estimation
     def uram_efficiency_estimation(self):
         """Function for URAM efficiency estimation: actual parameter storage
         needed divided by the allocated URAM storage (from estimation)"""
@@ -312,6 +290,7 @@ class MatrixVectorActivation(HLSCustomOp):
         uram_est_capacity = uram_est * 72 * 4096
         return wbits / uram_est_capacity
 
+    # TODO: FIX: worst case estimates since segmentlen is not known at this point?
     def lut_estimation(self):
         """Calculates resource estimations for LUTs based on:
         - FINN-R: An End-to-End Deep-Learning Framework for Fast
@@ -349,34 +328,12 @@ class MatrixVectorActivation(HLSCustomOp):
         # adder tree
         addertree_luts = (W + A) * (2 * Q - 1)
         # accumulator
-        acc_datatype = self.get_accumulator_datatype()
-        # if accDataType is not set, then it will default to INT32, which would
-        # be a large overestimate in most (if not all) cases. In this scenario,
-        # we would use the minimum accumulator as determined by the data types
-        # bound, derived in https://arxiv.org/abs/2301.13376
-        alpha = math.log(MW, 2) + W + A - 1 - int(idt.signed())
-        acc_bits = min(
-            acc_datatype.bitwidth(),
-            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
-        )
+        acc_bits = W + A + np.ceil(math.log(MW, 2))
         acc_luts = acc_bits
-        # thresholds and threshold comparators
-        thr_luts = 0
-        comp_luts = 0
-        noact = self.get_nodeattr("noActivation")
-        tmem_style = self.get_nodeattr("ram_style_thresholds")
-        if (noact == 0) and (tmem_style == "distributed"):
-            odt = self.get_output_datatype()
-            B = odt.bitwidth()
-            thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
-            comp_luts = (2**B - 1) * acc_bits
 
-        return int(
-            c0
-            + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts))
-            + c2
-        )
+        return int(c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts)) + c2)
 
+    # TODO: FIX: worst case estimates since segmentlen is not known at this point?
     def dsp_estimation(self):
         # multiplication
         P = self.get_nodeattr("PE")
@@ -392,6 +349,7 @@ class MatrixVectorActivation(HLSCustomOp):
             mult_dsp = 0
         return int(mult_dsp)
 
+    # TODO: FIX: worst case estimates since segmentlen is not known at this point
     def get_exp_cycles(self):
         pe = self.get_nodeattr("PE")
         simd = self.get_nodeattr("SIMD")
@@ -400,6 +358,9 @@ class MatrixVectorActivation(HLSCustomOp):
         mw = self.get_nodeattr("MW")
         # since mmv != 1 is not supported yet, we set mmv for now to 1
         mmv = 1
+        # Actual exp_cycles is probably slightly larger (say 3 cycles
+        # (DSP A/B, M, P - reg) + additional pipeline buffer cycles.
+        # Most probably <10)
         exp_cycles = (mh / pe) * (mw / simd) * np.prod(num_inp_vec) / mmv
         return int(exp_cycles)
 
@@ -414,10 +375,6 @@ class MatrixVectorActivation(HLSCustomOp):
         else:
             raise Exception("Undefined input ind for this layer type")
 
-    def get_accumulator_datatype(self):
-        """Returns FINN DataType of accumulator"""
-        return DataType[self.get_nodeattr("accDataType")]
-
     def get_weight_datatype(self):
         """Returns FINN DataType of weights."""
         return DataType[self.get_nodeattr("weightDataType")]
@@ -428,6 +385,9 @@ class MatrixVectorActivation(HLSCustomOp):
 
     def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
+        assert (
+            i_bits <= 9
+        ), "RTL-based MVAU only supports activations with bit-width up to 9-bits"
         in_width = i_bits * self.get_nodeattr("SIMD")
         return in_width
 
@@ -445,6 +405,9 @@ class MatrixVectorActivation(HLSCustomOp):
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
             wp = self.get_weight_datatype().bitwidth()
+            assert (
+                wp <= 8
+            ), "RTL-based MVAU only supports weights with bit-width up to 8-bits"
             w_width = pe * simd * wp
             return w_width
         else:
@@ -511,45 +474,6 @@ class MatrixVectorActivation(HLSCustomOp):
         nf = np.prod(self.get_folded_output_shape()[:-1])
         return nf
 
-    def get_template_param_values(self):
-        """Returns the template parameter values according to input, output and weight
-        data types."""
-        ret = dict()
-        inp_hls_str = self.get_input_datatype().get_hls_datatype_str()
-        out_hls_str = self.get_output_datatype().get_hls_datatype_str()
-        inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
-        # out_is_binary = self.get_output_datatype() == DataType["BINARY"]
-        wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
-        bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
-        if (inp_is_binary or wt_is_binary) and (not bin_xnor_mode):
-            raise Exception("True binary (non-bipolar) inputs not yet supported")
-        inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
-        # out_is_bipolar = self.get_output_datatype() == DataType["BIPOLAR"]
-        wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
-        # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-        inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
-        wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-        # fill in TSrcI and TWeightI
-        # TODO check these with Giulio
-        # TODO handle non-bipolar binary inputs
-        if inp_is_bipolar and wt_is_bipolar:
-            ret["TSrcI"] = "Recast<XnorMul>"
-            ret["TWeightI"] = "Identity"
-        elif (not inp_is_bipolar) and wt_is_bipolar:
-            ret["TSrcI"] = "Slice<%s>" % inp_hls_str
-            ret["TWeightI"] = "Recast<Binary>"
-        elif inp_is_bipolar and (not wt_is_bipolar):
-            ret["TSrcI"] = "Recast<Binary>"
-            ret["TWeightI"] = "Identity"
-        elif (not inp_is_bipolar) and (not wt_is_bipolar):
-            ret["TSrcI"] = "Slice<%s>" % inp_hls_str
-            ret["TWeightI"] = "Identity"
-
-        # fill in TDstI
-        ret["TDstI"] = "Slice<%s>" % out_hls_str
-
-        return ret
-
     def get_hls_compatible_weight_tensor(self, orig_weight_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
         a form suitable for passing to the hlslib call:
@@ -575,9 +499,6 @@ class MatrixVectorActivation(HLSCustomOp):
         # ONNX uses (in_features, out_features) and matmul(x, W)
         # finn-hlslib uses (out_features, in_features) and matmul(W, x)
         ret = orig_weight_matrix.T
-        if self.get_weight_datatype() == DataType["BIPOLAR"]:
-            # convert bipolar to binary
-            ret = (ret + 1) / 2
         # interleave rows between PEs and reshape
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
@@ -588,158 +509,24 @@ class MatrixVectorActivation(HLSCustomOp):
         return ret
 
     def minimize_accumulator_width(self, model):
-        """Minimize the accumulator bit width according to the weight values,
-        input data types, and size of dot product"""
         weights = model.get_initializer(self.onnx_node.input[1])
-        # since in the calculation the values of the weight matrix are used,
-        # for the bipolar case they need to be converted to bipolar
-        if self.get_nodeattr("binaryXnorMode"):
-            weights = 2 * weights - 1
-        if len(self.onnx_node.input) > 2:
-            thresholds = model.get_initializer(self.onnx_node.input[2])
-        else:
-            thresholds = None
         idt = self.get_input_datatype()
-        # if runtime-writeable weights, then the values of the weights can
-        # change and we need to use the worst-case values from the datatypes
-        if self.get_nodeattr("runtime_writeable_weights"):
-            wdt = self.get_weight_datatype()
-            lower_worst = wdt.min() * np.ones_like(weights)
-            lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
-            upper_worst = wdt.max() * np.ones_like(weights)
-            upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
-            acc_min = min(min(lower_range), min(upper_range))
-            acc_max = max(max(upper_range), max(upper_range))
-        # if not runtime-writeable weights, then we can calculate the min
-        # and max values of the accumulation range using knowledge of the
-        # weights and input data types since they are fixed
-        else:
-            (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
-        # if the thresholds can be used to determine range, then adjust the range
-        # according to the known values of the thresholds
-        if thresholds is not None:
-            threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-            # set threshold datatype (and accumulator datatype implicitly)
-            min_threshold = thresholds.min()
-            max_threshold = thresholds.max()
-            # clip threshold values
-            clip_upper = None
-            clip_lower = None
-            if max_threshold > acc_max + 1:
-                clip_upper = acc_max + 1
-            if min_threshold < acc_min:
-                clip_lower = acc_min
-            if (clip_lower is not None) or (clip_upper is not None):
-                warnings.warn("Clipping some thresholds in %s" % self.onnx_node.name)
-                thresholds = np.clip(thresholds, clip_lower, clip_upper)
-                model.set_initializer(self.onnx_node.input[2], thresholds)
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-                min_threshold = thresholds.min()
-                max_threshold = thresholds.max()
-            # get range required by threshold values
-            tdt_min = min(acc_min, min_threshold)
-            tdt_max = max(acc_max, max_threshold)
-            if tdt_min < 0:
-                if abs(tdt_min) > tdt_max:
-                    tdt = DataType.get_smallest_possible(tdt_min)
-                else:
-                    tdt = DataType.get_smallest_possible(-tdt_max - 1)
+        # calculate minimum and maximum values of accumulator
+        (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
+        if acc_min < 0:
+            if abs(acc_min) > acc_max:
+                adt = DataType.get_smallest_possible(acc_min)
             else:
-                tdt = DataType.get_smallest_possible(tdt_max)
-            assert np.vectorize(tdt.allowed)(
-                threshold_tensor
-            ).all(), "Thresholds in %s can't be expressed with type %s" % (
-                self.onnx_node.name,
-                str(tdt),
-            )
-            adt = tdt  # Set activation datatype to the threshold datatype
+                adt = DataType.get_smallest_possible(-acc_max - 1)
         else:
-            if acc_min < 0:
-                if abs(acc_min) > acc_max:
-                    adt = DataType.get_smallest_possible(acc_min)
-                else:
-                    adt = DataType.get_smallest_possible(-acc_max - 1)
-            else:
-                adt = DataType.get_smallest_possible(acc_max)
-        # if this is the last node in the graph, then ensure the datatype is
-        # divisibly by 8 bits
-        if model.find_direct_successors(self.onnx_node) is None:
-            bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
-            new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
-            adt = DataType[new_adt_name]
-            # for no-activation nodes, output dt = acc dt
-            self.set_nodeattr("outputDataType", adt.name)
+            adt = DataType.get_smallest_possible(acc_max)
+        # Note: we are interested in simply the width of the output dot product.
+        # Padding the actual output stream to a multiple of 8-bits is done in
+        # the RTL component
         self.set_nodeattr("accDataType", adt.name)
+        # for no-activation nodes, output dt = acc dt
+        self.set_nodeattr("outputDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
-
-    def minimize_weight_bit_width(self, model):
-        """Minimize the bit width based on the values of the weights"""
-        if not self.get_nodeattr("runtime_writeable_weights"):
-            weights = model.get_initializer(self.onnx_node.input[1])
-            w_min = weights.min()
-            w_max = weights.max()
-            if w_min < 0:
-                if abs(w_min) > w_max:
-                    wdt = DataType.get_smallest_possible(w_min)
-                else:
-                    wdt = DataType.get_smallest_possible(-w_max - 1)
-            else:
-                wdt = DataType.get_smallest_possible(w_max)
-            self.set_nodeattr("weightDataType", wdt.name)
-        return DataType[self.get_nodeattr("weightDataType")]
-
-    def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
-        """Convert the original numpy weight matrix orig_weight_matrix into
-        a form suitable for passing to the hlslib call:
-        * ensure MH % PE == 0
-        * for bipolar weights&inputs, ensure thresholds are positive
-        * interleave rows between PEs
-        * reshape into (PE, TMEM, n_thres_steps) and return
-        """
-        mh = self.get_nodeattr("MH")
-        pe = self.get_nodeattr("PE")
-        tmem = mh // pe
-        assert mh % pe == 0, "Requirement MH divisable by PE is violated."
-        assert (
-            orig_thres_matrix.ndim == 2
-        ), """Threshold matrix dimension is
-        not as expected (2)."""
-        n_thres_steps = orig_thres_matrix.shape[1]
-        inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
-        wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
-        # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-        inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
-        wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
-        bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
-        inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
-        wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-        if inp_is_bipolar and wt_is_bipolar:
-            # ensure all thresholds are nonnegative
-            assert (orig_thres_matrix >= 0).all()
-            # ensure all thresholds are integer
-            assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
-        ret = orig_thres_matrix
-        # ensure channels = mh , duplicating if necessary
-        if ret.shape[0] == 1:
-            ret = np.tile(ret, (mh, 1))
-        assert (
-            ret.shape[0] == mh
-        ), "Channels of threshold matrix are not as expected (mh)"
-        # distribute rows between PEs
-        ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
-        assert (
-            ret.shape[0] == pe
-        ), """First dimension after distribution of the
-        rows between PEs is not as expected (pe)"""
-        assert (
-            ret.shape[1] == tmem
-        ), """Second dimension after distribution of the
-        rows between PEs is not as expected (tmem)"""
-        assert (
-            ret.shape[2] == n_thres_steps
-        ), """Third dimension after distribution of the
-        rows between PEs is not as expected (n_thres_steps)"""
-        return ret.reshape(1, pe, tmem, n_thres_steps)
 
     def make_weight_file(self, weights, weight_file_mode, weight_file_name):
         """Produce a file containing given weights in appropriate format for this
@@ -747,46 +534,15 @@ class MatrixVectorActivation(HLSCustomOp):
         of weights.
 
         Arguments:
-
         * weights : numpy array with weights to be put into the file
         * weight_file_mode : one of {hls_header, decoupled_verilog_dat,
           decoupled_runtime}
         * weight_file_name : filename for the weight file to be generated
-
         """
         # convert weights into hlslib-compatible format
         weight_tensor = self.get_hls_compatible_weight_tensor(weights)
         export_wdt = self.get_weight_datatype()
-        # we have converted bipolar weights to binary for export,
-        # so use it as such for weight generation
-        if self.get_weight_datatype() == DataType["BIPOLAR"]:
-            export_wdt = DataType["BINARY"]
-        if weight_file_mode == "hls_header":
-            weight_hls_code = numpy_to_hls_code(
-                weight_tensor, export_wdt, "weights", True, True
-            )
-            # write weights into C++ header file as dictated by finn-hlslib
-            f_weights = open(weight_file_name, "w")
-            if export_wdt.bitwidth() != 1:
-                f_weights.write(
-                    "const FixedPointWeights<{},{},{},{}> weights = ".format(
-                        self.get_nodeattr("SIMD"),
-                        export_wdt.get_hls_datatype_str(),
-                        self.get_nodeattr("PE"),
-                        self.calc_wmem(),
-                    )
-                )
-            else:
-                f_weights.write(
-                    "const BinaryWeights<{},{},{}> weights = ".format(
-                        self.get_nodeattr("SIMD"),
-                        self.get_nodeattr("PE"),
-                        self.calc_wmem(),
-                    )
-                )
-            f_weights.write(weight_hls_code)
-            f_weights.close()
-        elif "decoupled" in weight_file_mode:
+        if "decoupled" in weight_file_mode:
             # create a weight stream for various flavors of decoupled mode:
             # transpose weight tensor from (1, PE, WMEM, SIMD) to (1, WMEM, PE, SIMD)
             weight_tensor_unflipped = np.transpose(weight_tensor, (0, 2, 1, 3))
@@ -846,21 +602,17 @@ class MatrixVectorActivation(HLSCustomOp):
                         for word_32b in words_32b:
                             f.write(word_32b + "\n")
             else:
-                raise Exception("Unknown weight_file_mode")
+                raise Exception("Unknown/unsupported weight_file_mode")
 
         else:
-            raise Exception("Unknown weight_file_mode")
+            raise Exception("Unknown/unsupported weight_file_mode")
 
     def generate_params(self, model, path):
         mem_mode = self.get_nodeattr("mem_mode")
         code_gen_dir = path
         # weights, if not external
         weights = model.get_initializer(self.onnx_node.input[1])
-        if mem_mode == "const":
-            # save hlslib-compatible weights in params.h
-            weight_filename = "{}/params.h".format(code_gen_dir)
-            self.make_weight_file(weights, "hls_header", weight_filename)
-        elif mem_mode == "decoupled" or mem_mode == "external":
+        if mem_mode in ["decoupled", "external"]:
             weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
             # save decoupled weights for cppsim
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
@@ -877,55 +629,6 @@ class MatrixVectorActivation(HLSCustomOp):
                 currently no other parameter value is supported!"""
             )
 
-        # save thresholds in thresh.h
-        if len(self.onnx_node.input) > 2:
-            thresholds = model.get_initializer(self.onnx_node.input[2])
-            if thresholds is not None:
-                threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
-                # use UINT32 threshold export for bipolar times bipolar
-                inp_is_bipolar = self.get_input_datatype() == DataType["BIPOLAR"]
-                wt_is_bipolar = self.get_weight_datatype() == DataType["BIPOLAR"]
-                # reinterpret inp/wt as bipolar if bin_xnor_mode is iset
-                inp_is_binary = self.get_input_datatype() == DataType["BINARY"]
-                wt_is_binary = self.get_weight_datatype() == DataType["BINARY"]
-                bin_xnor_mode = self.get_nodeattr("binaryXnorMode") == 1
-                inp_is_bipolar = inp_is_bipolar or (inp_is_binary and bin_xnor_mode)
-                wt_is_bipolar = wt_is_bipolar or (wt_is_binary and bin_xnor_mode)
-                # get computed threshold datatype from attribute
-                tdt = DataType[self.get_nodeattr("accDataType")]
-
-                assert np.vectorize(tdt.allowed)(
-                    threshold_tensor
-                ).all(), "Thresholds in %s can't be expressed with type %s" % (
-                    self.onnx_node.name,
-                    str(tdt),
-                )
-                thresholds_hls_code = numpy_to_hls_code(
-                    threshold_tensor, tdt, "thresholds", False, True
-                )
-                # write thresholds into thresh.h
-                f_thresh = open("{}/thresh.h".format(code_gen_dir), "w")
-                tdt_hls = tdt.get_hls_datatype_str()
-                # use binary to export bipolar activations
-                export_odt = self.get_output_datatype()
-                if self.get_output_datatype() == DataType["BIPOLAR"]:
-                    export_odt = DataType["BINARY"]
-                odt_hls = export_odt.get_hls_datatype_str()
-                f_thresh.write(
-                    "static ThresholdsActivation<{},{},{},{},{},{},{}> threshs \
-                    = ".format(
-                        self.calc_tmem(),
-                        self.get_nodeattr("PE"),
-                        threshold_tensor.shape[-1],
-                        tdt_hls,
-                        odt_hls,
-                        self.get_nodeattr("ActVal"),
-                        "comp::less_equal<%s, %s>" % (tdt_hls, tdt_hls),
-                    )
-                )
-                f_thresh.write(thresholds_hls_code)
-                f_thresh.close()
-
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         mem_mode = self.get_nodeattr("mem_mode")
@@ -933,7 +636,9 @@ class MatrixVectorActivation(HLSCustomOp):
 
         # TODO ensure codegen dir exists
         if mode == "cppsim":
-            code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+            raise Exception(
+                "cppsim not possible for RTL MVAU, please set exec_mode to rtlsim"
+            )
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
@@ -949,7 +654,6 @@ class MatrixVectorActivation(HLSCustomOp):
         for inputs in node.input:
             # it is assumed that the first input of the node is the data input
             # the second input are the weights
-            # the third input are the thresholds
             if in_ind == 0:
                 assert (
                     str(context[inputs].dtype) == "float32"
@@ -957,12 +661,7 @@ class MatrixVectorActivation(HLSCustomOp):
                 not float32 as expected."""
                 expected_inp_shape = self.get_folded_input_shape()
                 reshaped_input = context[inputs].reshape(expected_inp_shape)
-                if self.get_input_datatype() == DataType["BIPOLAR"]:
-                    # store bipolar activations as binary
-                    reshaped_input = (reshaped_input + 1) / 2
-                    export_idt = DataType["BINARY"]
-                else:
-                    export_idt = self.get_input_datatype()
+                export_idt = self.get_input_datatype()
                 # make copy before saving the array
                 reshaped_input = reshaped_input.copy()
                 np.save(
@@ -970,23 +669,10 @@ class MatrixVectorActivation(HLSCustomOp):
                     reshaped_input,
                 )
             elif in_ind > 2:
-                raise Exception("Unexpected input found for MatrixVectorActivation")
+                raise Exception("Unexpected input found for MatrixVectorActivation_rtl")
             in_ind += 1
 
-        if mode == "cppsim":
-            # execute the precompiled model
-            super().exec_precompiled_singlenode_model()
-            # load output npy file
-            super().npy_to_dynamic_output(context)
-            # reinterpret binary output as bipolar where needed
-            if self.get_output_datatype() == DataType["BIPOLAR"]:
-                out = context[node.output[0]]
-                out = 2 * out - 1
-                context[node.output[0]] = out
-            assert (
-                context[node.output[0]].shape == self.get_normal_output_shape()
-            ), "cppsim did not produce expected output shape"
-        elif mode == "rtlsim":
+        if mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
             inp = npy_to_rtlsim_input(
@@ -994,13 +680,9 @@ class MatrixVectorActivation(HLSCustomOp):
             )
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
-            if mem_mode == "external" or mem_mode == "decoupled":
+            if mem_mode in ["external", "decoupled"]:
                 wnbits = self.get_weightstream_width()
                 export_wdt = self.get_weight_datatype()
-                # we have converted bipolar weights to binary for export,
-                # so use it as such for weight generation
-                if self.get_weight_datatype() == DataType["BIPOLAR"]:
-                    export_wdt = DataType["BINARY"]
                 wei = npy_to_rtlsim_input(
                     "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
                 )
@@ -1021,7 +703,6 @@ class MatrixVectorActivation(HLSCustomOp):
             rtlsim_output_to_npy(
                 output, out_npy_path, odt, out_shape, packed_bits, target_bits
             )
-
             # load and reshape output
             output = np.load(out_npy_path)
             oshape = self.get_normal_output_shape()
@@ -1035,295 +716,48 @@ class MatrixVectorActivation(HLSCustomOp):
                 )
             )
 
-    def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = ['#include "weights.hpp"']
-        self.code_gen_dict["$GLOBALS$"] += ['#include "activations.hpp"']
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        """Normally: Generates C++ code and tcl script for IP generation.
+        Here: Generates (System-)Verilog code for IP generation."""
+        self.generate_hdl(model, fpgapart, clk)
 
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode not in ["const", "decoupled", "external"]:
-            raise Exception(
-                """Please set mem_mode to "const", "decoupled", or "external",
-                currently no other parameter value is supported!"""
-            )
-        self.code_gen_dict["$GLOBALS$"] += ['#include "mvau.hpp"']
-        if self.calc_tmem() != 0:
-            # TODO find a better way of checking for no pregenerated thresholds
-            self.code_gen_dict["$GLOBALS$"] += ['#include "thresh.h"']
+    def ipgen_singlenode_code(self):
+        """Normally: Builds the bash script for IP generation."""
+        pass
+
+    def code_generation_cppsim(self, model):
+        """Normally: Generates C++ code for simulation (cppsim)."""
+        pass
+
+    def compile_singlenode_code(self):
+        pass
+
+    def global_includes(self):
+        pass
 
     def defines(self, var):
-        # Only ipgen mode: Make sure that SIMD parameter satisfies minimum requirements.
-        if var == "ipgen":
-            SIMD = self.get_nodeattr("SIMD")
-            MW = self.get_nodeattr("MW")
-            condition = SIMD >= (MW / 1024)
-            msg = (
-                f"HLS synthesis of MatrixVectorActivation requires: "
-                f"SIMD >= MW / 1024. This is not fulfilled with: SIMD={SIMD} "
-                f"and MW={MW} for node: {self.onnx_node.name}."
-            )
-            assert condition, msg
-        mem_mode = self.get_nodeattr("mem_mode")
-        numInputVectors = list(self.get_nodeattr("numInputVectors"))
-        numReps = np.prod(numInputVectors)
-        self.code_gen_dict["$DEFINES$"] = [
-            """#define MW1 {}\n #define MH1 {}\n
-            #define SIMD1 {}\n #define PE1 {}\n #define WMEM1 {}\n
-            #define TMEM1 {}\n #define numReps {}""".format(
-                self.get_nodeattr("MW"),
-                self.get_nodeattr("MH"),
-                self.get_nodeattr("SIMD"),
-                self.get_nodeattr("PE"),
-                self.calc_wmem(),
-                self.calc_tmem(),
-                numReps,
-            )
-        ]
-        if mem_mode == "decoupled" or mem_mode == "external":
-            wdt = self.get_weight_datatype()
-            self.code_gen_dict["$DEFINES$"].append(
-                "#define WP1 {}\n".format(wdt.bitwidth())
-            )
+        pass
 
     def read_npy_data(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_input_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_instream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_in = "%s/input_0.npy" % code_gen_dir
-        self.code_gen_dict["$READNPYDATA$"] = []
-        # note: the innermost dim is reversed for the input
-        self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
-        )
-
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "decoupled" or mem_mode == "external":
-            wdt = self.get_weight_datatype()
-            elem_bits = wdt.bitwidth()
-            packed_bits = self.get_weightstream_width()
-            packed_hls_type = "ap_uint<%d>" % packed_bits
-            elem_hls_type = wdt.get_hls_datatype_str()
-            npy_type = "float"
-            npy_in = "%s/weights.npy" % code_gen_dir
-
-            self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", weights, false, numReps);'
-                % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
-            )
+        pass
 
     def strm_decl(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = []
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
-        )
-        self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
-        )
-
-        if mem_mode == "decoupled" or mem_mode == "external":
-            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> weights ("weights");'.format(
-                    self.get_weightstream_width()
-                )
-            )
+        pass
 
     def docompute(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        map_to_hls_mult_style = {
-            "auto": "ap_resource_dflt()",
-            "lut": "ap_resource_lut()",
-            "dsp": "ap_resource_dsp()",
-        }
-        tmpl_args = self.get_template_param_values()
-        if self.calc_tmem() == 0:
-            odtype_hls_str = self.get_output_datatype().get_hls_datatype_str()
-            threshs = "PassThroughActivation<%s>()" % odtype_hls_str
-        else:
-            threshs = "threshs"
-        if mem_mode == "const":
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Batch<MW1, MH1, SIMD1, PE1, 1, {}, {}, {}>
-                (in0, out, weights, {}, numReps, {});""".format(
-                    tmpl_args["TSrcI"],
-                    tmpl_args["TDstI"],
-                    tmpl_args["TWeightI"],
-                    threshs,
-                    map_to_hls_mult_style[self.get_nodeattr("resType")],
-                )
-            ]
-        elif mem_mode == "decoupled" or mem_mode == "external":
-            wdt = self.get_weight_datatype()
-            if wdt == DataType["BIPOLAR"]:
-                export_wdt = DataType["BINARY"]
-            else:
-                export_wdt = wdt
-            wdtype_hls_str = export_wdt.get_hls_datatype_str()
-            self.code_gen_dict["$DOCOMPUTE$"] = [
-                """Matrix_Vector_Activate_Stream_Batch<MW1, MH1, SIMD1, PE1, {}, {}, {}, {} >
-                (in0, out, weights, {}, numReps, {});""".format(
-                    tmpl_args["TSrcI"],
-                    tmpl_args["TDstI"],
-                    tmpl_args["TWeightI"],
-                    wdtype_hls_str,
-                    threshs,
-                    map_to_hls_mult_style[self.get_nodeattr("resType")],
-                )
-            ]
-
-        else:
-            raise Exception(
-                """Please set mem_mode to "const", "decoupled", or "external",
-                currently no other parameter value is supported!"""
-            )
+        pass
 
     def dataoutstrm(self):
-        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        dtype = self.get_output_datatype()
-        if dtype == DataType["BIPOLAR"]:
-            # use binary for bipolar storage
-            dtype = DataType["BINARY"]
-        elem_bits = dtype.bitwidth()
-        packed_bits = self.get_outstream_width()
-        packed_hls_type = "ap_uint<%d>" % packed_bits
-        elem_hls_type = dtype.get_hls_datatype_str()
-        npy_type = "float"
-        npy_out = "%s/output.npy" % code_gen_dir
-        shape = self.get_folded_output_shape()
-        shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
-
-        # note: the innermost dim is not reversed for the output
-        self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", false);'
-            % (
-                packed_hls_type,
-                elem_hls_type,
-                elem_bits,
-                npy_type,
-                shape_cpp_str,
-                npy_out,
-            )
-        ]
+        pass
 
     def save_as_npy(self):
-        self.code_gen_dict["$SAVEASCNPY$"] = []
+        pass
 
     def blackboxfunction(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        if mem_mode == "const":
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<{}>> &in0,
-                    hls::stream<ap_uint<{}>> &out
-                    )""".format(
-                    self.onnx_node.name,
-                    self.get_instream_width(),
-                    self.get_outstream_width(),
-                )
-            ]
-        elif mem_mode == "decoupled" or mem_mode == "external":
-            self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(
-                    hls::stream<ap_uint<{}>> &in0,
-                    hls::stream<ap_uint<{}>> &weights,
-                    hls::stream<ap_uint<{}>> &out
-                    )""".format(
-                    self.onnx_node.name,
-                    self.get_instream_width(),
-                    self.get_weightstream_width(),
-                    self.get_outstream_width(),
-                )
-            ]
-
-        else:
-            raise Exception(
-                """Please set mem_mode to "const" or "decoupled", currently no other
-                    parameter value is supported!"""
-            )
+        pass
 
     def pragmas(self):
-        mem_mode = self.get_nodeattr("mem_mode")
-        ram_style_thresholds = self.get_nodeattr("ram_style_thresholds")
-        self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
-        ]
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
-        )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
-
-        if mem_mode == "const":
-            self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
-            # the weight tensor is ap_uint<simd*prec> [PE][WMEM]
-            # partition for parallel access along the PE dimension (dim 1)
-            self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=weights.m_weights "
-                    "complete dim=1"
-                )
-            )
-        elif mem_mode == "decoupled" or mem_mode == "external":
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=weights name=weights_"
-                + self.hls_sname()
-            )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=8 variable=weights"
-            )
-
-        else:
-            raise Exception(
-                """Please set mem_mode to "const", "decoupled", or external,
-                currently no other parameter value is supported!"""
-            )
-
-        # the threshold tensor is acc_type [PE][TMEM][N_THRES]
-        # partition for parallel access along PE and N_THRES
-        # dimensions (dims 1 and 3)
-        if self.calc_tmem() != 0:
-            # TODO find a better way of checking for no pregenerated thresholds
-            self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=1"
-                )
-            )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=3"
-                )
-            )
-            # add resource pragma for thresholds if set
-            if ram_style_thresholds == "distributed":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.m_thresholds "
-                        "core=ROM_2P_LUTRAM"
-                    )
-                )
-            elif ram_style_thresholds == "block":
-                self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.m_thresholds "
-                        "core=ROM_2P_BRAM"
-                    )
-                )
-            elif ram_style_thresholds == "auto":
-                # no pragma needed
-                pass
-            else:
-                raise Exception(
-                    "Unrecognized ram_style_thresholds value:" + ram_style_thresholds
-                )
+        pass
 
     def code_generation_ipi(self):
         cmd = []
@@ -1354,13 +788,32 @@ class MatrixVectorActivation(HLSCustomOp):
                 "create_bd_intf_pin -mode Slave "
                 "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, din_name)
             )
-            # instantiate the hls ip
+            # instantiate the RTL block
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+            sourcefiles = [
+                os.path.join(
+                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
+                ),
+                rtllib_dir + "mvu_axi.sv",
+                rtllib_dir + "replay_buffer.sv",
+                rtllib_dir + "mvu_4sx4u.sv",
+                rtllib_dir + "mvu_8sx9.sv",
+                rtllib_dir + "mvu_8sx8u_dsp48.sv",
+            ]
+            for f in sourcefiles:
+                cmd.append("add_files -norecurse %s" % (f))
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s"
-                % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
+                "create_bd_cell -type hier -reference %s /%s/%s"
+                % (
+                    self.get_nodeattr("gen_top_module"),
+                    self.onnx_node.name,
+                    self.onnx_node.name,
+                )
             )
+
             # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "amd.com:finn:memstream:1.0"
+            strm_vlnv = "amd.com:FINN:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type ip -vlnv %s /%s/%s"
@@ -1368,16 +821,22 @@ class MatrixVectorActivation(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict [list "
-                "CONFIG.DEPTH {%d} "
-                "CONFIG.WIDTH {%d} "
-                "CONFIG.INIT_FILE {%s} "
+                "CONFIG.NSTREAMS {1} "
+                "CONFIG.MEM_DEPTH {%d} "
+                "CONFIG.MEM_WIDTH {%d} "
+                "CONFIG.MEM_INIT {%s} "
                 "CONFIG.RAM_STYLE {%s} "
+                "CONFIG.STRM0_DEPTH {%d} "
+                "CONFIG.STRM0_WIDTH {%d} "
+                "CONFIG.STRM0_OFFSET {0} "
                 "] [get_bd_cells /%s/%s]"
                 % (
                     self.calc_wmem(),
                     self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
+                    self.get_nodeattr("code_gen_dir_ipgen") + "/",
                     self.get_nodeattr("ram_style"),
+                    self.calc_wmem(),
+                    self.get_weightstream_width_padded(),
                     node_name,
                     strm_inst,
                 )
@@ -1429,9 +888,31 @@ class MatrixVectorActivation(HLSCustomOp):
                 # TODO calculate and pass in segment size here
                 cmd.append("assign_bd_address")
             cmd.append("save_bd_design")
-        elif mem_mode == "const" or mem_mode == "external":
-            # base class impl sufficient for const/external modes
-            return super().code_generation_ipi()
+        elif mem_mode == "external":
+            # instantiate the RTL block
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            rtllib_dir = os.path.join(os.environ["FINN_ROOT"], "finn-rtllib/mvu/")
+            sourcefiles = [
+                os.path.join(
+                    code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
+                ),
+                rtllib_dir + "mvu_axi.sv",
+                rtllib_dir + "replay_buffer.sv",
+                rtllib_dir + "mvu_4sx4u.sv",
+                rtllib_dir + "mvu_8sx9.sv",
+                rtllib_dir + "mvu_8sx8u_dsp48.sv",
+            ]
+            for f in sourcefiles:
+                cmd.append("add_files -norecurse %s" % (f))
+            cmd.append(
+                "create_bd_cell -type module -reference %s %s"
+                % (
+                    self.get_nodeattr("gen_top_module"),
+                    self.onnx_node.name,
+                )
+            )
+            cmd.append("set_property CONFIG.FREQ_HZ 333333333.333333 [get_bd_intf_pins %s/in0_V]" % (self.onnx_node.name))
+            cmd.append("set_property CONFIG.FREQ_HZ 333333333.333333 [get_bd_intf_pins %s/out_V]" % (self.onnx_node.name))
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
@@ -1467,12 +948,6 @@ class MatrixVectorActivation(HLSCustomOp):
         weight_param_type = "param_weight_%db" % (weight_bits)
         weight_count = in_features * out_features
         ret_dict = {mac_op_type: mac_count, weight_param_type: weight_count}
-        if self.get_nodeattr("noActivation") == 0:
-            tdt = DataType[self.get_nodeattr("accDataType")]
-            thres_bits = tdt.bitwidth()
-            thres_param_type = "param_threshold_%db" % (thres_bits)
-            thres_count = out_features
-            ret_dict[thres_param_type] = thres_count
         return ret_dict
 
     def derive_characteristic_fxns(self, period):
@@ -1491,3 +966,119 @@ class MatrixVectorActivation(HLSCustomOp):
                 0 for i in range(num_w_reps * n_weight_inps)
             ]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)
+
+    # TODO: characterize max_clk and implement this function in look-up style
+    def _resolve_segment_len(self, clk):
+        # Insert pipeline registers in the DSP chain to meet target clock frequency
+        segmentlen = 0
+        return segmentlen
+
+    def _resolve_impl_style(self, fpgapart):
+        # Based on target device and activation/weight-width, choose the
+        # supported RTL module
+        act_width = self.get_input_datatype(0).bitwidth()
+        weight_width = self.get_input_datatype(1).bitwidth()
+        is_versal = (
+            fpgapart[0:4] in ["xcvc", "xcve", "xcvp", "xcvm", "xqvc", "xqvm"]
+            or fpgapart[0:5] == "xqrvc"
+        )
+        if act_width == 4 and weight_width == 4:
+            return "mvu_4sx4u"
+        else:
+            if is_versal:
+                return "mvu_8sx9_dsp58"
+            else:
+                return "mvu_8sx8u_dsp48"
+
+    def generate_hdl(self, model, fpgapart, clk):
+        # Generate params as part of IP preparation
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        self.generate_params(model, code_gen_dir)
+
+        template_path, code_gen_dict = self.prepare_codegen_default(fpgapart, clk)
+        # add general parameters to dictionary
+        code_gen_dict["$MODULE_NAME_AXI_WRAPPER$"] = [
+            self.get_verilog_top_module_name()
+        ]
+        # save top module name so we can refer to it after this node has been renamed
+        # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
+        self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
+
+        ram_style = self.get_nodeattr("ram_style")
+        assert (
+            ram_style == "auto"
+        ), "Unrecognized ram_style for MatrixVectorActivation_rtl"
+
+        # apply code generation to template
+        with open(template_path, "r") as f:
+            template_wrapper = f.read()
+        for key in code_gen_dict:
+            # transform list into long string separated by '\n'
+            code_gen_line = "\n".join(code_gen_dict[key])
+            template_wrapper = template_wrapper.replace(key, code_gen_line)
+        with open(
+            os.path.join(
+                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper.v"
+            ),
+            "w",
+        ) as f:
+            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(0)))
+        with open(
+            os.path.join(
+                code_gen_dir, self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"
+            ),
+            "w",
+        ) as f:
+            f.write(template_wrapper.replace("$FORCE_BEHAVIORAL$", str(1)))
+
+        # set ipgen_path and ip_path so that HLS-Synth transformation
+        # and stich_ip transformation do not complain
+        self.set_nodeattr("ipgen_path", code_gen_dir)
+        self.set_nodeattr("ip_path", code_gen_dir)
+
+    def prepare_codegen_default(self, fpgapart, clk):
+        template_path = os.environ["FINN_ROOT"] + "/finn-rtllib/mvu/mvu_axi_wrapper.v"
+
+        code_gen_dict = {}
+        code_gen_dict["$MW$"] = [str(self.get_nodeattr("MW"))]
+        code_gen_dict["$MH$"] = [str(self.get_nodeattr("MH"))]
+        code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
+        code_gen_dict["$SIMD$"] = [str(self.get_nodeattr("SIMD"))]
+        code_gen_dict["$ACTIVATION_WIDTH$"] = [
+            str(self.get_input_datatype(0).bitwidth())
+        ]
+        code_gen_dict["$WEIGHT_WIDTH$"] = [str(self.get_input_datatype(1).bitwidth())]
+        code_gen_dict["$ACCU_WIDTH$"] = [str(self.get_output_datatype().bitwidth())]
+        code_gen_dict["$SIGNED_ACTIVATIONS$"] = (
+            [str(1)] if (self.get_input_datatype(0).min() < 0) else [str(0)]
+        )
+        code_gen_dict["$SEGMENTLEN$"] = [str(self._resolve_segment_len(clk))]
+        code_gen_dict["$MVU_IMPL_STYLE$"] = [self._resolve_impl_style(fpgapart)]
+
+        return template_path, code_gen_dict
+
+    def prepare_rtlsim(self):
+        """Creates a Verilator emulation library for the RTL code generated
+        for this node, sets the rtlsim_so attribute to its path and returns
+        a PyVerilator wrapper around it."""
+
+        if PyVerilator is None:
+            raise ImportError("Installation of PyVerilator is required.")
+
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        # Path to (System-)Verilog files used by top-module & path to top-module
+        verilog_paths = [code_gen_dir, os.environ["FINN_ROOT"] + "/finn-rtllib/mvu"]
+        verilog_files = [self.get_nodeattr("gen_top_module") + "_wrapper_sim.v"]
+
+        # build the Verilator emu library
+        sim = PyVerilator.build(
+            verilog_files,
+            build_dir=make_build_dir("pyverilator_" + self.onnx_node.name + "_"),
+            verilog_path=verilog_paths,
+            trace_depth=get_rtlsim_trace_depth(),
+            top_module_name=self.get_verilog_top_module_name(),
+        )
+        # save generated lib filename in attribute
+        self.set_nodeattr("rtlsim_so", sim.lib._name)
+
+        return sim
