@@ -54,6 +54,7 @@ module mvu_8sx8u_dsp48 #(
 
 		localparam int unsigned  PE_BEG = 2*c;
 		localparam int unsigned  PE_END = PE < 2*(c+1)? PE : 2*(c+1);
+		localparam int unsigned  PE_RES = 2*(c+1) - PE_END;
 
 		uwire        [57:0]  p3[SIMD];
 		uwire signed [ 1:0]  h3[SIMD];
@@ -90,8 +91,8 @@ module mvu_8sx8u_dsp48 #(
 					dd = '0;
 					aa = '0;
 					for(int unsigned  pe = 0; pe < PE_END - PE_BEG; pe++) begin
-						dd[D[pe] +: WEIGHT_WIDTH-1] = ww[pe];
-						aa[D[pe] + WEIGHT_WIDTH-1] = ww[pe][WEIGHT_WIDTH-1];
+						dd[D[pe + PE_RES] +: WEIGHT_WIDTH-1] = ww[pe];
+						aa[D[pe + PE_RES] + WEIGHT_WIDTH-1] = ww[pe][WEIGHT_WIDTH-1];
 					end
 				end
 			end : blkVectorize
@@ -301,32 +302,35 @@ module mvu_8sx8u_dsp48 #(
 		uwire signed [ACCU_WIDTH  -1:0]  up4;
 		uwire signed [ACCU_WIDTH  -SINGLE_PROD_WIDTH:0]  hi4;
 		uwire        [$clog2(SIMD)+SINGLE_PROD_WIDTH-1:0]  lo4;
+
+		// Conclusive high part accumulation
+		if(PE_RES == 0) begin : genHi
+			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - D[1];
+			// Adder Tree across all SIMD high contributions, each from [-1:1]
+			uwire signed [$clog2(1+SIMD):0]  tree[2*SIMD-1];
+			for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s];
+			for(genvar  n = 0; n < SIMD-1; n++) begin
+				// Sum truncated to actual maximum bit width at this node
+				uwire signed [$clog2(1+LEAVE_LOAD[n]):0]  s = tree[2*n+1] + tree[2*n+2];
+				assign  tree[n] = s;
+			end
+
+			// High Sideband Accumulation
+			logic signed [HI_WIDTH-1:0]  Hi4 = 0;
+			always_ff @(posedge clk) begin
+				if(rst)      Hi4 <= 0;
+				else if(en)  Hi4 <= (L[4]? 0 : Hi4) + tree[0];
+			end
+			assign	hi4 = Hi4;
+		end : genHi
+		else begin : genHiZero
+			assign hi4 = '0;
+		end : genHiZero
+
 		for(genvar  i = 0; i < 2; i++) begin
 			localparam int unsigned  LO_WIDTH = D[i+1] - D[i];
-			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - LO_WIDTH;
-
-			// Conclusive high part accumulation
-			if(i == 0) begin : genHi
-				// Adder Tree across all SIMD high contributions, each from [-1:1]
-				uwire signed [$clog2(1+SIMD):0]  tree[2*SIMD-1];
-				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s];
-				for(genvar  n = 0; n < SIMD-1; n++) begin
-					// Sum truncated to actual maximum bit width at this node
-					uwire signed [$clog2(1+LEAVE_LOAD[n]):0]  s = tree[2*n+1] + tree[2*n+2];
-					assign  tree[n] = s;
-				end
-
-				// High Sideband Accumulation
-				logic signed [HI_WIDTH-1:0]  Hi4 = 0;
-				always_ff @(posedge clk) begin
-					if(rst)      Hi4 <= 0;
-					else if(en)  Hi4 <= (L[4]? 0 : Hi4) + tree[0];
-				end
-				assign	hi4 = Hi4;
-			end : genHi
-
 			// Conclusive low part accumulation
-			if(1) begin : blkLo
+			if(i >= PE_RES) begin : blkLo
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
 				uwire [ROOT_WIDTH-1:0]  tree[2*SIMD-1];
@@ -347,6 +351,9 @@ module mvu_8sx8u_dsp48 #(
 				if(i == 1)  assign  up4 = Lo4;
 				else  assign  lo4 = Lo4;
 			end : blkLo
+			else begin : blkLoZero
+				assign lo4 = '0;
+			end : blkLoZero
 
 		end
 
@@ -362,7 +369,7 @@ module mvu_8sx8u_dsp48 #(
 
 		// Output
 		for(genvar  pe = PE_BEG; pe < PE_END; pe++) begin
-			assign	p[pe] = Res5[pe - PE_BEG];
+			assign	p[pe] = Res5[pe - PE_BEG + PE_RES];
 		end
 
 	end : genPipes
