@@ -206,8 +206,15 @@ class Lookup(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def dataoutstrm(self):
@@ -226,12 +233,13 @@ class Lookup(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", %s);'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", %s);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
                 "false",
@@ -244,10 +252,14 @@ class Lookup(HLSCustomOp):
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
@@ -255,12 +267,14 @@ class Lookup(HLSCustomOp):
         if mem_mode == "const":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """StreamingLookup<NumEmbeddings,  EmbeddingDim, NumInputs,
-                InputType, EmbeddingType >(in0, out, embeddings);"""
+                InputType, EmbeddingType >(in0_%s, out_%s, embeddings);"""
+                % (self.hls_sname(), self.hls_sname())
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                """StreamingLookup_ext<EmbeddingSize>(in0, out, mem, size, oob_count,
+                """StreamingLookup_ext<EmbeddingSize>(in0_%s, out_%s, mem, size, oob_count,
                 oob_irq);"""
+                % (self.hls_sname(), self.hls_sname())
             ]
 
     def blackboxfunction(self):
@@ -271,26 +285,29 @@ class Lookup(HLSCustomOp):
         packed_output_hls_type = "ap_uint<%d>" % obits
         if mem_mode == "const":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-                % (self.onnx_node.name, packed_input_hls_type, packed_output_hls_type)
+                "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+                % (
+                    self.onnx_node.name,
+                    packed_input_hls_type,
+                    self.hls_sname(),
+                    packed_output_hls_type,
+                    self.hls_sname(),
+                )
             ]
         elif mem_mode == "external":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 "void "
                 + self.onnx_node.name
-                + "(hls::stream<T_SRC> &in0, hls::stream<T_DST> &out, "
+                + "(hls::stream<T_SRC> &in0_%s, hls::stream<T_DST> &out_%s, "
+                % (self.hls_sname(), self.hls_sname())
                 + "T_DST const *const  mem, unsigned const size, "
                 + "unsigned &oob_count, bool &oob_irq)"
             ]
 
     def pragmas(self):
         mem_mode = self.get_nodeattr("mem_mode")
-        my_pragmas = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
-        ]
-        my_pragmas.append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
-        )
+        my_pragmas = ["#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()]
+        my_pragmas.append("#pragma HLS INTERFACE axis port=out_" + self.hls_sname())
         my_pragmas.append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         if mem_mode == "const":
             my_pragmas.append(

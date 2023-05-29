@@ -802,8 +802,15 @@ class VectorVectorActivation(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
         mem_mode = self.get_nodeattr("mem_mode")
@@ -817,23 +824,34 @@ class VectorVectorActivation(HLSCustomOp):
             npy_in = "%s/weights.npy" % code_gen_dir
 
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", weights, false, numReps);'
-                % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+                'npy2apintstream<%s, %s, %d, %s>("%s", weights_%s, false, numReps);'
+                % (
+                    packed_hls_type,
+                    elem_hls_type,
+                    elem_bits,
+                    npy_type,
+                    npy_in,
+                    self.hls_sname(),
+                )
             )
 
     def strm_decl(self):
         mem_mode = self.get_nodeattr("mem_mode")
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         if mem_mode == "decoupled" or mem_mode == "external":
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> weights ("weights");'.format(
-                    self.get_weightstream_width()
+                'hls::stream<ap_uint<{}>> weights_{} ("weights_{}");'.format(
+                    self.get_weightstream_width(), self.hls_sname(), self.hls_sname()
                 )
             )
 
@@ -854,10 +872,12 @@ class VectorVectorActivation(HLSCustomOp):
         if mem_mode == "const":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """Vector_Vector_Activate_Batch<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}>
-                (in0, out, weights, {}, numReps, {});""".format(
+                (in0_{}, out_{}, weights, {}, numReps, {});""".format(
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
+                    self.hls_sname(),
+                    self.hls_sname(),
                     threshs,
                     map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
@@ -871,12 +891,15 @@ class VectorVectorActivation(HLSCustomOp):
             wdtype_hls_str = export_wdt.get_hls_datatype_str()
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<Channels1, InnerProdDim, SIMD1, PE1, 1, {}, {}, {}, {}>
-                (in0, out, weights, {}, numReps, {});""".format(
+                (in0_{}, out_{}, weights_{}, {}, numReps, {});""".format(
                     "Vector_Vector_Activate_Stream_Batch",
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
                     tmpl_args["TWeightI"],
                     wdtype_hls_str,
+                    self.hls_sname(),
+                    self.hls_sname(),
+                    self.hls_sname(),
                     threshs,
                     map_to_hls_mult_style[self.get_nodeattr("resType")],
                 )
@@ -904,12 +927,13 @@ class VectorVectorActivation(HLSCustomOp):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             )
@@ -922,25 +946,30 @@ class VectorVectorActivation(HLSCustomOp):
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "const":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<{}>> &in0,
-                hls::stream<ap_uint<{}>> &out
+                """void {}(hls::stream<ap_uint<{}>> &in0_{},
+                hls::stream<ap_uint<{}>> &out_{}
                 )""".format(
                     self.onnx_node.name,
                     self.get_instream_width(),
+                    self.hls_sname(),
                     self.get_outstream_width(),
+                    self.hls_sname(),
                 )
             ]
         elif mem_mode == "decoupled" or mem_mode == "external":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
                 """void {}(
-                    hls::stream<ap_uint<{}>> &in0,
-                    hls::stream<ap_uint<{}>> &weights,
-                    hls::stream<ap_uint<{}>> &out
+                    hls::stream<ap_uint<{}>> &in0_{},
+                    hls::stream<ap_uint<{}>> &weights_{},
+                    hls::stream<ap_uint<{}>> &out_{}
                     )""".format(
                     self.onnx_node.name,
                     self.get_instream_width(),
+                    self.hls_sname(),
                     self.get_weightstream_width(),
+                    self.hls_sname(),
                     self.get_outstream_width(),
+                    self.hls_sname(),
                 )
             ]
         else:
@@ -952,10 +981,10 @@ class VectorVectorActivation(HLSCustomOp):
     def pragmas(self):
         mem_mode = self.get_nodeattr("mem_mode")
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
@@ -973,11 +1002,10 @@ class VectorVectorActivation(HLSCustomOp):
             )
         elif mem_mode == "decoupled" or mem_mode == "external":
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=weights name=weights_"
-                + self.hls_sname()
+                "#pragma HLS INTERFACE axis port=weights_" + self.hls_sname()
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=8 variable=weights"
+                "#pragma HLS stream depth=8 variable=weights_" + self.hls_sname()
             )
         else:
             raise Exception(
