@@ -194,7 +194,10 @@ class VectorVectorActivation(HLSCustomOp):
             else:
                 odt = DataType[self.get_nodeattr("outputDataType")]
                 bw = roundup_to_integer_multiple(odt.bitwidth(), 8)
-                new_odt_name = odt.name.replace(str(odt.bitwidth()), str(bw))
+                # NOTE: keeping previous functionality of converting outputDataType
+                # to accDataType on the last node. May want to preserve outputDataType
+                # in the future by replacing adt with odt below.
+                new_odt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
                 if bw != odt.bitwidth():
                     warn_str = "outputDataType changing for %s: %s -> %s " % (
                         self.onnx_node.name,
