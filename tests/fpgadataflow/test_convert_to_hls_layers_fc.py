@@ -39,7 +39,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
-from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames, GiveUniqueParameterTensors
 from qonnx.transformation.infer_shapes import InferShapes
 
 import finn.core.onnx_exec as oxe
@@ -64,6 +64,7 @@ def test_convert_to_hls_layers_tfc_w1a1():
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
@@ -135,6 +136,7 @@ def test_convert_to_hls_layers_tfc_w1a2():
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
     from finn.transformation.fpgadataflow.convert_to_hls_layers import (

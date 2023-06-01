@@ -146,7 +146,7 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
         model.save(export_onnx_path)
     else:
         export_finn_onnx(
-            model_for_export, export_path=export_onnx_path, input_t=input_qt
+            model_for_export, export_path=export_onnx_path, input_t=input_qt, input_names=["onnx::Mul_0"]
         )
     assert os.path.isfile(export_onnx_path)
     # fix input datatype

@@ -85,7 +85,7 @@ def post_synth_res(model, override_synth_report_filename=None):
         row = root.findall(".//*[@contents='%s']/.." % inst_name)
         if row != []:
             node_dict = {}
-            row = row[0].getchildren()
+            row = list(row[0])
             for (restype, ind) in restype_to_ind.items():
                 node_dict[restype] = int(row[ind].attrib["contents"])
             return node_dict
