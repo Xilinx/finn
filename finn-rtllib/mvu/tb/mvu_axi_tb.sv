@@ -42,12 +42,12 @@ module mvu_axi_tb();
 	localparam int unsigned SEGMENTLEN = 2;
 	localparam string MVU_IMPL_STYLE = "mvu_8sx8u_dsp48";
 	localparam bit FORCE_BEHAVIORAL = 1;
-	// Bit-width config  
+	// Bit-width config
 	localparam int unsigned ACTIVATION_WIDTH = 8;
 	localparam int unsigned WEIGHT_WIDTH = 8;
 	localparam int unsigned ACCU_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
 	localparam bit SIGNED_ACTIVATIONS = 0;
-	// Simulation constants  
+	// Simulation constants
 	localparam int unsigned NF = MH/PE;
 	localparam int unsigned SF = MW/SIMD;
 	localparam int unsigned NUM_OF_DSP = SIMD/3;
@@ -57,7 +57,7 @@ module mvu_axi_tb();
 	localparam int unsigned ACTIVATION_WIDTH_BA_DELTA = ACTIVATION_WIDTH_BA - SIMD*ACTIVATION_WIDTH;
 	localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8;
 
-	// Generate clk and reset signal   
+	// Generate clk and reset signal
 	logic clk = 0;
 	always #5ns clk = !clk;
 
@@ -69,7 +69,7 @@ module mvu_axi_tb();
 
 	uwire ap_clk = clk;
 
-	// Generate activations  
+	// Generate activations
 	typedef logic [SIMD-1:0][ACTIVATION_WIDTH-1:0] activation_t;
 	typedef activation_t activation_vector_t[SF];
 
@@ -94,8 +94,8 @@ module mvu_axi_tb();
 
 		for (int i=0; i<SF; i++) begin
 			activations.dat <= ACTIVATIONS[i];
-			do begin 
-				activations.vld = $urandom()%7 >= 1;
+			do begin
+				activations.vld <= $urandom()%7 >= 1;
 				@(posedge clk);
 			end while (!(activations.vld === 1 && activations.rdy === 1));
 		end
@@ -104,9 +104,9 @@ module mvu_axi_tb();
 		activations.dat <= 'x;
 	end
 
-	// Generate weights   
+	// Generate weights
 	typedef logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] weight_t;
-	typedef weight_t weight_matrix_t[NF][SF]; 
+	typedef weight_t weight_matrix_t[NF][SF];
 
 	function weight_matrix_t init_WEIGHTS;
 		automatic weight_matrix_t res;
@@ -139,7 +139,7 @@ module mvu_axi_tb();
 		weights.dat <= 'x;
 	end
 
-	// Function to compute golden output  
+	// Function to compute golden output
 	// a: [SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
 	// w: [NF][SF][PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]
 	typedef logic signed [PE-1:0][ACCU_WIDTH-1:0] output_t;
@@ -155,12 +155,12 @@ module mvu_axi_tb();
 		automatic output_vector_t res = '{default: 0};
 		for (int j = 0; j<MH; j++) begin
 			for (int i = 0; i<MW; i++) begin
-				if (SIGNED_ACTIVATIONS==1) 
+				if (SIGNED_ACTIVATIONS)
 					res[j/PE][j%PE] = $signed(res[j/PE][j%PE]) + $signed(a[i/SIMD][i%SIMD]) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]);
 				else
 					res[j/PE][j%PE] = $signed(res[j/PE][j%PE]) + $signed({1'b0, a[i/SIMD][i%SIMD]}) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]);
 			end
-		end  
+		end
 		return res;
 	endfunction : check_output;
 
@@ -179,16 +179,16 @@ module mvu_axi_tb();
 			// Compare produced outputs against golden outputs
 			foreach(outputs.dat[i]) begin
 				assert ($signed(outputs.dat[i]) == $signed(GOLDEN_OUTPUT[NF_CNT][i])) $display(">>> [t=%0t] Test succeeded (NF=%0d)! Computed / GOLDEN = %0d / %0d", $time, NF_CNT, $signed(outputs.dat[i]), $signed(GOLDEN_OUTPUT[NF_CNT][i]));
-				else begin 
+				else begin
 					$error(">>> [t=%0t] TEST failed (NF=%0d)! Computed / GOLDEN = %0d / %0d", $time, NF_CNT, $signed(outputs.dat[i]), $signed(GOLDEN_OUTPUT[NF_CNT][i]));
 					$stop;
-				end  
+				end
 			end
-			
+
 			NF_CNT += 1;
 		end
 
-		$finish;  
+		$finish;
 	end
 
 	// Instantiate DUT
@@ -211,5 +211,5 @@ module mvu_axi_tb();
 		.s_axis_input_tready(activations.rdy), .m_axis_output_tdata(outputs.dat), .m_axis_output_tvalid(outputs.vld),
 		.m_axis_output_tready(outputs.rdy)
 	);
-  
+
 endmodule : mvu_axi_tb
