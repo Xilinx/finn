@@ -51,7 +51,7 @@ module mvu_axi #(
 	bit SIGNED_ACTIVATIONS = 0,
 	int unsigned SEGMENTLEN = 0,
 	bit FORCE_BEHAVIORAL = 0,
-	string MVU_IMPL_STYLE,
+	parameter MVU_IMPL_STYLE, // string type causes error in Vivado
 
 	localparam int unsigned WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
 	localparam int unsigned INPUT_STREAM_WIDTH_BA = (SIMD*ACTIVATION_WIDTH+7)/8 * 8,
@@ -163,12 +163,11 @@ module mvu_axi #(
 
 	"mvu_8sx8u_dsp48":
 		mvu_8sx8u_dsp48 #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
-		 .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
+		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
 			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
 			.vld(ovld), .p(odat)
 		);
-
 	default: initial begin
 		$error("Unrecognized MVU_IMPL_STYLE '%s'", MVU_IMPL_STYLE);
 		$finish;
