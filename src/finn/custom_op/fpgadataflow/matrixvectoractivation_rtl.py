@@ -612,11 +612,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         code_gen_dir = path
         # weights, if not external
         weights = model.get_initializer(self.onnx_node.input[1])
-<<<<<<< HEAD
-        if mem_mode in ["decoupled", "external"]:
-=======
         if mem_mode == "decoupled" or mem_mode == "external":
->>>>>>> 72fe4c5b ([rtlmvu] More fixes for memstream and param gen)
             weight_filename_sim = "{}/weights.npy".format(code_gen_dir)
             # save decoupled weights for cppsim
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
@@ -909,8 +905,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
                     self.onnx_node.name,
                 )
             )
-            cmd.append("set_property CONFIG.FREQ_HZ 333333333.333333 [get_bd_intf_pins %s/in0_V]" % (self.onnx_node.name))
-            cmd.append("set_property CONFIG.FREQ_HZ 333333333.333333 [get_bd_intf_pins %s/out_V]" % (self.onnx_node.name))
         else:
             raise Exception("Unrecognized mem_mode for MatrixVectorActivation")
         return cmd
@@ -968,8 +962,7 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
     # TODO: characterize max_clk and implement this function in look-up style
     def _resolve_segment_len(self, clk):
         # Insert pipeline registers in the DSP chain to meet target clock frequency
-        segmentlen = 0
-        return segmentlen
+        return 4 # default to 4 for now
 
     def _resolve_impl_style(self, fpgapart):
         # Based on target device and activation/weight-width, choose the
@@ -1001,11 +994,6 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
         # save top module name so we can refer to it after this node has been renamed
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
-
-        ram_style = self.get_nodeattr("ram_style")
-        assert (
-            ram_style == "auto"
-        ), "Unrecognized ram_style for MatrixVectorActivation_rtl"
 
         # apply code generation to template
         with open(template_path, "r") as f:
