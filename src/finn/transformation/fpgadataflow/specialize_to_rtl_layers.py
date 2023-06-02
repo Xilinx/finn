@@ -74,6 +74,8 @@ class InferRTLMatrixVectorActivation(Transformation):
                     simd = getCustomOp(n).get_nodeattr("SIMD")
                     pe = getCustomOp(n).get_nodeattr("PE")
                     mem_mode = getCustomOp(n).get_nodeattr("mem_mode")
+                    ram_style = getCustomOp(n).get_nodeattr("ram_style")
+                    runtime_writeable_weights = getCustomOp(n).get_nodeattr("runtime_writeable_weights")
 
                     new_node = helper.make_node(
                         "MatrixVectorActivation_rtl",
@@ -91,6 +93,8 @@ class InferRTLMatrixVectorActivation(Transformation):
                         numInputVectors=numInputVectors,
                         mem_mode=mem_mode,
                         name=n.name + "_rtl",
+                        ram_style=ram_style,
+                        runtime_writeable_weights=runtime_writeable_weights
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old node
