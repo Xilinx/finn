@@ -54,7 +54,7 @@ module mvu_8sx8u_dsp48 #(
 
 		localparam int unsigned  PE_BEG = 2*c;
 		localparam int unsigned  PE_END = PE < 2*(c+1)? PE : 2*(c+1);
-		localparam int unsigned  PE_RES = 2*(c+1) - PE_END;
+		localparam int unsigned  PE_REM = 2*(c+1) - PE_END;
 
 		uwire        [57:0]  p3[SIMD];
 		uwire signed [ 1:0]  h3[SIMD];
@@ -91,8 +91,8 @@ module mvu_8sx8u_dsp48 #(
 					dd = '0;
 					aa = '0;
 					for(int unsigned  pe = 0; pe < PE_END - PE_BEG; pe++) begin
-						dd[D[pe + PE_RES] +: WEIGHT_WIDTH-1] = ww[pe];
-						aa[D[pe + PE_RES] + WEIGHT_WIDTH-1] = ww[pe][WEIGHT_WIDTH-1];
+						dd[D[pe + PE_REM] +: WEIGHT_WIDTH-1] = ww[pe];
+						aa[D[pe + PE_REM] + WEIGHT_WIDTH-1] = ww[pe][WEIGHT_WIDTH-1];
 					end
 				end
 			end : blkVectorize
@@ -304,7 +304,7 @@ module mvu_8sx8u_dsp48 #(
 		uwire        [$clog2(SIMD)+SINGLE_PROD_WIDTH-1:0]  lo4;
 
 		// Conclusive high part accumulation
-		if(PE_RES == 0) begin : genHi
+		if(PE_REM == 0) begin : genHi
 			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - D[1];
 			// Adder Tree across all SIMD high contributions, each from [-1:1]
 			uwire signed [$clog2(1+SIMD):0]  tree[2*SIMD-1];
@@ -330,7 +330,7 @@ module mvu_8sx8u_dsp48 #(
 		for(genvar  i = 0; i < 2; i++) begin
 			localparam int unsigned  LO_WIDTH = D[i+1] - D[i];
 			// Conclusive low part accumulation
-			if(i >= PE_RES) begin : blkLo
+			if(i >= PE_REM) begin : blkLo
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
 				uwire [ROOT_WIDTH-1:0]  tree[2*SIMD-1];
@@ -369,7 +369,7 @@ module mvu_8sx8u_dsp48 #(
 
 		// Output
 		for(genvar  pe = PE_BEG; pe < PE_END; pe++) begin
-			assign	p[pe] = Res5[pe - PE_BEG + PE_RES];
+			assign	p[pe] = Res5[pe - PE_BEG + PE_REM];
 		end
 
 	end : genPipes
