@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2022, Advanced Micro Devices, Inc.
+ * Copyright (C) 2022-2023, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -51,60 +51,131 @@ module replay_buffer #(
 	input	logic  ordy
 );
 
-	typedef logic [$clog2(REP)+$clog2(LEN)-1:0]  count_t;
-	count_t  Count = 0;
-	uwire  done_len = LEN == 1 ? 1 : ((LEN-1) & ~Count[$clog2(LEN)-1:0]) == 0;
-	uwire  done_rep;
-	uwire  done_all = done_len && done_rep;
-
-	uwire  shift;
-	uwire  clr = rst || (done_all && shift);
-	always_ff @(posedge clk) begin
-		if(clr)         Count <= 0;
-		else if(shift)  Count <= Count + ((REP > 1) && done_len? 2**$clog2(LEN)-LEN+1 : 1);
+	if(LEN == 0)  initial begin
+		$error("%m: Illegal zero sequence LEN.");
+		$finish;
+	end
+	if(REP == 0) initial begin
+		$error("%m: Illegal zero REP count.");
+		$finish;
 	end
 
-	typedef logic [W-1:0]  data_t;
-	uwire data_t  rdat;
-	uwire  first_rep;
+	// Track position in Sequence
+	uwire  last_item;
+	uwire  shift;
+	if(LEN == 1)  assign  last_item = 1;
+	else begin
+		typedef logic [$clog2(LEN)-1:0]  count_t;
+		count_t  Count = 0;
+		logic    Last  = 0;
+		always_ff @(posedge clk) begin
+			if(rst) begin
+				Count <= 0;
+				Last  <= 0;
+			end
+			else if(shift) begin
+				Count <= Count + (Last? 2**$clog2(LEN)-LEN+1 : 1);
+				Last  <= (((LEN-2) & ~Count) == 0) && ((LEN&1) || !Last);
+			end
+		end
+		assign	last_item = Last;
+	end
+
 	if(REP == 1) begin
-		assign	done_rep  = 1;
-		assign	first_rep = 1;
-		assign	rdat = 'x;
+		assign	shift = ivld && ordy;
+
+		assign	irdy  = ordy;
+		assign	odat  = idat;
+		assign	olast = last_item;
+		assign	ofin  = last_item;
+		assign	ovld  = ivld;
 	end
 	else begin
-		assign	done_rep = ((REP-1) & ~Count[$left(Count):$clog2(LEN)]) == 0;
 
-		logic  FirstRep = 1;
-		always_ff @(posedge clk) begin
-			if(clr)         FirstRep <= 1;
-			else if(shift)  FirstRep <= FirstRep && !done_len;
-		end
-		assign	first_rep = FirstRep;
-
-		data_t  Buf[LEN];
-		if(LEN == 1) begin : genTrivial
+		// Track Repetitions
+		uwire  last_rep;
+		if(1) begin : blkRep
+			typedef logic [$clog2(REP)-1:0]  rep_t;
+			rep_t  RepCnt = 0;
+			logic  RepLst = 0;
 			always_ff @(posedge clk) begin
-				if(shift && FirstRep)  Buf[0] <= idat;
-			end
-		end : genTrivial
-		else begin : genShift
-			always_ff @(posedge clk) begin
-				if(shift) begin
-					Buf[0] <= odat;
-					Buf[1:LEN-1] <= Buf[0:LEN-2];
+				if(rst) begin
+					RepCnt <= 0;
+					RepLst <= 0;
+				end
+				else if(last_item && shift) begin
+					RepCnt <= RepCnt + (RepLst? 2**$clog2(REP)-REP+1 : 1);
+					RepLst <= (((REP-2) & ~RepCnt) == 0) && ((REP&1) || !RepLst);
 				end
 			end
-		end : genShift
+			assign	last_rep = RepLst;
+		end : blkRep
 
-		assign	rdat = Buf[LEN-1];
+		localparam int unsigned  AWIDTH = $clog2(LEN);
+		typedef logic [AWIDTH  :0]  ptr_t;	// pointers with additional generational MSB
+		typedef logic [W     -1:0]  data_t;
+
+		// Output Registers
+		data_t  ODat;
+		logic   OVld =  0;
+		logic   OLst = 'x;
+		logic   OFin = 'x;
+		assign	odat  = ODat;
+		assign	olast = OLst;
+		assign	ofin  = OFin;
+		assign	ovld  = OVld;
+
+		// Buffer Memory Management
+		data_t  Mem[2**AWIDTH];
+		ptr_t  WP = 0;	// Write Pointer
+		ptr_t  RP = 0;	// Read Pointer
+		ptr_t  FP = 0;	// Free Pointer
+
+		// Operational Guards
+		//	Occupancy:    WP-FP
+		//	  WP-FP < 2**AWIDTH -> writing allowed
+		//		- increments WP
+		//	Availability: WP-RP
+		//	  WP-RP > 0         -> reading allowed
+		//		- increments RP, last in sequence rewinds to FP for non-final repetition
+		//		- increments FP in last repetition
+		assign	irdy = !((WP-FP) >> AWIDTH);
+
+		uwire  wr = irdy && ivld;
+		uwire  rd = !OVld || ordy;
+		always_ff @(posedge clk) begin
+			if(wr)  Mem[WP[AWIDTH-1:0]] <= idat;
+			if(rd)  ODat <= Mem[RP[AWIDTH-1:0]];
+		end
+
+		uwire  vld = (RP != WP);
+		assign	shift = rd && vld;
+		always_ff @(posedge clk) begin
+			if(rst) begin
+				WP <= 0;
+				RP <= 0;
+				FP <= 0;
+
+				OVld <=  0;
+				OLst <= 'x;
+				OFin <= 'x;
+			end
+			else begin
+				if(wr)  WP <= WP + 1;
+				if(rd) begin
+					if(vld) begin
+						automatic logic  rewind = last_item && !last_rep;
+						RP <= RP + (rewind? 2**(AWIDTH+1)-LEN+1 : 1);
+						FP <= FP + last_rep;
+					end
+
+					OVld <= vld;
+					OLst <= last_item;
+					OFin <= last_rep && last_item;
+				end
+			end
+		end
+
 	end
-
-	assign  irdy  = ordy && first_rep;
-	assign	odat  = first_rep? idat : rdat;
-	assign	olast = done_len;
-	assign	ofin  = done_all;
-	assign	ovld  = first_rep? ivld : 1;
-	assign	shift = ovld && ordy;
 
 endmodule : replay_buffer
