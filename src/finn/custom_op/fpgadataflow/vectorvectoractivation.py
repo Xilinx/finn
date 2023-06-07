@@ -182,32 +182,37 @@ class VectorVectorActivation(HLSCustomOp):
                     adt = DataType.get_smallest_possible(-acc_max - 1)
             else:
                 adt = DataType.get_smallest_possible(acc_max)
-        # if this is the last node in the graph, then ensure the datatype of the
-        # output is divisible by 8
-        if model.find_direct_successors(self.onnx_node) is None:
-            if self.get_nodeattr("noActivation"):
+
+        is_last_node = model.find_direct_successors(self.onnx_node) is None
+
+        # if no activation, output and accumulator datatypes are the same
+        if self.get_nodeattr("noActivation"):
+            # if last node, we need to round the accumulator datatype (adt)
+            # up to the nearest 8 and set the output datatype (odt)
+            if is_last_node:
                 bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
                 new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
                 adt = DataType[new_adt_name]
-                # for no-activation nodes, output dt = acc dt
-                self.set_nodeattr("outputDataType", adt.name)
-            else:
-                odt = DataType[self.get_nodeattr("outputDataType")]
-                bw = roundup_to_integer_multiple(odt.bitwidth(), 8)
-                # NOTE: keeping previous functionality of converting outputDataType
-                # to accDataType on the last node. May want to preserve outputDataType
-                # in the future by replacing adt with odt below.
-                new_odt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
-                if bw != odt.bitwidth():
-                    warn_str = "outputDataType changing for %s: %s -> %s " % (
-                        self.onnx_node.name,
-                        odt.name,
-                        new_odt_name,
-                    )
-                    warnings.warn(warn_str)
-                    odt = DataType[new_odt_name]
-                    self.set_nodeattr("outputDataType", odt.name)
-        self.set_nodeattr("accDataType", adt.name)
+            self.set_nodeattr("outputDataType", adt.name)
+
+        # if last node has activation, then ensure the output datatype is divisible by 8
+        if not self.get_nodeattr("noActivation") and is_last_node:
+            odt = DataType[self.get_nodeattr("outputDataType")]
+            bw = roundup_to_integer_multiple(odt.bitwidth(), 8)
+            # NOTE: keeping previous functionality of converting odt to adt on the last
+            # node, could preserve odt in the future by replacing adt with odt. This
+            # may yield unfavorable functionality for Bipolar and/or Ternary datatypes
+            new_odt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
+            if bw != odt.bitwidth():
+                warn_str = "outputDataType changing for %s: %s -> %s " % (
+                    self.onnx_node.name,
+                    odt.name,
+                    new_odt_name,
+                )
+                warnings.warn(warn_str)
+                odt = DataType[new_odt_name]
+                self.set_nodeattr("outputDataType", odt.name)
+
         return DataType[self.get_nodeattr("accDataType")]
 
     def minimize_weight_bit_width(self, model):
