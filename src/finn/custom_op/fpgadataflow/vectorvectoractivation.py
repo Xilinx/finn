@@ -213,6 +213,7 @@ class VectorVectorActivation(HLSCustomOp):
                 odt = DataType[new_odt_name]
                 self.set_nodeattr("outputDataType", odt.name)
 
+        self.set_nodeattr("accDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
 
     def minimize_weight_bit_width(self, model):
