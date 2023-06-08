@@ -135,7 +135,8 @@ if {$BOARD == "ZCU104"} {
 
 create_bd_design "top"
 if {$ZYNQ_TYPE == "zynq_us+"} {
-    create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.5 zynq_ps
+    set zynq_ps_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:zynq_ultra_ps_e:*"]]
+    create_bd_cell -type ip -vlnv $zynq_ps_vlnv zynq_ps
     apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset "1" }  [get_bd_cells zynq_ps]
     #activate one slave port, deactivate the second master port
     set_property -dict [list CONFIG.PSU__USE__S_AXI_GP2 {1}] [get_bd_cells zynq_ps]
@@ -144,7 +145,8 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
     set_property -dict [list CONFIG.PSU__OVERRIDE__BASIC_CLOCK {0}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ [expr int($FREQ_MHZ)]] [get_bd_cells zynq_ps]
 } elseif {$ZYNQ_TYPE == "zynq_7000"} {
-    create_bd_cell -type ip -vlnv xilinx.com:ip:processing_system7:5.5 zynq_ps
+    set zynq_ps_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:processing_system7:*"]]
+    create_bd_cell -type ip -vlnv $zynq_ps_vlnv zynq_ps
     apply_bd_automation -rule xilinx.com:bd_rule:processing_system7 -config {make_external "FIXED_IO, DDR" apply_board_preset "1" Master "Disable" Slave "Disable" }  [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PCW_USE_S_AXI_HP0 {1}] [get_bd_cells zynq_ps]
     set_property -dict [list CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ [expr int($FREQ_MHZ)]] [get_bd_cells zynq_ps]
@@ -153,8 +155,10 @@ if {$ZYNQ_TYPE == "zynq_us+"} {
 }
 
 #instantiate axi interconnect, axi smartconnect
-create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_0
-create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 smartconnect_0
+set interconnect_vlnv [get_property VLNV [get_ipdefs -all "xilinx.com:ip:axi_interconnect:*" -filter design_tool_contexts=~*IPI*]]
+set smartconnect_vlnv [get_property VLNV [get_ipdefs "xilinx.com:ip:smartconnect:*"]]
+create_bd_cell -type ip -vlnv $interconnect_vlnv axi_interconnect_0
+create_bd_cell -type ip -vlnv $smartconnect_vlnv smartconnect_0
 #set number of axilite interfaces, and number of axi master interfaces
 set_property -dict [list CONFIG.NUM_SI $NUM_AXIMM] [get_bd_cells smartconnect_0]
 set_property -dict [list CONFIG.NUM_MI $NUM_AXILITE] [get_bd_cells axi_interconnect_0]
