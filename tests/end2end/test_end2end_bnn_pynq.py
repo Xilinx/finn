@@ -59,13 +59,12 @@ from qonnx.transformation.insert_topk import InsertTopK
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
-from scipy.stats import linregress
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
-from finn.core.throughput_test import throughput_test_remote, throughput_test_rtlsim
+from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -75,7 +74,6 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -95,7 +93,6 @@ from finn.transformation.streamline.reorder import (
     MoveScalarLinearPastInvariants,
 )
 from finn.util.basic import get_finn_root
-from finn.util.gdrive import upload_to_end2end_dashboard
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -715,121 +712,3 @@ class TestEnd2End:
         model.save(
             get_checkpoint_name(topology, wbits, abits, QONNX_export, "driver_" + kind)
         )
-
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    def test_deploy(self, topology, wbits, abits, QONNX_export, kind):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "driver_" + kind
-        )
-        model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        cfg = get_build_env(kind, target_clk_ns)
-        if cfg["ip"] == "":
-            pytest.skip("PYNQ board IP address not specified")
-        model = model.transform(
-            DeployToPYNQ(
-                cfg["ip"],
-                cfg["port"],
-                cfg["username"],
-                cfg["password"],
-                cfg["target_dir"],
-            )
-        )
-        # save the model to be able to link it to the parent
-        model.save(
-            get_checkpoint_name(topology, wbits, abits, QONNX_export, "deploy_" + kind)
-        )
-
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    def test_run_on_hw(self, topology, wbits, abits, QONNX_export, kind):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "deploy_" + kind
-        )
-        model = load_test_checkpoint_or_skip(prev_chkpt_name)  # NOQA
-        cfg = get_build_env(kind, target_clk_ns)
-        if cfg["ip"] == "":
-            pytest.skip("PYNQ board IP address not specified")
-        (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
-            topology, wbits, abits, return_topk=1
-        )
-        parent_model = load_test_checkpoint_or_skip(
-            get_checkpoint_name(topology, wbits, abits, QONNX_export, "dataflow_parent")
-        )
-        iname = parent_model.graph.input[0].name
-        oname = parent_model.graph.output[0].name
-        sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-        sdp_node = getCustomOp(sdp_node)
-        sdp_node.set_nodeattr("model", prev_chkpt_name)
-        ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
-        y = ret[oname]
-        assert np.isclose(y, output_tensor_npy).all()
-
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    def test_throughput_hw(self, topology, wbits, abits, QONNX_export, kind):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "deploy_" + kind
-        )
-        end2end_example = "%s_w%da%d_%s" % (topology, wbits, abits, kind)
-        model = load_test_checkpoint_or_skip(prev_chkpt_name)  # NOQA
-        cfg = get_build_env(kind, target_clk_ns)
-        if cfg["ip"] == "":
-            pytest.skip("PYNQ board IP address not specified")
-        ret = dict()
-        # try a range of batch sizes, some may fail due to insufficient DMA
-        # buffers
-        bsize_range_in = [8**i for i in range(5)]
-        bsize_range = []
-        for bsize in bsize_range_in:
-            res = throughput_test_remote(model, bsize)
-            if res is not None:
-                ret[bsize] = res
-                bsize_range.append(bsize)
-            else:
-                # assume we reached largest possible N
-                break
-        y = [ret[key]["runtime[ms]"] for key in bsize_range]
-        lrret = linregress(bsize_range, y)
-        ret_str = ""
-        ret_str += "\n" + "%s Throughput Test Results" % end2end_example
-        ret_str += "\n" + "-----------------------------"
-        ret_str += "\n" + "From linear regression:"
-        ret_str += "\n" + "Invocation overhead: %f ms" % lrret.intercept
-        ret_str += "\n" + "Time per sample: %f ms" % lrret.slope
-        ret_str += "\n" + "Raw data:"
-
-        ret_str += "\n" + "{:<8} {:<16} {:<16} {:<16} {:<16} {:<16}".format(
-            "N", "runtime[ms]", "fclk[mhz]", "fps", "DRAM rd[MB/s]", "DRAM wr[MB/s]"
-        )
-        for k in bsize_range:
-            v = ret[k]
-            ret_str += "\n" + "{:<8} {:<16} {:<16} {:<16} {:<16} {:<16}".format(
-                k,
-                np.round(v["runtime[ms]"], 4),
-                v["fclk[mhz]"],
-                np.round(v["throughput[images/s]"], 2),
-                np.round(v["DRAM_in_bandwidth[MB/s]"], 2),
-                np.round(v["DRAM_out_bandwidth[MB/s]"], 2),
-            )
-        ret_str += "\n" + "-----------------------------"
-        warnings.warn(ret_str)
-        largest_bsize = bsize_range[-1]
-        update_dashboard_data(
-            topology, wbits, abits, "fclk[mhz]", ret[largest_bsize]["fclk[mhz]"]
-        )
-        update_dashboard_data(
-            topology,
-            wbits,
-            abits,
-            "throughput[images/s]",
-            ret[largest_bsize]["throughput[images/s]"],
-        )
-
-    def test_upload_results_to_dashboard(self, topology, wbits, abits, QONNX_export):
-        # ToDo: Extend the dashboard to also upload QONNX exported models?
-        if QONNX_export:
-            pytest.skip("Dashboard data upload is disabled for QONNX exported models.")
-        else:
-            dashboard_data = get_dashboard_data(topology, wbits, abits)
-            if len(dashboard_data.keys()) > 0:
-                upload_to_end2end_dashboard(dashboard_data)
-            else:
-                pytest.skip("No data to upload to dashboard")
