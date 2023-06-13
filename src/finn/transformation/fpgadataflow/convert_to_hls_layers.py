@@ -140,19 +140,7 @@ class InferConvInpGen(Transformation):
                     k_h > 1 and k_w == 1 and ifm_dim_w == 1
                 )
 
-                # Ensure that RTL variant is not inserted for unsupported configuration
-                is_rtl_variant_compatible = True
-                if is_kernel_pointwise:
-                    is_rtl_variant_compatible = False
-                    if self.use_rtl_variant:
-                        warnings.warn(
-                            """%s : RTL ConvInpGen requested for unsupported
-                                configuration. Falling back to HLS implementation."""
-                            % n.name
-                        )
-
-                if self.use_rtl_variant and is_rtl_variant_compatible:
-
+                if self.use_rtl_variant:
                     ConvInpGen_node = helper.make_node(
                         "ConvolutionInputGenerator_rtl",
                         [ConvInpGen_input],

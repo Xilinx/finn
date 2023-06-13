@@ -205,3 +205,84 @@ Disadvantages:
 How to set *mem_mode*
 ---------------------
 When the nodes in the network are converted to HLS layers, the *mem_mode* can be passed. More detailed information about the transformations that prepare the network and the transformation that performs the conversion to HLS layers can be found in chapter :ref:`nw_prep`. The *mem_mode* is passed as argument. Note that if no argument is passed, the default is *const*.
+
+RTL ConvolutionInputGenerator
+=============================
+
+FINN implements convolution operations by pairing a ConvolutionInputGenerator (or "sliding window generator (SWG)") with an MVAU or VVAU (for depthwise convolution).
+This RTL version is an alternative to the original `HLS implementation <https://github.com/Xilinx/finn-hlslib/blob/master/slidingwindow.h>`_ and aims to improve on it in the following ways:
+
+* Support a wider range of hyperparameters without the fragmentation into 16+ separate HLS functions
+
+* Support additional degrees of parallelism (i.e., across the output window or multiple input samples) that are difficult to implement in HLS
+
+* Support additional features, such as dynamic feature map sizing
+
+* Improve resource efficiency
+
+
+The component is implemented by generating (System-)Verilog code for each individual instance, realized via the template + replacement dictionary mechanism found in other FINN components.
+Despite the HDL implementation, the component is managed by its own HLSCustomOp (!) named "ConvolutionInputGenerator_rtl". Naturally, HLS simulation & synthesis are not supported.
+
+The RTL SWG is currently disabled by default and can be enabled either in the corresponding HLS conversion transformation (:py:mod:`finn.transformation.fpgadataflow.convert_to_hls_layers.InferConvInpGen`) with `use_rtl_variant=True` or in the build configuration (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.force_rtl_conv_inp_gen` set to True).
+
+Implementation styles
+---------------------
+Depending on the amount of parallelism requested, one of two implementation styles is selected. The following table defines folding parameters (marked in bold text) and supported configurations.
+
+.. list-table:: Parallelism configurations
+
+   * - **SIMD**
+     - **parallel_window**
+     - **M**
+     - MMV_in
+     - MMV_out
+     - Style
+     - Notes
+   * - < C
+     - 0
+     - 1
+     - 1
+     - 1
+     - default
+     - depthwise-aware
+   * - C
+     - 0
+     - 1
+     - 1
+     - 1
+     - default
+     - depthwise-agnostic
+   * - C
+     - 1
+     - 1
+     - 1
+     - K
+     - parallel
+     - depthwise-agnostic
+   * - C
+     - 1
+     - M
+     - M
+     - M*K
+     - parallel
+     - Currently unsupported
+
+(With C = #Channels, MMV_in = input samples (or "pixels") per cycle, MMV_out = output samples (or "pixels") per cycle, K = kernel_width * kernel_height.)
+
+The following diagram shows the operating principle of both styles, the "parallel" variant is pictured for a 2x2 kernel without dilation.
+
+.. image:: img/rtl_swg_impl_styles.png
+   :align: center
+
+The main difference lies in the buffer structure. If the output width is equal to the input width ("default mode"), an addressable circular buffer is used, which can be implemented either in LUTRAM, BRAM, or URAM resources. If parallel access to multiple window elements is required ("parallel mode"), the SWG generates a fixed structure of registers and line buffers to avoid memory port limitations and exploding multiplexing logic, while still featuring LUT-saving BRAM/URAM implementation for the line buffers.
+
+The "default" style also supports a dynamic mode, which provides an interface to change feature map dimensions, stride, or dilation at run-time. See `this pull request <https://github.com/Xilinx/finn/pull/688>`_ description for more information.
+
+Folding
+-------
+The RTL SWG is supported by the basic automatic folding algorithm in FINN (:py:mod:`finn.transformation.fpgadataflow.set_folding.SetFolding`). Consider the following implications:
+
+**MVAU:** Although it is recommended to unfold SIMD first, SIMD and PE can be set independently. Full (and balanced) parallelism is achieved by using the SWG in parallel window mode and setting MVAU SIMD and PE to their maximum values (SIMD = MW = C_in * K, PE = MH = C_out).
+
+**VVAU:** While the VVAU HLS component supports SIMD unfolding independently from PE, the RTL SWG requires full unfolding across the channel dimension (SIMD of the SWG = PE of the VVAU) before enabling window-parallelism. Unlike the MVAU, the VVAU can't accept datawidth-converted input from a fully-parallel SWG in this case due to the depthwise data layout. As a result, the VVAU should be unfolded by PE first (up to PE = C), followed by SIMD (up to SIMD = K).
