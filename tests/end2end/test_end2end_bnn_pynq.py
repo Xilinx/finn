@@ -34,13 +34,10 @@ import numpy as np
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
 import os
-import subprocess
 import torch
 import warnings
 from brevitas.export import export_finn_onnx, export_qonnx
-from collections import OrderedDict
 from dataset_loading import cifar, mnist
-from datetime import datetime
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -117,24 +114,6 @@ def get_checkpoint_name(topology, wbits, abits, QONNX_export, step):
         QONNX_export,
         step,
     )
-
-
-def get_dashboard_data(topology, wbits, abits):
-    stats_file = build_dir + "/end2end_%s_w%da%d.txt" % (topology, wbits, abits)
-    stats_dict = OrderedDict()
-    if os.path.isfile(stats_file):
-        with open(stats_file, "r") as f:
-            stats_dict_txt = f.read()
-        stats_dict = eval(stats_dict_txt)
-    return stats_dict
-
-
-def update_dashboard_data(topology, wbits, abits, key, val):
-    stats_dict = get_dashboard_data(topology, wbits, abits)
-    stats_dict[key] = val
-    stats_file = build_dir + "/end2end_%s_w%da%d.txt" % (topology, wbits, abits)
-    with open(stats_file, "w") as f:
-        f.write(str(stats_dict))
 
 
 def fold_tfc(model):
@@ -332,15 +311,6 @@ class TestEnd2End:
             model.save(chkpt_name)
         else:
             export_finn_onnx(model, torch.randn(ishape), chkpt_name)
-        nname = "%s_w%da%d" % (topology, wbits, abits)
-        update_dashboard_data(topology, wbits, abits, "network", nname)
-        dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        update_dashboard_data(topology, wbits, abits, "datetime", dtstr)
-        finn_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=get_finn_root()
-        )
-        finn_commit = finn_commit.decode("utf-8").strip()
-        update_dashboard_data(topology, wbits, abits, "finn-commit", finn_commit)
         assert os.path.isfile(chkpt_name)
 
     def test_import_and_tidy(self, topology, wbits, abits, QONNX_export):
@@ -641,10 +611,6 @@ class TestEnd2End:
         ret = throughput_test_rtlsim(model, batchsize=batchsize)
         res_cycles = ret["cycles"]
         est_cycles = latency + cycles_per_sample_est * batchsize
-        # warnings.warn("Estimated & rtlsim performance: " + str(perf))
-        # for (k, v) in perf.items():
-        #    update_dashboard_data(topology, wbits, abits, k, v)
-        update_dashboard_data(topology, wbits, abits, "cycles_rtlsim", latency)
         assert (abs(res_cycles - est_cycles) / res_cycles) < 0.15
 
     @pytest.mark.slow
@@ -688,10 +654,6 @@ class TestEnd2End:
         cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
         model = model.transform(AnnotateResources("synth"))
-        synth_dct = eval(model.get_metadata_prop("res_total_top_synth"))
-        for (k, v) in synth_dct.items():
-            update_dashboard_data(topology, wbits, abits, k, v)
-        update_dashboard_data(topology, wbits, abits, "board", cfg["board"])
         model.save(
             get_checkpoint_name(topology, wbits, abits, QONNX_export, "build_" + kind)
         )
