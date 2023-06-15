@@ -45,7 +45,7 @@ from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
 from finn.transformation.fpgadataflow.insert_iodma import InsertIODMA
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
-from finn.util.basic import make_build_dir, pynq_native_port_width, pynq_part_map
+from finn.util.basic import make_build_dir, zynq_native_port_width, zynq_part_map
 
 from . import templates
 
@@ -250,7 +250,7 @@ class MakeZYNQProject(Transformation):
                     axilite_idx,
                     aximm_idx,
                     self.platform,
-                    pynq_part_map[self.platform],
+                    zynq_part_map[self.platform],
                     config,
                     self.enable_debug,
                 )
@@ -319,8 +319,8 @@ class ZynqBuild(Transformation):
         partition_model_dir=None,
     ):
         super().__init__()
-        self.fpga_part = pynq_part_map[platform]
-        self.axi_port_width = pynq_native_port_width[platform]
+        self.fpga_part = zynq_part_map[platform]
+        self.axi_port_width = zynq_native_port_width[platform]
         self.period_ns = period_ns
         self.platform = platform
         self.enable_debug = enable_debug

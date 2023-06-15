@@ -46,10 +46,10 @@ from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.util.basic import pynq_part_map
+from finn.util.basic import zynq_part_map
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
-test_fpga_part = pynq_part_map[test_pynq_board]
+test_fpga_part = zynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
 

@@ -32,27 +32,27 @@ import sys
 import tempfile
 
 # mapping from PYNQ board names to FPGA part names
-pynq_part_map = dict()
-pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
-pynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
-pynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
-pynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
-pynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
-pynq_part_map["ZCU111"] = "xczu28dr-ffvg1517-2-e"
-pynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
-pynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
+zynq_part_map = dict()
+zynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
+zynq_part_map["Pynq-Z1"] = "xc7z020clg400-1"
+zynq_part_map["Pynq-Z2"] = "xc7z020clg400-1"
+zynq_part_map["ZCU102"] = "xczu9eg-ffvb1156-2-e"
+zynq_part_map["ZCU104"] = "xczu7ev-ffvc1156-2-e"
+zynq_part_map["ZCU111"] = "xczu28dr-ffvg1517-2-e"
+zynq_part_map["RFSoC2x2"] = "xczu28dr-ffvg1517-2-e"
+zynq_part_map["KV260_SOM"] = "xck26-sfvc784-2LV-c"
 
 
 # native AXI HP port width (in bits) for PYNQ boards
-pynq_native_port_width = dict()
-pynq_native_port_width["Pynq-Z1"] = 64
-pynq_native_port_width["Pynq-Z2"] = 64
-pynq_native_port_width["Ultra96"] = 128
-pynq_native_port_width["ZCU102"] = 128
-pynq_native_port_width["ZCU104"] = 128
-pynq_native_port_width["ZCU111"] = 128
-pynq_native_port_width["RFSoC2x2"] = 128
-pynq_native_port_width["KV260_SOM"] = 128
+zynq_native_port_width = dict()
+zynq_native_port_width["Pynq-Z1"] = 64
+zynq_native_port_width["Pynq-Z2"] = 64
+zynq_native_port_width["Ultra96"] = 128
+zynq_native_port_width["ZCU102"] = 128
+zynq_native_port_width["ZCU104"] = 128
+zynq_native_port_width["ZCU111"] = 128
+zynq_native_port_width["RFSoC2x2"] = 128
+zynq_native_port_width["KV260_SOM"] = 128
 
 # Alveo device and platform mappings
 alveo_part_map = dict()

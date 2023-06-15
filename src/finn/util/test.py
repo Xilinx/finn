@@ -44,7 +44,7 @@ from qonnx.custom_op.registry import getCustomOp
 from finn.core.onnx_exec import execute_onnx
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.vitis_build import VitisBuild, VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import alveo_default_platform, alveo_part_map, zynq_part_map
 
 # map of (wbits,abits) -> model
 example_map = {
@@ -113,7 +113,7 @@ def get_build_env(kind, target_clk_ns):
     ret = {}
     if kind == "zynq":
         ret["board"] = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
-        ret["part"] = pynq_part_map[ret["board"]]
+        ret["part"] = zynq_part_map[ret["board"]]
         ret["ip"] = os.getenv("PYNQ_IP", "")
         ret["username"] = os.getenv("PYNQ_USERNAME", "xilinx")
         ret["password"] = os.getenv("PYNQ_PASSWORD", "xilinx")
