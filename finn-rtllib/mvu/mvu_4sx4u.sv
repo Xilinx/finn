@@ -50,6 +50,7 @@ module mvu_4sx4u #(
 
 		localparam int unsigned  PE_BEG = 4*c;
 		localparam int unsigned  PE_END = PE < 4*(c+1)? PE : 4*(c+1);
+		localparam int unsigned  PE_REM = 4*(c+1) - PE_END;
 
 		uwire        [57:0]  p3[SIMD];
 		uwire signed [ 1:0]  h3[SIMD][3];
@@ -65,12 +66,12 @@ module mvu_4sx4u #(
 				for(genvar  pe = 0; pe < PE_END - PE_BEG; pe++) begin
 					assign	ww[pe] = w[PE_BEG + pe][s];
 					if(pe) begin
-						if(BEHAVIORAL)  assign  xx[pe] = zero? 0 : ww[pe] * a[s];
+						if(BEHAVIORAL)  assign  xx[pe + PE_REM] = zero? 0 : ww[pe] * a[s];
 `ifndef VERILATOR
 						else begin
 							LUT6_2 #(.INIT(64'h0000_6AC0_0000_8888)) lut_x (
-								.O6(xx[pe][1]),
-								.O5(xx[pe][0]),
+								.O6(xx[pe + PE_REM][1]),
+								.O5(xx[pe + PE_REM][0]),
 								.I5(1'b1),
 								.I4(zero),
 								.I3(ww[pe][1]),
@@ -86,8 +87,8 @@ module mvu_4sx4u #(
 					dd = '0;
 					aa = '0;
 					for(int unsigned  pe = 0; pe < PE_END - PE_BEG; pe++) begin
-						dd[D[pe]+:3] = ww[pe];
-						aa[D[pe]+ 3] = ww[pe][3];
+						dd[D[pe + PE_REM]+:3] = ww[pe];
+						aa[D[pe + PE_REM]+ 3] = ww[pe][3];
 					end
 				end
 			end : blkVectorize
@@ -305,7 +306,7 @@ module mvu_4sx4u #(
 			localparam int unsigned  HI_WIDTH = ACCU_WIDTH - LO_WIDTH;
 
 			// Conclusive high part accumulation
-			if(i < 3) begin : genHi
+			if(i >= PE_REM && i < 3) begin : genHi
 				// Adder Tree across all SIMD high contributions, each from [-1:1]
 				uwire signed [$clog2(1+SIMD):0]  tree[2*SIMD-1];
 				for(genvar  s = 0; s < SIMD;   s++)  assign  tree[SIMD-1+s] = h3[s][i];
@@ -323,9 +324,12 @@ module mvu_4sx4u #(
 				end
 				assign	hi4[i] = Hi4;
 			end : genHi
+			else begin : genHiZero
+				assign hi4[i] = '0;
+			end : genHiZero
 
 			// Conclusive low part accumulation
-			if(1) begin : blkLo
+			if(i >= PE_REM) begin : blkLo
 				// Adder Tree across all SIMD low contributions
 				localparam int unsigned  ROOT_WIDTH = $clog2(1 + SIMD*(2**LO_WIDTH-1));
 				uwire [ROOT_WIDTH-1:0]  tree[2*SIMD-1];
@@ -346,6 +350,9 @@ module mvu_4sx4u #(
 				if(i == 3)  assign  up4 = Lo4;
 				else  assign  lo4[i] = Lo4;
 			end : blkLo
+			else begin : blkLoZero
+				assign lo4[i] = '0;
+			end : blkLoZero
 
 		end
 
@@ -363,7 +370,7 @@ module mvu_4sx4u #(
 
 		// Output
 		for(genvar  pe = PE_BEG; pe < PE_END; pe++) begin
-			assign	p[pe] = Res5[pe - PE_BEG];
+			assign	p[pe] = Res5[pe - PE_BEG + PE_REM];
 		end
 
 	end : genPipes

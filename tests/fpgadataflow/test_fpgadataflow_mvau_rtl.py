@@ -86,13 +86,12 @@ def prepare_inputs(input_tensor):
     return {"inp": input_tensor}
 
 @pytest.mark.parametrize("mh", [16])
-@pytest.mark.parametrize("mw", [90])
-#@pytest.mark.parametrize("pe", [1, 2, 4, 8, 16])
-@pytest.mark.parametrize("pe", [16])
+@pytest.mark.parametrize("mw", [32])
+@pytest.mark.parametrize("pe", [1, 4, 16])
 #@pytest.mark.parametrize("simd", [1, 30, 90])
-@pytest.mark.parametrize("simd", [90])
-@pytest.mark.parametrize("idt", [DataType["INT8"]])
-@pytest.mark.parametrize("wdt", [DataType["UINT4"]])
+@pytest.mark.parametrize("simd", [1, 4, 32])
+@pytest.mark.parametrize("idt", [DataType["UINT4"], DataType["UINT8"]])
+@pytest.mark.parametrize("wdt", [DataType["INT4"], DataType["INT6"]])
 #@pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S", "xcku3p-ffva676-1-e"])
 @pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
 @pytest.mark.parametrize("segmentlen", [1])
@@ -166,7 +165,3 @@ def test_fpgadataflow_mvau_rtl(mh, mw, pe, simd, idt, wdt, part, segmentlen):
 
     assert (output_mvau_hls == output_mvau_rtl).all()
     assert (output_mvau_hls.size > 0)
-
-
-# python setup.py test --addopts "-k test_fpgadataflow_mvau_rtl"
-# python setup.py test --addopts "-k test_fpgadataflow_fclayer_rtlsim"
