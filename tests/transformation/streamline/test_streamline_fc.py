@@ -39,6 +39,7 @@ from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
+    GiveUniqueParameterTensors,
     RemoveStaticGraphInputs,
     RemoveUnusedTensors,
 )
@@ -72,6 +73,7 @@ def test_streamline_fc(size, wbits, abits):
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(RemoveStaticGraphInputs())
     # load one of the test vectors

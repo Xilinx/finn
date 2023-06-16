@@ -601,17 +601,28 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
@@ -630,40 +641,40 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
-                (in0, out, numReps, {});""".format(
-                    swu_variant, hls_ram_style
+                (in0_{}, out_{}, numReps, {});""".format(
+                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
                 )
             ]
         if swu_variant == "ConvolutionInputGenerator_1D":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
-                (in0, out, numReps, {});""".format(
-                    swu_variant, hls_ram_style
+                (in0_{}, out_{}, numReps, {});""".format(
+                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
                 )
             ]
         if swu_variant == "ConvolutionInputGenerator_1D_dws":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, SIMD1>
-                (in0, out, numReps, {});""".format(
-                    swu_variant, hls_ram_style
+                (in0_{}, out_{}, numReps, {});""".format(
+                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
                 )
             ]
         if swu_variant == "ConvolutionInputGenerator_1D_dws_stride":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, SIMD1>
-                (in0, out, numReps, {});""".format(
-                    swu_variant, hls_ram_style
+                (in0_{}, out_{}, numReps, {});""".format(
+                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
                 )
             ]
         if swu_variant == "ConvolutionInputGenerator_1D_dws_naive":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1_x, IFMChannels1, Input_precision1,
                 IFMDim1_x, OFMDim1_x, Stride1_x, Dilation1_x, SIMD1>
-                (in0, out, numReps, {});""".format(
-                    swu_variant, hls_ram_style
+                (in0_{}, out_{}, numReps, {});""".format(
+                    swu_variant, self.hls_sname(), self.hls_sname(), hls_ram_style
                 )
             ]
 
@@ -690,12 +701,13 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
             multi_pixel_out = 1
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", true, 1, %d);'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", true, 1, %d);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
                 multi_pixel_out,
@@ -708,26 +720,26 @@ class ConvolutionInputGenerator1D(HLSCustomOp):
     def blackboxfunction(self):
         if self.use_parallel_window_output():
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0,
+                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_{},
                     hls::stream<ap_uint<ConvKernelDim1_x*SIMD1*Input_precision1>>
-                    &out)""".format(
-                    self.onnx_node.name
+                    &out_{})""".format(
+                    self.onnx_node.name, self.hls_sname(), self.hls_sname()
                 )
             ]
         else:
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0,
-                    hls::stream<ap_uint<SIMD1*Input_precision1>> &out)""".format(
-                    self.onnx_node.name
+                """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_{},
+                    hls::stream<ap_uint<SIMD1*Input_precision1>> &out_{})""".format(
+                    self.onnx_node.name, self.hls_sname(), self.hls_sname()
                 )
             ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"

@@ -613,8 +613,15 @@ class Thresholding_Batch(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
@@ -627,23 +634,34 @@ class Thresholding_Batch(HLSCustomOp):
             npy_in = "%s/thresholds.npy" % code_gen_dir
 
             self.code_gen_dict["$READNPYDATA$"].append(
-                'npy2apintstream<%s, %s, %d, %s>("%s", weights, false, ImgDim1);'
-                % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+                'npy2apintstream<%s, %s, %d, %s>("%s", weights_%s, false, ImgDim1);'
+                % (
+                    packed_hls_type,
+                    elem_hls_type,
+                    elem_bits,
+                    npy_type,
+                    npy_in,
+                    self.hls_sname(),
+                )
             )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         mem_mode = self.get_nodeattr("mem_mode")
         if mem_mode == "decoupled":
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<ap_uint<{}>> weights ("weights");'.format(
-                    self.get_weightstream_width()
+                'hls::stream<ap_uint<{}>> weights_{} ("weights_{}");'.format(
+                    self.get_weightstream_width(), self.hls_sname(), self.hls_sname()
                 )
             )
 
@@ -654,10 +672,12 @@ class Thresholding_Batch(HLSCustomOp):
         if mem_mode == "const":
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ImgDim1, NumChannels1, PE1, {}, {}>
-                (in0, out, threshs, numReps);""".format(
+                (in0_{}, out_{}, threshs, numReps);""".format(
                     node.op_type,
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
+                    self.hls_sname(),
+                    self.hls_sname(),
                 )
             ]
         elif mem_mode == "decoupled":
@@ -666,10 +686,13 @@ class Thresholding_Batch(HLSCustomOp):
             # - for synth the unit runs continuously anyway (ap_ctrl_none)
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ImgDim1, NumChannels1, PE1, {}, {}, ActVal1, ThresType1, NumSteps1>
-                (in0, out, weights, numReps);""".format(
+                (in0_{}, out_{}, weights_{}, numReps);""".format(
                     "Thresholding_Stream_Batch",
                     tmpl_args["TSrcI"],
                     tmpl_args["TDstI"],
+                    self.hls_sname(),
+                    self.hls_sname(),
+                    self.hls_sname(),
                 )
             ]
         else:
@@ -692,12 +715,13 @@ class Thresholding_Batch(HLSCustomOp):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             )
@@ -709,24 +733,29 @@ class Thresholding_Batch(HLSCustomOp):
     def blackboxfunction(self):
         if self.get_nodeattr("mem_mode") == "const":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<{}>> &in0,
-                    hls::stream<ap_uint<{}>> &out
+                """void {}(hls::stream<ap_uint<{}>> &in0_{},
+                    hls::stream<ap_uint<{}>> &out_{}
                     )""".format(
                     self.onnx_node.name,
                     self.get_instream_width(),
+                    self.hls_sname(),
                     self.get_outstream_width(),
+                    self.hls_sname(),
                 )
             ]
         elif self.get_nodeattr("mem_mode") == "decoupled":
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void {}(hls::stream<ap_uint<{}>> &in0,
-                    hls::stream<ap_uint<{}>> &weights,
-                    hls::stream<ap_uint<{}>> &out
+                """void {}(hls::stream<ap_uint<{}>> &in0_{},
+                    hls::stream<ap_uint<{}>> &weights_{},
+                    hls::stream<ap_uint<{}>> &out_{}
                     )""".format(
                     self.onnx_node.name,
                     self.get_instream_width(),
+                    self.hls_sname(),
                     self.get_weightstream_width(),
+                    self.hls_sname(),
                     self.get_outstream_width(),
+                    self.hls_sname(),
                 )
             ]
         else:
@@ -734,10 +763,10 @@ class Thresholding_Batch(HLSCustomOp):
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
@@ -789,8 +818,7 @@ class Thresholding_Batch(HLSCustomOp):
                     )
         elif self.get_nodeattr("mem_mode") == "decoupled":
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=weights name=weights_"
-                + self.hls_sname()
+                "#pragma HLS INTERFACE axis port=weights_" + self.hls_sname()
             )
 
     def code_generation_ipi(self):

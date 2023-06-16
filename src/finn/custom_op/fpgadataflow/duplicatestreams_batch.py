@@ -309,18 +309,27 @@ class DuplicateStreams_Batch(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         n_outputs = self.get_num_output_streams()
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         for i in range(n_outputs):
-            out_name = "out%d" % i
+            out_name = "out%d_%s" % (i, self.hls_sname())
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<ap_uint<%d>> %s ("%s");'
                 % (self.get_outstream_width(), out_name, out_name)
@@ -328,8 +337,13 @@ class DuplicateStreams_Batch(HLSCustomOp):
 
     def docompute(self):
         n_outputs = self.get_num_output_streams()
-        ostreams = ["out%d" % x for x in range(n_outputs)]
-        dc = "DuplicateStreamsCustom(in0, %s);" % (",".join(ostreams))
+        ostreams = []
+        for i in range(n_outputs):
+            ostreams.append("out%d_%s" % (i, self.hls_sname()))
+        dc = "DuplicateStreamsCustom(in0_%s, %s);" % (
+            self.hls_sname(),
+            ",".join(ostreams),
+        )
         self.code_gen_dict["$DOCOMPUTE$"] = [dc]
 
     def dataoutstrm(self):
@@ -346,7 +360,7 @@ class DuplicateStreams_Batch(HLSCustomOp):
         outstrm_code = []
 
         for i in range(n_outputs):
-            out_name = "out%d" % i
+            out_name = "out%d_%s" % (i, self.hls_sname())
             npy_out = "%s/output%d.npy" % (code_gen_dir, i)
             outstrm_code.append(
                 'apintstream2npy<%s, %s, %d, %s>(%s, %s, "%s");'
@@ -371,10 +385,14 @@ class DuplicateStreams_Batch(HLSCustomOp):
         inp_streams = []
         o_stream_w = self.get_outstream_width()
         i_stream_w = self.get_instream_width()
-        in_stream = "hls::stream<ap_uint<%d> > &in0" % (i_stream_w)
+        in_stream = "hls::stream<ap_uint<%d> > &in0_%s" % (i_stream_w, self.hls_sname())
         inp_streams.append(in_stream)
         for i in range(n_outputs):
-            out_stream = "hls::stream<ap_uint<%d> > &out%d" % (o_stream_w, i)
+            out_stream = "hls::stream<ap_uint<%d> > &out%d_%s" % (
+                o_stream_w,
+                i,
+                self.hls_sname(),
+            )
             inp_streams.append(out_stream)
 
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
@@ -387,12 +405,11 @@ class DuplicateStreams_Batch(HLSCustomOp):
     def pragmas(self):
         n_outputs = self.get_num_output_streams()
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         for i in range(n_outputs):
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=out%d name=out%d_%s"
-                % (i, i, self.hls_sname())
+                "#pragma HLS INTERFACE axis port=out%d_%s" % (i, self.hls_sname())
             )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"

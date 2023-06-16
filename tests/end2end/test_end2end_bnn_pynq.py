@@ -328,13 +328,13 @@ class TestEnd2End:
         (model, ishape) = get_trained_network_and_ishape(topology, wbits, abits)
         chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "export")
         if QONNX_export:
-            export_qonnx(model, torch.randn(ishape), chkpt_name)
+            export_qonnx(model, torch.randn(ishape), chkpt_name, opset_version=13)
             qonnx_cleanup(chkpt_name, out_file=chkpt_name)
             model = ModelWrapper(chkpt_name)
             model = model.transform(ConvertQONNXtoFINN())
             model.save(chkpt_name)
         else:
-            export_finn_onnx(model, torch.randn(ishape), chkpt_name)
+            export_finn_onnx(model, torch.randn(ishape), chkpt_name, opset_version=13)
         nname = "%s_w%da%d" % (topology, wbits, abits)
         update_dashboard_data(topology, wbits, abits, "network", nname)
         dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -374,7 +374,7 @@ class TestEnd2End:
         chkpt_preproc_name = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "preproc"
         )
-        export_finn_onnx(totensor_pyt, torch.randn(ishape), chkpt_preproc_name)
+        export_finn_onnx(totensor_pyt, torch.randn(ishape), chkpt_preproc_name, opset_version=13)
         assert os.path.isfile(chkpt_preproc_name)
         # join preprocessing and core model
         pre_model = ModelWrapper(chkpt_preproc_name)
