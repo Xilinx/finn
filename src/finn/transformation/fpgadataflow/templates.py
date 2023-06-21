@@ -242,22 +242,6 @@ report_utilization -hierarchical -hierarchical_depth 4 -file synth_report.xml -f
 close_project
 """
 
-alveo_run_sh_template = """#!/bin/bash
-
-if [ "$#" -ne 2 ]; then
-    echo "Usage: alveo_run.sh <exec_mode={execute, throughput_test}> <batch_size>"
-    exit -1
-fi
-
-cd $REMOTE_DEPLOY_DIR$
-eval "$(conda shell.bash hook)"
-conda activate $CONDA_ENV_NAME$
-source $REMOTE_XRT$/setup.sh
-export PLATFORM_REPO_PATHS=$REMOTE_PLATFORM_REPO_PATHS$
-python3.6 driver.py --exec_mode=$1 --batchsize=$2 --bitfile=$BITFILE$ \
-    --inputfile=input.npy --outputfile=output.npy --platform=alveo
-"""
-
 vitis_gen_xml_report_tcl_template = """
 open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
 open_run impl_1
