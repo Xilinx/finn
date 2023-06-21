@@ -374,13 +374,6 @@ class QuantReluHandler(QuantActBaseHandler):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
 
-            # ToDo: The index 1 needs to be changed to -1 for the channels last format
-            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[
-                1
-            ]
-            final_shape = (num_output_channels, num_thresholds)
-            if thresholds.shape != final_shape:
-                thresholds = np.broadcast_to(thresholds, final_shape)
         elif act_node.op_type == "Selu":
             q_inst = getCustomOp(self._q_node)
             narrow = q_inst.get_nodeattr("narrow")
@@ -408,12 +401,12 @@ class QuantReluHandler(QuantActBaseHandler):
                         thresholds[c][t] = np.log(step / (alpha * selu_scale) + 1)
                     else:
                         thresholds[c][t] = step / selu_scale
-            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[
-                1
-            ]
-            final_shape = (num_output_channels, num_thresholds)
-            if thresholds.shape != final_shape:
-                thresholds = np.broadcast_to(thresholds, final_shape)
+
+        # ToDo: The index 1 needs to be changed to -1 for the channels last format
+        num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[1]
+        final_shape = (num_output_channels, num_thresholds)
+        if thresholds.shape != final_shape:
+            thresholds = np.broadcast_to(thresholds, final_shape)
 
         return thresholds
 

@@ -35,6 +35,7 @@ import torch
 from brevitas.export import export_qonnx
 from brevitas.nn import QuantIdentity
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.util.basic import get_preferred_onnx_opset
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
@@ -51,7 +52,12 @@ def test_brevitas_act_export_selu(abits, ishape, narrow):
         torch.nn.SELU(), QuantIdentity(bit_width=abits, narrow=narrow)
     )
 
-    export_qonnx(b_act, torch.randn(ishape), export_path, opset_version=11)
+    export_qonnx(
+        b_act,
+        torch.randn(ishape),
+        export_path,
+        opset_version=get_preferred_onnx_opset(),
+    )
     qonnx_cleanup(export_path, out_file=export_path)
     model = ModelWrapper(export_path)
     model = model.transform(ConvertQONNXtoFINN())
