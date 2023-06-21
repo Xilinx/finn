@@ -286,6 +286,7 @@ class QuantReluHandler(QuantActBaseHandler):
     def valid_predecessor_op_types(self):
         return [
             "Relu",
+            "Selu",
         ]
 
     def _check_compatibility(self):
@@ -293,16 +294,19 @@ class QuantReluHandler(QuantActBaseHandler):
             q_inst = getCustomOp(self._q_node)
             narrow = q_inst.get_nodeattr("narrow")
             signed = q_inst.get_nodeattr("signed")
-            if signed or narrow:
-                raise ValueError(
-                    "FINN only supports unsigned and non-narrow Quant nodes "
-                    "for Relu activations."
-                )
             if not self._model.get_initializer(self._q_node.input[2]) == 0:
                 raise ValueError(
                     "Only Quant nodes with zero-point == 0 "
                     "are currently supported for ReLu activations."
                 )
+            act_node = self._model.find_direct_predecessors(self._q_node)
+            act_node = act_node[0]
+            if act_node.op_type == "Relu":
+                if signed or narrow:
+                    raise ValueError(
+                        "FINN only supports unsigned and non-narrow Quant nodes "
+                        "for Relu activations."
+                    )
         elif self._q_node.op_type == "BipolarQuant":
             return
         else:
@@ -312,7 +316,31 @@ class QuantReluHandler(QuantActBaseHandler):
         # No bias allowed for Relu activations, see: https://github.com/Xilinx/
         # brevitas/blob/a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/
         # export/onnx/finn/handler/act.py#L48
-        bias = np.array([0.0], dtype=np_default_dtype)
+        act_node = self._model.find_direct_predecessors(self._q_node)
+        act_node = act_node[0]
+        if act_node.op_type == "Relu":
+            bias = np.array([0.0], dtype=np_default_dtype)
+        elif act_node.op_type == "Selu":
+            # Gather parameters
+            q_inst = getCustomOp(self._q_node)
+            if self._q_node.op_type == "Quant":
+                bit_width = self._model.get_initializer(self._q_node.input[3])
+                narrow = q_inst.get_nodeattr("narrow")
+            elif self._q_node.op_type == "BipolarQuant":
+                bit_width = 1.0
+            else:
+                raise RuntimeError("Got an unexpected quantizer node type")
+            # Calculate bias, see: https://github.com/Xilinx/brevitas/blob/
+            # a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/export/
+            # onnx/finn/handler/act.py#L64
+            if bit_width == 1.0:
+                bias = np.array([-0.5], dtype=np_default_dtype)
+            else:
+                if narrow:
+                    min_non_scaled_val = -(2 ** (bit_width - 1) - 1)
+                else:
+                    min_non_scaled_val = -(2 ** (bit_width - 1))
+                bias = np.array([min_non_scaled_val], dtype=np_default_dtype)
         return bias
 
     def _calculate_thresholds(self):
@@ -326,30 +354,66 @@ class QuantReluHandler(QuantActBaseHandler):
         quant_scale = self._model.get_initializer(self._q_node.input[1]).astype(
             np.float32
         )
-        # q_inst = getCustomOp(self._q_node)
-        # narrow = q_inst.get_nodeattr("narrow")
+        act_node = self._model.find_direct_predecessors(self._q_node)
+        act_node = act_node[0]
+        if act_node.op_type == "Relu":
 
-        # Calculate thersholds, see: https://github.com/Xilinx/brevitas/blob/
-        # a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/export/
-        # onnx/finn/handler/act.py#L21
-        num_distinct_values = 2**bit_width
-        num_thresholds = int(num_distinct_values - 1)
-        flat_scale = quant_scale.flatten().astype(np.float32)
-        num_scale_channels = flat_scale.shape[0]
-        step = np.abs(flat_scale).astype(np.float32)
-        min_threshold = step / 2
-        thresholds = np.empty(
-            (num_scale_channels, num_thresholds), dtype=np_default_dtype
-        )
-        for c in range(num_scale_channels):
-            for t in range(num_thresholds):
-                thresholds[c][t] = min_threshold[c] + step[c] * t
+            # Calculate thersholds, see: https://github.com/Xilinx/brevitas/blob/
+            # a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/export/
+            # onnx/finn/handler/act.py#L21
+            num_distinct_values = 2**bit_width
+            num_thresholds = int(num_distinct_values - 1)
+            flat_scale = quant_scale.flatten().astype(np.float32)
+            num_scale_channels = flat_scale.shape[0]
+            step = np.abs(flat_scale).astype(np.float32)
+            min_threshold = step / 2
+            thresholds = np.empty(
+                (num_scale_channels, num_thresholds), dtype=np_default_dtype
+            )
+            for c in range(num_scale_channels):
+                for t in range(num_thresholds):
+                    thresholds[c][t] = min_threshold[c] + step[c] * t
 
-        # ToDo: The index 1 needs to be changed to -1 for the channels last format
-        num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[1]
-        final_shape = (num_output_channels, num_thresholds)
-        if thresholds.shape != final_shape:
-            thresholds = np.broadcast_to(thresholds, final_shape)
+            # ToDo: The index 1 needs to be changed to -1 for the channels last format
+            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[
+                1
+            ]
+            final_shape = (num_output_channels, num_thresholds)
+            if thresholds.shape != final_shape:
+                thresholds = np.broadcast_to(thresholds, final_shape)
+        elif act_node.op_type == "Selu":
+            q_inst = getCustomOp(self._q_node)
+            narrow = q_inst.get_nodeattr("narrow")
+            if narrow:
+                num_distinct_values = 2**bit_width - 1
+            else:
+                num_distinct_values = 2**bit_width
+
+            num_thresholds = int(num_distinct_values - 1)
+            flat_scale = quant_scale.flatten().astype(np.float32)
+            num_scale_channels = flat_scale.shape[0]
+            scale = np.abs(flat_scale).astype(np.float32)
+            half_scale = scale / 2
+            # alpha and lambda
+            # from https://pytorch.org/docs/stable/generated/torch.nn.SELU.html
+            alpha = 1.6732632423543772848170429916717
+            selu_scale = 1.0507009873554804934193349852946
+            thresholds = np.empty(
+                (num_scale_channels, num_thresholds), dtype=np_default_dtype
+            )
+            for c in range(num_scale_channels):
+                for t in range(num_thresholds):
+                    step = -1.0 + half_scale + scale[c] * t
+                    if step <= 0:
+                        thresholds[c][t] = np.log(step / (alpha * selu_scale) + 1)
+                    else:
+                        thresholds[c][t] = step / selu_scale
+            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[
+                1
+            ]
+            final_shape = (num_output_channels, num_thresholds)
+            if thresholds.shape != final_shape:
+                thresholds = np.broadcast_to(thresholds, final_shape)
 
         return thresholds
 
@@ -371,10 +435,10 @@ class QuantReluHandler(QuantActBaseHandler):
                 "the Quant node must exist."
             )
         act_node = act_node[0]
-        if not act_node.op_type == "Relu":
+        if act_node.op_type not in self.valid_predecessor_op_types():
             raise RuntimeError(
-                "The predecesor of the Quant node must be Relu for handling "
-                "of Relu activations."
+                "The predecesor of the Quant node must be Relu or Selu for handling "
+                "of activations."
             )
 
         # Reroute upstream tensor
