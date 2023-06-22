@@ -233,12 +233,10 @@ class QuantMaxNorm(HLSCustomOp):
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0_%s name=in0_%s"
-            % (self.hls_sname(), self.hls_sname())
+            "#pragma HLS INTERFACE axis port=in0_%s" % (self.hls_sname())
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out_%s name=out_%s"
-            % (self.hls_sname(), self.hls_sname())
+            "#pragma HLS INTERFACE axis port=out_%s" % (self.hls_sname())
         )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE ap_ctrl_none port=return"
