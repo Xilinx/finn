@@ -824,7 +824,7 @@ class Thresholding_Batch(HLSCustomOp):
                 % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
             )
             # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "amd.com:FINN:memstream:1.0"
+            strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type ip -vlnv %s /%s/%s"
