@@ -118,6 +118,8 @@ def prepare_stitched_ip_for_verilator(model):
             if not remove_entry:
                 filtered_verilog_files.append(vfile)
             remove_entry = True
+        elif "swg_pkg" in vfile:
+            continue
         else:
             filtered_verilog_files.append(vfile)
 
@@ -315,8 +317,10 @@ def pyverilate_stitched_ip(
     xpm_cdc = f"{vivado_path}/data/ip/xpm/xpm_cdc/hdl/xpm_cdc.sv"
     xpm_fifo = f"{vivado_path}/data/ip/xpm/xpm_fifo/hdl/xpm_fifo.sv"
 
+    swg_pkg = os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_pkg.sv"
+
     sim = PyVerilator.build(
-        [top_module_file_name, xpm_fifo, xpm_memory, xpm_cdc],
+        [swg_pkg, top_module_file_name, xpm_fifo, xpm_memory, xpm_cdc],
         verilog_path=[vivado_stitch_proj_dir, verilog_header_dir],
         build_dir=build_dir,
         trace_depth=get_rtlsim_trace_depth(),

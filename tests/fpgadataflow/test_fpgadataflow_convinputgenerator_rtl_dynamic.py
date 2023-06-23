@@ -189,6 +189,10 @@ cfg0 = {
     "ofm": 64,
     "depthwise": True,
     "pad_mode": "SAME_UPPER",
+    # run synthesis for one configuration
+    # this helped expose a bug in enum decls previously
+    # (which config the synth runs on does not matter)
+    "do_synth": True,
 }
 cfg1 = {
     "idims": [(32, 16), (16, 8)],
@@ -198,6 +202,7 @@ cfg1 = {
     "ofm": 8,
     "depthwise": False,
     "pad_mode": "SAME_UPPER",
+    "do_synth": False,
 }
 cfg2 = {
     "idims": [(64, 128), (2, 4)],
@@ -207,6 +212,7 @@ cfg2 = {
     "ofm": 64,
     "depthwise": True,
     "pad_mode": "SAME_UPPER",
+    "do_synth": False,
 }
 
 
@@ -215,6 +221,7 @@ cfg2 = {
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
 def test_fpgadataflow_conv_dynamic(cfg):
+    do_synth = cfg["do_synth"]
     pad_mode = cfg["pad_mode"]
     depthwise = cfg["depthwise"]
     idims = cfg["idims"]
@@ -292,7 +299,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5))
+    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, vitis=do_synth))
     model.set_metadata_prop("exec_mode", "rtlsim")
 
     # loop through experiment configurations
