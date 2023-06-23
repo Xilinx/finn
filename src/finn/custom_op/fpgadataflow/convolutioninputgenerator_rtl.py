@@ -1064,6 +1064,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         shutil.copy2(
             os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_common.sv", code_gen_dir
         )
+        shutil.copy2(
+            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_pkg.sv", code_gen_dir
+        )
 
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
@@ -1082,6 +1085,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_paths = [code_gen_dir]
         verilog_files = [
+            "swg_pkg.sv",
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
             "swg_common.sv",
@@ -1106,6 +1110,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         sourcefiles = [
+            "swg_pkg.sv",
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
             "swg_common.sv",
