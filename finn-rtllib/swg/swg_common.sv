@@ -1,5 +1,5 @@
 /******************************************************************************
- * Copyright (C) 2022, Advanced Micro Devices, Inc.
+ * Copyright (C) 2022-2023, Advanced Micro Devices, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -29,20 +29,10 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-`ifndef FINN_SWG_ENUM_DEFINED
-`define FINN_SWG_ENUM_DEFINED
-typedef enum logic [2:0] {
-    STATE_START,
-    STATE_LOOP_SIMD,
-    STATE_LOOP_KW,
-    STATE_LOOP_KH,
-    STATE_LOOP_W,
-    STATE_LOOP_H
-}  state_e;
-`endif
 
 // loop controller used for both, "default" and "parallel", implementation styles
-module swg_controller #(
+module swg_controller
+import swg::*; #(
     int unsigned  LOOP_H_ITERATIONS,
     int unsigned  LOOP_W_ITERATIONS,
     int unsigned  LOOP_KH_ITERATIONS,
@@ -62,7 +52,7 @@ module swg_controller #(
     int TAIL_INCR_H,
     int TAIL_INCR_LAST,
 
-    parameter INNERMOST_STATE
+    state_e INNERMOST_STATE
 )(
     input   logic  clk,
     input   logic  rst_n,
