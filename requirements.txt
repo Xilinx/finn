@@ -1,8 +1,8 @@
 bitstring==3.1.7
 clize==4.1.1
 dataclasses-json==0.5.7
-docrep==0.2.7
 gspread==3.6.0
+ipython==8.12.2
 numpy==1.22.0
 onnx==1.13.0
 onnxoptimizer
@@ -14,6 +14,8 @@ pyscaffold==3.2.1
 scipy==1.5.2
 setupext-janitor>=1.1.2
 sigtools==2.0.3
+sphinx==5.0.2
+sphinx_rtd_theme==0.5.0
 toposort==1.5
 vcdvcd==1.0.5
 wget==3.2

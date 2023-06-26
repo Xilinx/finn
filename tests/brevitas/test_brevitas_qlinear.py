@@ -28,12 +28,11 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import os
 import torch
 from brevitas.core.quant import QuantType
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_finn_onnx, export_qonnx
 from brevitas.nn import QuantLinear
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -75,13 +74,13 @@ def test_brevitas_qlinear(
     b_linear.eval()
     if QONNX_export:
         m_path = export_onnx_path
-        BrevitasONNXManager.export(b_linear, i_shape, m_path)
+        export_qonnx(b_linear, torch.randn(i_shape), m_path)
         qonnx_cleanup(m_path, out_file=m_path)
         model = ModelWrapper(m_path)
         model = model.transform(ConvertQONNXtoFINN())
         model.save(m_path)
     else:
-        bo.export_finn_onnx(b_linear, i_shape, export_onnx_path)
+        export_finn_onnx(b_linear, torch.randn(i_shape), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
     inp_tensor = gen_finn_dt_tensor(i_dtype, i_shape)

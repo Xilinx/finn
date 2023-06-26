@@ -29,6 +29,7 @@
 import math
 import numpy as np
 import os
+import shutil
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.general import im2col
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
@@ -60,8 +61,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     (sliding window) function variants. Generates an RTL ConvolutionInputGenerator
     implementation based on (System-)Verilog templates, defined in finn-rtllib/swg."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -72,8 +73,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "SIMD": ("i", True, 0),
             # additional parallelization parameter - not yet implemented
             "M": ("i", False, 1),
-            # alternative implementation style - not yet implemented
-            "parallel_window": ("i", False, 0, {0}),
+            # Enable parallel window output (requires full SIMD unfolding)
+            "parallel_window": ("i", False, 0, {0, 1}),
             "Stride": ("ints", True, []),  # [H, W] = [Y, X]
             "Dilation": ("ints", True, []),  # [H, W] = [Y, X]
             # FINN DataTypes for inputs, weights, outputs
@@ -81,7 +82,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             "outputDataType": ("s", True, ""),
             "depthwise": ("i", False, 0, {0, 1}),
             # Enable reprogrammable implementation to change FM dimensions,
-            # stride, or dilation during runtime
+            # stride, or dilation during runtime (requires parallel_window = 0)
             "dynamic_mode": ("i", False, 0, {0, 1}),
             # FPGA resource type for ConvolutionInputGenerator input buffer
             # auto -- let Vivado decide
@@ -188,6 +189,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             return self.get_instream_width()
 
     def get_number_input_values(self):
+        """Function to get the number of expected input values."""
         folded_ishape = self.get_folded_input_shape()
         num_input_elems = np.prod(folded_ishape[:-1])
         return num_input_elems
@@ -198,6 +200,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return num_output_elems
 
     def get_1d_conv_attrs_normalized(self):
+        """Returns normalized spatial attributes, where H=1 for the 1D case."""
         # normalize FM dimensions so that:
         # [H, W] = [Y, X] = [1, D] or [D, 1] are always mapped to [1, D].
         # The dummy ('1') dimension is the Y-dimension.
@@ -218,6 +221,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return (ifm_ch, ifm_dim, ofm_dim, k, stride, dilation)
 
     def get_buffer_depth(self):
+        """Returns total depth of the internal buffer, depending on
+        implementation style."""
         ifm_ch = self.get_nodeattr("IFMChannels")
         k = self.get_nodeattr("ConvKernelDim")
         ifm_dim = self.get_nodeattr("IFMDim")
@@ -233,13 +238,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         mmv_out = 1
         channel_factor = int(ifm_ch / simd)
 
+        # compute minimal buffer length (assuming it holds 1 complete window)
+        buffer_min_size = (
+            (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
+        ) * channel_factor
+
         impl_style = self.select_impl_style()
         if impl_style == "default":
-            # compute minimal buffer length (assuming it holds 1 complete window)
-            buffer_min_size = (
-                (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
-            ) * channel_factor
-
             # add additional buffer space in case of stride > 1
             # this minimizes cycle count as it allows an earlier pre-load of inputs
             buffer_depth = (
@@ -255,73 +260,89 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                     * channel_factor,
                 )
             )
-        else:
-            buffer_depth = 0
-            raise Exception("Requested impl. style not implemented")
+        elif impl_style == "parallel":
+            buffer_depth = buffer_min_size + 1
         return buffer_depth
 
     def get_exp_cycles(self):
-        simd = self.get_nodeattr("SIMD")
-        ifm_ch = self.get_nodeattr("IFMChannels")
-        k = self.get_nodeattr("ConvKernelDim")
-        ifm_dim = self.get_nodeattr("IFMDim")
-        ofm_dim = self.get_nodeattr("OFMDim")
-        stride = self.get_nodeattr("Stride")
-        dilation = self.get_nodeattr("Dilation")
-        depthwise = self.get_nodeattr("depthwise")
-        ifm_dim_h, ifm_dim_w = ifm_dim
-        ofm_dim_h, ofm_dim_w = ofm_dim
-        k_h, k_w = k
-        stride_h, stride_w = stride
-        dilation_h, dilation_w = dilation
+        impl_style = self.select_impl_style()
 
-        channel_factor = int(ifm_ch / simd)
+        if impl_style == "parallel":
+            exp_cycles = self.get_number_input_values() + 2
+        elif impl_style == "default":
+            simd = self.get_nodeattr("SIMD")
+            ifm_ch = self.get_nodeattr("IFMChannels")
+            k = self.get_nodeattr("ConvKernelDim")
+            ifm_dim = self.get_nodeattr("IFMDim")
+            ofm_dim = self.get_nodeattr("OFMDim")
+            stride = self.get_nodeattr("Stride")
+            dilation = self.get_nodeattr("Dilation")
+            depthwise = self.get_nodeattr("depthwise")
+            ifm_dim_h, ifm_dim_w = ifm_dim
+            ofm_dim_h, ofm_dim_w = ofm_dim
+            k_h, k_w = k
+            stride_h, stride_w = stride
+            dilation_h, dilation_w = dilation
 
-        if ifm_dim_h == 1 or ifm_dim_w == 1:
-            # 1D case
-            (
-                ifm_ch,
-                [ifm_dim_h, ifm_dim_w],
-                [ofm_dim_h, ofm_dim_w],
-                [k_h, k_w],
-                [stride_h, stride_w],
-                [dilation_h, dilation_w],
-            ) = self.get_1d_conv_attrs_normalized()
+            channel_factor = int(ifm_ch / simd)
+            if ifm_dim_h == 1 or ifm_dim_w == 1:
+                # 1D case
+                (
+                    ifm_ch,
+                    [ifm_dim_h, ifm_dim_w],
+                    [ofm_dim_h, ofm_dim_w],
+                    [k_h, k_w],
+                    [stride_h, stride_w],
+                    [dilation_h, dilation_w],
+                ) = self.get_1d_conv_attrs_normalized()
 
-            if depthwise:
-                exp_cycles = (
-                    +ofm_dim_w * k_w * channel_factor
-                    + channel_factor * (k_w - 1) * (stride_w - 1)
-                    - (k_w - 1)
-                    + 2
-                )
+                if depthwise:
+                    exp_cycles = (
+                        +ofm_dim_w * k_w * channel_factor
+                        + channel_factor * (k_w - 1) * (stride_w - 1)
+                        - (k_w - 1)
+                        + 2
+                    )
+                else:
+                    exp_cycles = ofm_dim_w * k_w * channel_factor + 2
             else:
-                exp_cycles = ofm_dim_w * k_w * channel_factor + 2
-        else:
-            # 2D case
-            buffer_min_size = (
-                (k_h - 1) * dilation_h * ifm_dim_w + (k_w - 1) * dilation_w + 1
-            ) * channel_factor
-            cycles_write_block = ofm_dim_w * k_w * k_h * channel_factor
-            cycles_read_block = stride_w * ifm_dim_w * channel_factor
-            max_cycles = max(cycles_write_block, cycles_read_block)
-            if depthwise:
-                max_cycles += ofm_dim_w * (stride_w - 1) * (channel_factor - 1)
-            exp_cycles = buffer_min_size + ofm_dim_h * max_cycles  # initial buffering
-            if depthwise:
-                exp_cycles += (stride_h - 1) * ifm_dim_w * channel_factor
+                # 2D case
+                buffer_min_size = (
+                    (k_h - 1) * dilation_h * ifm_dim_w + (k_w - 1) * dilation_w + 1
+                ) * channel_factor
+                cycles_write_block = ofm_dim_w * k_w * k_h * channel_factor
+                cycles_read_block = stride_w * ifm_dim_w * channel_factor
+                max_cycles = max(cycles_write_block, cycles_read_block)
+                if depthwise:
+                    max_cycles += ofm_dim_w * (stride_w - 1) * (channel_factor - 1)
+                exp_cycles = buffer_min_size + ofm_dim_h * max_cycles
+                if depthwise:
+                    exp_cycles += (stride_h - 1) * ifm_dim_w * channel_factor
 
         return int(exp_cycles)
 
     def bram_estimation(self):
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
+        impl_style = self.select_impl_style()
+        [k_h, k_w] = self.get_nodeattr("ConvKernelDim")
+        [ifm_dim_h, ifm_dim_w] = self.get_nodeattr("IFMDim")
+        [dilation_h, dilation_w] = self.get_nodeattr("Dilation")
 
-        # NOTE: Actual BRAM usage might be lower in some cases.
-        # This does not account for the exact Vivado behavior yet.
-        buffer_width = simd * self.get_input_datatype().bitwidth()
-        buffer_depth = self.get_buffer_depth()
         if ram_style == "block" or ram_style == "auto":
+            buffer_width = simd * self.get_input_datatype().bitwidth()
+            if impl_style == "default":
+                buffer_depth = self.get_buffer_depth()
+                buffer_count = 1
+            elif impl_style == "parallel":
+                if ifm_dim_h == 1 or ifm_dim_w == 1:
+                    return 0  # 1D case (no line buffers needed)
+                kernel_width = (k_w - 1) * dilation_w + 1
+                buffer_depth = (ifm_dim_w - kernel_width) + ifm_dim_w * (dilation_h - 1)
+                buffer_count = k_h - 1
+
+            # NOTE: Actual BRAM usage might be lower in some cases
+            # due to imperfect modeling of Vivado behavior
             if buffer_depth <= 512:
                 ram_width = 36
             elif buffer_depth <= 1024:
@@ -356,7 +377,9 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
                 remainder_cascade_width = math.ceil(buffer_width / remainder_width)
                 cascade_savings = ram_cascade_width - remainder_cascade_width
 
-            return int(ram_cascade_depth * ram_cascade_width - cascade_savings)
+            return int(
+                (ram_cascade_depth * ram_cascade_width - cascade_savings) * buffer_count
+            )
         else:
             return 0
 
@@ -374,15 +397,28 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
     def uram_estimation(self):
         simd = self.get_nodeattr("SIMD")
         ram_style = self.get_nodeattr("ram_style")
-        buffer_width = simd * self.get_input_datatype().bitwidth()
-        buffer_depth = self.get_buffer_depth()
+        impl_style = self.select_impl_style()
+        [k_h, k_w] = self.get_nodeattr("ConvKernelDim")
+        [ifm_dim_h, ifm_dim_w] = self.get_nodeattr("IFMDim")
+        [dilation_h, dilation_w] = self.get_nodeattr("Dilation")
 
         if ram_style == "ultra":
+            buffer_width = simd * self.get_input_datatype().bitwidth()
+            if impl_style == "default":
+                buffer_depth = self.get_buffer_depth()
+                buffer_count = 1
+            elif impl_style == "parallel":
+                if ifm_dim_h == 1 or ifm_dim_w == 1:
+                    return 0  # 1D case (no line buffers needed)
+                kernel_width = (k_w - 1) * dilation_w + 1
+                buffer_depth = (ifm_dim_w - kernel_width) + ifm_dim_w * (dilation_h - 1)
+                buffer_count = k_h - 1
+
             ram_depth = 4096
             ram_width = 72
             ram_cascade_depth = math.ceil(buffer_depth / ram_depth)
             ram_cascade_width = math.ceil(buffer_width / ram_width)
-            return int(ram_cascade_depth * ram_cascade_width)
+            return int(ram_cascade_depth * ram_cascade_width * buffer_count)
         else:
             return 0
 
@@ -457,8 +493,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         shape doesn't match expected shape (1, ofm_dim_h, ofm_dim_w, k_h*k_w*ifm_ch)."""
 
     def prepare_codegen_default(self):
-        # Default implementation style for MMV_out = 1: addressable cyclic buffer
-        # Computing incremental addressing scheme directly..
+        """Fills code generation dict for the default implementation style by computing
+        the incremental addressing scheme for the circular buffer."""
         if self.get_nodeattr("dynamic_mode"):
             template_select = "/finn-rtllib/swg/swg_template_default_dynamic.sv"
         else:
@@ -528,13 +564,13 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             )
             addr_incr_end_simd = -buffer_min_size + (channel_factor + 1)
 
-        # sanity check
+        # sanity check for wrap logic
         assert not (
             abs(addr_incr_end_window) > buffer_actual_size
-        ), "ERROR: W increment > buffer size, wrap logic doesn't account for this"
+        ), "ERROR: W increment > buffer size, try setting parallel_window=1"
         assert not (
             abs(addr_incr_end_row) > buffer_actual_size
-        ), "ERROR: H increment > buffer size, wrap logic doesn't account for this"
+        ), "ERROR: H increment > buffer size, try setting parallel_window=1"
 
         # set certain threshold indices to detect when reading/writing finishes
         code_gen_dict["$LAST_READ_ELEM$"] = [str(h * w * channel_factor - 1)]
@@ -639,7 +675,275 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
 
         return template_path, code_gen_dict
 
+    def prepare_codegen_parallel(self):
+        """Fills code generation dict for the parallel implementation style by computing
+        the loop controller configuration and partitioning the fixed buffer into
+        shift-registers (for parallel read access) and line buffers (for efficient
+        LUTRAM/BRAM/URAM implementation)."""
+        template_path = (
+            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_template_parallel.sv"
+        )
+        code_gen_dict = {}
+
+        ifm_ch = self.get_nodeattr("IFMChannels")
+        k = self.get_nodeattr("ConvKernelDim")
+        ifm_dim = self.get_nodeattr("IFMDim")
+        stride = self.get_nodeattr("Stride")
+        dilation = self.get_nodeattr("Dilation")
+        simd = self.get_nodeattr("SIMD")
+        M = self.get_nodeattr("M")
+
+        k_h, k_w = k
+        h, w = ifm_dim
+        pad = [0, 0, 0, 0]  # padding happens in separate padding node for now
+        stride_h, stride_w = stride
+        dilation_h, dilation_w = dilation
+        pad_h = pad[0] + pad[2]
+        pad_w = pad[1] + pad[3]
+        out_dim_h = im2col.compute_conv_output_dim(h, k_h, stride_h, pad_h, dilation_h)
+        out_dim_w = im2col.compute_conv_output_dim(w, k_w, stride_w, pad_w, dilation_w)
+        mmv_in = M * 1
+        mmv_out = M * k_h * k_w
+        channel_factor = int(ifm_ch / simd)
+
+        # compute minimal buffer length (assuming it holds 1 complete window)
+        buffer_min_size = (
+            (k_h - 1) * dilation_h * w + (k_w - 1) * dilation_w + 1
+        ) * channel_factor
+
+        buffer_actual_size = self.get_buffer_depth()
+        code_gen_dict["$BUF_ELEM_TOTAL$"] = [str(buffer_actual_size)]
+
+        # compute some intermediate values, e.g., kernel "width" = k_w incl. dilation
+        # or cols/rows that are skipped due to imperfect stride<->dim combination
+        kernel_width = (k_w - 1) * dilation_w + 1
+        kernel_height = (k_h - 1) * dilation_h + 1
+        skip_columns = w % (kernel_width + (out_dim_w - 1) * stride_w)
+        skip_rows = h % (kernel_height + (out_dim_h - 1) * stride_h)
+
+        # set certain threshold indices to detect when reading/writing finishes
+        code_gen_dict["$LAST_READ_ELEM$"] = [str(h * w * channel_factor - 1)]
+        code_gen_dict["$LAST_WRITE_ELEM$"] = [
+            str(((h - skip_rows - 1) * w + (w - skip_columns)) * channel_factor - 1)
+        ]
+
+        # re-use default controller loop structure
+        code_gen_dict["$IS_DEPTHWISE$"] = ["0"]
+        loop_h_iterations = out_dim_h
+        loop_w_iterations = out_dim_w  # now the innermost loop
+        loop_kh_iterations = 1
+        loop_kw_iterations = 1
+        loop_simd_iterations = 1
+
+        if loop_w_iterations == 1:
+            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_H"]
+            loop_h_iterations -= 1  # -1 because state is initial state
+        else:
+            code_gen_dict["$INNERMOST_STATE$"] = ["STATE_LOOP_W"]
+            loop_w_iterations -= 1  # -1 because state is initial state
+
+        # set head and tail address increment values
+        addr_incr_end_window = -buffer_min_size + stride_w * channel_factor + 1
+        addr_incr_end_row = (
+            -buffer_min_size
+            + ((skip_columns + kernel_width) * channel_factor)  # remaining line
+            + ((stride_h - 1) * w * channel_factor)  # skip lines
+            + 1
+        )
+
+        tail_incr_w = addr_incr_end_window + buffer_min_size - 1
+        tail_incr_h = addr_incr_end_row + buffer_min_size - 1
+        tail_incr_last_window = stride_w
+
+        addr_incr_end_simd = 1
+        addr_incr_end_window_elem = 1
+        addr_incr_end_window_row = 1
+        addr_incr_end_window = tail_incr_w
+        addr_incr_end_row = tail_incr_h
+
+        # add init value for CURRENT_ELEM counter = last elem of first window
+        code_gen_dict["$FIRST_WRITE_ELEM$"] = [str(buffer_min_size - 1)]
+
+        cntr_bitwidth = math.ceil(
+            math.log2(
+                max(
+                    loop_h_iterations - 2 + 1,
+                    loop_w_iterations - 2 + 1,
+                    loop_kh_iterations - 2 + 1,
+                    loop_kw_iterations - 2 + 1,
+                    loop_simd_iterations - 2 + 1,
+                )
+            )
+        )
+        code_gen_dict["$CNTR_BITWIDTH$"] = [str(cntr_bitwidth)]
+        code_gen_dict["$LOOP_H_ITERATIONS$"] = [str(loop_h_iterations - 2)]
+        code_gen_dict["$LOOP_W_ITERATIONS$"] = [str(loop_w_iterations - 2)]
+        code_gen_dict["$LOOP_KH_ITERATIONS$"] = [str(loop_kh_iterations - 2)]
+        code_gen_dict["$LOOP_KW_ITERATIONS$"] = [str(loop_kw_iterations - 2)]
+        code_gen_dict["$LOOP_SIMD_ITERATIONS$"] = [str(loop_simd_iterations - 2)]
+
+        incr_bitwidth = 1 + math.ceil(
+            math.log2(
+                max(
+                    abs(addr_incr_end_simd) + 1,
+                    abs(addr_incr_end_window_elem) + 1,
+                    abs(addr_incr_end_window_row) + 1,
+                    abs(addr_incr_end_window) + 1,
+                    abs(addr_incr_end_row) + 1,
+                    abs(tail_incr_w) + 1,
+                    abs(tail_incr_h) + 1,
+                    abs(tail_incr_last_window) + 1,
+                )
+            )
+        )
+        code_gen_dict["$INCR_BITWIDTH$"] = [str(incr_bitwidth)]
+        code_gen_dict["$HEAD_INCR_SIMD$"] = [str(addr_incr_end_simd)]
+        code_gen_dict["$HEAD_INCR_KW$"] = [str(addr_incr_end_window_elem)]
+        code_gen_dict["$HEAD_INCR_KH$"] = [str(addr_incr_end_window_row)]
+        code_gen_dict["$HEAD_INCR_W$"] = [str(addr_incr_end_window)]
+        code_gen_dict["$HEAD_INCR_H$"] = [str(addr_incr_end_row)]
+        code_gen_dict["$TAIL_INCR_W$"] = [str(tail_incr_w)]
+        code_gen_dict["$TAIL_INCR_H$"] = [str(tail_incr_h)]
+        code_gen_dict["$TAIL_INCR_LAST$"] = [str(tail_incr_last_window)]
+
+        code_gen_dict["$SIMD$"] = [str(simd)]
+        code_gen_dict["$MMV_IN$"] = [str(mmv_in)]
+        code_gen_dict["$MMV_OUT$"] = [str(mmv_out)]
+
+        # prepare buffer partitioning into "reg_fifos" and "bram_fifos"
+        # use normalized ([H,W]=[1,W]) dimensions for 1D case
+        (
+            ifm_ch,
+            [ifm_dim_h, ifm_dim_w],
+            [ofm_dim_h, ofm_dim_w],
+            [k_h, k_w],
+            [stride_h, stride_w],
+            [dilation_h, dilation_w],
+        ) = self.get_1d_conv_attrs_normalized()
+
+        reg_fifos = []
+        bram_fifos_depth = []
+
+        px_idx = 0
+        for ky in range(k_h):
+            reg_fifo = []
+            for kx in range(k_w):
+                reg_fifo.append(px_idx)
+                px_idx += 1
+                if kx < (k_w - 1):
+                    reg_fifo.extend([-1] * (dilation_w - 1))
+                    px_idx += dilation_w - 1
+            reg_fifos.append(reg_fifo)
+
+            if ky < (k_h - 1):
+                line_buffer_len = (w - kernel_width) + w * (dilation_h - 1)
+                bram_fifos_depth.append(line_buffer_len)
+                px_idx += line_buffer_len
+
+        code_gen_dict["$GENERATE_REG_FIFOS$"] = []
+        for i, reg_fifo in enumerate(reg_fifos):
+            code_gen_dict["$GENERATE_REG_FIFOS$"].append(
+                """
+                wire [IN_WIDTH-1:0] reg_fifo_{id}_in;
+                wire [IN_WIDTH-1:0] reg_fifo_{id}_out;
+                wire [IN_WIDTH*{len}-1:0] reg_fifo_{id};
+                swg_reg_buffer
+                #(
+                .WIDTH(IN_WIDTH),
+                .DEPTH({len})
+                )
+                reg_buffer_inst_{id}
+                (
+                    .clk(clk),
+                    .shift_enable(shift_enable),
+                    .shift_in(reg_fifo_{id}_in),
+                    .shift_out(reg_fifo_{id}_out),
+                    .data_out(reg_fifo_{id})
+                );""".format(
+                    id=i,
+                    len=len(reg_fifo),
+                )
+            )
+
+        code_gen_dict["$GENERATE_BRAM_FIFOS$"] = []
+        for i, bram_fifo_depth in enumerate(bram_fifos_depth):
+            code_gen_dict["$GENERATE_BRAM_FIFOS$"].append(
+                """
+                wire [IN_WIDTH-1:0] bram_fifo_{id}_in;
+                wire [IN_WIDTH-1:0] bram_fifo_{id}_out;
+                swg_ram_buffer
+                #(
+                .WIDTH(IN_WIDTH),
+                .DEPTH({len}),
+                .RAM_STYLE("{ram_style}")
+                )
+                ram_buffer_inst_{id}
+                (
+                    .clk(clk),
+                    .rst_n(rst_n),
+                    .shift_enable(shift_enable),
+                    .shift_in(bram_fifo_{id}_in),
+                    .shift_out(bram_fifo_{id}_out)
+                );""".format(
+                    id=i,
+                    len=bram_fifo_depth,
+                    ram_style=self.get_nodeattr("ram_style"),
+                )
+            )
+
+        code_gen_dict["$GENERATE_OUTPUT_MAPPING$"] = []
+        out_idx = mmv_out - 1
+        for fifo_id, reg_fifo in enumerate(reg_fifos):
+            for fifo_idx, access_idx in enumerate(reg_fifo):
+                if access_idx != -1:
+                    code_gen_dict["$GENERATE_OUTPUT_MAPPING$"].append(
+                        """assign data_out[OUT_ELEM_WIDTH*{out_idx}+:OUT_ELEM_WIDTH]
+                        = reg_fifo_{fifo_id}[{access_idx}*{mmv}*OUT_ELEM_WIDTH+
+                        OUT_ELEM_WIDTH*{mmv_idx}+:OUT_ELEM_WIDTH];""".format(
+                            out_idx=out_idx,
+                            fifo_id=fifo_id,
+                            access_idx=len(reg_fifo)
+                            - 1
+                            - int((max(reg_fifo) - access_idx) / M),
+                            mmv_idx=(max(reg_fifo) - access_idx) % M,
+                            mmv=M,
+                        )
+                    )
+                    # reversal: out_idx=0 -> oldest buffer element -> highest access_idx
+                    out_idx = out_idx - 1
+        assert out_idx == -1, "ERROR: Not all output vector elements connected"
+
+        code_gen_dict["$GENERATE_BUFFER_CONNECTION$"] = []
+        for i in range(len(reg_fifos)):
+            if i == 0:
+                # first FIFO containing newest elements -> input comes from input reg
+                code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                    """assign reg_fifo_{fifo_id}_in = data_in;""".format(
+                        fifo_id=i,
+                    )
+                )
+            else:
+                # other REG FIFOs -> input comes from connected BRAM FIFO (line buffer)
+                input_fifo_id = i - 1
+                code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                    """assign reg_fifo_{fifo_id}_in = bram_fifo_{input_fifo_id}_out;
+                    """.format(
+                        fifo_id=i, input_fifo_id=input_fifo_id
+                    )
+                )
+        for i in range(len(bram_fifos_depth)):
+            input_fifo_id = i
+            code_gen_dict["$GENERATE_BUFFER_CONNECTION$"].append(
+                """assign bram_fifo_{fifo_id}_in = reg_fifo_{input_fifo_id}_out;
+                """.format(
+                    fifo_id=i, input_fifo_id=input_fifo_id
+                )
+            )
+
+        return template_path, code_gen_dict
+
     def select_impl_style(self):
+        """Selects implementation style based on folding configuration."""
         simd = self.get_nodeattr("SIMD")
         M = self.get_nodeattr("M")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -685,17 +989,20 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         else:
             impl_style = "default"
 
-        assert (
-            impl_style == "default"
-        ), "ERROR: Parallel window mode not yet implemented"
         return impl_style
 
     def generate_hdl(self):
+        """Generates HDL code and wrapper for the IP, depending on required
+        implementation style."""
         impl_style = self.select_impl_style()
 
         # prepare code generation by filling out dictionaries
         if impl_style == "default":
             template_path, code_gen_dict = self.prepare_codegen_default()
+        elif impl_style == "parallel":
+            template_path, code_gen_dict = self.prepare_codegen_parallel()
+            if self.get_nodeattr("dynamic_mode"):
+                raise Exception("Dynamic mode is not compatible with parallel_window")
         else:
             raise Exception("Requested impl. style not implemented")
 
@@ -706,10 +1013,7 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())
         code_gen_dict["$BIT_WIDTH$"] = [str(self.get_input_datatype().bitwidth())]
         ram_style = self.get_nodeattr("ram_style")
-        if ram_style == "auto":
-            code_gen_dict["$RAM_STYLE$"] = [""]
-        else:
-            code_gen_dict["$RAM_STYLE$"] = ['(* ram_style = "{}" *)'.format(ram_style)]
+        code_gen_dict["$RAM_STYLE$"] = ['"{}"'.format(ram_style)]
 
         # apply code generation to templates
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
@@ -756,6 +1060,14 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
             ) as f:
                 f.write(template_axilite)
 
+        # Copy static source file for common core components
+        shutil.copy2(
+            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_common.sv", code_gen_dir
+        )
+        shutil.copy2(
+            os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_pkg.sv", code_gen_dir
+        )
+
         # set ipgen_path and ip_path so that HLS-Synth transformation
         # and stich_ip transformation do not complain
         self.set_nodeattr("ipgen_path", code_gen_dir)
@@ -773,8 +1085,10 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         verilog_paths = [code_gen_dir]
         verilog_files = [
+            "swg_pkg.sv",
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
+            "swg_common.sv",
         ]
         if self.get_nodeattr("dynamic_mode"):
             verilog_files.append(self.get_nodeattr("gen_top_module") + "_axilite.v")
@@ -796,8 +1110,10 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         sourcefiles = [
+            "swg_pkg.sv",
             self.get_nodeattr("gen_top_module") + "_wrapper.v",
             self.get_nodeattr("gen_top_module") + "_impl.sv",
+            "swg_common.sv",
         ]
 
         if self.get_nodeattr("dynamic_mode"):
@@ -835,6 +1151,8 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         apply (e.g. component must be synthesized for largest buffer size)."""
         # NOTE: For better driver integration, this functionality could be packaged
         # as a standalone function in the future
+        if self.select_impl_style() != "default":
+            raise Exception("Impl. style is incompatible with dynamic mode")
 
         if ifm_dim is None:
             ifm_dim = self.get_nodeattr("IFMDim")
@@ -887,44 +1205,53 @@ class ConvolutionInputGenerator_rtl(HLSCustomOp):
         return config
 
     def code_generation_ipgen(self, model, fpgapart, clk):
-        """Normally: Generates C++ code and tcl script for IP generation.
-        Here: Generates (System-)Verilog code for IP generation."""
+        """Generates (System-)Verilog code for IP generation (instead of HLS code)."""
         self.generate_hdl()
 
     def ipgen_singlenode_code(self):
-        """Normally: Builds the bash script for IP generation."""
+        """Not implemented (RTL component)."""
         pass
 
     def code_generation_cppsim(self, model):
-        """Normally: Generates C++ code for simulation (cppsim)."""
+        """Not implemented (RTL component)."""
         pass
 
     def compile_singlenode_code(self):
+        """Not implemented (RTL component)."""
         pass
 
     def global_includes(self):
+        """Not implemented (RTL component)."""
         pass
 
     def defines(self, var):
+        """Not implemented (RTL component)."""
         pass
 
     def read_npy_data(self):
+        """Not implemented (RTL component)."""
         pass
 
     def strm_decl(self):
+        """Not implemented (RTL component)."""
         pass
 
     def docompute(self):
+        """Not implemented (RTL component)."""
         pass
 
     def dataoutstrm(self):
+        """Not implemented (RTL component)."""
         pass
 
     def save_as_npy(self):
+        """Not implemented (RTL component)."""
         pass
 
     def blackboxfunction(self):
+        """Not implemented (RTL component)."""
         pass
 
     def pragmas(self):
+        """Not implemented (RTL component)."""
         pass

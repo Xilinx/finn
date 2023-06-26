@@ -39,8 +39,6 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 
-from . import templates
-
 # ONNX i/o tensor shape assumptions for channelwise ops:
 # input 0 is the input tensor, shape (..., NumChannels)
 # input 1 is the channelwise parameter tensor, shape (NumChannels, params_per_channel)
@@ -85,9 +83,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
     including Add, Mul and multi-thresholding.
     """
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
-        self.decoupled_wrapper = templates.decoupled_wrapper
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {

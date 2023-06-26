@@ -46,8 +46,6 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 
-from . import templates
-
 # ONNX i/o tensor shape assumptions for MatrixVectorActivation:
 # input 0 is the input tensor, shape (.., i_size) = (..., MW)
 # input 1 is the weight tensor, shape (i_size, o_size) = (MW, MH)
@@ -60,9 +58,8 @@ class MatrixVectorActivation(HLSCustomOp):
     """Class that corresponds to finn-hls Matrix_Vector_Activate(_Stream)_Batch
     function."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
-        self.decoupled_wrapper = templates.decoupled_wrapper
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -350,13 +347,23 @@ class MatrixVectorActivation(HLSCustomOp):
         # adder tree
         addertree_luts = (W + A) * (2 * Q - 1)
         # accumulator
-        acc_bits = W + A + np.ceil(math.log(MW, 2))
+        acc_datatype = self.get_accumulator_datatype()
+        # if accDataType is not set, then it will default to INT32, which would
+        # be a large overestimate in most (if not all) cases. In this scenario,
+        # we would use the minimum accumulator as determined by the data types
+        # bound, derived in https://arxiv.org/abs/2301.13376
+        alpha = math.log(MW, 2) + W + A - 1 - int(idt.signed())
+        acc_bits = min(
+            acc_datatype.bitwidth(),
+            np.ceil(alpha + math.log(1 + pow(2, -alpha), 2) + 1),
+        )
         acc_luts = acc_bits
         # thresholds and threshold comparators
         thr_luts = 0
         comp_luts = 0
         noact = self.get_nodeattr("noActivation")
-        if noact == 0:
+        tmem_style = self.get_nodeattr("ram_style_thresholds")
+        if (noact == 0) and (tmem_style == "distributed"):
             odt = self.get_output_datatype()
             B = odt.bitwidth()
             thr_luts = (2**B - 1) * acc_bits * math.ceil(self.calc_tmem() / 64)
@@ -404,6 +411,10 @@ class MatrixVectorActivation(HLSCustomOp):
             return DataType[self.get_nodeattr("weightDataType")]
         else:
             raise Exception("Undefined input ind for this layer type")
+
+    def get_accumulator_datatype(self):
+        """Returns FINN DataType of accumulator"""
+        return DataType[self.get_nodeattr("accDataType")]
 
     def get_weight_datatype(self):
         """Returns FINN DataType of weights."""
@@ -575,6 +586,8 @@ class MatrixVectorActivation(HLSCustomOp):
         return ret
 
     def minimize_accumulator_width(self, model):
+        """Minimize the accumulator bit width according to the weight values,
+        input data types, and size of dot product"""
         weights = model.get_initializer(self.onnx_node.input[1])
         # since in the calculation the values of the weight matrix are used,
         # for the bipolar case they need to be converted to bipolar
@@ -585,8 +598,23 @@ class MatrixVectorActivation(HLSCustomOp):
         else:
             thresholds = None
         idt = self.get_input_datatype()
-        # calculate minimum and maximum values of accumulator
-        (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
+        # if runtime-writeable weights, then the values of the weights can
+        # change and we need to use the worst-case values from the datatypes
+        if self.get_nodeattr("runtime_writeable_weights"):
+            wdt = self.get_weight_datatype()
+            lower_worst = wdt.min() * np.ones_like(weights)
+            lower_range = calculate_matvec_accumulator_range(lower_worst, idt)
+            upper_worst = wdt.max() * np.ones_like(weights)
+            upper_range = calculate_matvec_accumulator_range(upper_worst, idt)
+            acc_min = min(min(lower_range), min(upper_range))
+            acc_max = max(max(upper_range), max(upper_range))
+        # if not runtime-writeable weights, then we can calculate the min
+        # and max values of the accumulation range using knowledge of the
+        # weights and input data types since they are fixed
+        else:
+            (acc_min, acc_max) = calculate_matvec_accumulator_range(weights, idt)
+        # if the thresholds can be used to determine range, then adjust the range
+        # according to the known values of the thresholds
         if thresholds is not None:
             threshold_tensor = self.get_hls_compatible_threshold_tensor(thresholds)
             # set threshold datatype (and accumulator datatype implicitly)
@@ -622,7 +650,7 @@ class MatrixVectorActivation(HLSCustomOp):
                 self.onnx_node.name,
                 str(tdt),
             )
-            self.set_nodeattr("accDataType", tdt.name)
+            adt = tdt  # Set activation datatype to the threshold datatype
         else:
             if acc_min < 0:
                 if abs(acc_min) > acc_max:
@@ -631,14 +659,32 @@ class MatrixVectorActivation(HLSCustomOp):
                     adt = DataType.get_smallest_possible(-acc_max - 1)
             else:
                 adt = DataType.get_smallest_possible(acc_max)
-            # ensure a datatype divisible by 8-bits in case this is the last node
+        # if this is the last node in the graph, then ensure the datatype is
+        # divisibly by 8 bits
+        if model.find_direct_successors(self.onnx_node) is None:
             bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
             new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
             adt = DataType[new_adt_name]
-            self.set_nodeattr("accDataType", adt.name)
             # for no-activation nodes, output dt = acc dt
             self.set_nodeattr("outputDataType", adt.name)
+        self.set_nodeattr("accDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
+
+    def minimize_weight_bit_width(self, model):
+        """Minimize the bit width based on the values of the weights"""
+        if not self.get_nodeattr("runtime_writeable_weights"):
+            weights = model.get_initializer(self.onnx_node.input[1])
+            w_min = weights.min()
+            w_max = weights.max()
+            if w_min < 0:
+                if abs(w_min) > w_max:
+                    wdt = DataType.get_smallest_possible(w_min)
+                else:
+                    wdt = DataType.get_smallest_possible(-w_max - 1)
+            else:
+                wdt = DataType.get_smallest_possible(w_max)
+            self.set_nodeattr("weightDataType", wdt.name)
+        return DataType[self.get_nodeattr("weightDataType")]
 
     def get_hls_compatible_threshold_tensor(self, orig_thres_matrix):
         """Convert the original numpy weight matrix orig_weight_matrix into
@@ -671,13 +717,6 @@ class MatrixVectorActivation(HLSCustomOp):
             # ensure all thresholds are integer
             assert (orig_thres_matrix.astype(np.int32) == orig_thres_matrix).all()
         ret = orig_thres_matrix
-        # workaround for vivado_hls threshold bug
-        if ret[0][0] == 0 and n_thres_steps == 1:
-            ret = np.copy(ret)
-            ret[0][0] = 1
-            warnings.warn(
-                "Setting 0-valued first threshold to 1 to avoid vivado_hls bug"
-            )
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))
@@ -825,28 +864,10 @@ class MatrixVectorActivation(HLSCustomOp):
             self.make_weight_file(weights, "decoupled_npy", weight_filename_sim)
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
-                # note that we provide two different .dat files, one for synth
-                # and one for synthesis. this is because URAM-based weights always
-                # need zero weights for synthesis, otherwise they get inferred
-                # as BRAM
-                weight_filename_rtl_synth = "{}/memblock_synth_0.dat".format(
-                    code_gen_dir
-                )
-                weight_filename_rtl_sim = "{}/memblock_sim_0.dat".format(code_gen_dir)
-                # sim weights are always the true weights
+                # This file will be ignored when synthesizing UltraScale memory.
+                weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
                 self.make_weight_file(
-                    weights, "decoupled_verilog_dat", weight_filename_rtl_sim
-                )
-                ram_style = self.get_nodeattr("ram_style")
-                if ram_style == "ultra":
-                    # UltraRAM must have no memory initializer, or only zeroes
-                    # otherwise BRAM will be inferred instead of URAM
-                    # as a workaround we provide a zero-weight init here
-                    synth_weights = np.zeros_like(weights, dtype=np.float32)
-                else:
-                    synth_weights = weights
-                self.make_weight_file(
-                    synth_weights, "decoupled_verilog_dat", weight_filename_rtl_synth
+                    weights, "decoupled_verilog_dat", weight_filename_rtl
                 )
         else:
             raise Exception(
@@ -1337,7 +1358,7 @@ class MatrixVectorActivation(HLSCustomOp):
                 % (self.get_nodeattr("ip_vlnv"), node_name, node_name)
             )
             # instantiate a streamer and connect it to the HLS IP
-            strm_vlnv = "xilinx.com:user:memstream:1.0"
+            strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
                 "create_bd_cell -type ip -vlnv %s /%s/%s"
@@ -1345,22 +1366,16 @@ class MatrixVectorActivation(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict [list "
-                "CONFIG.NSTREAMS {1} "
-                "CONFIG.MEM_DEPTH {%d} "
-                "CONFIG.MEM_WIDTH {%d} "
-                "CONFIG.MEM_INIT {%s} "
+                "CONFIG.DEPTH {%d} "
+                "CONFIG.WIDTH {%d} "
+                "CONFIG.INIT_FILE {%s} "
                 "CONFIG.RAM_STYLE {%s} "
-                "CONFIG.STRM0_DEPTH {%d} "
-                "CONFIG.STRM0_WIDTH {%d} "
-                "CONFIG.STRM0_OFFSET {0} "
                 "] [get_bd_cells /%s/%s]"
                 % (
                     self.calc_wmem(),
                     self.get_weightstream_width_padded(),
-                    self.get_nodeattr("code_gen_dir_ipgen") + "/",
+                    self.get_nodeattr("code_gen_dir_ipgen") + "/memblock.dat",
                     self.get_nodeattr("ram_style"),
-                    self.calc_wmem(),
-                    self.get_weightstream_width_padded(),
                     node_name,
                     strm_inst,
                 )
@@ -1371,11 +1386,11 @@ class MatrixVectorActivation(HLSCustomOp):
                 % (node_name, strm_inst, node_name, node_name, sname)
             )
             cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aresetn]"
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_rst_n]"
                 % (node_name, rst_name, node_name, strm_inst)
             )
             cmd.append(
-                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/aclk]"
+                "connect_bd_net [get_bd_pins %s/%s] [get_bd_pins %s/%s/ap_clk]"
                 % (node_name, clk_name, node_name, strm_inst)
             )
             cmd.append(

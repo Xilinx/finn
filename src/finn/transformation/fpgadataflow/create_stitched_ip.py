@@ -385,6 +385,8 @@ class CreateStitchedIP(Transformation):
             "create_project %s %s -part %s"
             % (prjname, vivado_stitch_proj_dir, self.fpgapart)
         )
+        # no warnings on long module names
+        tcl.append("set_msg_config -id {[BD 41-1753]} -suppress")
         # add all the generated IP dirs to ip_repo_paths
         ip_dirs_str = " ".join(ip_dirs)
         tcl.append("set_property ip_repo_paths [%s] [current_project]" % ip_dirs_str)
@@ -397,8 +399,9 @@ class CreateStitchedIP(Transformation):
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
         model.set_metadata_prop("clk_ns", str(self.clk_ns))
-        tcl.append("set_property CONFIG.FREQ_HZ %f [get_bd_ports /ap_clk]" % fclk_hz)
-        tcl.append("regenerate_bd_layout")
+        tcl.append(
+            "set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk]" % round(fclk_hz)
+        )
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
         # create wrapper hdl (for rtlsim later on)
@@ -412,7 +415,7 @@ class CreateStitchedIP(Transformation):
         wrapper_filename = "%s/hdl/%s_wrapper.v" % (bd_base, block_name)
         tcl.append("add_files -norecurse %s" % wrapper_filename)
         model.set_metadata_prop("wrapper_filename", wrapper_filename)
-        tcl.append("set_property top finn_design_wrapper [current_fileset]")
+        tcl.append("set_property top %s_wrapper [current_fileset]" % block_name)
         # synthesize to DCP and export stub, DCP and constraints
         if self.vitis:
             tcl.append(
@@ -450,6 +453,8 @@ class CreateStitchedIP(Transformation):
             )
             % (vivado_stitch_proj_dir, block_vendor, block_library, block_name)
         )
+        # Allow user to customize clock in deployment of stitched IP
+        tcl.append("set_property ipi_drc {ignore_freq_hz true} [ipx::current_core]")
         # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
@@ -544,20 +549,83 @@ class CreateStitchedIP(Transformation):
         # add a rudimentary driver mdd to get correct ranges in xparameters.h later on
         example_data_dir = pk.resource_filename("finn.qnn-data", "mdd-data/")
         copytree(example_data_dir, vivado_stitch_proj_dir + "/data")
-        tcl.append("file copy -force data ip/")
-        tcl.append("ipx::add_file_group -type software_driver {} [ipx::current_core]")
+
+        #####
+        # Core Cleanup Operations
         tcl.append(
-            "set_property type mdd [ipx::add_file data/finn_design.mdd "
-            "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
-            "[ipx::current_core]]]"
+            """
+set core [ipx::current_core]
+
+# Add rudimentary driver
+file copy -force data ip/
+set file_group [ipx::add_file_group -type software_driver {} $core]
+set_property type mdd       [ipx::add_file data/finn_design.mdd $file_group]
+set_property type tclSource [ipx::add_file data/finn_design.tcl $file_group]
+
+# Remove all XCI references to subcores
+set impl_files [ipx::get_file_groups xilinx_implementation -of $core]
+foreach xci [ipx::get_files -of $impl_files {*.xci}] {
+    ipx::remove_file [get_property NAME $xci] $impl_files
+}
+
+# Construct a single flat memory map for each AXI-lite interface port
+foreach port [get_bd_intf_ports -filter {CONFIG.PROTOCOL==AXI4LITE}] {
+    set pin $port
+    set awidth ""
+    while { $awidth == "" } {
+        set pins [get_bd_intf_pins -of [get_bd_intf_nets -boundary_type lower -of $pin]]
+        set kill [lsearch $pins $pin]
+        if { $kill >= 0 } { set pins [lreplace $pins $kill $kill] }
+        if { [llength $pins] != 1 } { break }
+        set pin [lindex $pins 0]
+        set awidth [get_property CONFIG.ADDR_WIDTH $pin]
+    }
+    if { $awidth == "" } {
+       puts "CRITICAL WARNING: Unable to construct address map for $port."
+    } {
+       set range [expr 2**$awidth]
+       puts "INFO: Building address map for $port: 0+:$range"
+       set name [get_property NAME $port]
+       set addr_block [ipx::add_address_block Reg0 [ipx::add_memory_map $name $core]]
+       set_property range $range $addr_block
+       set_property slave_memory_map_ref $name [ipx::get_bus_interfaces $name -of $core]
+    }
+}
+
+# Finalize and Save
+ipx::update_checksums $core
+ipx::save_core $core
+
+# Remove stale subcore references from component.xml
+file rename -force ip/component.xml ip/component.bak
+set ifile [open ip/component.bak r]
+set ofile [open ip/component.xml w]
+set buf [list]
+set kill 0
+while { [eof $ifile] != 1 } {
+    gets $ifile line
+    if { [string match {*<spirit:fileSet>*} $line] == 1 } {
+        foreach l $buf { puts $ofile $l }
+        set buf [list $line]
+    } elseif { [llength $buf] > 0 } {
+        lappend buf $line
+
+        if { [string match {*</spirit:fileSet>*} $line] == 1 } {
+            if { $kill == 0 } { foreach l $buf { puts $ofile $l } }
+            set buf [list]
+            set kill 0
+        } elseif { [string match {*<xilinx:subCoreRef>*} $line] == 1 } {
+            set kill 1
+        }
+    } else {
+        puts $ofile $line
+    }
+}
+close $ifile
+close $ofile
+"""
         )
-        tcl.append(
-            "set_property type tclSource [ipx::add_file data/finn_design.tcl "
-            "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
-            "[ipx::current_core]]]"
-        )
-        tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
-        tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
+
         # export list of used Verilog files (for rtlsim later on)
         tcl.append(
             "set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 "
