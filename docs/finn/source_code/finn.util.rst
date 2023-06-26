@@ -99,14 +99,6 @@ finn.util.fpgadataflow
    :undoc-members:
    :show-inheritance:
 
-finn.util.gdrive
------------------------------
-
-.. automodule:: finn.util.gdrive
-  :members:
-  :undoc-members:
-  :show-inheritance:
-
 finn.util.hls
 ---------------
 
