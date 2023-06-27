@@ -17,11 +17,7 @@ several neural network accelerators built with the FINN compiler. It comes with
 prebuilt bitfiles for several platforms and PYNQ Python drivers. It's also on
 pypi, so can simply `pip3 install finn-examples` on your board to try it out.
 
-<a href="https://github.com/Xilinx/finn-examples/blob/main/finn_examples/notebooks/2_imagenet_with_mobilenet_v1.ipynb" target="_blank">
-<img src="https://xilinx.github.io/finn/img/imagenet.jpg" width="300" align="center"/>
-</a>
-
-**4-bit MobileNet-v1 for Alveo U250.** As [part of finn-examples](https://github.com/Xilinx/finn-examples/blob/main/finn_examples/notebooks/2_imagenet_with_mobilenet_v1.ipynb),
+**4-bit MobileNet-v1 for Alveo U250.** As [part of finn-examples](https://github.com/Xilinx/finn-examples/blob/main/finn_examples/notebooks/2_imagenet_with_cnns.ipynb),
 we are releasing a streaming dataflow accelerator for MobileNet-v1 on ImageNet.
 It uses 4-bit weights and activations (first layer is 8-bit), gets 70.4% top-1
 accuracy on ImageNet-1K and runs at 1800 FPS on the Alveo U250.
