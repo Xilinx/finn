@@ -105,7 +105,8 @@ class TestBnn:
         delete_file(output_execute_results_file)
 
         # Run test option: execute
-        result = subprocess.run(["python", "driver.py", "--exec_mode=execute", f"--batchsize={batch_size}", "--bitfile=resizer.bit", "--inputfile=input.npy", "--outputfile=output.npy", f"--platform={platform}"], capture_output=True, text=True, timeout=default_test_run_timeout)
+        bitfile = "a.xclbin" if platform == "alveo" else "resizer.bit"
+        result = subprocess.run(["python", "driver.py", "--exec_mode=execute", f"--batchsize={batch_size}", f"--bitfile={bitfile}", "--inputfile=input.npy", "--outputfile=output.npy", f"--platform={platform}"], capture_output=True, text=True, timeout=default_test_run_timeout)
         assert result.returncode == 0
         
         # Load the output and reference arrays
@@ -123,7 +124,9 @@ class TestBnn:
         os.chdir(os.path.join(base_dir_global, test_dir))
         delete_file(output_throughput_results_file)
 
-        result = subprocess.run(["python", "driver.py", "--exec_mode=throughput_test", f"--batchsize={batch_size}", "--bitfile=resizer.bit", "--inputfile=input.npy", "--outputfile=output.npy", f"--platform={platform}"], capture_output=True, text=True, timeout=default_test_run_timeout)
+        # Run test option: throughput
+        bitfile = "a.xclbin" if platform == "alveo" else "resizer.bit"
+        result = subprocess.run(["python", "driver.py", "--exec_mode=throughput_test", f"--batchsize={batch_size}", f"--bitfile={bitfile}", "--inputfile=input.npy", "--outputfile=output.npy", f"--platform={platform}"], capture_output=True, text=True, timeout=default_test_run_timeout)
         assert result.returncode == 0
 
         # Check if nw_metrics.txt now exists after test run
