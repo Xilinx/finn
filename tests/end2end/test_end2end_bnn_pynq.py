@@ -328,11 +328,70 @@ def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
     model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
 
 
-@pytest.mark.parametrize("wbits", [1, 2])
-@pytest.mark.parametrize("abits", [1, 2])
-@pytest.mark.parametrize("topology", ["lfc", "tfc", "cnv"])
-@pytest.mark.parametrize("QONNX_export", [False, True])
-@pytest.mark.end2end
+# parameters that make up inputs to test case(s)
+def get_full_parameterized_test_list(marker, wbits_list, abits_list, topology_list, QONNX_export_list, board_list):
+    test_cases = [
+            (f'{marker}_w{param1}_a{param2}_{param3}_QE{param4}_{param5}', {
+            'wbits': param1,
+            'abits': param2,
+            'topology': param3,
+            'QONNX_export': param4,
+            'board': param5
+        })
+        for param1, param2, param3, param4, param5 in itertools.product(
+            wbits_list,
+            abits_list,
+            topology_list,
+            QONNX_export_list,
+            board_list,
+        )
+    ]
+    return test_cases
+
+
+def pytest_generate_tests(metafunc):
+    idlist = []
+    argvalues = []
+    scenarios = []
+
+    # Full set of test parameters
+    wbits = [1, 2]
+    abits = [1, 2]
+    topology = ["lfc", "tfc", "cnv"]
+    QONNX_export = [False, True]
+
+    # Separate the full list of markers used on command line.
+    # This allows a user to select multiple markers
+    all_markers_used =  metafunc.config.getoption("-m").split(" ")
+
+    for marker in all_markers_used:
+        if "sanity_bnn" in marker:
+            # Define a set of sanity tests that target each of the supported boards with fixed parameters
+            scenarios.extend(get_full_parameterized_test_list("sanity_bnn", wbits_list=[1], abits_list=[1], topology_list=["lfc"], QONNX_export_list=[False], board_list=[test_support_board_map[0]]))
+            scenarios.extend(get_full_parameterized_test_list("sanity_bnn", wbits_list=[1], abits_list=[2], topology_list=["cnv"], QONNX_export_list=[True], board_list=[test_support_board_map[1]]))
+            scenarios.extend(get_full_parameterized_test_list("sanity_bnn", wbits_list=[2], abits_list=[2], topology_list=["tfc"], QONNX_export_list=[False], board_list=[test_support_board_map[2]]))
+            scenarios.extend(get_full_parameterized_test_list("sanity_bnn", wbits_list=[2], abits_list=[2], topology_list=["cnv"], QONNX_export_list=[True], board_list=[test_support_board_map[3]]))
+
+        if "bnn_" in marker:
+            # Target the full set of parameters for a single board
+            # Extract the board name from the marker used, as it is in the form of 'bnn_<board>'
+            bnn_board = next((element for element in test_support_board_map if marker.split("_")[1] in element.lower()), None)
+            test_cases = get_full_parameterized_test_list("bnn", wbits, abits, topology, QONNX_export, [bnn_board])
+            scenarios.extend(test_cases)
+
+    if len(scenarios) > 0:
+        for scenario in scenarios:
+            idlist.append(scenario[0])
+            items = scenario[1].items()
+            argnames = [x[0] for x in items]
+            argvalues.append([x[1] for x in items])
+        metafunc.parametrize(argnames, argvalues, ids=idlist, scope="class")
+
+@pytest.mark.sanity_bnn
+@pytest.mark.bnn_pynq
+@pytest.mark.bnn_zcu104
+@pytest.mark.bnn_kv260
+@pytest.mark.bnn_u250
 class TestEnd2End:
     def test_export(self, topology, wbits, abits, QONNX_export, board):
         if wbits > abits:
