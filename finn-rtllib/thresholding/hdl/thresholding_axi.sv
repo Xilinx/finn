@@ -39,8 +39,8 @@
  *****************************************************************************/
 
 module thresholding_axi #(
-	int unsigned  N =  4,	// output precision
-	int unsigned  K = 16,	// input/threshold precision
+	int unsigned  N,		// output precision
+	int unsigned  K,		// input/threshold precision
 	int unsigned  C = 1,	// Channels
 	int unsigned  PE = 1,	// Processing Parallelism, requires C = k*PE
 
