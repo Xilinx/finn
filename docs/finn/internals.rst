@@ -206,6 +206,44 @@ How to set *mem_mode*
 ---------------------
 When the nodes in the network are converted to HLS layers, the *mem_mode* can be passed. More detailed information about the transformations that prepare the network and the transformation that performs the conversion to HLS layers can be found in chapter :ref:`nw_prep`. The *mem_mode* is passed as argument. Note that if no argument is passed, the default is *const*.
 
+
+.. _folding_factors:
+
+Constraints to folding factors per layer
+=========================================
++------------------------------------+------------+----------------------------------------------------------------+
+| Layers                             | Attributes | Assertions                                                     |
++====================================+============+================================================================+
+| addstreams_batch                   | PE         | inp_channels % PE == 0                                         |
+| channelwise_op_batch               | PE         | channels % PE == 0                                             |
+| checksum                           | -          | -                                                              |
+| concat                             | -          | -                                                              |
+| convolutioninputgenerator          | SIMD       | inp_channels % SIMD == 0                                       |
+| convolutioninputgenerator1d        | SIMD       | inp_channels % SIMD == 0                                       |
+| convolutioninputgenerator_rtl      | SIMD       | inp_channels % SIMD == 0                                       |
+| downsampler                        | SIMD       | inp_channels % SIMD == 0                                       |
+| duplicatestreams_batch             | PE         | channels % PE == 0                                             |
+| eltwise                            | PE         | inp_channels % PE == 0                                         |
+| fmpadding_batch                    | SIMD       | inp_channels % SIMD == 0                                       |
+| fmpadding_rtl                      | SIMD       | inp_channels % SIMD == 0                                       |
+| globalaccpool_batch                | PE         | channels % PE == 0                                             |
+| iodma                              | -          | -                                                              |
+| labelselect_batch                  | PE         | num_labels % PE == 0                                           |
+| lookup                             | -          | -                                                              |
+| matrixvectoractivation             | PE & SIMD  | matrix_height % PE == 0 & matrix_width % SIMD == 0             |
+| pool_batch                         | PE         | inp_channels % PE == 0                                         |
+| streamingdataflowpartition         | -          | -                                                              |
+| streamingdatawidthconverter_batch  | -          | -                                                              |
+| streamingfifo                      | -          | -                                                              |
+| streamingmaxpool_batch             | -          | -                                                              |
+| templates                          | -          | -                                                              |
+| thresholding_batch                 | PE         | matrix_height % PE == 0                                        |
+| tlastmarker                        | -          | -                                                              |
+| upsampler                          | -          | -                                                              |
+| vectorvectoractivation             | PE & SIMD  | kernel_height * kernel_width % SIMD == 0 & channels % PE == 0  |
++------------------------------------+------------+----------------------------------------------------------------+
+
+
 RTL ConvolutionInputGenerator
 =============================
 
