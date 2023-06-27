@@ -211,37 +211,57 @@ When the nodes in the network are converted to HLS layers, the *mem_mode* can be
 
 Constraints to folding factors per layer
 =========================================
-+------------------------------------+------------+----------------------------------------------------------------+
-| Layers                             | Attributes | Assertions                                                     |
-+====================================+============+================================================================+
-| addstreams_batch                   | PE         | inp_channels % PE == 0                                         |
-| channelwise_op_batch               | PE         | channels % PE == 0                                             |
-| checksum                           | -          | -                                                              |
-| concat                             | -          | -                                                              |
-| convolutioninputgenerator          | SIMD       | inp_channels % SIMD == 0                                       |
-| convolutioninputgenerator1d        | SIMD       | inp_channels % SIMD == 0                                       |
-| convolutioninputgenerator_rtl      | SIMD       | inp_channels % SIMD == 0                                       |
-| downsampler                        | SIMD       | inp_channels % SIMD == 0                                       |
-| duplicatestreams_batch             | PE         | channels % PE == 0                                             |
-| eltwise                            | PE         | inp_channels % PE == 0                                         |
-| fmpadding_batch                    | SIMD       | inp_channels % SIMD == 0                                       |
-| fmpadding_rtl                      | SIMD       | inp_channels % SIMD == 0                                       |
-| globalaccpool_batch                | PE         | channels % PE == 0                                             |
-| iodma                              | -          | -                                                              |
-| labelselect_batch                  | PE         | num_labels % PE == 0                                           |
-| lookup                             | -          | -                                                              |
-| matrixvectoractivation             | PE & SIMD  | matrix_height % PE == 0 & matrix_width % SIMD == 0             |
-| pool_batch                         | PE         | inp_channels % PE == 0                                         |
-| streamingdataflowpartition         | -          | -                                                              |
-| streamingdatawidthconverter_batch  | -          | -                                                              |
-| streamingfifo                      | -          | -                                                              |
-| streamingmaxpool_batch             | -          | -                                                              |
-| templates                          | -          | -                                                              |
-| thresholding_batch                 | PE         | matrix_height % PE == 0                                        |
-| tlastmarker                        | -          | -                                                              |
-| upsampler                          | -          | -                                                              |
-| vectorvectoractivation             | PE & SIMD  | kernel_height * kernel_width % SIMD == 0 & channels % PE == 0  |
-+------------------------------------+------------+----------------------------------------------------------------+
+
+.. list-table:: Folding factor constraints
+
+   * - **Layers**
+     - **Parameters**
+     - **Constraints**
+   * - Addstreams_Batch
+     - PE
+     - inp_channels % PE == 0
+   * - ChannelwiseOp_Batch
+     - PE
+     - channels % PE == 0
+   * - ConvolutionInputGenerator
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - ConvolutionInputGenerator1d
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - Downsampler
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - DuplicateStreams_Batch
+     - PE
+     - channels % PE == 0
+   * - Eltwise
+     - PE
+     - inp_channels % PE == 0
+   * - FMPadding_batch
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - FMPadding_rtl
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - Globalaccpool_Batch
+     - PE
+     - channels % PE == 0
+   * - Labelselect_Batch
+     - PE
+     - num_labels % PE == 0
+   * - MatrixVectorActivation
+     - PE & SIMD
+     - MH % PE == 0 & MW % SIMD == 0
+   * - Pool_Batch
+     - PE
+     - inp_channels % PE == 0
+   * - Thresholding_Batch
+     - PE
+     - MH % PE == 0
+   * - VectorVectorActivation
+     - PE & SIMD
+     - k_h * k_w % SIMD == 0 & channels % PE == 0
 
 
 RTL ConvolutionInputGenerator
