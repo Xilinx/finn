@@ -38,6 +38,8 @@ import torch
 import warnings
 from brevitas.export import export_finn_onnx, export_qonnx
 from dataset_loading import cifar, mnist
+from distutils.dir_util import copy_tree
+from shutil import copy
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -89,7 +91,7 @@ from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
-from finn.util.basic import get_finn_root
+from finn.util.basic import get_finn_root, make_build_dir
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -288,6 +290,42 @@ def topology2dataset(topology):
         return "cifar10"
     else:
         raise Exception("Unrecognized topology")
+
+
+def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
+    if os.environ.get('FINN_DEPLOY_DIR') is not None:
+        deploy_dir_root = os.environ["FINN_DEPLOY_DIR"]
+    else:
+        deploy_dir_root = make_build_dir(prefix="hw_deployment_" + board + "_")
+        # Set it for the next round if multiple bitstreams are selected for generation
+        os.environ["FINN_DEPLOY_DIR"] = deploy_dir_root
+
+    # create directory for deployment files
+    deployment_dir = deploy_dir_root + "/" + board + "/" + model_title
+    os.makedirs(deployment_dir)
+    model.set_metadata_prop("pynq_deployment_dir", deployment_dir)
+
+    # get and copy necessary files
+    # .bit and .hwh file
+    bitfile = model.get_metadata_prop("bitfile")
+    hwh_file = model.get_metadata_prop("hw_handoff")
+    deploy_files = [bitfile, hwh_file]
+
+    for dfile in deploy_files:
+        if dfile is not None:
+            copy(dfile, deployment_dir)
+
+    # create input and output test files
+    (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
+        topology, wbits, abits, return_topk=1
+    )
+    np.save(os.path.join(deployment_dir, "input.npy"), input_tensor_npy)
+    np.save(os.path.join(deployment_dir, "output_reference.npy"), output_tensor_npy)
+
+    # driver.py and python libraries
+    pynq_driver_dir = model.get_metadata_prop("pynq_driver_dir")
+    copy_tree(pynq_driver_dir, deployment_dir)
+    model.set_metadata_prop("pynq_deploy_dir", deployment_dir)
 
 
 @pytest.mark.parametrize("wbits", [1, 2])
@@ -667,4 +705,16 @@ class TestEnd2End:
         model = model.transform(MakePYNQDriver(board_to_driver_platform))
         model.save(
             get_checkpoint_name(topology, wbits, abits, QONNX_export, "driver_" + board)
+        )
+
+    def test_deploy(self, topology, wbits, abits, QONNX_export, board):
+        prev_chkpt_name = get_checkpoint_name(
+            topology, wbits, abits, QONNX_export, "driver_" + board
+        )
+        model = load_test_checkpoint_or_skip(prev_chkpt_name)
+        model_title = "%s_w%d_a%d_%s_QE-%s" % ("bnn", wbits, abits, topology, QONNX_export)
+        deploy_based_on_board(model, model_title, topology, wbits, abits, board)
+        # save the model to be able to link it to the parent
+        model.save(
+            get_checkpoint_name(topology, wbits, abits, QONNX_export, "deploy_" + board)
         )
