@@ -27,7 +27,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-QONNX_COMMIT="0c980ef410c7c99b33c5b96486233f5a723ca1bc"
+QONNX_COMMIT="6ca8f8e0af84e49facac5cdc34735eaf6e938300"
 FINN_EXP_COMMIT="0aa7e1c44b20cf085b6fe42cff360f0a832afd2c"
 BREVITAS_COMMIT="d30ba0d6b3db4a333072624fa3d10827a686488d"
 PYVERILATOR_COMMIT="766e457465f5c0dd315490d7b9cc5d74f9a76f4f"
@@ -39,7 +39,7 @@ XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
 KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
 EXP_BOARD_FILES_MD5="30eecc497c31050bd46d10ea20eba232"
 
-QONNX_URL="https://github.com/iksnagreb/qonnx.git"
+QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
 BREVITAS_URL="https://github.com/Xilinx/brevitas.git"
 PYVERILATOR_URL="https://github.com/maltanar/pyverilator.git"
