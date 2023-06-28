@@ -91,7 +91,7 @@ from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
-from finn.util.basic import get_finn_root, make_build_dir
+from finn.util.basic import get_finn_root, make_build_dir, test_support_board_map
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
