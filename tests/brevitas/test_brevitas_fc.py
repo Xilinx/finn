@@ -32,7 +32,7 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-from brevitas.export import export_finn_onnx, export_qonnx
+from brevitas.export import export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
@@ -55,26 +55,19 @@ export_onnx_path = make_build_dir("test_brevitas_fc_")
 @pytest.mark.parametrize("wbits", [1, 2])
 # network topology / size
 @pytest.mark.parametrize("size", ["TFC", "SFC", "LFC"])
-# QONNX export
-@pytest.mark.parametrize("QONNX_export", [False, True])
-def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits, QONNX_export):
+def test_brevitas_fc_onnx_export_and_exec(size, wbits, abits):
     if size == "LFC" and wbits == 2 and abits == 2:
         pytest.skip("No LFC-w2a2 present at the moment")
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
-    nname = "%s_%dW%dA_QONNX-%d" % (size, wbits, abits, QONNX_export)
+    nname = "%s_%dW%dA" % (size, wbits, abits)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
     fc = get_test_model_trained(size, wbits, abits)
     ishape = (1, 1, 28, 28)
-    if QONNX_export:
-        export_qonnx(fc, torch.randn(ishape), finn_onnx)
-        qonnx_cleanup(finn_onnx, out_file=finn_onnx)
-        model = ModelWrapper(finn_onnx)
-        model = model.transform(ConvertQONNXtoFINN())
-        model.save(finn_onnx)
-    else:
-        export_finn_onnx(fc, torch.randn(ishape), finn_onnx)
+    export_qonnx(fc, torch.randn(ishape), finn_onnx)
+    qonnx_cleanup(finn_onnx, out_file=finn_onnx)
     model = ModelWrapper(finn_onnx)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(RemoveStaticGraphInputs())

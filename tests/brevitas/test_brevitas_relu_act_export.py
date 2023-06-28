@@ -33,7 +33,7 @@ import onnx  # noqa
 import os
 import torch
 from brevitas.core.scaling import ScalingImplType
-from brevitas.export import export_finn_onnx, export_qonnx
+from brevitas.export import export_qonnx
 from brevitas.nn import QuantReLU
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
@@ -48,25 +48,18 @@ export_onnx_path = "test_brevitas_relu_act_export.onnx"
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
 @pytest.mark.parametrize("ishape", [(1, 15), (1, 32, 1, 1)])
-@pytest.mark.parametrize("QONNX_export", [False, True])
 def test_brevitas_act_export_relu(
     abits,
     ishape,
-    QONNX_export,
 ):
     b_act = QuantReLU(
         bit_width=abits,
     )
-    if QONNX_export:
-        m_path = export_onnx_path
-        export_qonnx(b_act, torch.randn(ishape), m_path)
-        qonnx_cleanup(m_path, out_file=m_path)
-        model = ModelWrapper(m_path)
-        model = model.transform(ConvertQONNXtoFINN())
-        model.save(m_path)
-    else:
-        export_finn_onnx(b_act, torch.randn(ishape), export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
+    m_path = export_onnx_path
+    export_qonnx(b_act, torch.randn(ishape), m_path)
+    qonnx_cleanup(m_path, out_file=m_path)
+    model = ModelWrapper(m_path)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
     idict = {model.graph.input[0].name: inp_tensor}
@@ -83,11 +76,9 @@ def test_brevitas_act_export_relu(
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [2, 4, 8])
 @pytest.mark.parametrize("ishape", [(1, 15, 4, 4), (1, 32, 1, 1)])
-@pytest.mark.parametrize("QONNX_export", [False, True])
 def test_brevitas_act_export_relu_channel(
     abits,
     ishape,
-    QONNX_export,
 ):
     ch = ishape[1]
     b_act = QuantReLU(
@@ -97,16 +88,11 @@ def test_brevitas_act_export_relu_channel(
         scaling_per_output_channel=True,
         per_channel_broadcastable_shape=(1, ch, 1, 1),
     )
-    if QONNX_export:
-        m_path = export_onnx_path
-        export_qonnx(b_act, torch.randn(ishape), m_path)
-        qonnx_cleanup(m_path, out_file=m_path)
-        model = ModelWrapper(m_path)
-        model = model.transform(ConvertQONNXtoFINN())
-        model.save(m_path)
-    else:
-        export_finn_onnx(b_act, torch.randn(ishape), export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
+    m_path = export_onnx_path
+    export_qonnx(b_act, torch.randn(ishape), m_path)
+    qonnx_cleanup(m_path, out_file=m_path)
+    model = ModelWrapper(m_path)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=6.0, size=ishape).astype(np.float32)
     idict = {model.graph.input[0].name: inp_tensor}

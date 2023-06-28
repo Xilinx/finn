@@ -33,7 +33,7 @@ import pytest
 import numpy as np
 import os
 import torch
-from brevitas.export import export_finn_onnx, export_qonnx
+from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
@@ -50,21 +50,15 @@ export_onnx_path = "test_brevitas_cnv.onnx"
 @pytest.mark.brevitas_export
 @pytest.mark.parametrize("abits", [1, 2])
 @pytest.mark.parametrize("wbits", [1, 2])
-@pytest.mark.parametrize("QONNX_export", [False, True])
-def test_brevitas_cnv_export_exec(wbits, abits, QONNX_export):
+def test_brevitas_cnv_export_exec(wbits, abits):
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
     cnv = get_test_model_trained("CNV", wbits, abits)
     ishape = (1, 3, 32, 32)
-    if QONNX_export:
-        export_qonnx(cnv, torch.randn(ishape), export_onnx_path)
-        qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
-        model = ModelWrapper(export_onnx_path)
-        model = model.transform(ConvertQONNXtoFINN())
-        model.save(export_onnx_path)
-    else:
-        export_finn_onnx(cnv, torch.randn(ishape), export_onnx_path)
+    export_qonnx(cnv, torch.randn(ishape), export_onnx_path)
+    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
     model = ModelWrapper(export_onnx_path)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
