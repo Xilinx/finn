@@ -58,9 +58,7 @@ def get_brev_model_and_sample_inputs(model_name, wbits, abits):
         brev_model = get_test_model_trained(model_name, wbits, abits)
     elif model_name == "CNV":
         in_shape = (1, 3, 32, 32)
-        fn = pk.resource_filename(
-            "finn.qnn-data", "cifar10/cifar10-test-data-class3.npz"
-        )
+        fn = pk.resource_filename("finn.qnn-data", "cifar10/cifar10-test-data-class3.npz")
         input_tensor = np.load(fn)["arr_0"].astype(np.float32)
         input_tensor = input_tensor / 255
         brev_model = get_test_model_trained(model_name, wbits, abits)
@@ -105,9 +103,7 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
 
     # Get test config and model
     ATOL = 1e-7
-    brev_model, in_shape, input_tensor = get_brev_model_and_sample_inputs(
-        model_name, wbits, abits
-    )
+    brev_model, in_shape, input_tensor = get_brev_model_and_sample_inputs(model_name, wbits, abits)
     temp_dir = TemporaryDirectory()
     qonnx_base_path = temp_dir.name + "/qonnx_{}.onnx"
     finn_base_path = temp_dir.name + "/finn_{}.onnx"
@@ -117,9 +113,7 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     brev_output = brev_model.forward(torch_input_tensor).detach().numpy()
 
     # Get "clean" FINN model and its output
-    _ = export_finn_onnx(
-        brev_model, torch.randn(in_shape), finn_base_path.format("raw")
-    )
+    _ = export_finn_onnx(brev_model, torch.randn(in_shape), finn_base_path.format("raw"))
     model = ModelWrapper(finn_base_path.format("raw"))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(InferShapes())
@@ -166,8 +160,7 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     output_dict = oxe.execute_onnx(model, input_dict, False)
     test_output = output_dict[model.graph.output[0].name]
     assert np.isclose(test_output, finn_export_output, atol=ATOL).all(), (
-        "The output of the FINN model "
-        "and the QONNX -> FINN converted model should match."
+        "The output of the FINN model " "and the QONNX -> FINN converted model should match."
     )
 
     # Run analysis passes on the converted model

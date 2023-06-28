@@ -52,9 +52,7 @@ export_onnx_path = "test_brevitas_non_scaled_QuantHardTanh_export.onnx"
 @pytest.mark.parametrize("narrow_range", [False, True])
 @pytest.mark.parametrize("max_val", [1.0, 1 - 2 ** (-7)])
 @pytest.mark.parametrize("QONNX_export", [False, True])
-def test_brevitas_act_export_qhardtanh_nonscaled(
-    abits, narrow_range, max_val, QONNX_export
-):
+def test_brevitas_act_export_qhardtanh_nonscaled(abits, narrow_range, max_val, QONNX_export):
     def get_quant_type(bit_width):
         if bit_width is None:
             return QuantType.FP
@@ -86,9 +84,7 @@ def test_brevitas_act_export_qhardtanh_nonscaled(
         export_finn_onnx(b_act, torch.randn(ishape), export_onnx_path)
     model = ModelWrapper(export_onnx_path)
     model = model.transform(InferShapes())
-    inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(
-        np.float32
-    )
+    inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(np.float32)
     idict = {model.graph.input[0].name: inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]

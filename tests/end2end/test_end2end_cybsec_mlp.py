@@ -109,9 +109,7 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
         QuantReLU(bit_width=act_bit_width),
         QuantLinear(hidden3, num_classes, bias=True, weight_bit_width=weight_bit_width),
     )
-    trained_state_dict = torch.load(assets_dir + "/state_dict.pth")[
-        "models_state_dict"
-    ][0]
+    trained_state_dict = torch.load(assets_dir + "/state_dict.pth")["models_state_dict"][0]
     model.load_state_dict(trained_state_dict, strict=False)
     W_orig = model[0].weight.data.detach().numpy()
     # pad the second (593-sized) dimensions with 7 zeroes at the end
@@ -132,9 +130,7 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
     if QONNX_export:
         # With the onnx export from Brevitas we need to manually set
         # the FINN DataType at the input
-        export_qonnx(
-            model_for_export, torch.randn(input_shape), export_path=export_onnx_path
-        )
+        export_qonnx(model_for_export, torch.randn(input_shape), export_path=export_onnx_path)
         model = ModelWrapper(export_onnx_path)
         model.set_tensor_datatype(model.graph.input[0].name, DataType["BIPOLAR"])
         model.save(export_onnx_path)
@@ -144,7 +140,10 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
         model.save(export_onnx_path)
     else:
         export_finn_onnx(
-            model_for_export, export_path=export_onnx_path, input_t=input_qt, input_names=["onnx::Mul_0"]
+            model_for_export,
+            export_path=export_onnx_path,
+            input_t=input_qt,
+            input_names=["onnx::Mul_0"],
         )
     assert os.path.isfile(export_onnx_path)
     # fix input datatype
@@ -169,9 +168,7 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
         assert finn_model.graph.node[3].op_type == "MatMul"
         assert finn_model.graph.node[-1].op_type == "MultiThreshold"
     # verify datatypes on some tensors
-    assert (
-        finn_model.get_tensor_datatype(finnonnx_in_tensor_name) == DataType["BIPOLAR"]
-    )
+    assert finn_model.get_tensor_datatype(finnonnx_in_tensor_name) == DataType["BIPOLAR"]
     first_matmul_w_name = finn_model.get_nodes_by_op_type("MatMul")[0].input[1]
     assert finn_model.get_tensor_datatype(first_matmul_w_name) == DataType["INT2"]
 

@@ -104,9 +104,7 @@ class Platform:
     def guide_resources(self):
         guide = []
         # TODO: assert limits is of correct size
-        guide_res = (
-            np.tile(np.array(self.compute_resources), (self.ndevices, 1))
-        ).astype(int)
+        guide_res = (np.tile(np.array(self.compute_resources), (self.ndevices, 1))).astype(int)
         for i in range(self.nslr * self.ndevices):
             # when in multi-FPGA mode, subtract cost of UDP connection from eth_slr
             local_slr = i % self.nslr
@@ -159,9 +157,7 @@ class Platform:
                     xlocal[i][j] = 1
         # tile connection cost matrices for entire system
         for i in range(self.ndevices):
-            x[
-                i * self.nslr : (i + 1) * self.nslr, i * self.nslr : (i + 1) * self.nslr
-            ] = xlocal
+            x[i * self.nslr : (i + 1) * self.nslr, i * self.nslr : (i + 1) * self.nslr] = xlocal
         # set cost for ethernet connections, assuming daisy-chaining
         for i in range(self.ndevices - 1):
             x[i * self.nslr + self.eth_slr][(i + 1) * self.nslr + self.eth_slr] = 10
@@ -182,9 +178,7 @@ class Platform:
                     slllocal[i][j] = self.sll_count[i][j]
         # tile connection cost matrices for entire system
         for i in range(self.ndevices):
-            sll[
-                i * self.nslr : (i + 1) * self.nslr, i * self.nslr : (i + 1) * self.nslr
-            ] = slllocal
+            sll[i * self.nslr : (i + 1) * self.nslr, i * self.nslr : (i + 1) * self.nslr] = slllocal
         # set cost for ethernet connections, assuming daisy-chaining
         eth = np.full((self.nslr * self.ndevices, self.nslr * self.ndevices), 0)
         # no Eth throughput constraints from one SLR to itself

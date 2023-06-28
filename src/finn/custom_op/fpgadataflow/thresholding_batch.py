@@ -142,9 +142,7 @@ class Thresholding_Batch(HLSCustomOp):
             self.get_nodeattr("outputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required Threshold_Batch attributes do not exist."""
-            )
+            info_messages.append("""The required Threshold_Batch attributes do not exist.""")
 
         return info_messages
 
@@ -305,23 +303,17 @@ class Thresholding_Batch(HLSCustomOp):
         ), """Threshold matrix dimension is
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
-        assert n_thres_steps == self.get_nodeattr(
-            "numSteps"
-        ), "Mismatch in threshold steps"
+        assert n_thres_steps == self.get_nodeattr("numSteps"), "Mismatch in threshold steps"
         if not self.get_input_datatype().signed():
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
         # ensure all thresholds are integer
-        assert np.equal(
-            np.mod(orig_thres_matrix, 1), 0
-        ).all(), "Need int threshold tensor"
+        assert np.equal(np.mod(orig_thres_matrix, 1), 0).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))
-        assert (
-            ret.shape[0] == mh
-        ), "Channels of threshold matrix are not as expected (mh)"
+        assert ret.shape[0] == mh, "Channels of threshold matrix are not as expected (mh)"
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         assert (
@@ -456,9 +448,7 @@ class Thresholding_Batch(HLSCustomOp):
             # also save weights as Verilog .dat file
             # This file will be ignored when synthesizing UltraScale memory.
             weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
-            self.make_weight_file(
-                thresholds, "decoupled_verilog_dat", weight_filename_rtl
-            )
+            self.make_weight_file(thresholds, "decoupled_verilog_dat", weight_filename_rtl)
         else:
             raise Exception("Unrecognized mem_mode")
 
@@ -519,15 +509,11 @@ class Thresholding_Batch(HLSCustomOp):
                 out = 2 * out - 1
                 context[node.output[0]] = out
             oshape = self.get_normal_output_shape()
-            assert (
-                context[node.output[0]].shape == oshape
-            ), """Output shape is not as expected"""
+            assert context[node.output[0]].shape == oshape, """Output shape is not as expected"""
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
             if self.get_nodeattr("mem_mode") == "decoupled":
@@ -552,9 +538,7 @@ class Thresholding_Batch(HLSCustomOp):
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
             # load and reshape output
             output = np.load(out_npy_path)
@@ -594,8 +578,7 @@ class Thresholding_Batch(HLSCustomOp):
                 "#define ActVal1 %d" % self.get_nodeattr("ActVal")
             )
             self.code_gen_dict["$DEFINES$"].append(
-                "#define ThresType1 %s"
-                % self.get_weight_datatype().get_hls_datatype_str()
+                "#define ThresType1 %s" % self.get_weight_datatype().get_hls_datatype_str()
             )
             self.code_gen_dict["$DEFINES$"].append(
                 "#define NumSteps1 %d" % self.get_nodeattr("numSteps")
@@ -768,25 +751,17 @@ class Thresholding_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
         if self.get_nodeattr("mem_mode") == "const":
             # the threshold tensor is acc_type [PE][TMEM][N_THRES]
             # partition for parallel access along PE and N_THRES
             # dimensions (dims 1 and 3)
             self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=1"
-                )
+                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=1")
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=3"
-                )
+                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=3")
             )
             # set resource type
             ram_style = self.get_nodeattr("ram_style")
@@ -797,17 +772,11 @@ class Thresholding_Batch(HLSCustomOp):
             if pe < ich:
                 if ram_style == "distributed":
                     self.code_gen_dict["$PRAGMAS$"].append(
-                        (
-                            "#pragma HLS RESOURCE variable=threshs.m_thresholds "
-                            "core=ROM_2P_LUTRAM"
-                        )
+                        ("#pragma HLS RESOURCE variable=threshs.m_thresholds " "core=ROM_2P_LUTRAM")
                     )
                 elif ram_style == "block":
                     self.code_gen_dict["$PRAGMAS$"].append(
-                        (
-                            "#pragma HLS RESOURCE variable=threshs.m_thresholds "
-                            "core=ROM_2P_BRAM"
-                        )
+                        ("#pragma HLS RESOURCE variable=threshs.m_thresholds " "core=ROM_2P_BRAM")
                     )
                 else:
                     raise Exception(
@@ -839,8 +808,7 @@ class Thresholding_Batch(HLSCustomOp):
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
-                % (node_name, dout_name)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
             )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
@@ -855,8 +823,7 @@ class Thresholding_Batch(HLSCustomOp):
             strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s"
-                % (strm_vlnv, node_name, strm_inst)
+                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
             )
             cmd.append(
                 "set_property -dict [list "
@@ -910,8 +877,7 @@ class Thresholding_Batch(HLSCustomOp):
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(
                     "create_bd_intf_pin -mode Slave "
-                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
-                    % (node_name, axilite_name)
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, axilite_name)
                 )
                 cmd.append(
                     "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
@@ -966,7 +932,5 @@ class Thresholding_Batch(HLSCustomOp):
         if mem_mode in ["decoupled", "external"]:
             n_weight_inps = self.calc_tmem()
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["weights"] = [
-                0 for i in range(num_w_reps * n_weight_inps)
-            ]
+            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

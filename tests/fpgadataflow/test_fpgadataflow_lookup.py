@@ -57,9 +57,7 @@ def make_lookup_model(embeddings, ishape, idt, edt):
     class LookupModel(nn.Module):
         def __init__(self, num_embeddings, embedding_dim):
             super().__init__()
-            self.lookup = nn.Embedding(
-                num_embeddings=num_embeddings, embedding_dim=embedding_dim
-            )
+            self.lookup = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=embedding_dim)
 
         def forward(self, x):
             x = self.lookup(x)

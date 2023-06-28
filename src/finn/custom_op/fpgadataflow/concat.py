@@ -134,7 +134,7 @@ class StreamingConcat(HLSCustomOp):
         idt = self.get_input_datatype()
         total_elems = self.get_total_elems()
         total_bw = idt.bitwidth() * total_elems
-        for (i, elems) in enumerate(elems_per_stream):
+        for i, elems in enumerate(elems_per_stream):
             bw = idt.bitwidth() * elems
             inp_stream = "hls::stream<ap_uint<%d> > &in%d" % (bw, i)
             inp_streams.append(inp_stream)
@@ -298,8 +298,7 @@ class StreamingConcat(HLSCustomOp):
             packed_hls_type = "ap_uint<%d>" % packed_bits
             stream_name = "in%d_%s" % (i, self.hls_sname())
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-                'hls::stream<%s> %s ("%s");'
-                % (packed_hls_type, stream_name, stream_name)
+                'hls::stream<%s> %s ("%s");' % (packed_hls_type, stream_name, stream_name)
             )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
             'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
@@ -353,9 +352,7 @@ class StreamingConcat(HLSCustomOp):
         in_streams = []
         for i in range(n_inputs):
             iwidth = self.get_instream_width(i)
-            in_streams.append(
-                "hls::stream<ap_uint<%d>> &in%d_%s" % (iwidth, i, self.hls_sname())
-            )
+            in_streams.append("hls::stream<ap_uint<%d>> &in%d_%s" % (iwidth, i, self.hls_sname()))
         in_streams = ",".join(in_streams)
         total_width = self.get_input_datatype().bitwidth() * self.get_total_elems()
         out_stream = "hls::stream<ap_uint<%d>> &out_%s" % (
@@ -369,16 +366,12 @@ class StreamingConcat(HLSCustomOp):
         n_inputs = self.get_n_inputs()
         pragmas = []
         for i in range(n_inputs):
-            pragmas.append(
-                "#pragma HLS INTERFACE axis port=in%d_%s" % (i, self.hls_sname())
-            )
+            pragmas.append("#pragma HLS INTERFACE axis port=in%d_%s" % (i, self.hls_sname()))
         self.code_gen_dict["$PRAGMAS$"] = pragmas
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_instream_width_padded(self, ind=0):
         in_width = self.get_instream_width(ind)
@@ -390,7 +383,5 @@ class StreamingConcat(HLSCustomOp):
         sname = self.hls_sname()
         intf_names["s_axis"] = []
         for i in range(n_inputs):
-            intf_names["s_axis"].append(
-                ("in%d_%s" % (i, sname), self.get_instream_width_padded(i))
-            )
+            intf_names["s_axis"].append(("in%d_%s" % (i, sname), self.get_instream_width_padded(i)))
         return intf_names

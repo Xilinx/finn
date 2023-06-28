@@ -54,7 +54,6 @@ def test_brevitas_act_export_relu(
     ishape,
     QONNX_export,
 ):
-
     b_act = QuantReLU(
         bit_width=abits,
     )
@@ -90,7 +89,6 @@ def test_brevitas_act_export_relu_channel(
     ishape,
     QONNX_export,
 ):
-
     ch = ishape[1]
     b_act = QuantReLU(
         bit_width=abits,

@@ -53,9 +53,7 @@ export_onnx_path = "test_brevitas_qlinear.onnx"
 @pytest.mark.parametrize("w_bits", [4])
 @pytest.mark.parametrize("i_dtype", [DataType["UINT4"]])
 @pytest.mark.parametrize("QONNX_export", [False, True])
-def test_brevitas_qlinear(
-    bias, out_features, in_features, w_bits, i_dtype, QONNX_export
-):
+def test_brevitas_qlinear(bias, out_features, in_features, w_bits, i_dtype, QONNX_export):
     i_shape = (1, in_features)
     w_shape = (out_features, in_features)
     b_linear = QuantLinear(
@@ -67,9 +65,7 @@ def test_brevitas_qlinear(
         weight_quant_type=QuantType.INT,
         weight_scaling_per_output_channel=True,
     )
-    weight_tensor_fp = np.random.uniform(low=-1.0, high=1.0, size=w_shape).astype(
-        np.float32
-    )
+    weight_tensor_fp = np.random.uniform(low=-1.0, high=1.0, size=w_shape).astype(np.float32)
     b_linear.weight.data = torch.from_numpy(weight_tensor_fp)
     b_linear.eval()
     if QONNX_export:

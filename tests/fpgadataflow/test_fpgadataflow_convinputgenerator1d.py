@@ -49,9 +49,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 fpga_part = "xczu3eg-sbva484-1-e"
 
 
-def make_single_im2col_modelwrapper(
-    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt
-):
+def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt):
     k_h, k_w = k
     ifm_dim_h, ifm_dim_w = ifm_dim
     stride_h, stride_w = stride
@@ -59,9 +57,7 @@ def make_single_im2col_modelwrapper(
     ofm_dim_h, ofm_dim_w = ofm_dim
 
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch]
     )
@@ -101,9 +97,7 @@ def make_single_slidingwindow_modelwrapper(
     ofm_dim_h, ofm_dim_w = ofm_dim
 
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch]
     )
@@ -259,9 +253,7 @@ def test_fpgadataflow_slidingwindow_1d(
     if dw == 0:
         assert (y_produced == y_expected).all()
     else:
-        y_expected = y_expected.reshape(
-            1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd
-        )
+        y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd)
         y_expected = y_expected.transpose(0, 1, 2, 4, 3, 5)
         y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, ifm_ch * k_h * k_w)
         assert (y_produced == y_expected).all()

@@ -146,9 +146,7 @@ def test_brevitas_compare_exported_mobilenet():
     model = model.transform(MergeONNXModels(preproc_model))
     model.save(export_onnx_path + "/quant_mobilenet_v1_4b.onnx")
 
-    with open(
-        export_onnx_path + "/mobilenet_validation.csv", "w", newline=""
-    ) as csvfile:
+    with open(export_onnx_path + "/mobilenet_validation.csv", "w", newline="") as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(
             [
@@ -165,7 +163,7 @@ def test_brevitas_compare_exported_mobilenet():
         workload = imagenet_util.get_val_images(n_images, interleave_classes=True)
         all_inds_ok = True
         all_probs_ok = True
-        for (img_path, target_id) in workload:
+        for img_path, target_id in workload:
             img_np = imagenet_util.load_resize_crop(img_path)
             img_torch = torch.from_numpy(img_np).float()
             # do forward pass in PyTorch/Brevitas

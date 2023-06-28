@@ -64,9 +64,7 @@ def test_move_past_fork_transpose():
     new_model = model.transform(MoveTransposePastFork())
     new_model = new_model.transform(GiveUniqueNodeNames())
     nodes = new_model.graph.node
-    assert oxe.compare_execution(
-        model, new_model, {"in0": np.random.rand(*shp).astype(np.float32)}
-    )
+    assert oxe.compare_execution(model, new_model, {"in0": np.random.rand(*shp).astype(np.float32)})
     assert len(nodes) == 5
     assert not new_model.is_fork_node(get_by_name(nodes, "Transpose_0"))
 
@@ -120,9 +118,7 @@ def test_move_past_fork_linear(ch, ifmdim):
     for tensor_name in model.get_all_tensor_names():
         if tensor_name.endswith("_param"):
             pshape = model.get_tensor_shape(tensor_name)
-            model.set_initializer(
-                tensor_name, np.random.rand(*pshape).astype(np.float32)
-            )
+            model.set_initializer(tensor_name, np.random.rand(*pshape).astype(np.float32))
     model = model.transform(GiveUniqueNodeNames())
     # Transform
     new_model = model.transform(MoveLinearPastFork())

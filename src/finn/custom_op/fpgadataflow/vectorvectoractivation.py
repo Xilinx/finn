@@ -284,9 +284,7 @@ class VectorVectorActivation(HLSCustomOp):
         simd = self.get_nodeattr("SIMD")
         pe = self.get_nodeattr("PE")
         kernel_2 = k_h * k_w
-        assert (
-            kernel_2 % simd == 0
-        ), "Requirement kernel (k_h * k_w) divisable by SIMD is violated."
+        assert kernel_2 % simd == 0, "Requirement kernel (k_h * k_w) divisable by SIMD is violated."
         sf = kernel_2 // simd
         assert ch % pe == 0, "Requirement Channels divisable by PE is violated."
         nf = ch // pe
@@ -436,9 +434,7 @@ class VectorVectorActivation(HLSCustomOp):
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (ch, 1))
-        assert (
-            ret.shape[0] == ch
-        ), "Channels of threshold matrix are not as expected (ch)"
+        assert ret.shape[0] == ch, "Channels of threshold matrix are not as expected (ch)"
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         assert (
@@ -476,9 +472,7 @@ class VectorVectorActivation(HLSCustomOp):
         if self.get_weight_datatype() == DataType["BIPOLAR"]:
             export_wdt = DataType["BINARY"]
         if weight_file_mode == "hls_header":
-            weight_hls_code = numpy_to_hls_code(
-                weight_tensor, export_wdt, "weights", True, True
-            )
+            weight_hls_code = numpy_to_hls_code(weight_tensor, export_wdt, "weights", True, True)
             # write weights into C++ header file as dictated by finn-hlslib
             f_weights = open(weight_file_name, "w")
             if export_wdt.bitwidth() != 1:
@@ -512,14 +506,10 @@ class VectorVectorActivation(HLSCustomOp):
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
             # simd_flipped
-            weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(
-                1, -1, pe * simd
-            )
+            weight_tensor_simd_flipped = weight_tensor_simd_flipped.reshape(1, -1, pe * simd)
             weight_tensor_simd_flipped = weight_tensor_simd_flipped.copy()
             # flipped
-            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(
-                1, -1, pe * simd
-            )
+            weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
@@ -582,9 +572,7 @@ class VectorVectorActivation(HLSCustomOp):
                 # also save weights as Verilog .dat file
                 # This file will be ignored when synthesizing UltraScale memory.
                 weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
-                self.make_weight_file(
-                    weights, "decoupled_verilog_dat", weight_filename_rtl
-                )
+                self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
         else:
             raise Exception(
                 """Please set mem_mode to "const", "decoupled", or "external",
@@ -703,9 +691,7 @@ class VectorVectorActivation(HLSCustomOp):
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
 
@@ -716,9 +702,7 @@ class VectorVectorActivation(HLSCustomOp):
                 # so use it as such for weight generation
                 if self.get_weight_datatype() == DataType["BIPOLAR"]:
                     export_wdt = DataType["BINARY"]
-                wei = npy_to_rtlsim_input(
-                    "{}/weights.npy".format(code_gen_dir), export_wdt, wnbits
-                )
+                wei = npy_to_rtlsim_input("{}/weights.npy".format(code_gen_dir), export_wdt, wnbits)
                 dim_h, dim_w = self.get_nodeattr("Dim")
                 num_w_reps = dim_h * dim_w
 
@@ -735,9 +719,7 @@ class VectorVectorActivation(HLSCustomOp):
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
             # load and reshape output
             output = np.load(out_npy_path)
@@ -783,9 +765,7 @@ class VectorVectorActivation(HLSCustomOp):
         ]
         if mem_mode == "decoupled" or mem_mode == "external":
             wdt = self.get_weight_datatype()
-            self.code_gen_dict["$DEFINES$"].append(
-                "#define WP1 {}\n".format(wdt.bitwidth())
-            )
+            self.code_gen_dict["$DEFINES$"].append("#define WP1 {}\n".format(wdt.bitwidth()))
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -986,19 +966,14 @@ class VectorVectorActivation(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
         if mem_mode == "const":
             self.code_gen_dict["$PRAGMAS$"].append('#include "params.h"')
             # the weight tensor is ap_uint<ch*prec> [PE][WMEM]
             # partition for parallel access along the PE dimension (dim 1)
             self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=weights.m_weights "
-                    "complete dim=1"
-                )
+                ("#pragma HLS ARRAY_PARTITION variable=weights.m_weights " "complete dim=1")
             )
         elif mem_mode == "decoupled" or mem_mode == "external":
             self.code_gen_dict["$PRAGMAS$"].append(
@@ -1016,16 +991,10 @@ class VectorVectorActivation(HLSCustomOp):
         if self.calc_tmem() != 0:
             # TODO find a better way of checking for no pregenerated thresholds
             self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=1"
-                )
+                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=1")
             )
             self.code_gen_dict["$PRAGMAS$"].append(
-                (
-                    "#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds "
-                    "complete dim=3"
-                )
+                ("#pragma HLS ARRAY_PARTITION variable=threshs.m_thresholds " "complete dim=3")
             )
 
     def get_verilog_top_module_intf_names(self):
@@ -1033,9 +1002,7 @@ class VectorVectorActivation(HLSCustomOp):
         mem_mode = self.get_nodeattr("mem_mode")
         sname = self.hls_sname()
         if mem_mode == "external":
-            intf_names["s_axis"].append(
-                ("weights_" + sname, self.get_weightstream_width_padded())
-            )
+            intf_names["s_axis"].append(("weights_" + sname, self.get_weightstream_width_padded()))
         if mem_mode == "decoupled":
             # only expose axilite interface if attribute is set
             runtime_writable = self.get_nodeattr("runtime_writeable_weights") == 1
@@ -1065,8 +1032,7 @@ class VectorVectorActivation(HLSCustomOp):
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
-                % (node_name, dout_name)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
             )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
@@ -1081,8 +1047,7 @@ class VectorVectorActivation(HLSCustomOp):
             strm_vlnv = "amd.com:finn:memstream:1.0"
             strm_inst = node_name + "_wstrm"
             cmd.append(
-                "create_bd_cell -type ip -vlnv %s /%s/%s"
-                % (strm_vlnv, node_name, strm_inst)
+                "create_bd_cell -type ip -vlnv %s /%s/%s" % (strm_vlnv, node_name, strm_inst)
             )
             cmd.append(
                 "set_property -dict [list "
@@ -1136,8 +1101,7 @@ class VectorVectorActivation(HLSCustomOp):
                 axilite_name = self.get_verilog_top_module_intf_names()["axilite"][0]
                 cmd.append(
                     "create_bd_intf_pin -mode Slave "
-                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s"
-                    % (node_name, axilite_name)
+                    "-vlnv xilinx.com:interface:aximm_rtl:1.0 /%s/%s" % (node_name, axilite_name)
                 )
                 cmd.append(
                     "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
@@ -1281,9 +1245,7 @@ class VectorVectorActivation(HLSCustomOp):
             comp_luts = (2**B - 1) * acc_bits
 
         return int(
-            c0
-            + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts))
-            + c2
+            c0 + c1 * (P * (mult_luts + addertree_luts + acc_luts + thr_luts + comp_luts)) + c2
         )
 
     def dsp_estimation(self):
@@ -1356,7 +1318,5 @@ class VectorVectorActivation(HLSCustomOp):
         if mem_mode in ["decoupled", "external"]:
             n_weight_inps = self.calc_wmem()
             num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
-            io_dict["inputs"]["weights"] = [
-                0 for i in range(num_w_reps * n_weight_inps)
-            ]
+            io_dict["inputs"]["weights"] = [0 for i in range(num_w_reps * n_weight_inps)]
         super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

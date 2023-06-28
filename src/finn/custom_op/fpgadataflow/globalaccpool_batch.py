@@ -128,9 +128,7 @@ class GlobalAccPool_Batch(HLSCustomOp):
             self.get_nodeattr("inputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required GlobalAccPool_Batch attributes do not exist."""
-            )
+            info_messages.append("""The required GlobalAccPool_Batch attributes do not exist.""")
 
         # verify that input data is 2D
         if len(self.get_nodeattr("numInputVectors")) != 3:
@@ -351,6 +349,4 @@ class GlobalAccPool_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")

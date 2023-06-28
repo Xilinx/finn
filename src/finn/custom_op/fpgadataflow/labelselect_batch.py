@@ -141,9 +141,7 @@ class LabelSelect_Batch(HLSCustomOp):
             self.get_nodeattr("outputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required LabelSelect_Batch attributes do not exist."""
-            )
+            info_messages.append("""The required LabelSelect_Batch attributes do not exist.""")
 
         # verify that input data is 1D
         if len(self.get_nodeattr("numInputVectors")) > 1:
@@ -362,9 +360,7 @@ class LabelSelect_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_exp_cycles(self):
         nlabels = self.get_nodeattr("Labels")

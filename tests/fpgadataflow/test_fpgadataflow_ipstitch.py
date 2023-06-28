@@ -96,9 +96,7 @@ def create_one_fc_model(mem_mode="const"):
         mem_mode=mem_mode,
     )
 
-    graph = helper.make_graph(
-        nodes=[fc0], name="fclayer_graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=[fc0], name="fclayer_graph", inputs=[inp], outputs=[outp])
 
     model = qonnx_make_model(graph, producer_name="fclayer-model")
     model = ModelWrapper(model)
@@ -212,9 +210,7 @@ def test_fpgadataflow_ipstitch_gen_model(mem_mode):
     model = model.transform(HLSSynthIP())
     assert model.graph.node[0].op_type == "MatrixVectorActivation"
     assert model.graph.node[-1].op_type == "TLastMarker"
-    model.save(
-        ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode
-    )
+    model.save(ip_stitch_model_dir + "/test_fpgadataflow_ipstitch_gen_model_%s.onnx" % mem_mode)
 
 
 @pytest.mark.parametrize("mem_mode", ["const", "decoupled"])

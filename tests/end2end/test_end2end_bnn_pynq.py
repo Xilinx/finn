@@ -314,9 +314,7 @@ class TestEnd2End:
         assert os.path.isfile(chkpt_name)
 
     def test_import_and_tidy(self, topology, wbits, abits, QONNX_export):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "export"
-        )
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "export")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(InferShapes())
         model = model.transform(FoldConstants())
@@ -324,9 +322,7 @@ class TestEnd2End:
         model = model.transform(GiveReadableTensorNames())
         model = model.transform(InferDataTypes())
         model = model.transform(RemoveStaticGraphInputs())
-        chkpt = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "import_and_tidy"
-        )
+        chkpt = get_checkpoint_name(topology, wbits, abits, QONNX_export, "import_and_tidy")
         model.save(chkpt)
 
     def test_add_pre_and_postproc(self, topology, wbits, abits, QONNX_export):
@@ -338,9 +334,7 @@ class TestEnd2End:
         ishape = model.get_tensor_shape(global_inp_name)
         # preprocessing: torchvision's ToTensor divides uint8 inputs by 255
         totensor_pyt = ToTensor()
-        chkpt_preproc_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "preproc"
-        )
+        chkpt_preproc_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "preproc")
         export_finn_onnx(totensor_pyt, torch.randn(ishape), chkpt_preproc_name, opset_version=13)
         assert os.path.isfile(chkpt_preproc_name)
         # join preprocessing and core model
@@ -353,9 +347,7 @@ class TestEnd2End:
         model.set_tensor_datatype(global_inp_name, DataType["UINT8"])
         # postprocessing: insert Top-1 node at the end
         model = model.transform(InsertTopK(k=1))
-        chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "pre_post"
-        )
+        chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "pre_post")
         # tidy-up again
         model = model.transform(InferShapes())
         model = model.transform(FoldConstants())
@@ -367,9 +359,7 @@ class TestEnd2End:
         assert os.path.isfile(chkpt_name)
 
     def test_streamline(self, topology, wbits, abits, QONNX_export):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "pre_post"
-        )
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "pre_post")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(absorb.AbsorbSignBiasIntoMultiThreshold())
         # move past any reshapes to be able to streamline input scaling
@@ -385,14 +375,10 @@ class TestEnd2End:
         model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
         model = model.transform(InferDataLayouts())
         model = model.transform(RemoveUnusedTensors())
-        model.save(
-            get_checkpoint_name(topology, wbits, abits, QONNX_export, "streamline")
-        )
+        model.save(get_checkpoint_name(topology, wbits, abits, QONNX_export, "streamline"))
 
     def test_convert_to_hls_layers(self, topology, wbits, abits, QONNX_export):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "streamline"
-        )
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "streamline")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         if topology == "tfc" and wbits == 1 and abits == 1:
             # use standalone thresholds for tfc-w1a1 to also exercise that option
@@ -415,9 +401,7 @@ class TestEnd2End:
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(InferDataLayouts())
         model.save(
-            get_checkpoint_name(
-                topology, wbits, abits, QONNX_export, "convert_to_hls_layers"
-            )
+            get_checkpoint_name(topology, wbits, abits, QONNX_export, "convert_to_hls_layers")
         )
         exp_layer_counts = {
             "tfc": [
@@ -452,7 +436,7 @@ class TestEnd2End:
         else:
             exp_key = topology
         exp_layer_counts = exp_layer_counts[exp_key]
-        for (op_type, exp_count) in exp_layer_counts:
+        for op_type, exp_count in exp_layer_counts:
             assert len(model.get_nodes_by_op_type(op_type)) == exp_count
 
     def test_create_dataflow_partition(self, topology, wbits, abits, QONNX_export):
@@ -484,9 +468,7 @@ class TestEnd2End:
         model.save(get_checkpoint_name(topology, wbits, abits, QONNX_export, "fold"))
 
     def test_minimize_bit_width(self, topology, wbits, abits, QONNX_export):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "fold"
-        )
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "fold")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(MinimizeAccumulatorWidth())
         model = model.transform(MinimizeWeightBitWidth())
@@ -505,13 +487,9 @@ class TestEnd2End:
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))
-        cppsim_chkpt = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "cppsim"
-        )
+        cppsim_chkpt = get_checkpoint_name(topology, wbits, abits, QONNX_export, "cppsim")
         model.save(cppsim_chkpt)
-        parent_chkpt = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "dataflow_parent"
-        )
+        parent_chkpt = get_checkpoint_name(topology, wbits, abits, QONNX_export, "dataflow_parent")
         (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
             topology, wbits, abits, return_topk=1
         )
@@ -524,35 +502,25 @@ class TestEnd2End:
     def test_ipgen(self, topology, wbits, abits, QONNX_export, kind):
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "fold"
-        )
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "fold")
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(kind, target_clk_ns)["part"]
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
         model = model.transform(HLSSynthIP())
-        model.save(
-            get_checkpoint_name(topology, wbits, abits, QONNX_export, "ipgen_" + kind)
-        )
+        model.save(get_checkpoint_name(topology, wbits, abits, QONNX_export, "ipgen_" + kind))
 
     @pytest.mark.slow
     @pytest.mark.vivado
     @pytest.mark.parametrize("kind", ["zynq", "alveo"])
     def test_set_fifo_depths(self, topology, wbits, abits, QONNX_export, kind):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "ipgen_" + kind
-        )
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "ipgen_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         test_fpga_part = get_build_env(kind, target_clk_ns)["part"]
         model = model.transform(InsertAndSetFIFODepths(test_fpga_part, target_clk_ns))
         fifo_layers = model.get_nodes_by_op_type("StreamingFIFO")
         assert len(fifo_layers) > 0
-        model.save(
-            get_checkpoint_name(
-                topology, wbits, abits, QONNX_export, "fifodepth_" + kind
-            )
-        )
+        model.save(get_checkpoint_name(topology, wbits, abits, QONNX_export, "fifodepth_" + kind))
 
     @pytest.mark.slow
     @pytest.mark.vivado
@@ -577,17 +545,13 @@ class TestEnd2End:
         model.set_metadata_prop("exec_mode", "rtlsim")
         os.environ["LIVENESS_THRESHOLD"] = str(int(latency * 1.1))
         if rtlsim_trace:
-            model.set_metadata_prop(
-                "rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits)
-            )
+            model.set_metadata_prop("rtlsim_trace", "%s_w%da%d.vcd" % (topology, wbits, abits))
             os.environ["RTLSIM_TRACE_DEPTH"] = "3"
         rtlsim_chkpt = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "ipstitch_rtlsim_" + kind
         )
         model.save(rtlsim_chkpt)
-        parent_chkpt = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "dataflow_parent"
-        )
+        parent_chkpt = get_checkpoint_name(topology, wbits, abits, QONNX_export, "dataflow_parent")
         (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
             topology, wbits, abits, return_topk=1
         )
@@ -619,18 +583,10 @@ class TestEnd2End:
     def test_validate_top1(self, topology, wbits, abits, QONNX_export, kind):
         if "TEST_END2END_VALIDATE_TOP1" not in os.environ:
             pytest.skip("TEST_END2END_VALIDATE_TOP1 not set")
-        prepostproc_chkpt = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "pre_post"
-        )
-        streamline_chkpt = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "streamline"
-        )
-        parent_chkpt = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "dataflow_parent"
-        )
-        cppsim_chkpt = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "cppsim"
-        )
+        prepostproc_chkpt = get_checkpoint_name(topology, wbits, abits, QONNX_export, "pre_post")
+        streamline_chkpt = get_checkpoint_name(topology, wbits, abits, QONNX_export, "streamline")
+        parent_chkpt = get_checkpoint_name(topology, wbits, abits, QONNX_export, "dataflow_parent")
+        cppsim_chkpt = get_checkpoint_name(topology, wbits, abits, QONNX_export, "cppsim")
         rtlsim_chkpt = get_checkpoint_name(
             topology, wbits, abits, QONNX_export, "ipstitch_rtlsim_" + kind
         )
@@ -654,9 +610,7 @@ class TestEnd2End:
         cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
         model = model.transform(AnnotateResources("synth"))
-        model.save(
-            get_checkpoint_name(topology, wbits, abits, QONNX_export, "build_" + kind)
-        )
+        model.save(get_checkpoint_name(topology, wbits, abits, QONNX_export, "build_" + kind))
 
     @pytest.mark.slow
     @pytest.mark.vivado
@@ -665,12 +619,8 @@ class TestEnd2End:
     def test_make_pynq_driver(self, topology, wbits, abits, QONNX_export, kind):
         if kind == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "build_" + kind
-        )
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, QONNX_export, "build_" + kind)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         kind_to_driver_platform = {"zynq": "zynq-iodma", "alveo": "alveo"}
         model = model.transform(MakePYNQDriver(kind_to_driver_platform[kind]))
-        model.save(
-            get_checkpoint_name(topology, wbits, abits, QONNX_export, "driver_" + kind)
-        )
+        model.save(get_checkpoint_name(topology, wbits, abits, QONNX_export, "driver_" + kind))

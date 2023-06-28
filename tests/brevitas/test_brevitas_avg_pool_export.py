@@ -31,7 +31,7 @@ import numpy as np
 import os
 import torch
 from brevitas.export import export_qonnx
-from brevitas.nn import TruncAvgPool2d, QuantIdentity, QuantReLU
+from brevitas.nn import QuantIdentity, QuantReLU, TruncAvgPool2d
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_datatypes import InferDataTypes

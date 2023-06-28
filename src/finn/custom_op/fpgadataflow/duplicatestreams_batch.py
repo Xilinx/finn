@@ -132,9 +132,7 @@ class DuplicateStreams_Batch(HLSCustomOp):
             self.get_nodeattr("inputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required GlobalAccPool_Batch attributes do not exist."""
-            )
+            info_messages.append("""The required GlobalAccPool_Batch attributes do not exist.""")
 
         return info_messages
 
@@ -161,9 +159,7 @@ class DuplicateStreams_Batch(HLSCustomOp):
         return out_width
 
     def get_number_output_values(self):
-        return self.get_num_output_streams() * np.prod(
-            self.get_folded_output_shape()[1:-1]
-        )
+        return self.get_num_output_streams() * np.prod(self.get_folded_output_shape()[1:-1])
 
     def get_exp_cycles(self):
         # Channels/PE * batch size * fmdim * fmdim
@@ -235,9 +231,7 @@ class DuplicateStreams_Batch(HLSCustomOp):
             # execute the precompiled model
             super().exec_precompiled_singlenode_model()
             # load output npy file
-            super().npy_to_dynamic_outputs(
-                context, ["output%d.npy" % i for i in range(n_outputs)]
-            )
+            super().npy_to_dynamic_outputs(context, ["output%d.npy" % i for i in range(n_outputs)])
             for i in range(n_outputs):
                 assert (
                     context[node.output[i]].shape == exp_oshape
@@ -411,9 +405,7 @@ class DuplicateStreams_Batch(HLSCustomOp):
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE axis port=out%d_%s" % (i, self.hls_sname())
             )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

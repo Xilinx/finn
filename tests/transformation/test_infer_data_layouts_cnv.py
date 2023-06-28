@@ -35,7 +35,11 @@ from brevitas.export import export_finn_onnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
-from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames, GiveUniqueParameterTensors
+from qonnx.transformation.general import (
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    GiveUniqueParameterTensors,
+)
 from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
@@ -105,9 +109,7 @@ def test_infer_data_layouts_cnv():
     # note: im2col output isn't really NHWC or any other common layout
     # since the concept of channels changes with lowering... but it is
     # conceptually close to NHWC since the innermost dim gets multiplied
-    assert (
-        model.get_tensor_layout("ConvolutionInputGenerator_0_out0") == DataLayout.NHWC
-    )
+    assert model.get_tensor_layout("ConvolutionInputGenerator_0_out0") == DataLayout.NHWC
     assert model.get_tensor_layout("MatrixVectorActivation_3_out0") == DataLayout.NHWC
     assert model.get_tensor_layout("Reshape_0_out0") == DataLayout.NC
     assert model.get_tensor_layout("MatrixVectorActivation_6_out0") == DataLayout.NC

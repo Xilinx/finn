@@ -215,11 +215,7 @@ def test_fpgadataflow_checksum():
     ), """The second checksums do not
         match in cppsim vs. rtlsim"""
 
-    assert (
-        checksum0_drain == 0
-    ), "Drain read doesn't match drain write for first checksum"
-    assert (
-        checksum1_drain == 0
-    ), "Drain read doesn't match drain write for second checksum"
+    assert checksum0_drain == 0, "Drain read doesn't match drain write for first checksum"
+    assert checksum1_drain == 0, "Drain read doesn't match drain write for second checksum"
 
     # TODO: test for drain set to true

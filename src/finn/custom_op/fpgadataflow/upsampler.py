@@ -107,9 +107,7 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert (
-            ishape == exp_ishape
-        ), "Unexpect input shape for UpsampleNearestNeighbour_Batch."
+        assert ishape == exp_ishape, "Unexpect input shape for UpsampleNearestNeighbour_Batch."
         return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
@@ -280,9 +278,7 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

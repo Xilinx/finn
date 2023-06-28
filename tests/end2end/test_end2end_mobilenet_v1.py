@@ -98,9 +98,7 @@ def test_end2end_mobilenet_export():
     export_finn_onnx(preproc, torch.randn(1, 3, 224, 224), preproc_onnx)
     preproc_model = ModelWrapper(preproc_onnx)
     # set input finn datatype to UINT8
-    preproc_model.set_tensor_datatype(
-        preproc_model.graph.input[0].name, DataType["UINT8"]
-    )
+    preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType["UINT8"])
     preproc_model = preproc_model.transform(InferShapes())
     preproc_model = preproc_model.transform(FoldConstants())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
@@ -145,9 +143,7 @@ def test_end2end_mobilenet_export():
 
 @pytest.mark.end2end
 def test_end2end_mobilenet_tidy_and_merge_with_preproc():
-    preproc_model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_mobilenet_preproc.onnx"
-    )
+    preproc_model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_preproc.onnx")
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_export.onnx")
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
@@ -191,17 +187,13 @@ def test_end2end_mobilenet_streamline():
         model = model.transform(GiveReadableTensorNames())
         model = model.transform(InferDataTypes())
     model.save(build_dir + "/end2end_mobilenet_streamlined.onnx")
-    assert (
-        len(model.get_nodes_by_op_type("Add")) == 1
-    )  # only final quantized bias Add op remains
+    assert len(model.get_nodes_by_op_type("Add")) == 1  # only final quantized bias Add op remains
     assert len(model.get_nodes_by_op_type("Mul")) == 0  # no Mul ops remain
 
 
 @pytest.mark.end2end
 def test_end2end_mobilenet_lowering():
-    model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_mobilenet_streamlined.onnx"
-    )
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_streamlined.onnx")
     model = model.transform(LowerConvsToMatMul())
     model = model.transform(absorb.AbsorbTransposeIntoMultiThreshold())
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
@@ -229,9 +221,7 @@ def test_end2end_mobilenet_convert_to_hls_layers():
 
 @pytest.mark.end2end
 def test_end2end_mobilenet_folding():
-    model = load_test_checkpoint_or_skip(
-        build_dir + "/end2end_mobilenet_hls_layers.onnx"
-    )
+    model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_hls_layers.onnx")
     # optional extra folding to use fewer resources
     # applied while setting the attributes on each node
     assert extra_fold in [1, 2, 4]

@@ -79,9 +79,7 @@ def test_brevitas_mobilenet():
     export_finn_onnx(preproc, torch.randn(1, 3, 224, 224), preproc_onnx)
     preproc_model = ModelWrapper(preproc_onnx)
     # set input finn datatype to UINT8
-    preproc_model.set_tensor_datatype(
-        preproc_model.graph.input[0].name, DataType["UINT8"]
-    )
+    preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType["UINT8"])
     preproc_model = preproc_model.transform(InferShapes())
     preproc_model = preproc_model.transform(GiveUniqueNodeNames())
     preproc_model = preproc_model.transform(GiveUniqueParameterTensors())
@@ -121,6 +119,4 @@ def test_brevitas_mobilenet():
     produced = odict[model.graph.output[0].name]
     produced_prob = odict["TopK_0_out0"] * a0
     assert (produced.flatten() == expected_top5).all()
-    assert np.isclose(
-        produced_prob.flatten(), expected_top5_prob, atol=2.2 * 1e-1
-    ).all()
+    assert np.isclose(produced_prob.flatten(), expected_top5_prob, atol=2.2 * 1e-1).all()

@@ -191,13 +191,9 @@ class Pool_Batch(HLSCustomOp):
         # check supported function
         fnx = self.get_nodeattr("Function")
         if fnx in ["MaxPool", "QuantAvgPool"]:
-            info_messages.append(
-                "Attribute Function contains a supported pool function"
-            )
+            info_messages.append("Attribute Function contains a supported pool function")
         else:
-            info_messages.append(
-                "Attribute Function contains an unsupported pool function"
-            )
+            info_messages.append("Attribute Function contains an unsupported pool function")
         return info_messages
 
     def global_includes(self):
@@ -283,9 +279,7 @@ class Pool_Batch(HLSCustomOp):
             else:
                 act_hls_dt = "ap_uint<{}>".format(accum_bits)
             self.code_gen_dict["$DOCOMPUTE$"] += [
-                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(
-                    act_hls_dt, o_hls_dt, size
-                )
+                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(act_hls_dt, o_hls_dt, size)
             ]
         else:
             raise Exception("Pool_Batch doesn't currently support " + fxn)
@@ -352,9 +346,7 @@ class Pool_Batch(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
