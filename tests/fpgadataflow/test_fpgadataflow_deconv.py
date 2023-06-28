@@ -85,7 +85,7 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding, w
         "outp", TensorProto.FLOAT, [1, ofm_ch, odim_h, odim_w]
     )
 
-    W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ofm_ch, ifm_ch, k, k])
+    W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ifm_ch, ofm_ch, k, k])
 
     ConvTranspose = helper.make_node(
         "ConvTranspose",

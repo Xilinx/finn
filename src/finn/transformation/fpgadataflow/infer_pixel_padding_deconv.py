@@ -87,12 +87,12 @@ class InferPixelPaddingDeconv(Transformation):
                 dw = False
                 if group == ifm_ch and ofm_ch == ifm_ch:
                     W_sparse = np.zeros(
-                        (ofm_ch, ifm_ch, k_h, k_w)
-                    )  # (OFM, IFM, k_H, k_W)
-                    for ch in range(ifm_ch):
+                        (ifm_ch, ofm_ch, k_h, k_w)
+                    )  # (IFM, OFM, k_H, k_W)
+                    for ch in range(ofm_ch):
                         W_sparse[ch][ch] = W_conv[ch][
                             0
-                        ]  # W_conv = [OFM, IFM, k_H, k_W]
+                        ]  # W_conv = [IFM, OFM, k_H, k_W]
                     W_conv = W_sparse.astype(np.float32)
                     # we need to store information of the
                     # sparsity of the weight matrix. For this
@@ -105,11 +105,11 @@ class InferPixelPaddingDeconv(Transformation):
                     # Im2Col node belongs to a depthwise convolution
                     dw = True
 
-                # reuse conv weights for new matmul weights
-                # conv weights are [OFM][IFM][k][k]
-                # We need to rotate the weights and swap the first two dimensions
+                # reuse ConvTranspose weights for new matmul weights
+                # conv weights are [IFM][OFM][k][k]
+                # We need to rotate the weights and make them [OFM][IFM][k][k]
                 # for pixel padding deconv to remain mathematically equivalent
-                # and then first convert to [OFM][k][k][IFM] (to remain compatible
+                # and then convert to [OFM][k][k][IFM] (to remain compatible
                 # with finn-hlslib and how it does im2col/sliding window)
                 W_conv = np.rot90(W_conv, 2, [2, 3])
                 W_conv = np.moveaxis(W_conv, 0, 1)
