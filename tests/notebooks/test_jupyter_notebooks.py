@@ -21,6 +21,7 @@ advanced_notebooks = [
     pytest.param(notebook_advanced_dir + "0_custom_analysis_pass.ipynb"),
     pytest.param(notebook_advanced_dir + "1_custom_transformation_pass.ipynb"),
     pytest.param(notebook_advanced_dir + "2_custom_op.ipynb"),
+    pytest.param(notebook_advanced_dir + "3_folding.ipynb"),
 ]
 
 cyber_notebooks = [

@@ -34,10 +34,8 @@ import json
 import numpy as np
 import os
 import shutil
-import subprocess
 import torch
 import torch.nn as nn
-import wget
 from brevitas.core.quant import QuantType
 from brevitas.export import export_finn_onnx, export_qonnx
 from brevitas.nn import QuantIdentity, QuantLinear, QuantReLU
@@ -225,62 +223,3 @@ def test_end2end_cybsec_mlp_build(QONNX_export):
         assert est_res_dict["total"]["LUT"] == 7904.0
         assert est_res_dict["total"]["BRAM_18K"] == 36.0
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build", QONNX_export))
-
-
-@pytest.mark.end2end
-@pytest.mark.xfail
-@pytest.mark.parametrize("QONNX_export", [False, True])
-def test_end2end_cybsec_mlp_run_on_hw(QONNX_export):
-    build_env = get_build_env(build_kind, target_clk_ns)
-    assets_dir = pk.resource_filename("finn.qnn-data", "cybsec-mlp/")
-    deploy_dir = get_checkpoint_name("build", QONNX_export)
-    if not os.path.isdir(deploy_dir):
-        pytest.skip(deploy_dir + " not found from previous test step, skipping")
-    driver_dir = deploy_dir + "/driver"
-    assert os.path.isdir(driver_dir)
-    # put all assets into driver dir
-    shutil.copy(assets_dir + "/validate-unsw-nb15.py", driver_dir)
-    # put a copy of binarized dataset into driver dir
-    dataset_url = (
-        "https://zenodo.org/record/4519767/files/unsw_nb15_binarized.npz?download=1"
-    )
-    dataset_local = driver_dir + "/unsw_nb15_binarized.npz"
-    if not os.path.isfile(dataset_local):
-        wget.download(dataset_url, out=dataset_local)
-    assert os.path.isfile(dataset_local)
-    # create a shell script for running validation: 10 batches x 10 imgs
-    with open(driver_dir + "/validate.sh", "w") as f:
-        f.write(
-            """#!/bin/bash
-cd %s/driver
-echo %s | sudo -S python3.6 validate-unsw-nb15.py --batchsize=10 --limit_batches=10
-        """
-            % (
-                build_env["target_dir"] + "/end2end_cybsecmlp_build",
-                build_env["password"],
-            )
-        )
-    # set up rsync command
-    remote_target = "%s@%s:%s" % (
-        build_env["username"],
-        build_env["ip"],
-        build_env["target_dir"],
-    )
-    rsync_res = subprocess.run(["rsync", "-avz", deploy_dir, remote_target])
-    assert rsync_res.returncode == 0
-    remote_verif_cmd = [
-        "ssh",
-        "%s@%s" % (build_env["username"], build_env["ip"]),
-        "sh",
-        build_env["target_dir"] + "/end2end_cybsecmlp_build/driver/validate.sh",
-    ]
-    verif_res = subprocess.run(
-        remote_verif_cmd,
-        stdout=subprocess.PIPE,
-        universal_newlines=True,
-        input=build_env["password"],
-    )
-    assert verif_res.returncode == 0
-    log_output = verif_res.stdout.split("\n")
-    assert log_output[-3] == "batch 10 / 10 : total OK 93 NOK 7"
-    assert log_output[-2] == "Final accuracy: 93.000000"

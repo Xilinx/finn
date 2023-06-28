@@ -34,13 +34,10 @@ import numpy as np
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
 import os
-import subprocess
 import torch
 import warnings
 from brevitas.export import export_finn_onnx, export_qonnx
-from collections import OrderedDict
 from dataset_loading import cifar, mnist
-from datetime import datetime
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -59,13 +56,12 @@ from qonnx.transformation.insert_topk import InsertTopK
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
-from scipy.stats import linregress
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
 from finn.analysis.fpgadataflow.dataflow_performance import dataflow_performance
 from finn.core.onnx_exec import execute_onnx
-from finn.core.throughput_test import throughput_test_remote, throughput_test_rtlsim
+from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.annotate_resources import AnnotateResources
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -75,7 +71,6 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
-from finn.transformation.fpgadataflow.make_deployment import DeployToPYNQ
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -95,7 +90,6 @@ from finn.transformation.streamline.reorder import (
     MoveScalarLinearPastInvariants,
 )
 from finn.util.basic import get_finn_root
-from finn.util.gdrive import upload_to_end2end_dashboard
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -120,24 +114,6 @@ def get_checkpoint_name(topology, wbits, abits, QONNX_export, step):
         QONNX_export,
         step,
     )
-
-
-def get_dashboard_data(topology, wbits, abits):
-    stats_file = build_dir + "/end2end_%s_w%da%d.txt" % (topology, wbits, abits)
-    stats_dict = OrderedDict()
-    if os.path.isfile(stats_file):
-        with open(stats_file, "r") as f:
-            stats_dict_txt = f.read()
-        stats_dict = eval(stats_dict_txt)
-    return stats_dict
-
-
-def update_dashboard_data(topology, wbits, abits, key, val):
-    stats_dict = get_dashboard_data(topology, wbits, abits)
-    stats_dict[key] = val
-    stats_file = build_dir + "/end2end_%s_w%da%d.txt" % (topology, wbits, abits)
-    with open(stats_file, "w") as f:
-        f.write(str(stats_dict))
 
 
 def fold_tfc(model):
@@ -334,16 +310,7 @@ class TestEnd2End:
             model = model.transform(ConvertQONNXtoFINN())
             model.save(chkpt_name)
         else:
-            export_finn_onnx(model, torch.randn(ishape), chkpt_name, opset_version=13)
-        nname = "%s_w%da%d" % (topology, wbits, abits)
-        update_dashboard_data(topology, wbits, abits, "network", nname)
-        dtstr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        update_dashboard_data(topology, wbits, abits, "datetime", dtstr)
-        finn_commit = subprocess.check_output(
-            ["git", "rev-parse", "HEAD"], cwd=get_finn_root()
-        )
-        finn_commit = finn_commit.decode("utf-8").strip()
-        update_dashboard_data(topology, wbits, abits, "finn-commit", finn_commit)
+            export_finn_onnx(model, torch.randn(ishape), chkpt_name)
         assert os.path.isfile(chkpt_name)
 
     def test_import_and_tidy(self, topology, wbits, abits, QONNX_export):
@@ -644,10 +611,6 @@ class TestEnd2End:
         ret = throughput_test_rtlsim(model, batchsize=batchsize)
         res_cycles = ret["cycles"]
         est_cycles = latency + cycles_per_sample_est * batchsize
-        # warnings.warn("Estimated & rtlsim performance: " + str(perf))
-        # for (k, v) in perf.items():
-        #    update_dashboard_data(topology, wbits, abits, k, v)
-        update_dashboard_data(topology, wbits, abits, "cycles_rtlsim", latency)
         assert (abs(res_cycles - est_cycles) / res_cycles) < 0.15
 
     @pytest.mark.slow
@@ -691,10 +654,6 @@ class TestEnd2End:
         cfg = get_build_env(kind, target_clk_ns)
         model = model.transform(cfg["build_fxn"])
         model = model.transform(AnnotateResources("synth"))
-        synth_dct = eval(model.get_metadata_prop("res_total_top_synth"))
-        for (k, v) in synth_dct.items():
-            update_dashboard_data(topology, wbits, abits, k, v)
-        update_dashboard_data(topology, wbits, abits, "board", cfg["board"])
         model.save(
             get_checkpoint_name(topology, wbits, abits, QONNX_export, "build_" + kind)
         )
@@ -715,121 +674,3 @@ class TestEnd2End:
         model.save(
             get_checkpoint_name(topology, wbits, abits, QONNX_export, "driver_" + kind)
         )
-
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    def test_deploy(self, topology, wbits, abits, QONNX_export, kind):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "driver_" + kind
-        )
-        model = load_test_checkpoint_or_skip(prev_chkpt_name)
-        cfg = get_build_env(kind, target_clk_ns)
-        if cfg["ip"] == "":
-            pytest.skip("PYNQ board IP address not specified")
-        model = model.transform(
-            DeployToPYNQ(
-                cfg["ip"],
-                cfg["port"],
-                cfg["username"],
-                cfg["password"],
-                cfg["target_dir"],
-            )
-        )
-        # save the model to be able to link it to the parent
-        model.save(
-            get_checkpoint_name(topology, wbits, abits, QONNX_export, "deploy_" + kind)
-        )
-
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    def test_run_on_hw(self, topology, wbits, abits, QONNX_export, kind):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "deploy_" + kind
-        )
-        model = load_test_checkpoint_or_skip(prev_chkpt_name)  # NOQA
-        cfg = get_build_env(kind, target_clk_ns)
-        if cfg["ip"] == "":
-            pytest.skip("PYNQ board IP address not specified")
-        (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
-            topology, wbits, abits, return_topk=1
-        )
-        parent_model = load_test_checkpoint_or_skip(
-            get_checkpoint_name(topology, wbits, abits, QONNX_export, "dataflow_parent")
-        )
-        iname = parent_model.graph.input[0].name
-        oname = parent_model.graph.output[0].name
-        sdp_node = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-        sdp_node = getCustomOp(sdp_node)
-        sdp_node.set_nodeattr("model", prev_chkpt_name)
-        ret = execute_onnx(parent_model, {iname: input_tensor_npy}, True)
-        y = ret[oname]
-        assert np.isclose(y, output_tensor_npy).all()
-
-    @pytest.mark.parametrize("kind", ["zynq", "alveo"])
-    def test_throughput_hw(self, topology, wbits, abits, QONNX_export, kind):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, QONNX_export, "deploy_" + kind
-        )
-        end2end_example = "%s_w%da%d_%s" % (topology, wbits, abits, kind)
-        model = load_test_checkpoint_or_skip(prev_chkpt_name)  # NOQA
-        cfg = get_build_env(kind, target_clk_ns)
-        if cfg["ip"] == "":
-            pytest.skip("PYNQ board IP address not specified")
-        ret = dict()
-        # try a range of batch sizes, some may fail due to insufficient DMA
-        # buffers
-        bsize_range_in = [8**i for i in range(5)]
-        bsize_range = []
-        for bsize in bsize_range_in:
-            res = throughput_test_remote(model, bsize)
-            if res is not None:
-                ret[bsize] = res
-                bsize_range.append(bsize)
-            else:
-                # assume we reached largest possible N
-                break
-        y = [ret[key]["runtime[ms]"] for key in bsize_range]
-        lrret = linregress(bsize_range, y)
-        ret_str = ""
-        ret_str += "\n" + "%s Throughput Test Results" % end2end_example
-        ret_str += "\n" + "-----------------------------"
-        ret_str += "\n" + "From linear regression:"
-        ret_str += "\n" + "Invocation overhead: %f ms" % lrret.intercept
-        ret_str += "\n" + "Time per sample: %f ms" % lrret.slope
-        ret_str += "\n" + "Raw data:"
-
-        ret_str += "\n" + "{:<8} {:<16} {:<16} {:<16} {:<16} {:<16}".format(
-            "N", "runtime[ms]", "fclk[mhz]", "fps", "DRAM rd[MB/s]", "DRAM wr[MB/s]"
-        )
-        for k in bsize_range:
-            v = ret[k]
-            ret_str += "\n" + "{:<8} {:<16} {:<16} {:<16} {:<16} {:<16}".format(
-                k,
-                np.round(v["runtime[ms]"], 4),
-                v["fclk[mhz]"],
-                np.round(v["throughput[images/s]"], 2),
-                np.round(v["DRAM_in_bandwidth[MB/s]"], 2),
-                np.round(v["DRAM_out_bandwidth[MB/s]"], 2),
-            )
-        ret_str += "\n" + "-----------------------------"
-        warnings.warn(ret_str)
-        largest_bsize = bsize_range[-1]
-        update_dashboard_data(
-            topology, wbits, abits, "fclk[mhz]", ret[largest_bsize]["fclk[mhz]"]
-        )
-        update_dashboard_data(
-            topology,
-            wbits,
-            abits,
-            "throughput[images/s]",
-            ret[largest_bsize]["throughput[images/s]"],
-        )
-
-    def test_upload_results_to_dashboard(self, topology, wbits, abits, QONNX_export):
-        # ToDo: Extend the dashboard to also upload QONNX exported models?
-        if QONNX_export:
-            pytest.skip("Dashboard data upload is disabled for QONNX exported models.")
-        else:
-            dashboard_data = get_dashboard_data(topology, wbits, abits)
-            if len(dashboard_data.keys()) > 0:
-                upload_to_end2end_dashboard(dashboard_data)
-            else:
-                pytest.skip("No data to upload to dashboard")

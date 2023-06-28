@@ -206,6 +206,64 @@ How to set *mem_mode*
 ---------------------
 When the nodes in the network are converted to HLS layers, the *mem_mode* can be passed. More detailed information about the transformations that prepare the network and the transformation that performs the conversion to HLS layers can be found in chapter :ref:`nw_prep`. The *mem_mode* is passed as argument. Note that if no argument is passed, the default is *const*.
 
+
+.. _folding_factors:
+
+Constraints to folding factors per layer
+=========================================
+
+.. list-table:: Folding factor constraints
+
+   * - **Layers**
+     - **Parameters**
+     - **Constraints**
+   * - Addstreams_Batch
+     - PE
+     - inp_channels % PE == 0
+   * - ChannelwiseOp_Batch
+     - PE
+     - channels % PE == 0
+   * - ConvolutionInputGenerator
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - ConvolutionInputGenerator1d
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - Downsampler
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - DuplicateStreams_Batch
+     - PE
+     - channels % PE == 0
+   * - Eltwise
+     - PE
+     - inp_channels % PE == 0
+   * - FMPadding_batch
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - FMPadding_rtl
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - Globalaccpool_Batch
+     - PE
+     - channels % PE == 0
+   * - Labelselect_Batch
+     - PE
+     - num_labels % PE == 0
+   * - MatrixVectorActivation
+     - PE & SIMD
+     - MH % PE == 0 & MW % SIMD == 0
+   * - Pool_Batch
+     - PE
+     - inp_channels % PE == 0
+   * - Thresholding_Batch
+     - PE
+     - MH % PE == 0
+   * - VectorVectorActivation
+     - PE & SIMD
+     - k_h * k_w % SIMD == 0 & channels % PE == 0
+
+
 RTL ConvolutionInputGenerator
 =============================
 
