@@ -30,6 +30,8 @@ import pytest
 
 import numpy as np
 
+import itertools
+
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
 import onnx  # NOQA
