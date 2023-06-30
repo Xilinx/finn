@@ -296,7 +296,7 @@ module mvu_4sx4u #(
 		// Stage #4: Cross-SIMD Reduction
 
 		// Count leaves reachable from each node
-		localparam leave_load_t  LEAVE_LOAD = init_leave_loads();
+		localparam leave_load_t  LEAVE_LOAD = SIMD > 1 ? init_leave_loads() : '{ default: 1}; // SIMD=1 requires no adder tree, so zero-ing out, otherwise init_leave_loads ends up in infinite loop
 
 		uwire signed [ACCU_WIDTH  -1:0]  up4;
 		uwire signed [ACCU_WIDTH  -8:0]  hi4[3];
