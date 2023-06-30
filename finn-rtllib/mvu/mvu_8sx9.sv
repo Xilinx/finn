@@ -92,77 +92,95 @@ module mvu_8sx9 #(
 			if (rst)      Z <= '{default: 0};
 			else if(en) begin
 				Z[0] <= zero;
-				if (MAX_PIPELINE_STAGES > 2)  Z[1:MAX_PIPELINE_STAGES-1] <= Z[0:MAX_PIPELINE_STAGES-2];
+				if (MAX_PIPELINE_STAGES > 2)  Z[1:MAX_PIPELINE_STAGES-2] <= Z[0:MAX_PIPELINE_STAGES-3];
 			end
 		end
 	end;
 
 //-------------------- Buffer for input activations --------------------\\
 	localparam int unsigned PAD_BITS_ACT = 9 - ACTIVATION_WIDTH;
-	typedef logic [2:0][ACTIVATION_WIDTH-1:0] a_buffer_t;
 
 	for (genvar i=0; i<CHAINLEN; i++) begin : genActSIMD
 		localparam int TOTAL_PREGS = i/SEGLEN;
 		localparam int EXTERNAL_PREGS = TOTAL_PREGS>1 ? TOTAL_PREGS-1 : 0;
+		localparam int LANES_OCCUPIED = i == CHAINLEN-1 ? SIMD - 3*i : 3;
 
 		if (EXTERNAL_PREGS > 0) begin : genExternalPregAct
-			a_buffer_t A [0:EXTERNAL_PREGS-1];
+			logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0] A = '{ default : 0};
 			always_ff @(posedge clk) begin
 				if (rst)     A <= '{default: 0};
 				else if(en) begin
-					A[EXTERNAL_PREGS-1] <= a[3*i +: 3];
+					A[EXTERNAL_PREGS-1] <= a[3*i +: LANES_OCCUPIED];
 					if (EXTERNAL_PREGS > 1)   A[0:EXTERNAL_PREGS-2] <= A[1:EXTERNAL_PREGS-1];
 				end
 			end
-			assign a_in_i[i][26:0] = SIGNED_ACTIVATIONS ? { {PAD_BITS_ACT{A[0][2][ACTIVATION_WIDTH-1]}}, A[0][2], {PAD_BITS_ACT{A[0][1][ACTIVATION_WIDTH-1]}}, A[0][1], {PAD_BITS_ACT{A[0][0][ACTIVATION_WIDTH-1]}}, A[0][0]}
-									: { {PAD_BITS_ACT{1'b0}}, A[0][2], {PAD_BITS_ACT{1'b0}}, A[0][1], {PAD_BITS_ACT{1'b0}}, A[0][0]} ;
+			for (genvar j=0; j<LANES_OCCUPIED; j++) begin : genAin
+				assign a_in_i[i][9*j +: 9] = SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? A[0][j] : { {PAD_BITS_ACT{A[0][j][ACTIVATION_WIDTH-1]}}, A[0][j] } 
+											: PAD_BITS_ACT == 0 ? A[0][j] : { {PAD_BITS_ACT{1'b0}}, A[0][j] } ;
+			end : genAin
+			for (genvar j=LANES_OCCUPIED; j<3; j++) begin : genAinZero
+				assign a_in_i[i][9*j +: 9] = 9'b0;
+			end : genAinZero
 		end : genExternalPregAct
 		else begin : genInpDSPAct
-			assign a_in_i[i][26:0] = SIGNED_ACTIVATIONS ? { {PAD_BITS_ACT{a[3*i+2][ACTIVATION_WIDTH-1]}}, a[3*i+2], {PAD_BITS_ACT{a[3*i+1][ACTIVATION_WIDTH-1]}}, a[3*i+1], {PAD_BITS_ACT{a[3*i][ACTIVATION_WIDTH-1]}}, a[3*i]}
-									: { {PAD_BITS_ACT{1'b0}}, a[3*i+2], {PAD_BITS_ACT{1'b0}}, a[3*i+1], {PAD_BITS_ACT{1'b0}}, a[3*i]} ;
+			for (genvar j=0; j<LANES_OCCUPIED; j++) begin : genAin
+				assign a_in_i[i][9*j +: 9] = SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? a[3*i+j] : { {PAD_BITS_ACT{a[3*i+j][ACTIVATION_WIDTH-1]}}, a[3*i+j] }
+											: PAD_BITS_ACT == 0 ? a[3*i+j] : { {PAD_BITS_ACT{1'b0}}, a[3*i+j] } ;
+			end : genAin
+			for (genvar j=LANES_OCCUPIED; j<3; j++) begin : genAinZero
+				assign a_in_i[i][9*j +: 9] = 9'b0;
+			end : genAinZero
 		end : genInpDSPAct
 
 	end : genActSIMD
 
 //-------------------- Buffer for weights --------------------\\
 	localparam int unsigned PAD_BITS_WEIGHT = 8 - WEIGHT_WIDTH;
-	typedef logic [2:0][WEIGHT_WIDTH-1:0] b_buffer_t;
 
-	for (genvar j=0; j<PE; j++) begin : genWeightPE
-		for (genvar i=0; i<CHAINLEN; i++) begin : genWeightSIMD
-			localparam int TOTAL_PREGS = i/SEGLEN;
+	for (genvar i=0; i<PE; i++) begin : genWeightPE
+		for (genvar j=0; j<CHAINLEN; j++) begin : genWeightSIMD
+			localparam int TOTAL_PREGS = j/SEGLEN;
 			localparam int EXTERNAL_PREGS = TOTAL_PREGS>1 ? TOTAL_PREGS-1 : 0;
+			localparam int LANES_OCCUPIED = j == CHAINLEN-1 ? SIMD - 3*j : 3;
 
 			if (EXTERNAL_PREGS > 0) begin : genExternalPregWeight
-				b_buffer_t B [0:PE-1][0:EXTERNAL_PREGS-1];
+				logic [0:PE-1][0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][WEIGHT_WIDTH-1:0] B = '{ default : 0};
 				always_ff @(posedge clk) begin
 					if (rst)    B <= '{default: 0};
 					else if (en) begin
-						B[j][EXTERNAL_PREGS-1] <= w[j][3*i +: 3];
-						if (EXTERNAL_PREGS > 1) B[j][0:EXTERNAL_PREGS-2] <= B[j][1:EXTERNAL_PREGS-1];
+						B[i][EXTERNAL_PREGS-1] <= w[i][3*j +: LANES_OCCUPIED];
+						if (EXTERNAL_PREGS > 1) B[i][0:EXTERNAL_PREGS-2] <= B[i][1:EXTERNAL_PREGS-1];
 					end
 				end
-				assign b_in_i[j][i][23:0] = { {PAD_BITS_WEIGHT{B[j][0][2][WEIGHT_WIDTH-1]}}, B[j][0][2], {PAD_BITS_WEIGHT{B[j][0][1][WEIGHT_WIDTH-1]}}, B[j][0][1], {PAD_BITS_WEIGHT{B[j][0][0][WEIGHT_WIDTH-1]}}, B[j][0][0] };
+				for (genvar k = 0 ; k < LANES_OCCUPIED ; k++) begin : genBin
+					assign b_in_i[i][j][8*k +: 8] = PAD_BITS_WEIGHT == 0 ? B[i][0][k] : { {PAD_BITS_WEIGHT{B[i][0][k][WEIGHT_WIDTH-1]}}, B[i][0][k] };
+				end : genBin
+				for (genvar k=LANES_OCCUPIED; k<3; k++) begin : genBinZero
+					assign b_in_i[i][j][8*k +: 8] = 8'b0;
+				end : genBinZero
 			end : genExternalPregWeight
 			else begin : genInpDSPWeight
-				assign b_in_i[j][i][23:0] = { {PAD_BITS_WEIGHT{w[j][3*i+2][WEIGHT_WIDTH-1]}}, w[j][3*i+2], {PAD_BITS_WEIGHT{w[j][3*i+1][WEIGHT_WIDTH-1]}}, w[j][3*i+1], {PAD_BITS_WEIGHT{w[j][3*i][WEIGHT_WIDTH-1]}}, w[j][3*i] };
+				for (genvar k = 0; k < LANES_OCCUPIED; k++) begin : genBin
+					assign b_in_i[i][j][8*k +: 8] = PAD_BITS_WEIGHT == 0 ? w[i][3*j+k] : { {PAD_BITS_WEIGHT{w[i][3*j+k][WEIGHT_WIDTH-1]}}, w[i][3*j+k] };
+				end : genBin
+				for (genvar k=LANES_OCCUPIED; k<3; k++) begin : genBinZero
+					assign b_in_i[i][j][8*k +: 8] = 8'b0;
+				end : genBinZero
 			end : genInpDSPWeight
 		end : genWeightSIMD
-
 	end : genWeightPE
 
 //-------------------- Instantiate PE x CHAINLEN DSPs --------------------\\
-	for (genvar j=0; j<PE; j++) begin : genDSPPE
-		for (genvar i=0; i<CHAINLEN; i++) begin : genDSPChain
-			localparam int TOTAL_PREGS = i/SEGLEN;
+	for (genvar i=0; i<PE; i++) begin : genDSPPE
+		for (genvar j=0; j<CHAINLEN; j++) begin : genDSPChain
+			localparam int TOTAL_PREGS = j/SEGLEN;
 			localparam int INTERNAL_PREGS = TOTAL_PREGS>0 ? 2 : 1; // 1 : 0
-			localparam bit PREG = (i+1)%SEGLEN==0 || i == CHAINLEN-1;
-			localparam bit FIRST = i == 0;
-			localparam bit LAST = i == CHAINLEN-1;
-			uwire [57:0] pp;
+			localparam bit PREG = (j+1)%SEGLEN==0 || j == CHAINLEN-1;
+			localparam bit FIRST = j == 0;
+			localparam bit LAST = j == CHAINLEN-1;
 
 			if (LAST) begin : genPOUT
-				assign p[j] = pp[ACCU_WIDTH-1:0];
+				assign p[i] = pcout[i][j][ACCU_WIDTH-1:0];
 			end
 
 			// Note: Since the product B * AD is computed,
@@ -174,7 +192,7 @@ module mvu_8sx9 #(
 				always_ff @(posedge clk) begin
 					if (rst)	Areg <= '{ default : 0};
 					else if (en) begin
-						Areg[0] <= { 7'bx, a_in_i[i] };
+						Areg[0] <= { 7'bx, a_in_i[j] };
 						if (INTERNAL_PREGS == 2) Areg[1] <= Areg[0];
 					end
 				end
@@ -182,7 +200,7 @@ module mvu_8sx9 #(
 				always_ff @(posedge clk) begin
 					if (rst)	Breg <= '{ default : 0};
 					else if (en) begin
-						Breg[0] <= b_in_i[j][i];
+						Breg[0] <= b_in_i[i][j];
 						if (INTERNAL_PREGS == 2) Breg[1] <= Breg[0];
 					end
 				end
@@ -217,27 +235,36 @@ module mvu_8sx9 #(
 					end
 					else	assign Preg = Mreg;
 				end
-				else if (LAST) begin : genLast
+				else if (FIRST && LAST) begin : genSingle
 					always_ff @(posedge clk) begin
 						if (rst)		Opmode <= 0;
 						else if (en)	Opmode <= L[1];
 					end
 					always_ff @(posedge clk) begin
 						if (rst) 		Preg <= 0;
-						else if (en)	Preg <= (Opmode ? 0 : Preg) + Mreg + pcout[j][i-1];
+						else if (en)	Preg <= (Opmode ? 0 : Preg) + Mreg;
+					end
+				end
+				else if (!FIRST && LAST) begin : genLast
+					always_ff @(posedge clk) begin
+						if (rst)		Opmode <= 0;
+						else if (en)	Opmode <= L[1];
+					end
+					always_ff @(posedge clk) begin
+						if (rst) 		Preg <= 0;
+						else if (en)	Preg <= (Opmode ? 0 : Preg) + Mreg + pcout[i][j-1];
 					end
 				end
 				else begin : genMid
 					if (PREG) begin : genPregBehav
 						always_ff @(posedge clk) begin
 							if (rst)		Preg <= 0;
-							else if (en)	Preg <= Mreg + pcout[j][i-1];
+							else if (en)	Preg <= Mreg + pcout[i][j-1];
 						end
 					end
-					else	assign Preg = Mreg + pcout[j][i-1];
+					else	assign Preg = Mreg + pcout[i][j-1];
 				end
-				assign pp = Preg;
-				assign pcout[j][i] = pp;
+				assign pcout[i][j] = Preg;
 			end : genBehav
 `ifndef VERILATOR
 			else begin: genDSP
@@ -307,7 +334,7 @@ module mvu_8sx9 #(
 					.BCOUT(),                           // 24-bit output: B cascade
 					.CARRYCASCOUT(),                    // 1-bit output: Cascade carry
 					.MULTSIGNOUT(),                     // 1-bit output: Multiplier sign cascade
-					.PCOUT(pcout[j][i]),                // 58-bit output: Cascade output
+					.PCOUT(pcout[i][j]),                // 58-bit output: Cascade output
 					// Control outputs: Control Inputs/Status Bits
 					.OVERFLOW(),                        // 1-bit output: Overflow in add/acc
 					.PATTERNBDETECT(),                  // 1-bit output: Pattern bar detect
@@ -322,7 +349,7 @@ module mvu_8sx9 #(
 					.BCIN('x),                          // 24-bit input: B cascade
 					.CARRYCASCIN('x),                   // 1-bit input: Cascade carry
 					.MULTSIGNIN('x),                    // 1-bit input: Multiplier sign cascade
-					.PCIN(FIRST ? 'x : pcout[j][i-1]),  // 58-bit input: P cascade
+					.PCIN(FIRST ? 'x : pcout[i][j-1]),  // 58-bit input: P cascade
 					// Control inputs: Control Inputs/Status Bits
 					.ALUMODE(4'h0),                     // 4-bit input: ALU control
 					.CARRYINSEL('0),                    // 3-bit input: Carry select
@@ -339,8 +366,8 @@ module mvu_8sx9 #(
 							7'b000_0000
 					}), // 9-bit input: Operation mode
 					// Data inputs: Data Ports
-					.A({ 7'bx, a_in_i[i] }),            // 34-bit input: A data
-					.B(b_in_i[j][i]),                   // 24-bit input: B data
+					.A({ 7'bx, a_in_i[j] }),            // 34-bit input: A data
+					.B(b_in_i[i][j]),                   // 24-bit input: B data
 					.C('x),                             // 58-bit input: C data
 					.CARRYIN('0),                       // 1-bit input: Carry-in
 					.D('x),                             // 27-bit input: D data
