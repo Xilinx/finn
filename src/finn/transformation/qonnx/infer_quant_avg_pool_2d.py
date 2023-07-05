@@ -165,7 +165,8 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
 
                         # Trunc node
                         rounding_mode = get_by_name(t_node.attribute, "rounding_mode")
-                        if rounding_mode is None or rounding_mode.s != b"FLOOR":
+                        normalized_mode_string = rounding_mode.s.upper()
+                        if rounding_mode is None or normalized_mode_string != b"FLOOR":
                             raise ValueError(
                                 "The Trunc node must have the rounding_mode " "set to 'FLOOR'."
                             )

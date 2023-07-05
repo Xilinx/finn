@@ -35,12 +35,9 @@ import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
-from brevitas.export import export_finn_onnx, export_qonnx
+from brevitas.export import export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.fold_constants import FoldConstants
-from qonnx.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
-from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup
 from tempfile import TemporaryDirectory
 
@@ -106,32 +103,12 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     brev_model, in_shape, input_tensor = get_brev_model_and_sample_inputs(model_name, wbits, abits)
     temp_dir = TemporaryDirectory()
     qonnx_base_path = temp_dir.name + "/qonnx_{}.onnx"
-    finn_base_path = temp_dir.name + "/finn_{}.onnx"
 
     # Get Brevitas output
     torch_input_tensor = torch.from_numpy(input_tensor).float()
     brev_output = brev_model.forward(torch_input_tensor).detach().numpy()
 
-    # Get "clean" FINN model and its output
-    _ = export_finn_onnx(brev_model, torch.randn(in_shape), finn_base_path.format("raw"))
-    model = ModelWrapper(finn_base_path.format("raw"))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(InferShapes())
-    model = model.transform(FoldConstants())
-    model = model.transform(RemoveStaticGraphInputs())
-    model.save(finn_base_path.format("clean"))
-
-    model = ModelWrapper(finn_base_path.format("clean"))
-    input_dict = {model.graph.input[0].name: input_tensor}
-    output_dict = oxe.execute_onnx(model, input_dict, False)
-    finn_export_output = output_dict[model.graph.output[0].name]
-    # This test always fails on MobileNet for some reason
-    if model_name != "mobilenet":
-        assert np.isclose(
-            brev_output, finn_export_output, atol=ATOL
-        ).all(), "The output of the Brevitas model and the FINN model should match."
-
-    # Get the equivalent QONNX model
+    # Get QONNX model
     _ = export_qonnx(brev_model, torch.randn(in_shape), qonnx_base_path.format("raw"))
     cleanup(qonnx_base_path.format("raw"), out_file=qonnx_base_path.format("clean"))
 
@@ -146,7 +123,7 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     # This test always fails on MobileNet for some reason
     if model_name != "mobilenet":
         assert np.isclose(
-            qonnx_export_output, finn_export_output, atol=ATOL
+            brev_output, qonnx_export_output, atol=ATOL
         ).all(), "The output of the FINN model and the QONNX model should match."
 
     # Run QONNX to FINN conversion
@@ -159,7 +136,7 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     input_dict = {model.graph.input[0].name: input_tensor}
     output_dict = oxe.execute_onnx(model, input_dict, False)
     test_output = output_dict[model.graph.output[0].name]
-    assert np.isclose(test_output, finn_export_output, atol=ATOL).all(), (
+    assert np.isclose(test_output, qonnx_export_output, atol=ATOL).all(), (
         "The output of the FINN model " "and the QONNX -> FINN converted model should match."
     )
 
