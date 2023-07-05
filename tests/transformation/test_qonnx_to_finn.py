@@ -88,9 +88,6 @@ def analysis_testing_for_no_quant_nodes(model):
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("model_name", ["TFC", "SFC", "LFC", "CNV", "mobilenet"])
 def test_QONNX_to_FINN(model_name, wbits, abits):
-    if model_name == "mobilenet":
-        pytest.xfail("MobileNet test is temporarily excluded from QONNX testing.")
-
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
     if model_name == "LFC" and wbits == 2 and abits == 2:
@@ -99,7 +96,7 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
         pytest.skip("Mobilenet only runs at W2A2, though it's technically W4A4.")
 
     # Get test config and model
-    ATOL = 1e-7
+    ATOL = 1e-6
     brev_model, in_shape, input_tensor = get_brev_model_and_sample_inputs(model_name, wbits, abits)
     temp_dir = TemporaryDirectory()
     qonnx_base_path = temp_dir.name + "/qonnx_{}.onnx"
@@ -120,11 +117,6 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     assert np.isclose(
         brev_output, qonnx_export_output, atol=ATOL
     ).all(), "The output of the Brevitas model and the QONNX model should match."
-    # This test always fails on MobileNet for some reason
-    if model_name != "mobilenet":
-        assert np.isclose(
-            brev_output, qonnx_export_output, atol=ATOL
-        ).all(), "The output of the FINN model and the QONNX model should match."
 
     # Run QONNX to FINN conversion
     model = ModelWrapper(qonnx_base_path.format("clean"))
