@@ -31,7 +31,7 @@ import numpy as np
 import os
 import time
 import torch
-from brevitas.export import export_finn_onnx
+from brevitas.export import export_qonnx
 from PIL import Image
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -52,6 +52,7 @@ from qonnx.transformation.insert_topk import InsertTopK
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.transformation.remove import RemoveIdentityOps
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -63,6 +64,7 @@ from finn.transformation.fpgadataflow.create_dataflow_partition import (
 )
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.collapse_repeated import CollapseRepeatedMul
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
@@ -95,8 +97,10 @@ def test_end2end_mobilenet_export():
     std = 0.226
     ch = 3
     preproc = NormalizePreProc(mean, std, ch)
-    export_finn_onnx(preproc, torch.randn(1, 3, 224, 224), preproc_onnx)
+    export_qonnx(preproc, torch.randn(1, 3, 224, 224), preproc_onnx)
+    qonnx_cleanup(preproc_onnx, out_file=preproc_onnx)
     preproc_model = ModelWrapper(preproc_onnx)
+    preproc_model = preproc_model.transform(ConvertQONNXtoFINN())
     # set input finn datatype to UINT8
     preproc_model.set_tensor_datatype(preproc_model.graph.input[0].name, DataType["UINT8"])
     preproc_model = preproc_model.transform(InferShapes())
@@ -109,7 +113,8 @@ def test_end2end_mobilenet_export():
     # export mobilenet
     finn_onnx = build_dir + "/end2end_mobilenet_export.onnx"
     mobilenet = get_test_model_trained("mobilenet", 4, 4)
-    export_finn_onnx(mobilenet, torch.randn(1, 3, 224, 224), finn_onnx)
+    export_qonnx(mobilenet, torch.randn(1, 3, 224, 224), finn_onnx)
+    qonnx_cleanup(finn_onnx, out_file=finn_onnx)
 
     # calculate golden output with pytorch/brevitas and save as .npy
     # get single image as input and prepare image
@@ -145,6 +150,7 @@ def test_end2end_mobilenet_export():
 def test_end2end_mobilenet_tidy_and_merge_with_preproc():
     preproc_model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_preproc.onnx")
     model = load_test_checkpoint_or_skip(build_dir + "/end2end_mobilenet_export.onnx")
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(InsertTopK())

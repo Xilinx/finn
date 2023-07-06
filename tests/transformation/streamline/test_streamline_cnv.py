@@ -32,7 +32,7 @@ import pytest
 
 import numpy as np
 import torch
-from brevitas.export import export_finn_onnx
+from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
@@ -43,8 +43,10 @@ from qonnx.transformation.general import (
     RemoveUnusedTensors,
 )
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
@@ -65,8 +67,10 @@ def test_streamline_cnv(size, wbits, abits):
     nname = "%s_%dW%dA" % (size, wbits, abits)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
     fc = get_test_model_trained(size, wbits, abits)
-    export_finn_onnx(fc, torch.randn(1, 3, 32, 32), finn_onnx)
+    export_qonnx(fc, torch.randn(1, 3, 32, 32), finn_onnx)
+    qonnx_cleanup(finn_onnx, out_file=finn_onnx)
     model = ModelWrapper(finn_onnx)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
