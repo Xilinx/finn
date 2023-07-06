@@ -11,7 +11,7 @@ pre-commit==2.9.2
 protobuf==3.20.3
 psutil==5.9.4
 pyscaffold==3.2.1
-scipy==1.5.2
+scipy==1.10.0
 setupext-janitor>=1.1.2
 sigtools==2.0.3
 toposort==1.5
