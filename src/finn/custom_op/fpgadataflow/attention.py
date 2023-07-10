@@ -449,3 +449,34 @@ class ScaledDotProductAttention(CustomOp):
         nf = d // pe
         # New shape with PE elements as the last dimension
         return tuple((t, nf, pe))
+
+    # Widths of the input data stream of the input at index ind
+    def get_instream_width(self, ind=0):
+        # Get the number of bits used to represent the input
+        i_bits = self.get_input_datatype(ind).bitwidth()
+        # Width of a stream receiving SIMD inputs in parallel
+        return self.get_nodeattr("SIMD") * i_bits
+
+    # Widths of the output data stream of the output at index ind
+    def get_outstream_width(self, ind=0):
+        # Get the number of bits used to represent the output
+        o_bits = self.get_output_datatype(ind).bitwidth()
+        # Width of a stream producing PE outputs in parallel
+        return self.get_nodeattr("PE") * o_bits
+
+    # Maximum width of any ap_int used in this operator
+    def get_ap_int_max_w(self):
+        # Find the widths of the widest input
+        i_bits_max = max((self.get_instream_width(ind) for ind in range(3)))
+        # Find the widths of the widest output
+        o_bits_max = max((self.get_instream_width(ind) for ind in range(1)))
+        # Assume no bits to represent the mask, if there is no mask
+        m_bits = 0
+        # A mask received as input or produced as causal on the fly has a
+        # bit-width as well
+        if self.get_nodeattr("mask_mode") in {"input", "causal"}:
+            # Get width of the mask datatype
+            m_bits = DataType[self.get_nodeattr("mask_dtype")].bitwidth()
+        # TODO: Are there more intermediates which need to be considered?
+        # Find maximum of all maximal bit-widths
+        return max([i_bits_max, o_bits_max, m_bits])
