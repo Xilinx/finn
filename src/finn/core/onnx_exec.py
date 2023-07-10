@@ -34,9 +34,7 @@ from qonnx.core.onnx_exec import execute_onnx as execute_onnx_base
 from finn.core.rtlsim_exec import rtlsim_exec
 
 
-def execute_onnx(
-    model, input_dict, return_full_exec_context=False, start_node=None, end_node=None
-):
+def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=None, end_node=None):
     """Executes given ONNX ModelWrapper with given named inputs.
     If return_full_exec_context is False, a dict of named outputs is returned
     as indicated by the model.graph.output.
@@ -53,9 +51,7 @@ def execute_onnx(
     # if set to "rtlsim" execute model using pyverilator
     model_exec_mode = model.get_metadata_prop("exec_mode")
     if (model_exec_mode is None) or (model_exec_mode == ""):
-        return execute_onnx_base(
-            model, input_dict, return_full_exec_context, start_node, end_node
-        )
+        return execute_onnx_base(model, input_dict, return_full_exec_context, start_node, end_node)
 
     if not model.check_all_tensor_shapes_specified():
         raise Exception("Found unspecified tensor shapes, try infer_shapes")

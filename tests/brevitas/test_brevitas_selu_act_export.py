@@ -48,9 +48,7 @@ from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 @pytest.mark.parametrize("narrow", [True, False])
 def test_brevitas_act_export_selu(abits, ishape, narrow):
     export_path = "test_brevitas_selu_act_export_%s.onnx" % str(abits)
-    b_act = torch.nn.Sequential(
-        torch.nn.SELU(), QuantIdentity(bit_width=abits, narrow=narrow)
-    )
+    b_act = torch.nn.Sequential(torch.nn.SELU(), QuantIdentity(bit_width=abits, narrow=narrow))
 
     export_qonnx(
         b_act,

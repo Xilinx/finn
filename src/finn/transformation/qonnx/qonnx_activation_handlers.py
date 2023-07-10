@@ -351,13 +351,10 @@ class QuantReluHandler(QuantActBaseHandler):
             bit_width = 1.0
         else:
             raise RuntimeError("Got an unexpected quantizer node type")
-        quant_scale = self._model.get_initializer(self._q_node.input[1]).astype(
-            np.float32
-        )
+        quant_scale = self._model.get_initializer(self._q_node.input[1]).astype(np.float32)
         act_node = self._model.find_direct_predecessors(self._q_node)
         act_node = act_node[0]
         if act_node.op_type == "Relu":
-
             # Calculate thersholds, see: https://github.com/Xilinx/brevitas/blob/
             # a5bfd6dc5e030f0047ac1ee47932b60e8e873e17/src/brevitas/export/
             # onnx/finn/handler/act.py#L21
@@ -367,9 +364,7 @@ class QuantReluHandler(QuantActBaseHandler):
             num_scale_channels = flat_scale.shape[0]
             step = np.abs(flat_scale).astype(np.float32)
             min_threshold = step / 2
-            thresholds = np.empty(
-                (num_scale_channels, num_thresholds), dtype=np_default_dtype
-            )
+            thresholds = np.empty((num_scale_channels, num_thresholds), dtype=np_default_dtype)
             for c in range(num_scale_channels):
                 for t in range(num_thresholds):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
@@ -391,9 +386,7 @@ class QuantReluHandler(QuantActBaseHandler):
             # from https://pytorch.org/docs/stable/generated/torch.nn.SELU.html
             alpha = 1.6732632423543772848170429916717
             selu_scale = 1.0507009873554804934193349852946
-            thresholds = np.empty(
-                (num_scale_channels, num_thresholds), dtype=np_default_dtype
-            )
+            thresholds = np.empty((num_scale_channels, num_thresholds), dtype=np_default_dtype)
             for c in range(num_scale_channels):
                 for t in range(num_thresholds):
                     step = -1.0 + half_scale + scale[c] * t
@@ -424,8 +417,7 @@ class QuantReluHandler(QuantActBaseHandler):
         act_node = self._model.find_direct_predecessors(self._q_node)
         if act_node is None:
             raise RuntimeError(
-                "For handling of Relu activations a predecesor to "
-                "the Quant node must exist."
+                "For handling of Relu activations a predecesor to " "the Quant node must exist."
             )
         act_node = act_node[0]
         if act_node.op_type not in self.valid_predecessor_op_types():
@@ -466,9 +458,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
             q_inst = getCustomOp(self._q_node)
             signed = q_inst.get_nodeattr("signed")
             if not signed:
-                raise ValueError(
-                    "FINN only supports signed Quant nodes for identity activations."
-                )
+                raise ValueError("FINN only supports signed Quant nodes for identity activations.")
             if not self._model.get_initializer(self._q_node.input[2]) == 0:
                 raise ValueError(
                     "Only Quant nodes with zero-point == 0 "
@@ -537,9 +527,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
             num_scale_channels = flat_scale.shape[0]
             step = np.abs(flat_scale)
             half_step = step / 2.0
-            thresholds = np.empty(
-                (num_scale_channels, num_thresholds), dtype=np_default_dtype
-            )
+            thresholds = np.empty((num_scale_channels, num_thresholds), dtype=np_default_dtype)
             # compute the value of the smallest threshold, we'll neg-bias all
             # generated thresholds by this much
             min_threshold = -half_step - step * ((num_thresholds // 2) - 1)
@@ -550,9 +538,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
                     thresholds[c][t] = min_threshold[c] + step[c] * t
 
             # ToDo: The index 1 needs to be changed to -1 for the channels last format
-            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[
-                1
-            ]
+            num_output_channels = self._model.get_tensor_shape(self._q_node.output[0])[1]
             final_shape = (num_output_channels, num_thresholds)
             if thresholds.shape != final_shape:
                 thresholds = np.broadcast_to(thresholds, final_shape)
@@ -574,9 +560,7 @@ class QuantIdentityHandler(QuantActBaseHandler):
         if bit_width != 1:
             scale = quant_scale
         else:
-            assert (
-                quant_scale.flatten().shape[0] == 1
-            ), "Unsupported BIPOLAR per channel scale"
+            assert quant_scale.flatten().shape[0] == 1, "Unsupported BIPOLAR per channel scale"
             assert quant_scale.flatten()[0] == 1.0, "Unsupported BIPOLAR scale != 1"
             scale = quant_scale * 2
         return scale

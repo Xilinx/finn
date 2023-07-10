@@ -49,9 +49,7 @@ def _codegen_single_node(node, model):
         code_gen_dir = inst.get_nodeattr("code_gen_dir_cppsim")
         # ensure that there is a directory
         if code_gen_dir == "" or not os.path.isdir(code_gen_dir):
-            code_gen_dir = make_build_dir(
-                prefix="code_gen_cppsim_" + str(node.name) + "_"
-            )
+            code_gen_dir = make_build_dir(prefix="code_gen_cppsim_" + str(node.name) + "_")
             inst.set_nodeattr("code_gen_dir_cppsim", code_gen_dir)
         # ensure that there is generated code inside the dir
         inst.code_generation_cppsim(model)

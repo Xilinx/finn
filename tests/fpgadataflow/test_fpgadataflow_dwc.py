@@ -42,7 +42,6 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 
 
 def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style):
-
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, shape)
 
@@ -59,9 +58,7 @@ def make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_styl
         impl_style=impl_style,
     )
 
-    graph = helper.make_graph(
-        nodes=[DWC_node], name="dwc_graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=[DWC_node], name="dwc_graph", inputs=[inp], outputs=[outp])
 
     model = qonnx_make_model(graph, producer_name="dwc-model")
     model = ModelWrapper(model)
@@ -99,9 +96,7 @@ def test_fpgadataflow_dwc_rtlsim(config):
     x = gen_finn_dt_tensor(finn_dtype, shape)
     input_dict = prepare_inputs(x, finn_dtype)
 
-    model = make_single_dwc_modelwrapper(
-        shape, inWidth, outWidth, finn_dtype, impl_style
-    )
+    model = make_single_dwc_modelwrapper(shape, inWidth, outWidth, finn_dtype, impl_style)
     model = model.transform(InsertFIFO(create_shallow_fifos=True))
     model = model.transform(GiveUniqueNodeNames())
     model = model.transform(PrepareIP(test_fpga_part, 5))

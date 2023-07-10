@@ -67,14 +67,10 @@ def test_move_maxpool_past_multithreshold():
 
     value_info = []
     thres1_shape = [1, 1]
-    value_info += [
-        helper.make_tensor_value_info("thres1", TensorProto.FLOAT, thres1_shape)
-    ]
+    value_info += [helper.make_tensor_value_info("thres1", TensorProto.FLOAT, thres1_shape)]
 
     thres2_shape = [ch, 14]
-    value_info += [
-        helper.make_tensor_value_info("thres2", TensorProto.FLOAT, thres2_shape)
-    ]
+    value_info += [helper.make_tensor_value_info("thres2", TensorProto.FLOAT, thres2_shape)]
 
     nodes = []
     nodes += [helper.make_node("MaxPool", ["top_in"], ["t1"], **maxpool_config)]
@@ -114,9 +110,7 @@ def test_move_maxpool_past_multithreshold():
     model = model.transform(InferDataTypes())
 
     model.set_initializer("thres1", np.array([[0]], dtype=np.float32))
-    model.set_initializer(
-        "thres2", get_multithreshold_rand_params(*thres2_shape, seed=0)
-    )
+    model.set_initializer("thres2", get_multithreshold_rand_params(*thres2_shape, seed=0))
 
     # Transform
     new_model = model.transform(MoveMaxPoolPastMultiThreshold())

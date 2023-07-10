@@ -65,14 +65,10 @@ def test_move_mul_past_dw_conv(ifm_dim, ifm_ch, k, stride, pad_amt, dw):
     ofm_dim = compute_conv_output_dim(ifm_dim, k, stride, total_pad)
 
     # set up onnx model
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim])
     mul = helper.make_tensor_value_info("mul", TensorProto.FLOAT, [1, ifm_ch, 1, 1])
     W = helper.make_tensor_value_info("W", TensorProto.FLOAT, W_shape)
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_ch, ofm_dim, ofm_dim]
-    )
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_ch, ofm_dim, ofm_dim])
 
     Mul_node = helper.make_node("Mul", ["inp", "mul"], ["mul_out"])
 

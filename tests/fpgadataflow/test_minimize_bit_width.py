@@ -228,11 +228,7 @@ def calculate_accumulator_bit_width(
     # if not runtime-writable weights, then use the tighter bound on the accumulator
     # bit width as determined by the weight values themselves
     else:
-        beta = (
-            np.log2(abs(weights).sum(axis=0).max())
-            + idt.bitwidth()
-            - float(idt.signed())
-        )
+        beta = np.log2(abs(weights).sum(axis=0).max()) + idt.bitwidth() - float(idt.signed())
         P = np.ceil(beta + phi(beta) + 1.0)
     # if the node is the last in the graph, then round up to the nearest 8 bits
     if model.find_direct_successors(inst.onnx_node) is None:
@@ -262,9 +258,7 @@ weight_data_types = [
 @pytest.mark.parametrize("tdt", thresh_data_types)
 @pytest.mark.parametrize("rww", [True, False])
 @pytest.mark.fpgadataflow
-def test_minimize_accumulator_width(
-    wdt: DataType, idt: DataType, tdt: DataType, rww: bool
-):
+def test_minimize_accumulator_width(wdt: DataType, idt: DataType, tdt: DataType, rww: bool):
     """Testing MinimizeAccumulatorWidth for VVAU and MVAU.
 
     :param wdt: (DataType) The data type that we are testing for the weights
@@ -272,9 +266,7 @@ def test_minimize_accumulator_width(
     :param tdt: (DataType) The data type that we are testing for the thresholds
     :param rww: (bool) Whether or not to use runtime-writeable weights"""
     if (not wdt.signed()) or isinstance(wdt, BipolarType):
-        pytest.skip(
-            "Closed-form accumulator calculation is designed to consider signed weights"
-        )
+        pytest.skip("Closed-form accumulator calculation is designed to consider signed weights")
 
     # Create uniform-precision model
     model = make_unit_test_model(wdt, idt, tdt)
@@ -286,9 +278,7 @@ def test_minimize_accumulator_width(
         if isinstance(inst, (MatrixVectorActivation, VectorVectorActivation)):
             inst.set_nodeattr("runtime_writeable_weights", int(rww))
             cur_adt = DataType[inst.get_nodeattr("accDataType")]
-            assert (
-                cur_adt.bitwidth() == def_adt.bitwidth()
-            ), "Default data type is incorrect"
+            assert cur_adt.bitwidth() == def_adt.bitwidth(), "Default data type is incorrect"
 
     # Apply the optimization
     model = model.transform(MinimizeAccumulatorWidth())
@@ -304,9 +294,7 @@ def test_minimize_accumulator_width(
             # bit width minimization logic in the MVAU and VVAU is exact and should be
             # less than or equal to this calculation
             exp_adt = calculate_accumulator_bit_width(inst, model)
-            assert (
-                cur_adt.bitwidth() <= exp_adt.bitwidth()
-            ), "Mismatched accumulation data types"
+            assert cur_adt.bitwidth() <= exp_adt.bitwidth(), "Mismatched accumulation data types"
             if model.find_direct_successors(inst.onnx_node) is None:
                 assert (
                     cur_adt.bitwidth() % 8
@@ -315,6 +303,4 @@ def test_minimize_accumulator_width(
                     cur_adt.bitwidth() == cur_odt.bitwidth()
                 ), "outputDataType and accDataType should be equal"
             else:
-                assert (
-                    cur_odt.bitwidth() == idt.bitwidth()
-                ), "outputDataType should not be changed"
+                assert cur_odt.bitwidth() == idt.bitwidth(), "outputDataType should not be changed"

@@ -267,9 +267,7 @@ class DataflowBuildConfig:
 
     #: When `auto_fifo_depths = True`, select which method will be used for
     #: setting the FIFO sizes.
-    auto_fifo_strategy: Optional[
-        AutoFIFOSizingMethod
-    ] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
+    auto_fifo_strategy: Optional[AutoFIFOSizingMethod] = AutoFIFOSizingMethod.LARGEFIFO_RTLSIM
 
     #: Avoid using C++ rtlsim for auto FIFO sizing and rtlsim throughput test
     #: if set to True, always using Python instead
@@ -366,9 +364,7 @@ class DataflowBuildConfig:
         elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
             return "alveo"
         else:
-            raise Exception(
-                "Couldn't resolve driver platform for " + str(self.shell_flow_type)
-            )
+            raise Exception("Couldn't resolve driver platform for " + str(self.shell_flow_type))
 
     def _resolve_fpga_part(self):
         if self.fpga_part is None:
@@ -410,8 +406,7 @@ class DataflowBuildConfig:
             return alveo_default_platform[self.board]
         else:
             raise Exception(
-                "Could not resolve Vitis platform:"
-                " need either board or vitis_platform specified"
+                "Could not resolve Vitis platform:" " need either board or vitis_platform specified"
             )
 
     def _resolve_verification_steps(self):
@@ -429,8 +424,7 @@ class DataflowBuildConfig:
             )
             verify_input_npy = np.load(self.verify_input_npy)
             assert os.path.isfile(self.verify_expected_output_npy), (
-                "verify_expected_output_npy not found: "
-                + self.verify_expected_output_npy
+                "verify_expected_output_npy not found: " + self.verify_expected_output_npy
             )
             verify_expected_output_npy = np.load(self.verify_expected_output_npy)
             return (

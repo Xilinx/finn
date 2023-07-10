@@ -56,9 +56,7 @@ def make_dupstreams_modelwrapper(ch, pe, idim, idt, n_dupl):
     for i in range(n_dupl):
         outp_name = "outp%d" % i
         out_names.append(outp_name)
-        out_vi.append(
-            helper.make_tensor_value_info(outp_name, TensorProto.FLOAT, shape)
-        )
+        out_vi.append(helper.make_tensor_value_info(outp_name, TensorProto.FLOAT, shape))
 
     dupstrm_node = helper.make_node(
         "DuplicateStreams_Batch",
@@ -72,9 +70,7 @@ def make_dupstreams_modelwrapper(ch, pe, idim, idt, n_dupl):
         inputDataType=idt.name,
         numInputVectors=[1, idim, idim],
     )
-    graph = helper.make_graph(
-        nodes=[dupstrm_node], name="graph", inputs=[inp], outputs=out_vi
-    )
+    graph = helper.make_graph(nodes=[dupstrm_node], name="graph", inputs=[inp], outputs=out_vi)
 
     model = qonnx_make_model(graph, producer_name="addstreams-model")
     model = ModelWrapper(model)

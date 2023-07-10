@@ -69,7 +69,7 @@ def get_fifo_count_max(vcd_file, fifo_count_signal):
     assert len(d) != 0, "FIFO count signal not found"
     events = list(d.values())[0]["tv"]
     max = 0
-    for (time, val) in events:
+    for time, val in events:
         current = int(val, base=2)
         if current > max:
             max = current
@@ -140,7 +140,7 @@ def get_stream_if_stats(vcd_file, if_base_name):
     status = {"V": 0, "R": 0}
     last_time = 0
     total_rising_clock_edges = 0
-    for (sig, time, val) in events:
+    for sig, time, val in events:
         # pyverilator generates 5 time units per sample
         time = time / 5
         # pyverilator generates 4 samples per clock period
