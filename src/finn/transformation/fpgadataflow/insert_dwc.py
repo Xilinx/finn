@@ -48,8 +48,7 @@ class InsertDWC(Transformation):
                     if consumers == []:
                         continue
                     assert len(consumers) == 1, (
-                        n.name
-                        + ": HLS node with fan-out higher than 1 cannot be stitched"
+                        n.name + ": HLS node with fan-out higher than 1 cannot be stitched"
                     )
                     consumer = consumers[0]
                     if _suitable_node(consumer) is True:

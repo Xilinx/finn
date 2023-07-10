@@ -149,9 +149,7 @@ def pack_innermost_dim_as_hex_string(
         ndarray = np.asarray(ndarray, dtype=np.float32)
 
     def fun(x):
-        return array2hexstring(
-            x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix
-        )
+        return array2hexstring(x, dtype, pad_to_nbits, reverse=reverse_inner, prefix=prefix)
 
     return np.apply_along_axis(fun, ndarray.ndim - 1, ndarray)
 
@@ -232,9 +230,7 @@ def unpack_innermost_dim_from_hex_string(
     return array
 
 
-def numpy_to_hls_code(
-    ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_decl=False
-):
+def numpy_to_hls_code(ndarray, dtype, hls_var_name, pack_innermost_dim=True, no_decl=False):
     """Return C++ code representation of a numpy ndarray with FINN DataType
     dtype, using hls_var_name as the resulting C++ variable name. If
     pack_innermost_dim is specified, the innermost dimension of the ndarray
@@ -311,9 +307,7 @@ def npy_to_rtlsim_input(input_file, input_dtype, pad_to_nbits, reverse_inner=Tru
     return packed_data
 
 
-def rtlsim_output_to_npy(
-    output, path, dtype, shape, packedBits, targetBits, reverse_inner=True
-):
+def rtlsim_output_to_npy(output, path, dtype, shape, packedBits, targetBits, reverse_inner=True):
     """Convert a flattened sequence of Python arbitrary-precision integers
     output into a NumPy array, saved as npy file at path. Each arbitrary-precision
     integer is assumed to be a packed array of targetBits-bit elements, which
@@ -418,9 +412,7 @@ def packed_bytearray_to_finnpy(
 
     """
 
-    if (
-        not issubclass(type(packed_bytearray), np.ndarray)
-    ) or packed_bytearray.dtype != np.uint8:
+    if (not issubclass(type(packed_bytearray), np.ndarray)) or packed_bytearray.dtype != np.uint8:
         raise Exception("packed_bytearray_to_finnpy needs NumPy uint8 arrays")
     if packed_bytearray.ndim == 0:
         raise Exception("packed_bytearray_to_finnpy expects at least 1D ndarray")
@@ -446,9 +438,7 @@ def packed_bytearray_to_finnpy(
     if reverse_endian:
         packed_bytearray = np.flip(packed_bytearray, axis=-1)
     # convert innermost dim of byte array to hex strings
-    packed_hexstring = np.apply_along_axis(
-        npbytearray2hexstring, packed_dim, packed_bytearray
-    )
+    packed_hexstring = np.apply_along_axis(npbytearray2hexstring, packed_dim, packed_bytearray)
     ret = unpack_innermost_dim_from_hex_string(
         packed_hexstring, dtype, output_shape, packed_bits, reverse_inner
     )

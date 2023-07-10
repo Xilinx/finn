@@ -124,18 +124,10 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
             node_ind += 1
             if n.op_type == "AveragePool":
                 mul_node = model.find_direct_successors(n)
-                if (
-                    mul_node is not None
-                    and len(mul_node) == 1
-                    and mul_node[0].op_type == "Mul"
-                ):
+                if mul_node is not None and len(mul_node) == 1 and mul_node[0].op_type == "Mul":
                     mul_node = mul_node[0]
                     t_node = model.find_direct_successors(mul_node)
-                    if (
-                        t_node is not None
-                        and len(t_node) == 1
-                        and t_node[0].op_type == "Trunc"
-                    ):
+                    if t_node is not None and len(t_node) == 1 and t_node[0].op_type == "Trunc":
                         t_node = t_node[0]
                         running_node_index = node_ind
                         # Check node for compatibility
@@ -143,27 +135,16 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
                         k_s = get_by_name(n.attribute, "kernel_shape")
                         if k_s is None or len(k_s.ints) != 2 or len(set(k_s.ints)) != 1:
                             raise ValueError(
-                                "FINN only supports average pooling with "
-                                "2D square kernels."
+                                "FINN only supports average pooling with " "2D square kernels."
                             )
                         k_s = k_s.ints[0]
 
                         pads = get_by_name(n.attribute, "pads")
-                        if (
-                            pads is None
-                            or len(set(pads.ints)) != 1
-                            or pads.ints[0] != 0
-                        ):
-                            raise ValueError(
-                                "FINN dosn't support padding for average pooling."
-                            )
+                        if pads is None or len(set(pads.ints)) != 1 or pads.ints[0] != 0:
+                            raise ValueError("FINN dosn't support padding for average pooling.")
 
                         stride = get_by_name(n.attribute, "strides")
-                        if (
-                            stride is None
-                            or len(stride.ints) != 2
-                            or len(set(stride.ints)) != 1
-                        ):
+                        if stride is None or len(stride.ints) != 2 or len(set(stride.ints)) != 1:
                             raise ValueError(
                                 "FINN only supports 2D strides with equal values in "
                                 "each direction."
@@ -172,11 +153,7 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
 
                         # Mul node
                         mul_val = model.get_initializer(mul_node.input[1])
-                        if (
-                            mul_val is None
-                            or len(mul_val.shape) != 0
-                            or mul_val != k_s * k_s
-                        ):
+                        if mul_val is None or len(mul_val.shape) != 0 or mul_val != k_s * k_s:
                             raise ValueError(
                                 f"The Mul node after the AveragePool node must have "
                                 f"static initialization at the second input, "
@@ -188,10 +165,10 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
 
                         # Trunc node
                         rounding_mode = get_by_name(t_node.attribute, "rounding_mode")
-                        if rounding_mode is None or rounding_mode.s != b"FLOOR":
+                        normalized_mode_string = rounding_mode.s.upper()
+                        if rounding_mode is None or normalized_mode_string != b"FLOOR":
                             raise ValueError(
-                                "The Trunc node must have the rounding_mode "
-                                "set to 'FLOOR'."
+                                "The Trunc node must have the rounding_mode " "set to 'FLOOR'."
                             )
                         for inp in t_node.input[1:]:
                             if model.get_initializer(inp) is None:
@@ -207,13 +184,8 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
                                 f"the Trunc node, it currently is {zero_pt}."
                             )
                         trunc_in_bits = model.get_initializer(t_node.input[3]).flatten()
-                        trunc_out_bits = model.get_initializer(
-                            t_node.input[4]
-                        ).flatten()
-                        if (
-                            len(trunc_in_bits.shape) != 1
-                            or len(trunc_out_bits.shape) != 1
-                        ):
+                        trunc_out_bits = model.get_initializer(t_node.input[4]).flatten()
+                        if len(trunc_in_bits.shape) != 1 or len(trunc_out_bits.shape) != 1:
                             raise ValueError(
                                 f"Finn only supports scalar bit widths "
                                 f"for the Trunc node. The input bit width "
@@ -228,9 +200,7 @@ class AvgPoolAndTruncToQuantAvgPool(Transformation):
                         # https://github.com/Xilinx/finn-base/blob/
                         # 7c2603a95e90e4de2575020e575c24eab6a15889/src/finn/custom_op/
                         # general/quantavgpool2d.py#L94
-                        ibits = math.floor(
-                            math.log(2**trunc_in_bits / (k_s * k_s), 2)
-                        )
+                        ibits = math.floor(math.log(2**trunc_in_bits / (k_s * k_s), 2))
                         # Get sign
                         signed = _get_signed_from_upstream(model, t_node)
                         # ToDo: Change this to NHWC,

@@ -42,7 +42,6 @@ class StreamingEltwise(HLSCustomOp):
         super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-
         my_attrs = super().get_nodeattr_types()
         my_attrs.update(
             {
@@ -154,9 +153,7 @@ class StreamingEltwise(HLSCustomOp):
             self.get_nodeattr("eltwiseOp")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required StreamingEltwise attributes do not exist."""
-            )
+            info_messages.append("""The required StreamingEltwise attributes do not exist.""")
 
         return info_messages
 
@@ -235,9 +232,7 @@ class StreamingEltwise(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input0 shape doesn't match expected shape ."""
+        assert inp.shape == exp_ishape, """Input0 shape doesn't match expected shape ."""
         export_idt0 = self.get_input_datatype(0)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
@@ -248,9 +243,7 @@ class StreamingEltwise(HLSCustomOp):
         # exact same thing for input1
         inp = context[node.input[1]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input1 shape doesn't match expected shape ."""
+        assert inp.shape == exp_ishape, """Input1 shape doesn't match expected shape ."""
         export_idt1 = self.get_input_datatype(1)
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
@@ -354,25 +347,45 @@ class StreamingEltwise(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"] = []
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type_0, elem_hls_type_0, elem_bits_0, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type_0,
+                elem_hls_type_0,
+                elem_bits_0,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
         npy_in = "%s/input_1.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in1);'
-            % (packed_hls_type_1, elem_hls_type_1, elem_bits_1, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in1_%s);'
+            % (
+                packed_hls_type_1,
+                elem_hls_type_1,
+                elem_bits_1,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width(0))
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(0), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in1 ("in1");'.format(self.get_instream_width(1))
+            'hls::stream<ap_uint<{}>> in1_{} ("in1_{}");'.format(
+                self.get_instream_width(1), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
@@ -394,7 +407,7 @@ class StreamingEltwise(HLSCustomOp):
             out_hls_type,
         )
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, {}, {}, {}, {}, {}>(in0, in1, out, {});""".format(
+            """{}<{}, {}, {}, {}, {}, {}>(in0_{}, in1_{}, out_{}, {});""".format(
                 "StreamingEltwise",
                 self.get_nodeattr("NumChannels"),
                 self.get_nodeattr("PE"),
@@ -402,6 +415,9 @@ class StreamingEltwise(HLSCustomOp):
                 slice_in0,
                 slice_in1,
                 slice_out,
+                self.hls_sname(),
+                self.hls_sname(),
+                self.hls_sname(),
                 eltwise_op_str,
             )
         ]
@@ -419,12 +435,13 @@ class StreamingEltwise(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -435,28 +452,29 @@ class StreamingEltwise(HLSCustomOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0, hls::stream<ap_uint<{}>> &in1,
-                hls::stream<ap_uint<{}>> &out)""".format(
+            """void {}(hls::stream<ap_uint<{}>> &in0_{}, hls::stream<ap_uint<{}>> &in1_{},
+                hls::stream<ap_uint<{}>> &out_{})""".format(
                 self.onnx_node.name,
                 self.get_nodeattr("PE") * self.get_input_datatype(0).bitwidth(),
+                self.hls_sname(),
                 self.get_nodeattr("PE") * self.get_input_datatype(1).bitwidth(),
+                self.hls_sname(),
                 self.get_nodeattr("PE") * self.get_output_datatype().bitwidth(),
+                self.hls_sname(),
             )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=in1 name=in1_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in1_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

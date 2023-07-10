@@ -79,7 +79,5 @@ class CleanUp(Transformation):
 
                 except KeyError:
                     # exception if op_type is not supported
-                    raise Exception(
-                        "Custom op_type %s is currently not supported." % op_type
-                    )
+                    raise Exception("Custom op_type %s is currently not supported." % op_type)
         return (model, False)

@@ -64,11 +64,9 @@ class HLSSynthIP(NodeLocalTransformation):
                 ), """Node
                 attribute "code_gen_dir_ipgen" is empty. Please run
                 transformation PrepareIP first."""
-                if not os.path.isdir(
-                    inst.get_nodeattr("ipgen_path")
-                ) or not inst.get_nodeattr("code_gen_dir_ipgen") in inst.get_nodeattr(
-                    "ipgen_path"
-                ):
+                if not os.path.isdir(inst.get_nodeattr("ipgen_path")) or not inst.get_nodeattr(
+                    "code_gen_dir_ipgen"
+                ) in inst.get_nodeattr("ipgen_path"):
                     # call the compilation function for this node
                     inst.ipgen_singlenode_code()
                 else:
@@ -81,7 +79,5 @@ class HLSSynthIP(NodeLocalTransformation):
                 is empty."""
             except KeyError:
                 # exception if op_type is not supported
-                raise Exception(
-                    "Custom op_type %s is currently not supported." % op_type
-                )
+                raise Exception("Custom op_type %s is currently not supported." % op_type)
         return (node, False)

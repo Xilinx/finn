@@ -64,11 +64,7 @@ class ExternalizeParams(Transformation):
                 assert iodma_init is not None
                 # remove output-side initializer to get correct dataflow partitioning
                 model.graph.initializer.remove(
-                    [
-                        x
-                        for x in model.graph.initializer
-                        if x.name == extw_tensor_name_out
-                    ][0]
+                    [x for x in model.graph.initializer if x.name == extw_tensor_name_out][0]
                 )
                 graph_modified = True
 

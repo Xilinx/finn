@@ -95,6 +95,7 @@ def test_fpgadataflow_concat(exec_mode, idt):
     assert model.graph.node[0].op_type == "StreamingConcat"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
     if exec_mode == "cppsim":
+        model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))

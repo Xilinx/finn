@@ -91,12 +91,8 @@ def resolve_build_steps(cfg: DataflowBuildConfig, partial: bool = True):
     return steps_as_fxns
 
 
-def resolve_step_filename(
-    step_name: str, cfg: DataflowBuildConfig, step_delta: int = 0
-):
-    step_names = list(
-        map(lambda x: x.__name__, resolve_build_steps(cfg, partial=False))
-    )
+def resolve_step_filename(step_name: str, cfg: DataflowBuildConfig, step_delta: int = 0):
+    step_names = list(map(lambda x: x.__name__, resolve_build_steps(cfg, partial=False)))
     assert step_name in step_names, "start_step %s not found" + step_name
     step_no = step_names.index(step_name) + step_delta
     assert step_no >= 0, "Invalid step+delta combination"
@@ -150,19 +146,13 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     for transform_step in build_dataflow_steps:
         try:
             step_name = transform_step.__name__
-            print(
-                "Running step: %s [%d/%d]"
-                % (step_name, step_num, len(build_dataflow_steps))
-            )
+            print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
             # redirect output to logfile
             if not cfg.verbose:
                 sys.stdout = stdout_logger
                 sys.stderr = stderr_logger
                 # also log current step name to logfile
-                print(
-                    "Running step: %s [%d/%d]"
-                    % (step_name, step_num, len(build_dataflow_steps))
-                )
+                print("Running step: %s [%d/%d]" % (step_name, step_num, len(build_dataflow_steps)))
             # run the step
             step_start = time.time()
             model = transform_step(model, cfg)

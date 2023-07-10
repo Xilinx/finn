@@ -262,9 +262,7 @@ class InsertAndSetFIFODepths(Transformation):
         modified_fc_nodes = []
         for node in model.graph.node:
             # verify assumptions
-            assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(
-                node
-            )
+            assert is_fpgadataflow_node(node), "Found non-fpgadataflow node: " + str(node)
             assert node.op_type != "StreamingFIFO", "Found existing StreamingFIFO node"
             node = getCustomOp(node)
             ifd = node.get_nodeattr("inFIFODepths")
@@ -289,8 +287,7 @@ class InsertAndSetFIFODepths(Transformation):
                     node.set_nodeattr("mem_mode", "decoupled")
                     reset_implementation(node)
                     warnings.warn(
-                        "Changed mem_mode from external to decoupled for "
-                        + node.onnx_node.name
+                        "Changed mem_mode from external to decoupled for " + node.onnx_node.name
                     )
 
         # insert stream infrastructure (DWC/FIFO)
@@ -308,9 +305,7 @@ class InsertAndSetFIFODepths(Transformation):
             node.set_nodeattr("depth_monitor", 1)
             node.set_nodeattr("impl_style", "rtl")
             # check depths and fix as necessary
-            if (self.max_depth is not None) and (
-                node.get_nodeattr("depth") != self.max_depth
-            ):
+            if (self.max_depth is not None) and (node.get_nodeattr("depth") != self.max_depth):
                 node.set_nodeattr("depth", self.max_depth)
 
         # insert FIFOs and do all transformations for RTLsim
@@ -373,15 +368,11 @@ class InsertAndSetFIFODepths(Transformation):
                     ncycles = ncycles - 1
 
             if not output_detected:
-                warnings.warn(
-                    "No output detected, calculated FIFO depths may not be correct"
-                )
+                warnings.warn("No output detected, calculated FIFO depths may not be correct")
         else:
             # do rtlsim in C++ for FIFO sizing
             # determine # inputs for FIFO sizing according to topology type
-            swg_nodes = [
-                x for x in model.graph.node if "ConvolutionInputGenerator" in x.op_type
-            ]
+            swg_nodes = [x for x in model.graph.node if "ConvolutionInputGenerator" in x.op_type]
             if len(swg_nodes) == 0:
                 # MLP, no layer overlap
                 # assuming half the nodes are now FIFOs, use half the # of
@@ -443,9 +434,7 @@ class InsertAndSetFIFODepths(Transformation):
 
         # handle custom sizing for SWG FIFOs if desired
         if self.swg_exception:
-            model = model.transform(
-                CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth)
-            )
+            model = model.transform(CapConvolutionFIFODepths(max_qsrl_depth=self.max_qsrl_depth))
         # remove shallow FIFOs
         model = model.transform(RemoveShallowFIFOs())
 
@@ -575,9 +564,7 @@ class SplitLargeFIFOs(Transformation):
             if node.op_type == "StreamingFIFO":
                 n_inst = getCustomOp(node)
                 depth = n_inst.get_nodeattr("depth")
-                cfgs = get_fifo_split_configs(
-                    depth, self.max_qsrl_depth, self.max_vivado_depth
-                )
+                cfgs = get_fifo_split_configs(depth, self.max_qsrl_depth, self.max_vivado_depth)
                 if len(cfgs) > 1:
                     fld_shape = n_inst.get_folded_output_shape()
                     dtype = n_inst.get_nodeattr("dataType")
