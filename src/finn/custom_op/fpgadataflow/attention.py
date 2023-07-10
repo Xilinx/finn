@@ -8,6 +8,9 @@ import numpy as np
 #   TODO: Remove once switching to HLSCustomOp
 from qonnx.custom_op.base import CustomOp
 
+# QONNX/FINN datatypes
+from qonnx.core.datatype import DataType
+
 
 # Scaled Dot-Product Attention Custom Operator
 #   Note: Single head attention
@@ -302,7 +305,7 @@ class ScaledDotProductAttention(CustomOp):
             # Numpy compatible softmax implementation
             from scipy.special import softmax
             # Generate random input data for testing
-            from qonnx.util.basic import gen_finn_dt_tensor, DataType
+            from qonnx.util.basic import gen_finn_dt_tensor
 
             # Read input tensors of the query, key and value inputs from context
             q = context[self.onnx_node.input[0]]
@@ -358,3 +361,91 @@ class ScaledDotProductAttention(CustomOp):
     # Optional node verification
     def verify_node(self):
         pass
+
+    # Gets the datatype of input at index ind
+    def get_input_datatype(self, ind=0):
+        # Ordered list of names of allowed inputs
+        inputs = ["q", "k", "v"]
+        # If the attention mask is provided as input, it has a type as well
+        if self.get_nodeattr("mask_mode") == "input":
+            # The mask type is an attribute itself
+            inputs += ["mask"]
+        # Look up datatype name in attributes and convert to DataType
+        return DataType[self.get_nodeattr(f"{inputs[ind]}_dtype")]
+
+    # Gets the datatype of the output (at index ind, but there is just one)
+    def get_output_datatype(self, ind=0):
+        # Ordered list of names of allowed outputs
+        outputs = ["o"]
+        # Look up datatype name in attributes and convert to DataType
+        return DataType[self.get_nodeattr(f"{outputs[ind]}_dtype")]
+
+    # Gets the shape of the input at index ind without folding
+    def get_normal_input_shape(self, ind=0):
+        # List shapes of inputs in order
+        inputs_shapes = [
+            # Query input sequence
+            (self.get_nodeattr("q_len"), self.get_nodeattr("qk_dim")),
+            # Key input sequence
+            (self.get_nodeattr("kv_len"), self.get_nodeattr("kv_dim")),
+            # Value input sequence
+            (self.get_nodeattr("kv_len"), self.get_nodeattr("v_dim")),
+        ]
+        # If the attention mask is provided as input, it has a shape as well
+        if self.get_nodeattr("mask_mode") == "input":
+            # Mask shape is inferred from query and key sequence lengths
+            inputs_shapes += [
+                (self.get_nodeattr("q_len"), self.get_nodeattr("kv_len"))
+            ]
+        # Get the shape by indexing into the ordered list of all inputs
+        return inputs_shapes[ind]
+
+    # Gets the shape of the output at index ind (there is just one) without
+    # folding
+    def get_normal_output_shape(self, ind=0):  # noqa, there is just one output
+        # The output shape is inferred from the length of the query sequence and
+        # the embedding dimension of the values
+        return tuple((self.get_nodeattr("q_len"), self.get_nodeattr("v_dim")))
+
+    # Gets the shape of the input at index ind with folding
+    def get_folded_input_shape(self, ind=0):
+        # Get the unfolded size of the input
+        t, d = self.get_normal_input_shape(ind)
+        # Get the amount of input (SIMD) and output (PE) parallelism
+        simd = self.get_nodeattr("SIMD")
+        pe = self.get_nodeattr("PE")  # TODO: What about this?
+
+        # The query (first) and key (second) inputs are treated the same and
+        # merely differ in buffering requirements
+        if ind == 0 or ind == 1:
+            # Fold the input along the embedding dimension
+            sf = d // simd
+            # New shape with SIMD elements as the last dimension
+            return tuple((t, sf, simd))
+        # For the value (third) inputs the axes flip and simd/pe change roles
+        if ind == 2:
+            # Fold the input along the sequence length dimension
+            sf = t // simd
+            # New shape with SIMD elements as the last dimension
+            return tuple((sf, d, simd))
+        # If the mask is provided as input, it is folded as well
+        if ind == 3 and self.get_nodeattr("mask_mode") == "input":
+            # The mask is folded along the second dimension which is actually a
+            # sequence length as well. It might be confusing to call it d here.
+            sf = d // simd
+            # New shape with SIMD elements as the last dimension
+            return tuple((t, sf, simd))
+
+        # If this point is reached, something went wrong
+        raise Exception(f"Requested shape of invalid input index {ind}")
+
+    # Gets the shape of the output at index ind (there is just one) with folding
+    def get_folded_output_shape(self, ind=0):  # noqa, there is just one output
+        # Get the unfolded size of the output
+        t, d = self.get_normal_output_shape(ind)
+        # Get the amount of output (PE) parallelism
+        pe = self.get_nodeattr("PE")
+        # The output is folded along the embedding dimension, neuron-fold
+        nf = d // pe
+        # New shape with PE elements as the last dimension
+        return tuple((t, nf, pe))
