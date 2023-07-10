@@ -12,6 +12,11 @@ from qonnx.custom_op.base import CustomOp
 # Scaled Dot-Product Attention Custom Operator
 #   Note: Single head attention
 class ScaledDotProductAttention(CustomOp):
+    # Initializes the operator given an onnx graph node
+    def __init__(self, onnx_node, **kwargs):
+        # Just forward all arguments to the init method of the CustomOp base
+        super().__init__(onnx_node, **kwargs)
+
     # Returns a dict of permitted attributes for the node
     def get_nodeattr_types(self):
         # Start from parent operator class attributes
