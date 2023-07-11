@@ -50,6 +50,7 @@ from finn.util.basic import make_build_dir
 from finn.util.test import load_test_checkpoint_or_skip
 
 target_clk_ns = 10
+build_board = "Pynq-Z1"
 build_dir = os.environ["FINN_BUILD_DIR"]
 
 
@@ -150,14 +151,13 @@ def test_end2end_cybsec_mlp_export():
 def test_end2end_cybsec_mlp_build():
     model_file = get_checkpoint_name("export")
     load_test_checkpoint_or_skip(model_file)
-    build_env = get_build_env(build_kind, target_clk_ns)
     output_dir = make_build_dir("test_end2end_cybsec_mlp_build")
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
         target_fps=1000000,
         synth_clk_period_ns=target_clk_ns,
-        board="Pynq-Z1",
+        board=build_board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
