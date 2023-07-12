@@ -536,6 +536,7 @@ foreach port [get_bd_intf_ports -filter {CONFIG.PROTOCOL==AXI4LITE}] {
        puts "CRITICAL WARNING: Unable to construct address map for $port."
     } {
        set range [expr 2**$awidth]
+       set range [expr $range < 4096 ? 4096 : $range]
        puts "INFO: Building address map for $port: 0+:$range"
        set name [get_property NAME $port]
        set addr_block [ipx::add_address_block Reg0 [ipx::add_memory_map $name $core]]
