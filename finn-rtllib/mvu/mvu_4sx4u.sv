@@ -324,7 +324,7 @@ module mvu_4sx4u #(
 				end
 				assign	hi4[i] = Hi4;
 			end : genHi
-			else begin : genHiZero
+			else if (i < 3) begin : genHiZero
 				assign hi4[i] = '0;
 			end : genHiZero
 
