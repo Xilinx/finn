@@ -123,7 +123,7 @@ module $TOP_MODULE_NAME$_impl #(
         .TAIL_INCR_LAST($TAIL_INCR_LAST$),
         .INCR_BITWIDTH($INCR_BITWIDTH$),
         .IS_DEPTHWISE($IS_DEPTHWISE$),
-        .INNERMOST_STATE($INNERMOST_STATE$)
+        .INNERMOST_STATE(swg::$INNERMOST_STATE$)
     )
     controller_inst (
         .clk(ap_clk),

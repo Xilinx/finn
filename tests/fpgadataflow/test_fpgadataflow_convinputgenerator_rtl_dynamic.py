@@ -63,32 +63,18 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.util.basic import pyverilate_get_liveness_threshold_cycles
 
 
-def create_conv_model(
-    idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise
-):
+def create_conv_model(idim_h, idim_w, ifm, k, stride, ofm, idt, wdt, pad_mode, depthwise):
     np.random.seed(0)
     group = ifm if depthwise else 1
     group_str = str(group)
     ishp = (1, ifm, idim_h, idim_w)
-    pad_0 = _auto_pad_to_explicit_padding(
-        pad_mode, idim_h, idim_w, k, k, stride, stride, 2
-    )
-    int_dim_h = compute_conv_output_dim(
-        idim_h, k, stride, total_pad=pad_0[0] + pad_0[2]
-    )
-    int_dim_w = compute_conv_output_dim(
-        idim_w, k, stride, total_pad=pad_0[1] + pad_0[3]
-    )
+    pad_0 = _auto_pad_to_explicit_padding(pad_mode, idim_h, idim_w, k, k, stride, stride, 2)
+    int_dim_h = compute_conv_output_dim(idim_h, k, stride, total_pad=pad_0[0] + pad_0[2])
+    int_dim_w = compute_conv_output_dim(idim_w, k, stride, total_pad=pad_0[1] + pad_0[3])
 
-    pad_1 = _auto_pad_to_explicit_padding(
-        pad_mode, int_dim_h, int_dim_w, k, k, stride, stride, 2
-    )
-    odim_h = compute_conv_output_dim(
-        int_dim_h, k, stride, total_pad=pad_1[0] + pad_1[2]
-    )
-    odim_w = compute_conv_output_dim(
-        int_dim_w, k, stride, total_pad=pad_1[1] + pad_1[3]
-    )
+    pad_1 = _auto_pad_to_explicit_padding(pad_mode, int_dim_h, int_dim_w, k, k, stride, stride, 2)
+    odim_h = compute_conv_output_dim(int_dim_h, k, stride, total_pad=pad_1[0] + pad_1[2])
+    odim_w = compute_conv_output_dim(int_dim_w, k, stride, total_pad=pad_1[1] + pad_1[3])
     oshp = (1, ifm, odim_h, odim_w) if depthwise else (1, ofm, odim_h, odim_w)
     wshp = (ifm, 1, k, k) if depthwise else (ofm, ifm, k, k)
     wshp_1 = (ifm, 1, k, k) if depthwise else (ofm, ofm, k, k)
@@ -189,6 +175,10 @@ cfg0 = {
     "ofm": 64,
     "depthwise": True,
     "pad_mode": "SAME_UPPER",
+    # run synthesis for one configuration
+    # this helped expose a bug in enum decls previously
+    # (which config the synth runs on does not matter)
+    "do_synth": True,
 }
 cfg1 = {
     "idims": [(32, 16), (16, 8)],
@@ -198,6 +188,7 @@ cfg1 = {
     "ofm": 8,
     "depthwise": False,
     "pad_mode": "SAME_UPPER",
+    "do_synth": False,
 }
 cfg2 = {
     "idims": [(64, 128), (2, 4)],
@@ -207,6 +198,7 @@ cfg2 = {
     "ofm": 64,
     "depthwise": True,
     "pad_mode": "SAME_UPPER",
+    "do_synth": False,
 }
 
 
@@ -215,6 +207,7 @@ cfg2 = {
 @pytest.mark.vivado
 @pytest.mark.fpgadataflow
 def test_fpgadataflow_conv_dynamic(cfg):
+    do_synth = cfg["do_synth"]
     pad_mode = cfg["pad_mode"]
     depthwise = cfg["depthwise"]
     idims = cfg["idims"]
@@ -256,15 +249,11 @@ def test_fpgadataflow_conv_dynamic(cfg):
     # convert to hardware and prepare simulation
     model = largest_model.transform(LowerConvsToMatMul())
     model = model.transform(to_hls.InferConvInpGen(use_rtl_variant=True))
-    model = model.transform(
-        to_hls.InferQuantizedMatrixVectorActivation(mem_mode="decoupled")
-    )
+    model = model.transform(to_hls.InferQuantizedMatrixVectorActivation(mem_mode="decoupled"))
     model = model.transform(to_hls.InferVectorVectorActivation())
     model = model.transform(absorb.AbsorbConsecutiveTransposes())
     parent_model = model.transform(CreateDataflowPartition())
-    sdp_inst = getCustomOp(
-        parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0]
-    )
+    sdp_inst = getCustomOp(parent_model.get_nodes_by_op_type("StreamingDataflowPartition")[0])
     model = ModelWrapper(sdp_inst.get_nodeattr("model"))
     assert len(model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")) == 2
     if pad_mode == "VALID":
@@ -292,7 +281,7 @@ def test_fpgadataflow_conv_dynamic(cfg):
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
     model = model.transform(HLSSynthIP())
-    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5))
+    model = model.transform(CreateStitchedIP("xc7z020clg400-1", 5, vitis=do_synth))
     model.set_metadata_prop("exec_mode", "rtlsim")
 
     # loop through experiment configurations
@@ -324,15 +313,11 @@ def test_fpgadataflow_conv_dynamic(cfg):
             pad_nodes = model.get_nodes_by_op_type("FMPadding_rtl")
             padder0 = getCustomOp(pad_nodes[0])
             update_tensor_dim(model, padder0.onnx_node.input[0], (idim_h, idim_w))
-            update_tensor_dim(
-                model, padder0.onnx_node.output[0], (conv0_idim_h, conv0_idim_w)
-            )
+            update_tensor_dim(model, padder0.onnx_node.output[0], (conv0_idim_h, conv0_idim_w))
             pad_config0 = padder0.get_dynamic_config((idim_h, idim_w), pad0)
             padder1 = getCustomOp(pad_nodes[1])
             update_tensor_dim(model, padder1.onnx_node.input[0], (int_dim_h, int_dim_w))
-            update_tensor_dim(
-                model, padder1.onnx_node.output[0], (conv1_idim_h, conv1_idim_w)
-            )
+            update_tensor_dim(model, padder1.onnx_node.output[0], (conv1_idim_h, conv1_idim_w))
             pad_config1 = padder1.get_dynamic_config((int_dim_h, int_dim_w), pad1)
             configs = [
                 ("s_axilite_0_", pad_config0),
@@ -373,9 +358,7 @@ def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilatio
     ofm_dim_h, ofm_dim_w = ofm_dim
 
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch]
     )
@@ -415,9 +398,7 @@ def make_single_slidingwindow_modelwrapper(
     ofm_dim_h, ofm_dim_w = ofm_dim
 
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch]
     )
@@ -508,13 +489,9 @@ def test_fpgadataflow_slidingwindow_rtl_dynamic(
     if ifm_ch % simd != 0:
         pytest.skip("SIMD must divide number of input channels")
     if kernel_height > ifm_dim_h or stride_h > ifm_dim_h:
-        pytest.skip(
-            "Illegal convolution configuration: kernel or stride > FM dimension"
-        )
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
     if kernel_width > ifm_dim_w or stride_w > ifm_dim_w:
-        pytest.skip(
-            "Illegal convolution configuration: kernel or stride > FM dimension"
-        )
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
     if (k_h == 1 and (stride_h != 1 or dilation_h != 1)) or (
         k_w == 1 and (stride_w != 1 or dilation_w != 1)
     ):

@@ -86,11 +86,7 @@ def prepare_stitched_ip_for_verilator(model):
     src_exts = [".v", ".sv"]
 
     all_verilog_files = list(
-        set(
-            filter(
-                lambda x: any(map(lambda y: x.endswith(y), src_exts)), all_verilog_srcs
-            )
-        )
+        set(filter(lambda x: any(map(lambda y: x.endswith(y), src_exts)), all_verilog_srcs))
     )
 
     verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
@@ -98,9 +94,7 @@ def prepare_stitched_ip_for_verilator(model):
 
     # use custom version of axis infrastructure vh
     # to enable Verilator to simulate AMD/Xilinx components (e.g DWC)
-    custom_vh = pk.resource_filename(
-        "finn.qnn-data", "verilog/custom_axis_infrastructure.vh"
-    )
+    custom_vh = pk.resource_filename("finn.qnn-data", "verilog/custom_axis_infrastructure.vh")
     shutil.copy(custom_vh, verilog_header_dir + "/axis_infrastructure_v1_1_0.vh")
     for fn in all_verilog_srcs:
         if fn.endswith(".vh"):
@@ -118,6 +112,8 @@ def prepare_stitched_ip_for_verilator(model):
             if not remove_entry:
                 filtered_verilog_files.append(vfile)
             remove_entry = True
+        elif "swg_pkg" in vfile:
+            continue
         else:
             filtered_verilog_files.append(vfile)
 
@@ -135,9 +131,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     vivado_stitch_proj_dir = prepare_stitched_ip_for_verilator(model)
     verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
     build_dir = make_build_dir("verilator_fifosim_")
-    fifosim_cpp_fname = pk.resource_filename(
-        "finn.qnn-data", "cpp/verilator_fifosim.cpp"
-    )
+    fifosim_cpp_fname = pk.resource_filename("finn.qnn-data", "cpp/verilator_fifosim.cpp")
     with open(fifosim_cpp_fname, "r") as f:
         fifosim_cpp_template = f.read()
     assert len(model.graph.input) == 1, "Only a single input stream is supported"
@@ -146,9 +140,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     first_node = model.find_consumer(iname)
     oname = model.graph.output[0].name
     last_node = model.find_producer(oname)
-    assert (first_node is not None) and (
-        last_node is not None
-    ), "Failed to find first/last nodes"
+    assert (first_node is not None) and (last_node is not None), "Failed to find first/last nodes"
     fnode_inst = getCustomOp(first_node)
     lnode_inst = getCustomOp(last_node)
     ishape_folded = fnode_inst.get_folded_input_shape()
@@ -175,7 +167,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "FIFO_DEPTH_LOGGING": fifo_log,
     }
 
-    for (key, val) in template_dict.items():
+    for key, val in template_dict.items():
         fifosim_cpp_template = fifosim_cpp_template.replace(f"@{key}@", str(val))
 
     with open(build_dir + "/verilator_fifosim.cpp", "w") as f:
@@ -315,8 +307,10 @@ def pyverilate_stitched_ip(
     xpm_cdc = f"{vivado_path}/data/ip/xpm/xpm_cdc/hdl/xpm_cdc.sv"
     xpm_fifo = f"{vivado_path}/data/ip/xpm/xpm_fifo/hdl/xpm_fifo.sv"
 
+    swg_pkg = os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_pkg.sv"
+
     sim = PyVerilator.build(
-        [top_module_file_name, xpm_fifo, xpm_memory, xpm_cdc],
+        [swg_pkg, top_module_file_name, xpm_fifo, xpm_memory, xpm_cdc],
         verilog_path=[vivado_stitch_proj_dir, verilog_header_dir],
         build_dir=build_dir,
         trace_depth=get_rtlsim_trace_depth(),

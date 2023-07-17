@@ -71,18 +71,12 @@ def test_absorb_mul_into_topk(mul_positive, scalar):
     # initialize values
     # for mul
     if mul_positive is True:
-        a0_values = np.random.uniform(low=0.1, high=1, size=tuple(shape)).astype(
-            np.float32
-        )
+        a0_values = np.random.uniform(low=0.1, high=1, size=tuple(shape)).astype(np.float32)
     else:
-        a0_values = np.random.uniform(low=-1, high=-0.1, size=tuple(shape)).astype(
-            np.float32
-        )
+        a0_values = np.random.uniform(low=-1, high=-0.1, size=tuple(shape)).astype(np.float32)
     model.set_initializer("a0", a0_values)
     # for add
-    c0_values = np.random.uniform(low=-1, high=-0.1, size=tuple(shape)).astype(
-        np.float32
-    )
+    c0_values = np.random.uniform(low=-1, high=-0.1, size=tuple(shape)).astype(np.float32)
     model.set_initializer("c0", c0_values)
     model = model.transform(InsertTopK())
     model = model.transform(InferShapes())
@@ -92,9 +86,7 @@ def test_absorb_mul_into_topk(mul_positive, scalar):
     model_transformed = model.transform(AbsorbScalarMulAddIntoTopK())
 
     # compare execution results
-    inp_values = np.random.uniform(low=-10, high=10, size=(1, 1, 1, 1000)).astype(
-        np.float32
-    )
+    inp_values = np.random.uniform(low=-10, high=10, size=(1, 1, 1, 1000)).astype(np.float32)
     idict = {"global_in": inp_values}
     odict = oxe.execute_onnx(model, idict, True)
     y_indices = odict["global_out"]

@@ -52,7 +52,6 @@ def prepare_inputs(input_tensor):
 
 
 def make_single_maxpool_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
-
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, ishape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, ishape)
     p0 = helper.make_tensor_value_info("p0", TensorProto.FLOAT, pshape)
@@ -76,13 +75,9 @@ def make_single_maxpool_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
 
 
 # parameter datatype
-@pytest.mark.parametrize(
-    "pdt", [DataType["BIPOLAR"], DataType["UINT4"], DataType["INT2"]]
-)
+@pytest.mark.parametrize("pdt", [DataType["BIPOLAR"], DataType["UINT4"], DataType["INT2"]])
 # input datatype
-@pytest.mark.parametrize(
-    "idt", [DataType["INT32"], DataType["UINT4"], DataType["INT4"]]
-)
+@pytest.mark.parametrize("idt", [DataType["INT32"], DataType["UINT4"], DataType["INT4"]])
 # function
 @pytest.mark.parametrize("onnx_op_name", ["Add", "Mul"])
 # vector parameter or scalar parameter (broadcast)
@@ -92,9 +87,7 @@ def make_single_maxpool_modelwrapper(onnx_op_name, ishape, idt, pdt, pshape):
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
-def test_convert_to_hls_channelwise_layer(
-    pdt, idt, onnx_op_name, scalar_param, exec_mode
-):
+def test_convert_to_hls_channelwise_layer(pdt, idt, onnx_op_name, scalar_param, exec_mode):
     ifm_ch = 16
     ifm_dim = 5
     ishape = (1, ifm_ch, ifm_dim, ifm_dim)
@@ -134,9 +127,7 @@ def test_convert_to_hls_channelwise_layer(
     else:
         raise Exception("Unknown exec_mode")
 
-    ctx_produced = oxe.execute_onnx(
-        new_model, input_dict, return_full_exec_context=True
-    )
+    ctx_produced = oxe.execute_onnx(new_model, input_dict, return_full_exec_context=True)
     y_produced = ctx_produced["outp"]
 
     assert (y_produced == y_expected).all()
