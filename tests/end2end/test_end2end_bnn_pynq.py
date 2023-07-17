@@ -294,7 +294,8 @@ def topology2dataset(topology):
 
 
 def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
-    if os.environ.get('FINN_DEPLOY_DIR') is not None:
+    # Check if a deployment directory for this board type already exists
+    if ("FINN_DEPLOY_DIR" in os.environ) and (board in os.environ["FINN_DEPLOY_DIR"]):
         deploy_dir_root = os.environ["FINN_DEPLOY_DIR"]
     else:
         deploy_dir_root = make_build_dir(prefix="hw_deployment_" + board + "_")
