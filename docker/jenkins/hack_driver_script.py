@@ -18,13 +18,9 @@ def hack_driver_script(board, test_dir):
     # Specify the line to be replaced and the new line
     line_to_replace = "ishape_normal"
     if "cnv" in test_dir:
-        new_line = "    \"ishape_normal\" : [(1, 32, 32, 3)],"
+        new_line = "    \"ishape_normal\" : [(1, 3, 32, 32)],"
     else:
-        # Usually a size of (1, 784) to being with
-        if board == "Pynq-Z1":
-            new_line = "    \"ishape_normal\" : [(1, 28, 28, 1)],"
-        else:
-            new_line = "    \"ishape_normal\" : [(1, 1, 28, 28)],"
+        new_line = "    \"ishape_normal\" : [(1, 1, 28, 28)],"
 
     # Iterate over the lines and replace the specified line
     for i in range(len(lines)):

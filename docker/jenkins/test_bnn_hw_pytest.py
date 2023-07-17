@@ -25,17 +25,6 @@ def remove_cache_dirs(dir_list):
             del tmp_list[i]
     return tmp_list
 
-def remove_destructive_board_tests(board, test_list):
-    tmp_list = list(test_list)
-    if "Pynq" in board:
-        # both tests are destructive to the Pynq-Z1 board and require a board reboot
-        for i in range(len(tmp_list)-1, -1, -1):
-            if "bnn_w2_a2_cnv_QE-True" in tmp_list[i]:
-                del tmp_list[i]
-            elif "bnn_w1_a1_tfc_QE-True" in tmp_list[i]:
-                del tmp_list[i]
-    return tmp_list
-
 def delete_file(file_path):
     # Check if the file exists before deleting it
     if os.path.exists(file_path):
@@ -78,11 +67,8 @@ def pytest_generate_tests(metafunc):
     test_dirs = remove_cache_dirs(test_dirs)
 
     for marker in all_markers_used:
-        platform = get_platform(marker)
-        if "Pynq" in marker:
-            remove_destructive_board_tests("Pynq", test_dirs)
-            scenarios.extend(get_full_parameterized_test_list(marker, test_dir_list=test_dirs, batch_size_list=[1], platform_list=[platform]))
-        elif "U250" in marker or "ZCU104" in marker or "KV260_SOM" in marker:
+        if "Pynq" in marker or "U250" in marker or "ZCU104" in marker or "KV260_SOM" in marker:
+            platform = get_platform(marker)
             scenarios.extend(get_full_parameterized_test_list(marker, test_dir_list=test_dirs, batch_size_list=[1], platform_list=[platform]))
 
     if len(scenarios) > 0:
