@@ -28,35 +28,29 @@
 
 import pytest
 
-import numpy as np
 import os
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
-from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
-from finn.transformation.fpgadataflow.convert_to_hls_layers import (
-    InferConvInpGen,
-    InferQuantizedMatrixVectorActivation,
+from finn.transformation.fpgadataflow.create_dataflow_partition import (
+    CreateDataflowPartition,
 )
-
-# from finn.transformation.fpgadataflow.create_dataflow_partition import (
-#     CreateDataflowPartition,
-# )
-# from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
+from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.infer_pixel_padding_deconv import (
+    InferPixelPaddingDeconv,
+)
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
-from finn.transformation.streamline.absorb import AbsorbConsecutiveTransposes
 from finn.util.basic import pynq_part_map
 
 test_pynq_board = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
@@ -64,7 +58,7 @@ test_fpga_part = pynq_part_map[test_pynq_board]
 target_clk_ns = 10
 
 
-def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding, weights):
+def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
     idim_h, idim_w = idim
     stride_h, stride_w = stride
     odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
@@ -117,87 +111,7 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding, w
     model.set_tensor_datatype(model.graph.output[0].name, odt)
     model.set_tensor_datatype("W", wdt)
 
-    model.set_initializer("W", weights)
-
-    model = model.transform(InferShapes())
-
-    return model
-
-
-def set_up_test_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding, simd):
-
-    idim_h, idim_w = idim
-    stride_h, stride_w = stride
-    odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
-    odim_w = (idim_w - 1) * stride_w - 2 * padding + (k - 1) + 1
-
-    odt = DataType["INT32"]
-
-    padded_odim_h = idim_h + (idim_h - 1) * (stride_h - 1)
-    padded_odim_w = idim_w + (idim_w - 1) * (stride_w - 1)
-    conv_padding = k - padding - 1
-
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, idim_h, idim_w, ifm_ch]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_ch, odim_h, odim_w]
-    )
-    out_pad = helper.make_tensor_value_info(
-        "out_pad", TensorProto.FLOAT, [1, padded_odim_h, padded_odim_w, ifm_ch]
-    )
-    out_pad_trans = helper.make_tensor_value_info(
-        "out_pad_trans", TensorProto.FLOAT, [1, ifm_ch, padded_odim_h, padded_odim_w]
-    )
-    W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ofm_ch, ifm_ch, k, k])
-
-    FMPadding_Pixel = helper.make_node(
-        "FMPadding_Pixel",
-        ["inp"],
-        ["out_pad"],
-        domain="finn.custom_op.fpgadataflow",
-        backend="fpgadataflow",
-        ImgDim=idim,
-        Stride=stride,
-        NumChannels=ifm_ch,
-        inputDataType=str(idt.name),
-        numInputVectors=1,
-        SIMD=simd,
-    )
-    Transpose = helper.make_node(
-        "Transpose", ["out_pad"], ["out_pad_trans"], perm=[0, 3, 1, 2]
-    )
-
-    Conv = helper.make_node(
-        "Conv",
-        ["out_pad_trans", "W"],
-        ["outp"],
-        dilations=(1, 1),
-        group=1,
-        kernel_shape=(k, k),
-        pads=(conv_padding, conv_padding, conv_padding, conv_padding),
-        strides=(1, 1),
-    )
-
-    node_list = [FMPadding_Pixel, Transpose, Conv]
-    value_info = [W, out_pad, out_pad_trans]
-
-    graph = helper.make_graph(
-        nodes=node_list,
-        name="deconv_graph",
-        inputs=[inp],
-        outputs=[outp],
-        value_info=value_info,
-    )
-    model = qonnx_make_model(graph, producer_name="deconv-model")
-    model = ModelWrapper(model)
-
-    # initialize model
-    model.set_tensor_datatype("inp", idt)
-    model.set_tensor_datatype(model.graph.output[0].name, odt)
-    model.set_tensor_datatype("W", wdt)
-
-    w_tensor = gen_finn_dt_tensor(wdt, [ofm_ch, ifm_ch, k, k])
+    w_tensor = gen_finn_dt_tensor(wdt, [ifm_ch, ofm_ch, k, k])
     model.set_initializer("W", w_tensor)
 
     model = model.transform(InferShapes())
@@ -234,28 +148,19 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding)
     else:
         convinpgen_rtl = True
 
-    model = set_up_test_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding, simd)
+    ref_model = set_up_reference_model(
+        idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding
+    )
 
     odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
     odim_w = (idim_w - 1) * stride_w - 2 * padding + (k - 1) + 1
 
-    input_tensor = gen_finn_dt_tensor(idt, [1, idim_h, idim_w, ifm_ch])
-    input_tensor_tr = input_tensor.transpose(0, 3, 1, 2)
-    weight_tensor = model.get_initializer("W")
-    weight_tensor = np.rot90(weight_tensor, 2, [2, 3])
-    weight_tensor = np.moveaxis(weight_tensor, 0, 1)
+    input_tensor = gen_finn_dt_tensor(idt, [1, ifm_ch, idim_h, idim_w])
+    input_tensor_tr = input_tensor.transpose(0, 2, 3, 1)
     input_dict = {"inp": input_tensor}
-    input_dict_tr = {"inp": input_tensor_tr}
+    input_dict_tr = {"global_in": input_tensor_tr}
 
-    ref_model = set_up_reference_model(
-        idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding, weight_tensor
-    )
-
-    model = model.transform(LowerConvsToMatMul())
-    model = model.transform(InferDataTypes())
-    model = model.transform(InferConvInpGen(use_rtl_variant=convinpgen_rtl))
-    model = model.transform(InferQuantizedMatrixVectorActivation())
-    model = model.transform(AbsorbConsecutiveTransposes())
+    model = ref_model.transform(InferPixelPaddingDeconv(convinpgen_rtl))
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
 
@@ -269,7 +174,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding)
             mvau_node.set_nodeattr("SIMD", simd)
 
     expected_oshape = (1, ofm_ch, odim_h, odim_w)
-    y_expected = oxe.execute_onnx(ref_model, input_dict_tr)["outp"]
+    y_expected = oxe.execute_onnx(ref_model, input_dict)["outp"]
     # cppsim
     if convinpgen_rtl:
         print("ConvolutionInputGenerator_rtl has no cppsim, skipping cppsim")
@@ -284,19 +189,24 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding)
     # rtlsim
     model = model.transform(PrepareIP(test_fpga_part, target_clk_ns))
     model = model.transform(HLSSynthIP())
-    # parent_model = model.transform(CreateDataflowPartition())
-    # sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
-    # assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
-    # sdp_node = sdp_nodes[0]
-    # sdp_node = getCustomOp(sdp_node)
-    # dataflow_model_filename = sdp_node.get_nodeattr("model")
-    # model = ModelWrapper(dataflow_model_filename)
-    # model = model.transform(
-    #     CreateStitchedIP(test_fpga_part, target_clk_ns, vitis=False)
-    # )
+    model.save("before_partition.onnx")
+    parent_model = model.transform(CreateDataflowPartition())
+    sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
+    assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
+    sdp_node = sdp_nodes[0]
+    sdp_node = getCustomOp(sdp_node)
+    dataflow_model_filename = sdp_node.get_nodeattr("model")
+    model = ModelWrapper(dataflow_model_filename)
+    model.save("after_partition.onnx")
+    model = model.transform(
+        CreateStitchedIP(test_fpga_part, target_clk_ns, vitis=False)
+    )
     model = model.transform(PrepareRTLSim())
-    # model = model.transform(GiveReadableTensorNames())
+    model = model.transform(GiveReadableTensorNames())
     model = model.transform(SetExecMode("rtlsim"))
-    y_produced = oxe.execute_onnx(model, input_dict)["outp"]
+    model.save("stitched_ip.onnx")
+    y_produced = oxe.execute_onnx(model, input_dict_tr)["global_out"].transpose(
+        0, 3, 1, 2
+    )
     assert y_produced.shape == expected_oshape
     assert (y_produced == y_expected).all()
