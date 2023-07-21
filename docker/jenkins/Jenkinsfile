@@ -171,6 +171,12 @@ pipeline {
                 stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
               }
             }
+            success {
+              postSuccess(env.BOARD)
+            }
+            failure {
+              postFailure(env.BOARD)
+            }
           }
         }
         stage('BNN Sanity - Pynq-Z1') {
@@ -222,6 +228,12 @@ pipeline {
                 stash name: "xml_sanity_bnn_test_PynqZ1", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
               }
             }
+            success {
+              postSuccess(env.BOARD)
+            }
+            failure {
+              postFailure(env.BOARD)
+            }
           }
         }
         stage('BNN Sanity - ZCU104') {
@@ -271,6 +283,12 @@ pipeline {
                 stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
               }
             }
+            success {
+              postSuccess(env.BOARD)
+            }
+            failure {
+              postFailure(env.BOARD)
+            }
           }
         }
         stage('BNN Sanity - KV260_SOM') {
@@ -319,6 +337,12 @@ pipeline {
                 // Collect the results file on the slave node by stashing
                 stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
               }
+            }
+            success {
+              postSuccess(env.BOARD)
+            }
+            failure {
+              postFailure(env.BOARD)
             }
           }
         }
@@ -464,4 +488,12 @@ void unstashSuccessfulStage(String stageEnvVariableSet, String stashName) {
   if (stageEnvVariableSet) {
     unstash stashName
   }
+}
+
+void postFailure(String board) {
+  echo "Failed to run ${board} tests"
+}
+
+void postSuccess(String board) {
+  echo "${board} tests passed"
 }
