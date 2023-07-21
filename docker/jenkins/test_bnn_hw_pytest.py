@@ -94,7 +94,7 @@ class TestBnn:
         bitfile = "a.xclbin" if platform == "alveo" else "resizer.bit"
         result = subprocess.run(["python", "driver.py", "--exec_mode=execute", f"--batchsize={batch_size}", f"--bitfile={bitfile}", "--inputfile=input.npy", "--outputfile=output.npy", f"--platform={platform}"], capture_output=True, text=True, timeout=default_test_run_timeout)
         assert result.returncode == 0
-        
+
         # Load the output and reference arrays
         output_array = np.load(output_execute_results_file)
         reference_array = np.load(execute_results_reference_file)
@@ -159,7 +159,7 @@ class TestBnn:
             )
         ret_str += "\n" + "-----------------------------"
         largest_bsize = bsize_range[-1]
-        
+
         # Dump the metrics to a text file
         with open(throughput_results_formatted_file, "w") as f:
             f.write(ret_str)
