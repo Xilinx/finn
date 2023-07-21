@@ -373,6 +373,9 @@ pipeline {
 
             // Plot what XML files were created during the test run
             junit '**/*.xml'
+
+            // Archive the XML test results
+            archiveArtifacts artifacts: "*.xml"
           }
         }
       }
