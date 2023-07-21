@@ -7,6 +7,30 @@ pipeline {
   stages {
     stage('Sanity Tests') {
       parallel {
+        stage('Sanity - Build Hardware') {
+          when {
+            expression { return params['sanity'] }
+          }
+          agent {
+            label 'finn-build'
+          }
+          environment {
+            TEST_NAME = "bnn_build_sanity"
+            FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}"
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Creates dir in finn clone to store build files for stashing
+                sh "mkdir -p ${env.TEST_NAME}"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("sanity_bnn", "${env.TEST_NAME}.xml")
+              }
+            }
+          }
+        }
         stage('Sanity - Unit Tests') {
           when {
             expression { params['sanity'] }
