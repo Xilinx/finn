@@ -27,7 +27,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("sanity_bnn", "${env.TEST_NAME}")
+                runDockerPytestWithMarker("sanity_bnn", "${env.TEST_NAME}", '')
 
                 // Find the board's build files (bitstreams/xclbins) and zip for use on the boards themselves
                 findCopyZip("Pynq-Z1", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_PynqZ1_zip")
@@ -61,7 +61,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Multiple markers with pytest needs its own script
-                createMultiMarkerScript("util or brevitas_export or streamline or transform or notebooks", "${env.TEST_NAME}")
+                createMultiMarkerScript("util or brevitas_export or streamline or transform or notebooks", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_sanity_ut")
                 sh './run-docker.sh ./run-tests.sh'
 
                 // Stash the test results file(s)
@@ -90,7 +90,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}")
+                runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_fpgadataflow")
 
                 // Stash the test results file(s)
                 stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
@@ -123,7 +123,7 @@ pipeline {
                 sh "rm -rf ${env.FINN_HOST_BUILD_DIR}/*"
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker(env.TEST_NAME, "${env.TEST_NAME}")
+                runDockerPytestWithMarker(env.TEST_NAME, "${env.TEST_NAME}", '')
 
                 // Stash the test results file(s)
                 stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
@@ -154,7 +154,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("bnn_u250", "${env.TEST_NAME}_${env.BOARD}")
+                runDockerPytestWithMarker("bnn_u250", "${env.TEST_NAME}_${env.BOARD}", '')
                 findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
 
                 // Stash the test results file(s)
@@ -186,7 +186,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("bnn_pynq", "${env.TEST_NAME}_${env.BOARD}")
+                runDockerPytestWithMarker("bnn_pynq", "${env.TEST_NAME}_${env.BOARD}", '')
                 findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "PynqZ1_zip")
 
                 // Stash the test results file(s)
@@ -218,7 +218,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("bnn_zcu104", "${env.TEST_NAME}_${env.BOARD}")
+                runDockerPytestWithMarker("bnn_zcu104", "${env.TEST_NAME}_${env.BOARD}", '')
                 findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
 
                 // Stash the test results file(s)
@@ -250,7 +250,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("bnn_kv260", "${env.TEST_NAME}_${env.BOARD}")
+                runDockerPytestWithMarker("bnn_kv260", "${env.TEST_NAME}_${env.BOARD}", '')
                 findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
 
                 // Stash the test results file(s)
@@ -777,6 +777,9 @@ pipeline {
             archiveArtifacts artifacts: "reports/*.xml"
             archiveArtifacts artifacts: "reports/*.html"
 
+            archiveSuccessfulStage(env.SANITY_UT, "coverage_sanity_ut")
+            archiveSuccessfulStage(env.FPGADATAFLOW, "coverage_fpgadataflow")
+
             // Plot what XML files were created during the test run
             junit 'reports/*.xml'
           }
@@ -796,15 +799,15 @@ void createMultiMarkerScript(String markers, String testResultsFilename) {
   // Passing multiple markers when running ./run-docker.sh does not work with bash.
   // Therefore, create a script to maintain the single quotes that surround the markers
   sh """echo "#!/bin/bash
-python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
+python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}" >> run-tests.sh
     """
 
   // Give permissions to script
   sh 'chmod 777 run-tests.sh'
 }
 
-void runDockerPytestWithMarker(String marker, String testResultsFilename) {
-  sh """./run-docker.sh python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html"""
+void runDockerPytestWithMarker(String marker, String testResultsFilename, String additionalOptions) {
+  sh """./run-docker.sh python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}"""
 }
 
 void findBoardBuildFiles(String board, String searchDir, String dirToFind) {
@@ -893,6 +896,12 @@ def checkAllBoards() {
 void unstashSuccessfulStage(String stageEnvVariableSet, String stashName) {
   if (stageEnvVariableSet) {
     unstash stashName
+  }
+}
+
+void archiveSuccessfulStage(String stageEnvVariableSet, String folder) {
+  if (stageEnvVariableSet) {
+    archiveArtifacts artifacts: "${folder}/**/*"
   }
 }
 
