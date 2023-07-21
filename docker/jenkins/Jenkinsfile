@@ -95,6 +95,12 @@ pipeline {
       }
       steps {
         script {
+          // Check which boards are online before running HW tests
+          env.ALVEO_HOST_ONLINE = isNodeOnline('finn-u250')
+          env.PYNQ_ONLINE = isNodeOnline('finn-pynq')
+          env.ZCU104_ONLINE = isNodeOnline('finn-zcu104')
+          env.KV260_ONLINE = isNodeOnline('finn-kv260')
+
           // Stash the HW test scripts to be used on slave nodes
           dir('docker/jenkins') {
             stash name: 'bnn_test_files', includes: 'hack_driver_script.py,test_bnn_hw_pytest.py'
@@ -108,7 +114,7 @@ pipeline {
           when {
             // beforeAgent set to 'true' to prevent an offline agent hanging the stage
             beforeAgent true
-            expression { return (&& params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
+            expression { return (env.ALVEO_HOST_ONLINE == 'true' && params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
           }
           agent {
             label 'finn-u250'
@@ -144,7 +150,7 @@ pipeline {
           when {
             // beforeAgent set to 'true' to prevent an offline agent hanging the stage
             beforeAgent true
-            expression { return (params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
+            expression { return (env.PYNQ_ONLINE == 'true' && params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
           }
           agent {
             label 'finn-pynq'
@@ -183,7 +189,7 @@ pipeline {
           when {
             // beforeAgent set to 'true' to prevent an offline agent hanging the stage
             beforeAgent true
-            expression { return (params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
+            expression { return (env.ZCU104_ONLINE == 'true' && params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
           }
           agent {
             label 'finn-zcu104'
@@ -220,7 +226,7 @@ pipeline {
           when {
             // beforeAgent set to 'true' to prevent an offline agent hanging the stage
             beforeAgent true
-            expression { return (params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
+            expression { return (env.KV260_ONLINE == 'true' && params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
           }
           agent {
             label 'finn-kv260'
@@ -251,6 +257,18 @@ pipeline {
                 }
               }
             }
+          }
+        }
+      }
+    }
+    stage('Check Stage Results') {
+      agent {
+        label 'finn-build'
+      }
+      steps {
+        catchError(buildResult: 'SUCCESS') {
+          script {
+            checkAllBoards()
           }
         }
       }
@@ -314,4 +332,50 @@ python -m pytest -m ${marker} --junitxml=${testResultsFilename}" >> run-tests.sh
 
   // Give permissions to script
   sh 'chmod 777 run-tests.sh'
+}
+
+void isNodeOnline(String labelName) {
+  Label label = Jenkins.instance.getLabel(labelName)
+  def agentOnline = false
+
+  if (label) {
+    List<Node> nodes = Jenkins.instance.getNodes()
+
+    nodes.each { node ->
+      if (node.getAssignedLabels().contains(label)) {
+        def computer = node.toComputer()
+        if (computer && computer.isOnline()) {
+          agentOnline = true
+        } else {
+          echo """Agent ${node.displayName} is offline"""
+        }
+      }
+    }
+  } else {
+    echo """Node with label ${labelName} not found"""
+  }
+
+  return agentOnline
+}
+
+def checkAllBoards() {
+  def overallResult = true
+
+  if (env.PYNQ_ONLINE == 'false') {
+    overallResult = false
+  }
+
+  if (env.ALVEO_HOST_ONLINE == 'false') {
+    overallResult = false
+  }
+
+  if (env.KV260_ONLINE == 'false') {
+    overallResult = false
+  }
+
+  if (env.ZCU104_ONLINE == 'false') {
+    overallResult = false
+  }
+
+  return overallResult
 }
