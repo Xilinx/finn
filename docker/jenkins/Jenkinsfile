@@ -1,7 +1,4 @@
 pipeline {
-  options {
-    buildDiscarder(logRotator(numToKeepStr: '30', artifactNumToKeepStr: '30'))
-  }
   agent { node { label 'finn-build' } }
    environment {
     FINN_XILINX_PATH="/proj/xbuilds/SWIP/2022.1_0420_0327/installs/lin64"
