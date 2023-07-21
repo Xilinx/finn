@@ -34,6 +34,10 @@ pipeline {
                 findCopyZip("KV260_SOM", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_KV260_SOM_zip")
                 findCopyZip("U250", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_U250_zip")
 
+                // Stash the test results file(s)
+                stash name: "${env.TEST_NAME}", includes: "${env.TEST_NAME}.xml"
+
+                // Use an env variable to help collect test results later in pipeline
                 env.BNN_BUILD_SANITY = "SUCCESS"
               }
             }
@@ -58,6 +62,12 @@ pipeline {
                 // Multiple markers with pytest needs its own script
                 createMultiMarkerScript("util or brevitas_export or streamline or transform or notebooks", "${env.TEST_NAME}.xml")
                 sh './run-docker.sh ./run-tests.sh'
+
+                // Stash the test results file(s)
+                stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml"
+
+                // Use an env variable to help collect test results later in pipeline
+                env.SANITY_UT = "SUCCESS"
               }
             }
           }
@@ -80,6 +90,12 @@ pipeline {
 
                 // Pass in the marker to run with pytest and the XML test results filename
                 runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}.xml")
+
+                // Stash the test results file(s)
+                stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml"
+
+                // Use an env variable to help collect test results later in pipeline
+                env.FPGADATAFLOW = "SUCCESS"
               }
             }
           }
@@ -139,9 +155,20 @@ pipeline {
                   // Create test script
                   createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}.xml")
 
+                  // Use an env variable to help collect test results later in pipeline
+                  env.SANITY_BNN_TEST_U250 = "SUCCESS"
+
                   // Execute the script
                   sh './run-tests.sh'
                 }
+              }
+            }
+          }
+          post {
+            always {
+              dir(env.BOARD) {
+                // Collect the results file on the slave node by stashing
+                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
               }
             }
           }
@@ -178,9 +205,21 @@ pipeline {
                   // that will not work with Pytest
                   createTestScript(env.BOARD, 'Pynq', "sanity_bnn_test_hw_${env.BOARD}.xml")
 
+                  // Use an env variable to help collect test results later in pipeline
+                  env.SANITY_BNN_TEST_PYNQZ1 = "SUCCESS"
+
                   // Execute the script as the root user - needed for zynq platforms
                   sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
                 }
+              }
+            }
+          }
+          post {
+            always {
+              // Get test result file and delete test files on the board
+              dir(env.BOARD) {
+                // Collect the results file on the slave node by stashing
+                stash name: "xml_sanity_bnn_test_PynqZ1", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
               }
             }
           }
@@ -215,9 +254,21 @@ pipeline {
                   // Create test script
                   createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}.xml")
 
+                  // Use an env variable to help collect test results later in pipeline
+                  env.SANITY_BNN_TEST_ZCU104 = "SUCCESS"
+
                   // Execute the script as the root user - needed for zynq platforms
                   sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
                 }
+              }
+            }
+          }
+          post {
+            always {
+              // Get test result file and delete test files on the board
+              dir(env.BOARD) {
+                // Collect the results file on the slave node by stashing
+                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
               }
             }
           }
@@ -252,9 +303,21 @@ pipeline {
                   // Create test script
                   createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}.xml")
 
+                  // Use an env variable to help collect test results later in pipeline
+                  env.SANITY_BNN_TEST_KV260_SOM = "SUCCESS"
+
                   // Execute the script as the root user - needed for zynq platforms
                   sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
                 }
+              }
+            }
+          }
+           post {
+            always {
+              // Get test result file and delete test files on the board
+              dir(env.BOARD) {
+                // Collect the results file on the slave node by stashing
+                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
               }
             }
           }
@@ -269,6 +332,23 @@ pipeline {
         catchError(buildResult: 'SUCCESS') {
           script {
             checkAllBoards()
+          }
+        }
+      }
+      post {
+        always {
+          script {
+            // Only unstash for stages that ran
+            unstashSuccessfulStage(env.SANITY_UT, "sanity_ut")
+            unstashSuccessfulStage(env.FPGADATAFLOW, "fpgadataflow")
+            unstashSuccessfulStage(env.BNN_BUILD_SANITY, "bnn_build_sanity")
+            unstashSuccessfulStage(env.SANITY_BNN_TEST_U250, "xml_sanity_bnn_test_U250")
+            unstashSuccessfulStage(env.SANITY_BNN_TEST_PYNQZ1, "xml_sanity_bnn_test_PynqZ1")
+            unstashSuccessfulStage(env.SANITY_BNN_TEST_ZCU104, "xml_sanity_bnn_test_ZCU104")
+            unstashSuccessfulStage(env.SANITY_BNN_TEST_KV260_SOM, "xml_sanity_bnn_test_KV260_SOM")
+
+            // Plot what XML files were created during the test run
+            junit '**/*.xml'
           }
         }
       }
@@ -378,4 +458,10 @@ def checkAllBoards() {
   }
 
   return overallResult
+}
+
+void unstashSuccessfulStage(String stageEnvVariableSet, String stashName) {
+  if (stageEnvVariableSet) {
+    unstash stashName
+  }
 }
