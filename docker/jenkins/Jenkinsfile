@@ -147,20 +147,22 @@ pipeline {
             FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}_${env.BOARD}"
           }
           steps {
-            script {
-              // Creates dir in finn clone to store build files for stashing
-              sh "mkdir -p ${env.TEST_NAME}"
-              cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Creates dir in finn clone to store build files for stashing
+                sh "mkdir -p ${env.TEST_NAME}"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
-              // Pass in the marker to run with pytest and the XML test results filename
-              runDockerPytestWithMarker("bnn_u250", "${env.TEST_NAME}_${env.BOARD}.xml")
-              findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("bnn_u250", "${env.TEST_NAME}_${env.BOARD}.xml")
+                findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
 
-              // Stash the test results file(s)
-              stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+                // Stash the test results file(s)
+                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
 
-              // Use an env variable to help collect test results later in pipeline
-              env.BNN_BUILD_U250 = "SUCCESS"
+                // Use an env variable to help collect test results later in pipeline
+                env.BNN_BUILD_U250 = "SUCCESS"
+              }
             }
           }
         }
@@ -177,20 +179,22 @@ pipeline {
             FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}_${env.BOARD}"
           }
           steps {
-            script {
-              // Creates dir in finn clone to store build files for stashing
-              sh "mkdir -p ${env.TEST_NAME}"
-              cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Creates dir in finn clone to store build files for stashing
+                sh "mkdir -p ${env.TEST_NAME}"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
-              // Pass in the marker to run with pytest and the XML test results filename
-              runDockerPytestWithMarker("bnn_pynq", "${env.TEST_NAME}_${env.BOARD}.xml")
-              findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "PynqZ1_zip")
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("bnn_pynq", "${env.TEST_NAME}_${env.BOARD}.xml")
+                findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "PynqZ1_zip")
 
-              // Stash the test results file(s)
-              stash name: "${env.TEST_NAME}_PynqZ1", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+                // Stash the test results file(s)
+                stash name: "${env.TEST_NAME}_PynqZ1", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
 
-              // Use an env variable to help collect test results later in pipeline
-              env.BNN_BUILD_PYNQZ1 = "SUCCESS"
+                // Use an env variable to help collect test results later in pipeline
+                env.BNN_BUILD_PYNQZ1 = "SUCCESS"
+              }
             }
           }
         }
@@ -207,20 +211,22 @@ pipeline {
             FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}_${env.BOARD}"
           }
           steps {
-            script {
-              // Creates dir in finn clone to store build files for stashing
-              sh "mkdir -p ${env.TEST_NAME}"
-              cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Creates dir in finn clone to store build files for stashing
+                sh "mkdir -p ${env.TEST_NAME}"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
-              // Pass in the marker to run with pytest and the XML test results filename
-              runDockerPytestWithMarker("bnn_zcu104", "${env.TEST_NAME}_${env.BOARD}.xml")
-              findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("bnn_zcu104", "${env.TEST_NAME}_${env.BOARD}.xml")
+                findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
 
-              // Stash the test results file(s)
-              stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+                // Stash the test results file(s)
+                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
 
-              // Use an env variable to help collect test results later in pipeline
-              env.BNN_BUILD_ZCU104 = "SUCCESS"
+                // Use an env variable to help collect test results later in pipeline
+                env.BNN_BUILD_ZCU104 = "SUCCESS"
+              }
             }
           }
         }
@@ -237,20 +243,22 @@ pipeline {
             FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}_${env.BOARD}"
           }
           steps {
-            script {
-              // Creates dir in finn clone to store build files for stashing
-              sh "mkdir -p ${env.TEST_NAME}"
-              cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Creates dir in finn clone to store build files for stashing
+                sh "mkdir -p ${env.TEST_NAME}"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
-              // Pass in the marker to run with pytest and the XML test results filename
-              runDockerPytestWithMarker("bnn_kv260", "${env.TEST_NAME}_${env.BOARD}.xml")
-              findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("bnn_kv260", "${env.TEST_NAME}_${env.BOARD}.xml")
+                findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
 
-              // Stash the test results file(s)
-              stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+                // Stash the test results file(s)
+                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
 
-              // Use an env variable to help collect test results later in pipeline
-              env.BNN_BUILD_KV260_SOM = "SUCCESS"
+                // Use an env variable to help collect test results later in pipeline
+                env.BNN_BUILD_KV260_SOM = "SUCCESS"
+              }
             }
           }
         }
