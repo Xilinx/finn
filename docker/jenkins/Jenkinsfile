@@ -33,6 +33,8 @@ pipeline {
                 findCopyZip("ZCU104", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_ZCU104_zip")
                 findCopyZip("KV260_SOM", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_KV260_SOM_zip")
                 findCopyZip("U250", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_U250_zip")
+
+                env.BNN_BUILD_SANITY = "SUCCESS"
               }
             }
           }
@@ -100,6 +102,159 @@ pipeline {
         }
       }
     }
+    stage('Sanity - Run Hardware Tests') {
+      parallel {
+        stage('BNN Sanity - U250') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (&& params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
+          }
+          agent {
+            label 'finn-u250'
+          }
+          environment {
+            BOARD = 'U250'
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Clean any files from a previous run
+                sh "rm -rf ${env.BOARD}*"
+
+                // Get the test files
+                unstash name: "sanity_${env.BOARD}_zip"
+                sh "unzip -o ${env.BOARD}.zip"
+
+                dir(env.BOARD) {
+                  // Get the scripts necessary for running hw tests
+                  unstash name: 'bnn_test_files'
+
+                  // Create test script
+                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}.xml")
+
+                  // Execute the script
+                  sh './run-tests.sh'
+                }
+              }
+            }
+          }
+        }
+        stage('BNN Sanity - Pynq-Z1') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
+          }
+          agent {
+            label 'finn-pynq'
+          }
+          environment {
+            BOARD = 'Pynq-Z1'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Clean any files from a previous run
+                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+
+                // Get the test files
+                unstash name: "sanity_PynqZ1_zip"
+                sh "unzip -o ${env.BOARD}.zip"
+
+                dir(env.BOARD) {
+                  // Get the scripts necessary for running hw tests
+                  unstash name: 'bnn_test_files'
+
+                  // Create test script
+                  // The marker here omits the '-Z1' as '-' is a special character
+                  // that will not work with Pytest
+                  createTestScript(env.BOARD, 'Pynq', "sanity_bnn_test_hw_${env.BOARD}.xml")
+
+                  // Execute the script as the root user - needed for zynq platforms
+                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
+                }
+              }
+            }
+          }
+        }
+        stage('BNN Sanity - ZCU104') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
+          }
+          agent {
+            label 'finn-zcu104'
+          }
+          environment {
+            BOARD = 'ZCU104'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Clean any files from a previous run
+                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+
+                // Get the test files
+                unstash name: "sanity_${env.BOARD}_zip"
+                sh "unzip -o ${env.BOARD}.zip"
+
+                dir(env.BOARD) {
+                  // Get the scripts necessary for running hw tests
+                  unstash name: 'bnn_test_files'
+
+                  // Create test script
+                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}.xml")
+
+                  // Execute the script as the root user - needed for zynq platforms
+                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
+                }
+              }
+            }
+          }
+        }
+        stage('BNN Sanity - KV260_SOM') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (params['sanity'] && env.BNN_BUILD_SANITY == 'SUCCESS') }
+          }
+          agent {
+            label 'finn-kv260'
+          }
+          environment {
+            BOARD = 'KV260_SOM'
+            USER_CREDENTIALS = credentials('user-ubuntu-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Clean any files from a previous run
+                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+
+                // Get the test files
+                unstash name: "sanity_${env.BOARD}_zip"
+                sh "unzip -o ${env.BOARD}.zip"
+
+                dir(env.BOARD) {
+                  // Get the scripts necessary for running hw tests
+                  unstash name: 'bnn_test_files'
+
+                  // Create test script
+                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}.xml")
+
+                  // Execute the script as the root user - needed for zynq platforms
+                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
+                }
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
 
@@ -139,4 +294,24 @@ void findCopyZip(String board, String findDir, String copyDir, String stashName)
     sh "zip -r ${board}.zip ${board}/"
     stash name: stashName, includes: "${board}.zip"
   }
+}
+
+void createTestScript(String board, String marker, String testResultsFilename) {
+   if(board == "U250")
+    sh """echo "#!/bin/bash
+. /opt/xilinx/xrt/setup.sh
+. ${CONDA_ENV_ACTIVATE}
+python hack_driver_script.py
+python -m pytest -m ${marker} --junitxml=${testResultsFilename}" >> run-tests.sh
+    """
+  else
+    sh """echo "#!/bin/bash
+. /etc/profile.d/pynq_venv.sh
+. /etc/profile.d/xrt_setup.sh
+python hack_driver_script.py
+python -m pytest -m ${marker} --junitxml=${testResultsFilename}" >> run-tests.sh
+    """
+
+  // Give permissions to script
+  sh 'chmod 777 run-tests.sh'
 }
