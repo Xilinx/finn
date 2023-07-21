@@ -1,5 +1,9 @@
 pipeline {
   agent none
+  parameters {
+    booleanParam(name: 'fpgadataflow', defaultValue: true, description: 'Run fpgadataflow tests')
+    booleanParam(name: 'sanity', defaultValue: true, description: 'Run sanity hardware and unit tests')
+  }
   stages {
     stage('Quicktest') {
       steps {
