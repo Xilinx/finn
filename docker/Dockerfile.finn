@@ -103,6 +103,7 @@ RUN pip install scikit-learn==1.2.1
 RUN pip install tqdm==4.64.1
 RUN pip install -e git+https://github.com/fbcotter/dataset_loading.git@0.0.4#egg=dataset_loading
 RUN pip install pytest-html==3.2.0
+RUN pip install pytest-html-merger==0.0.8
 
 # extra dependencies from other FINN deps
 # installed in Docker image to make entrypoint script go faster
