@@ -1,20 +1,79 @@
 pipeline {
   agent none
   parameters {
-    booleanParam(name: 'fpgadataflow', defaultValue: true, description: 'Run fpgadataflow tests')
+    booleanParam(name: 'fpgadataflow', defaultValue: false, description: 'Run fpgadataflow tests')
     booleanParam(name: 'sanity', defaultValue: true, description: 'Run sanity hardware and unit tests')
   }
   stages {
-    stage('Quicktest') {
-      steps {
-        sh 'echo "Hello FINN"'
-        sh 'hostname'
-        sh 'whoami'
-        sh 'pwd'
-        sh 'docker login'
-        sh 'printenv | sort'
-        sh './run-docker.sh quicktest'
+    stage('Sanity Tests') {
+      parallel {
+        stage('Sanity - Unit Tests') {
+          when {
+            expression { params['sanity'] }
+          }
+          agent {
+            label 'finn-build'
+          }
+          environment {
+            TEST_NAME = "sanity_ut"
+            FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}"
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+
+                // Multiple markers with pytest needs its own script
+                createMultiMarkerScript("util or brevitas_export or streamline or transform or notebooks", "${env.TEST_NAME}.xml")
+                sh './run-docker.sh ./run-tests.sh'
+              }
+            }
+          }
+        }
+        stage('Sanity - fpgadataflow Tests') {
+          when {
+            expression { params['fpgadataflow'] }
+          }
+          agent {
+            label 'finn-build'
+          }
+          environment {
+            TEST_NAME = "fpgadataflow"
+            FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}"
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}.xml")
+              }
+            }
+          }
+        }
       }
     }
   }
+}
+
+void cleanPreviousBuildFiles(String buildDir) {
+  // Delete any build files from a previous build
+  // Previous build folders affect findCopyZip() and can cause the stage to fail
+  sh "rm -rf ${buildDir}/*"
+}
+
+void createMultiMarkerScript(String markers, String testResultsFilename) {
+  // Passing multiple markers when running ./run-docker.sh does not work with bash.
+  // Therefore, create a script to maintain the single quotes that surround the markers
+  sh """echo "#!/bin/bash
+python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}" >> run-tests.sh
+    """
+
+  // Give permissions to script
+  sh 'chmod 777 run-tests.sh'
+}
+
+void runDockerPytestWithMarker(String marker, String testResultsFilename) {
+  sh """./run-docker.sh python -m pytest -m ${marker} --junitxml=${testResultsFilename}"""
 }
