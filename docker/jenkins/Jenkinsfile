@@ -27,6 +27,12 @@ pipeline {
 
                 // Pass in the marker to run with pytest and the XML test results filename
                 runDockerPytestWithMarker("sanity_bnn", "${env.TEST_NAME}.xml")
+
+                // Find the board's build files (bitstreams/xclbins) and zip for use on the boards themselves
+                findCopyZip("Pynq-Z1", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_PynqZ1_zip")
+                findCopyZip("ZCU104", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_ZCU104_zip")
+                findCopyZip("KV260_SOM", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_KV260_SOM_zip")
+                findCopyZip("U250", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_U250_zip")
               }
             }
           }
@@ -78,6 +84,22 @@ pipeline {
         }
       }
     }
+    stage('Sanity - Setup Hardware Tests') {
+      when {
+        expression { return params['sanity'] }
+      }
+      agent {
+        label 'finn-build'
+      }
+      steps {
+        script {
+          // Stash the HW test scripts to be used on slave nodes
+          dir('docker/jenkins') {
+            stash name: 'bnn_test_files', includes: 'hack_driver_script.py,test_bnn_hw_pytest.py'
+          }
+        }
+      }
+    }
   }
 }
 
@@ -100,4 +122,21 @@ python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}" >> run-tes
 
 void runDockerPytestWithMarker(String marker, String testResultsFilename) {
   sh """./run-docker.sh python -m pytest -m ${marker} --junitxml=${testResultsFilename}"""
+}
+
+void findBoardBuildFiles(String board, String searchDir, String dirToFind) {
+  def result = sh(script: "find $searchDir -type d -name \"$dirToFind*\"", returnStdout: true).trim()
+  if (result.empty) {
+      error "Directory containing '$dirToFind' not found."
+  }
+	return result
+}
+
+void findCopyZip(String board, String findDir, String copyDir, String stashName) {
+  def buildDir = findBoardBuildFiles(board, findDir, "hw_deployment_${board}")
+  sh "cp -r ${buildDir}/${board} ${copyDir}/"
+  dir(copyDir) {
+    sh "zip -r ${board}.zip ${board}/"
+    stash name: stashName, includes: "${board}.zip"
+  }
 }
