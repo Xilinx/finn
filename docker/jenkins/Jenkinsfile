@@ -795,7 +795,7 @@ void cleanPreviousBuildFiles(String buildDir) {
   sh "rm -rf ${buildDir}/*"
 }
 
-void createMultiMarkerScript(String markers, String testResultsFilename) {
+void createMultiMarkerScript(String markers, String testResultsFilename, String additionalOptions) {
   // Passing multiple markers when running ./run-docker.sh does not work with bash.
   // Therefore, create a script to maintain the single quotes that surround the markers
   sh """echo "#!/bin/bash
