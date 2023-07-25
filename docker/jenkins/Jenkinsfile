@@ -333,12 +333,6 @@ pipeline {
                 stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
               }
             }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
-            }
           }
         }
         stage('BNN Sanity - Pynq-Z1') {
@@ -390,12 +384,6 @@ pipeline {
                 stash name: "xml_sanity_bnn_test_PynqZ1", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
               }
             }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
-            }
           }
         }
         stage('BNN Sanity - ZCU104') {
@@ -445,12 +433,6 @@ pipeline {
                 stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
               }
             }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
-            }
           }
         }
         stage('BNN Sanity - KV260_SOM') {
@@ -499,12 +481,6 @@ pipeline {
                 // Collect the results file on the slave node by stashing
                 stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -557,12 +533,6 @@ pipeline {
                 stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
               }
             }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
-            }
           }
         }
         stage('BNN end2end - Pynq-Z1') {
@@ -614,12 +584,6 @@ pipeline {
                 stash name: "xml_bnn_test_PynqZ1", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
               }
             }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
-            }
           }
         }
         stage('BNN end2end - ZCU104') {
@@ -669,12 +633,6 @@ pipeline {
                 stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
               }
             }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
-            }
           }
         }
         stage('BNN end2end - KV260_SOM') {
@@ -723,12 +681,6 @@ pipeline {
                 // Collect the results file on the slave node by stashing
                 stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -903,12 +855,4 @@ void archiveSuccessfulStage(String stageEnvVariableSet, String folder) {
   if (stageEnvVariableSet) {
     archiveArtifacts artifacts: "${folder}/**/*"
   }
-}
-
-void postFailure(String board) {
-  echo "Failed to run ${board} tests"
-}
-
-void postSuccess(String board) {
-  echo "${board} tests passed"
 }
