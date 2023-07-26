@@ -321,7 +321,22 @@ def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
     (input_tensor_npy, output_tensor_npy) = get_golden_io_pair(
         topology, wbits, abits, return_topk=1
     )
-    np.save(os.path.join(deployment_dir, "input.npy"), input_tensor_npy)
+
+    # Some changes are required in order to prepare the input tensor data for hardware
+    # testing. The ONNX graphs for these models contain nodes that manipulate the input
+    # tensor shape which FINN considers when creating the model. The same input tensor
+    # shaping needs to be done here on the input data.
+    # For the convolutional models, the graph contains the Transpose node. The Brevitas
+    # model works in NCHW layout but the FINN kernels are optimized for NHWC.
+    # The FC models contain a Reshape node, which FINN uses, so we therefore have to
+    # reshape the input tensor data to match the reshaping in the model
+    if topology == "cnv":
+        input_tensor_npy = input_tensor_npy.transpose(0, 3, 2, 1)
+    else:
+        input_shape = input_tensor_npy.shape
+        input_tensor_npy = (input_shape[0], np.prod(input_shape[1:]))
+
+    np.save(os.path.join(deployment_dir, "input.npy"), input_tensor_npy.copy())
     np.save(os.path.join(deployment_dir, "output_reference.npy"), output_tensor_npy)
 
     # driver.py and python libraries
