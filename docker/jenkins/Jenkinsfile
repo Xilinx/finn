@@ -27,7 +27,7 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("sanity_bnn", "${env.TEST_NAME}.xml")
+                runDockerPytestWithMarker("sanity_bnn", "${env.TEST_NAME}", '')
 
                 // Find the board's build files (bitstreams/xclbins) and zip for use on the boards themselves
                 findCopyZip("Pynq-Z1", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_PynqZ1_zip")
@@ -36,7 +36,7 @@ pipeline {
                 findCopyZip("U250", env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "sanity_U250_zip")
 
                 // Stash the test results file(s)
-                stash name: "${env.TEST_NAME}", includes: "${env.TEST_NAME}.xml"
+                stash name: "${env.TEST_NAME}", includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
 
                 // Use an env variable to help collect test results later in pipeline
                 env.BNN_BUILD_SANITY = "SUCCESS"
@@ -61,11 +61,11 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Multiple markers with pytest needs its own script
-                createMultiMarkerScript("util or brevitas_export or streamline or transform or notebooks", "${env.TEST_NAME}.xml")
+                createMultiMarkerScript("util or brevitas_export or streamline or transform or notebooks", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_sanity_ut")
                 sh './run-docker.sh ./run-tests.sh'
 
                 // Stash the test results file(s)
-                stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml"
+                stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
 
                 // Use an env variable to help collect test results later in pipeline
                 env.SANITY_UT = "SUCCESS"
@@ -90,10 +90,10 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}.xml")
+                runDockerPytestWithMarker("fpgadataflow", "${env.TEST_NAME}", "--cov --cov-report=html:coverage_fpgadataflow")
 
                 // Stash the test results file(s)
-                stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml"
+                stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
 
                 // Use an env variable to help collect test results later in pipeline
                 env.FPGADATAFLOW = "SUCCESS"
@@ -123,10 +123,10 @@ pipeline {
                 sh "rm -rf ${env.FINN_HOST_BUILD_DIR}/*"
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker(env.TEST_NAME, "${env.TEST_NAME}.xml")
+                runDockerPytestWithMarker(env.TEST_NAME, "${env.TEST_NAME}", '')
 
                 // Stash the test results file(s)
-                stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml"
+                stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
 
                 // Use an env variable to help collect test results later in pipeline
                 env.END2END = "SUCCESS"
@@ -154,11 +154,11 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("bnn_u250", "${env.TEST_NAME}_${env.BOARD}.xml")
+                runDockerPytestWithMarker("bnn_u250", "${env.TEST_NAME}_${env.BOARD}", '')
                 findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
 
                 // Stash the test results file(s)
-                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml,${env.TEST_NAME}_${env.BOARD}.html"
 
                 // Use an env variable to help collect test results later in pipeline
                 env.BNN_BUILD_U250 = "SUCCESS"
@@ -186,11 +186,11 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("bnn_pynq", "${env.TEST_NAME}_${env.BOARD}.xml")
+                runDockerPytestWithMarker("bnn_pynq", "${env.TEST_NAME}_${env.BOARD}", '')
                 findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "PynqZ1_zip")
 
                 // Stash the test results file(s)
-                stash name: "${env.TEST_NAME}_PynqZ1", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+                stash name: "${env.TEST_NAME}_PynqZ1", includes: "${env.TEST_NAME}_${env.BOARD}.xml,${env.TEST_NAME}_${env.BOARD}.html"
 
                 // Use an env variable to help collect test results later in pipeline
                 env.BNN_BUILD_PYNQZ1 = "SUCCESS"
@@ -218,11 +218,11 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("bnn_zcu104", "${env.TEST_NAME}_${env.BOARD}.xml")
+                runDockerPytestWithMarker("bnn_zcu104", "${env.TEST_NAME}_${env.BOARD}", '')
                 findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
 
                 // Stash the test results file(s)
-                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml,${env.TEST_NAME}_${env.BOARD}.html"
 
                 // Use an env variable to help collect test results later in pipeline
                 env.BNN_BUILD_ZCU104 = "SUCCESS"
@@ -250,11 +250,11 @@ pipeline {
                 cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
-                runDockerPytestWithMarker("bnn_kv260", "${env.TEST_NAME}_${env.BOARD}.xml")
+                runDockerPytestWithMarker("bnn_kv260", "${env.TEST_NAME}_${env.BOARD}", '')
                 findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
 
                 // Stash the test results file(s)
-                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml,${env.TEST_NAME}_${env.BOARD}.html"
 
                 // Use an env variable to help collect test results later in pipeline
                 env.BNN_BUILD_KV260_SOM = "SUCCESS"
@@ -315,7 +315,7 @@ pipeline {
                   unstash name: 'bnn_test_files'
 
                   // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}.xml")
+                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}")
 
                   // Use an env variable to help collect test results later in pipeline
                   env.SANITY_BNN_TEST_U250 = "SUCCESS"
@@ -330,14 +330,8 @@ pipeline {
             always {
               dir(env.BOARD) {
                 // Collect the results file on the slave node by stashing
-                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
+                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -371,7 +365,7 @@ pipeline {
                   // Create test script
                   // The marker here omits the '-Z1' as '-' is a special character
                   // that will not work with Pytest
-                  createTestScript(env.BOARD, 'Pynq', "sanity_bnn_test_hw_${env.BOARD}.xml")
+                  createTestScript(env.BOARD, 'Pynq', "sanity_bnn_test_hw_${env.BOARD}")
 
                   // Use an env variable to help collect test results later in pipeline
                   env.SANITY_BNN_TEST_PYNQZ1 = "SUCCESS"
@@ -387,14 +381,8 @@ pipeline {
               // Get test result file and delete test files on the board
               dir(env.BOARD) {
                 // Collect the results file on the slave node by stashing
-                stash name: "xml_sanity_bnn_test_PynqZ1", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
+                stash name: "xml_sanity_bnn_test_PynqZ1", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -426,7 +414,7 @@ pipeline {
                   unstash name: 'bnn_test_files'
 
                   // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}.xml")
+                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}")
 
                   // Use an env variable to help collect test results later in pipeline
                   env.SANITY_BNN_TEST_ZCU104 = "SUCCESS"
@@ -442,14 +430,8 @@ pipeline {
               // Get test result file and delete test files on the board
               dir(env.BOARD) {
                 // Collect the results file on the slave node by stashing
-                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
+                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -481,7 +463,7 @@ pipeline {
                   unstash name: 'bnn_test_files'
 
                   // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}.xml")
+                  createTestScript(env.BOARD, env.BOARD, "sanity_bnn_test_hw_${env.BOARD}")
 
                   // Use an env variable to help collect test results later in pipeline
                   env.SANITY_BNN_TEST_KV260_SOM = "SUCCESS"
@@ -497,14 +479,8 @@ pipeline {
               // Get test result file and delete test files on the board
               dir(env.BOARD) {
                 // Collect the results file on the slave node by stashing
-                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml"
+                stash name: "xml_sanity_bnn_test_${env.BOARD}", includes: "sanity_bnn_test_hw_${env.BOARD}.xml,sanity_bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -539,7 +515,7 @@ pipeline {
                   unstash name: 'bnn_test_files'
 
                   // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}.xml")
+                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}")
 
                   // Use an env variable to help collect test results later in pipeline
                   env.BNN_TEST_U250 = "SUCCESS"
@@ -554,14 +530,8 @@ pipeline {
             always {
               dir(env.BOARD) {
                 // Collect the results file on the slave node by stashing
-                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml"
+                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -595,7 +565,7 @@ pipeline {
                   // Create test script
                   // The marker here omits the '-Z1' as '-' is a special character
                   // that will not work with Pytest
-                  createTestScript(env.BOARD, 'Pynq', "bnn_test_hw_${env.BOARD}.xml")
+                  createTestScript(env.BOARD, 'Pynq', "bnn_test_hw_${env.BOARD}")
 
                   // Use an env variable to help collect test results later in pipeline
                   env.BNN_TEST_PYNQZ1 = "SUCCESS"
@@ -611,14 +581,8 @@ pipeline {
               // Get test result file and delete test files on the board
               dir(env.BOARD) {
                 // Collect the results file on the slave node by stashing
-                stash name: "xml_bnn_test_PynqZ1", includes: "bnn_test_hw_${env.BOARD}.xml"
+                stash name: "xml_bnn_test_PynqZ1", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -650,7 +614,7 @@ pipeline {
                   unstash name: 'bnn_test_files'
 
                   // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}.xml")
+                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}")
 
                   // Use an env variable to help collect test results later in pipeline
                   env.BNN_TEST_ZCU104 = "SUCCESS"
@@ -666,14 +630,8 @@ pipeline {
               // Get test result file and delete test files on the board
               dir(env.BOARD) {
                 // Collect the results file on the slave node by stashing
-                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml"
+                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -705,7 +663,7 @@ pipeline {
                   unstash name: 'bnn_test_files'
 
                   // Create test script
-                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}.xml")
+                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}")
 
                   // Use an env variable to help collect test results later in pipeline
                   env.BNN_TEST_KV260_SOM = "SUCCESS"
@@ -721,14 +679,8 @@ pipeline {
               // Get test result file and delete test files on the board
               dir(env.BOARD) {
                 // Collect the results file on the slave node by stashing
-                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml"
+                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml,bnn_test_hw_${env.BOARD}.html"
               }
-            }
-            success {
-              postSuccess(env.BOARD)
-            }
-            failure {
-              postFailure(env.BOARD)
             }
           }
         }
@@ -748,29 +700,40 @@ pipeline {
       post {
         always {
           script {
-            // Only unstash for stages that ran
-            unstashSuccessfulStage(env.SANITY_UT, "sanity_ut")
-            unstashSuccessfulStage(env.FPGADATAFLOW, "fpgadataflow")
-            unstashSuccessfulStage(env.BNN_BUILD_SANITY, "bnn_build_sanity")
-            unstashSuccessfulStage(env.SANITY_BNN_TEST_U250, "xml_sanity_bnn_test_U250")
-            unstashSuccessfulStage(env.SANITY_BNN_TEST_PYNQZ1, "xml_sanity_bnn_test_PynqZ1")
-            unstashSuccessfulStage(env.SANITY_BNN_TEST_ZCU104, "xml_sanity_bnn_test_ZCU104")
-            unstashSuccessfulStage(env.SANITY_BNN_TEST_KV260_SOM, "xml_sanity_bnn_test_KV260_SOM")
-            unstashSuccessfulStage(env.END2END, "end2end")
-            unstashSuccessfulStage(env.BNN_BUILD_U250, "bnn_build_full_U250")
-            unstashSuccessfulStage(env.BNN_BUILD_PYNQZ1, "bnn_build_full_PynqZ1")
-            unstashSuccessfulStage(env.BNN_BUILD_ZCU104, "bnn_build_full_ZCU104")
-            unstashSuccessfulStage(env.BNN_BUILD_KV260_SOM, "bnn_build_full_KV260_SOM")
-            unstashSuccessfulStage(env.BNN_TEST_U250, "xml_bnn_test_U250")
-            unstashSuccessfulStage(env.BNN_TEST_PYNQZ1, "xml_bnn_test_PynqZ1")
-            unstashSuccessfulStage(env.BNN_TEST_ZCU104, "xml_bnn_test_ZCU104")
-            unstashSuccessfulStage(env.BNN_TEST_KV260_SOM, "xml_bnn_test_KV260_SOM")
+            sh 'mkdir -p reports'
+            cleanPreviousBuildFiles('reports')
+            dir('reports') {
+              // Only unstash for stages that ran
+              unstashSuccessfulStage(env.SANITY_UT, "sanity_ut")
+              unstashSuccessfulStage(env.FPGADATAFLOW, "fpgadataflow")
+              unstashSuccessfulStage(env.BNN_BUILD_SANITY, "bnn_build_sanity")
+              unstashSuccessfulStage(env.SANITY_BNN_TEST_U250, "xml_sanity_bnn_test_U250")
+              unstashSuccessfulStage(env.SANITY_BNN_TEST_PYNQZ1, "xml_sanity_bnn_test_PynqZ1")
+              unstashSuccessfulStage(env.SANITY_BNN_TEST_ZCU104, "xml_sanity_bnn_test_ZCU104")
+              unstashSuccessfulStage(env.SANITY_BNN_TEST_KV260_SOM, "xml_sanity_bnn_test_KV260_SOM")
+              unstashSuccessfulStage(env.END2END, "end2end")
+              unstashSuccessfulStage(env.BNN_BUILD_U250, "bnn_build_full_U250")
+              unstashSuccessfulStage(env.BNN_BUILD_PYNQZ1, "bnn_build_full_PynqZ1")
+              unstashSuccessfulStage(env.BNN_BUILD_ZCU104, "bnn_build_full_ZCU104")
+              unstashSuccessfulStage(env.BNN_BUILD_KV260_SOM, "bnn_build_full_KV260_SOM")
+              unstashSuccessfulStage(env.BNN_TEST_U250, "xml_bnn_test_U250")
+              unstashSuccessfulStage(env.BNN_TEST_PYNQZ1, "xml_bnn_test_PynqZ1")
+              unstashSuccessfulStage(env.BNN_TEST_ZCU104, "xml_bnn_test_ZCU104")
+              unstashSuccessfulStage(env.BNN_TEST_KV260_SOM, "xml_bnn_test_KV260_SOM")
+            }
+
+            // Combine individual HTML files to one single report
+            sh './run-docker.sh pytest_html_merger -i reports/ -o reports/test_report_final.html'
+
+            // Archive the XML & HTML test results
+            archiveArtifacts artifacts: "reports/*.xml"
+            archiveArtifacts artifacts: "reports/*.html"
+
+            archiveSuccessfulStage(env.SANITY_UT, "coverage_sanity_ut")
+            archiveSuccessfulStage(env.FPGADATAFLOW, "coverage_fpgadataflow")
 
             // Plot what XML files were created during the test run
-            junit '**/*.xml'
-
-            // Archive the XML test results
-            archiveArtifacts artifacts: "*.xml"
+            junit 'reports/*.xml'
           }
         }
       }
@@ -784,19 +747,19 @@ void cleanPreviousBuildFiles(String buildDir) {
   sh "rm -rf ${buildDir}/*"
 }
 
-void createMultiMarkerScript(String markers, String testResultsFilename) {
+void createMultiMarkerScript(String markers, String testResultsFilename, String additionalOptions) {
   // Passing multiple markers when running ./run-docker.sh does not work with bash.
   // Therefore, create a script to maintain the single quotes that surround the markers
   sh """echo "#!/bin/bash
-python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}" >> run-tests.sh
+python -m pytest -m \'${markers}\' --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}" >> run-tests.sh
     """
 
   // Give permissions to script
   sh 'chmod 777 run-tests.sh'
 }
 
-void runDockerPytestWithMarker(String marker, String testResultsFilename) {
-  sh """./run-docker.sh python -m pytest -m ${marker} --junitxml=${testResultsFilename}"""
+void runDockerPytestWithMarker(String marker, String testResultsFilename, String additionalOptions) {
+  sh """./run-docker.sh python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}"""
 }
 
 void findBoardBuildFiles(String board, String searchDir, String dirToFind) {
@@ -821,13 +784,15 @@ void createTestScript(String board, String marker, String testResultsFilename) {
     sh """echo "#!/bin/bash
 . /opt/xilinx/xrt/setup.sh
 . ${CONDA_ENV_ACTIVATE}
-python -m pytest -m ${marker} --junitxml=${testResultsFilename}" >> run-tests.sh
+python hack_driver_script.py
+python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
     """
   else
     sh """echo "#!/bin/bash
 . /etc/profile.d/pynq_venv.sh
 . /etc/profile.d/xrt_setup.sh
-python -m pytest -m ${marker} --junitxml=${testResultsFilename}" >> run-tests.sh
+python hack_driver_script.py
+python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
     """
 
   // Give permissions to script
@@ -886,10 +851,8 @@ void unstashSuccessfulStage(String stageEnvVariableSet, String stashName) {
   }
 }
 
-void postFailure(String board) {
-  echo "Failed to run ${board} tests"
-}
-
-void postSuccess(String board) {
-  echo "${board} tests passed"
+void archiveSuccessfulStage(String stageEnvVariableSet, String folder) {
+  if (stageEnvVariableSet) {
+    archiveArtifacts artifacts: "${folder}/**/*"
+  }
 }
