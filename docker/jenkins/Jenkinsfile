@@ -3,6 +3,7 @@ pipeline {
   parameters {
     booleanParam(name: 'fpgadataflow', defaultValue: false, description: 'Run fpgadataflow tests')
     booleanParam(name: 'sanity', defaultValue: true, description: 'Run sanity hardware and unit tests')
+    booleanParam(name: 'end2end', defaultValue: false, description: 'Run end2end tests')
   }
   stages {
     stage('Sanity Tests') {
@@ -102,7 +103,168 @@ pipeline {
         }
       }
     }
-    stage('Sanity - Setup Hardware Tests') {
+    stage('End2end - Build Hardware') {
+      parallel {
+        stage('End2end') {
+          when {
+            expression { params['end2end'] }
+          }
+          agent {
+            label 'finn-build'
+          }
+          environment {
+            TEST_NAME = "end2end"
+            FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}"
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Delete any build files from a previous build
+                sh "rm -rf ${env.FINN_HOST_BUILD_DIR}/*"
+
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker(env.TEST_NAME, "${env.TEST_NAME}.xml")
+
+                // Stash the test results file(s)
+                stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml"
+
+                // Use an env variable to help collect test results later in pipeline
+                env.END2END = "SUCCESS"
+              }
+            }
+          }
+        }
+        stage('BNN end2end - U250') {
+          when {
+            expression { return params['end2end'] }
+          }
+          agent {
+            label 'finn-build'
+          }
+          environment {
+            BOARD = "U250"
+            TEST_NAME = "bnn_build_full"
+            FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}_${env.BOARD}"
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Creates dir in finn clone to store build files for stashing
+                sh "mkdir -p ${env.TEST_NAME}"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("bnn_u250", "${env.TEST_NAME}_${env.BOARD}.xml")
+                findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
+
+                // Stash the test results file(s)
+                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+
+                // Use an env variable to help collect test results later in pipeline
+                env.BNN_BUILD_U250 = "SUCCESS"
+              }
+            }
+          }
+        }
+        stage('BNN end2end - Pynq-Z1') {
+          when {
+            expression { return params['end2end'] }
+          }
+          agent {
+            label 'finn-build'
+          }
+          environment {
+            BOARD = "Pynq-Z1"
+            TEST_NAME = "bnn_build_full"
+            FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}_${env.BOARD}"
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Creates dir in finn clone to store build files for stashing
+                sh "mkdir -p ${env.TEST_NAME}"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("bnn_pynq", "${env.TEST_NAME}_${env.BOARD}.xml")
+                findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "PynqZ1_zip")
+
+                // Stash the test results file(s)
+                stash name: "${env.TEST_NAME}_PynqZ1", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+
+                // Use an env variable to help collect test results later in pipeline
+                env.BNN_BUILD_PYNQZ1 = "SUCCESS"
+              }
+            }
+          }
+        }
+        stage('BNN end2end - ZCU104') {
+          when {
+            expression { return params['end2end'] }
+          }
+          agent {
+            label 'finn-build'
+          }
+          environment {
+            BOARD = "ZCU104"
+            TEST_NAME = "bnn_build_full"
+            FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}_${env.BOARD}"
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Creates dir in finn clone to store build files for stashing
+                sh "mkdir -p ${env.TEST_NAME}"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("bnn_zcu104", "${env.TEST_NAME}_${env.BOARD}.xml")
+                findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
+
+                // Stash the test results file(s)
+                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+
+                // Use an env variable to help collect test results later in pipeline
+                env.BNN_BUILD_ZCU104 = "SUCCESS"
+              }
+            }
+          }
+        }
+        stage('BNN end2end - KV260_SOM') {
+          when {
+            expression { return params['end2end'] }
+          }
+          agent {
+            label 'finn-build'
+          }
+          environment {
+            BOARD = "KV260_SOM"
+            TEST_NAME = "bnn_build_full"
+            FINN_HOST_BUILD_DIR = "${env.FINN_HOST_BUILD_DIR}/${env.TEST_NAME}_${env.BOARD}"
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Creates dir in finn clone to store build files for stashing
+                sh "mkdir -p ${env.TEST_NAME}"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
+
+                // Pass in the marker to run with pytest and the XML test results filename
+                runDockerPytestWithMarker("bnn_kv260", "${env.TEST_NAME}_${env.BOARD}.xml")
+                findCopyZip(env.BOARD, env.FINN_HOST_BUILD_DIR, env.TEST_NAME, "${env.BOARD}_zip")
+
+                // Stash the test results file(s)
+                stash name: "${env.TEST_NAME}_${env.BOARD}", includes: "${env.TEST_NAME}_${env.BOARD}.xml"
+
+                // Use an env variable to help collect test results later in pipeline
+                env.BNN_BUILD_KV260_SOM = "SUCCESS"
+              }
+            }
+          }
+        }
+      }
+    }
+    stage('Sanity & BNN end2end - Setup Hardware Tests') {
       when {
         expression { return params['sanity'] }
       }
@@ -348,6 +510,230 @@ pipeline {
         }
       }
     }
+    stage('End2end - Run Hardware Tests') {
+      parallel {
+        stage('BNN end2end - U250') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.ALVEO_HOST_ONLINE == 'true' && params['end2end'] && env.BNN_BUILD_U250 == 'SUCCESS') }
+          }
+          agent {
+            label 'finn-u250'
+          }
+          environment {
+            BOARD = 'U250'
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Clean any files from a previous run
+                sh "rm -rf ${env.BOARD}*"
+
+                // Get the test files
+                unstash name: "${env.BOARD}_zip"
+                sh "unzip -o ${env.BOARD}.zip"
+
+                dir(env.BOARD) {
+                  // Get the scripts necessary for running hw tests
+                  unstash name: 'bnn_test_files'
+
+                  // Create test script
+                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}.xml")
+
+                  // Use an env variable to help collect test results later in pipeline
+                  env.BNN_TEST_U250 = "SUCCESS"
+
+                  // Execute the script
+                  sh './run-tests.sh'
+                }
+              }
+            }
+          }
+          post {
+            always {
+              dir(env.BOARD) {
+                // Collect the results file on the slave node by stashing
+                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml"
+              }
+            }
+            success {
+              postSuccess(env.BOARD)
+            }
+            failure {
+              postFailure(env.BOARD)
+            }
+          }
+        }
+        stage('BNN end2end - Pynq-Z1') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.PYNQ_ONLINE == 'true' && params['end2end'] && env.BNN_BUILD_PYNQZ1 == 'SUCCESS') }
+          }
+          agent {
+            label 'finn-pynq'
+          }
+          environment {
+            BOARD = 'Pynq-Z1'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Clean any files from a previous run
+                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+
+                // Get the test files
+                unstash name: "PynqZ1_zip"
+                sh "unzip -o ${env.BOARD}.zip"
+
+                dir(env.BOARD) {
+                  // Get the scripts necessary for running hw tests
+                  unstash name: 'bnn_test_files'
+
+                  // Create test script
+                  // The marker here omits the '-Z1' as '-' is a special character
+                  // that will not work with Pytest
+                  createTestScript(env.BOARD, 'Pynq', "bnn_test_hw_${env.BOARD}.xml")
+
+                  // Use an env variable to help collect test results later in pipeline
+                  env.BNN_TEST_PYNQZ1 = "SUCCESS"
+
+                  // Execute the script as the root user - needed for zynq platforms
+                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
+                }
+              }
+            }
+          }
+          post {
+            always {
+              // Get test result file and delete test files on the board
+              dir(env.BOARD) {
+                // Collect the results file on the slave node by stashing
+                stash name: "xml_bnn_test_PynqZ1", includes: "bnn_test_hw_${env.BOARD}.xml"
+              }
+            }
+            success {
+              postSuccess(env.BOARD)
+            }
+            failure {
+              postFailure(env.BOARD)
+            }
+          }
+        }
+        stage('BNN end2end - ZCU104') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.ZCU104_ONLINE == 'true' && params['end2end'] && env.BNN_BUILD_ZCU104 == 'SUCCESS') }
+          }
+          agent {
+            label 'finn-zcu104'
+          }
+          environment {
+            BOARD = 'ZCU104'
+            USER_CREDENTIALS = credentials('pynq-z1-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Clean any files from a previous run
+                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+
+                // Get the test files
+                unstash name: "${env.BOARD}_zip"
+                sh "unzip -o ${env.BOARD}.zip"
+
+                dir(env.BOARD) {
+                  // Get the scripts necessary for running hw tests
+                  unstash name: 'bnn_test_files'
+
+                  // Create test script
+                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}.xml")
+
+                  // Use an env variable to help collect test results later in pipeline
+                  env.BNN_TEST_ZCU104 = "SUCCESS"
+
+                  // Execute the script as the root user - needed for zynq platforms
+                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
+                }
+              }
+            }
+          }
+          post {
+            always {
+              // Get test result file and delete test files on the board
+              dir(env.BOARD) {
+                // Collect the results file on the slave node by stashing
+                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml"
+              }
+            }
+            success {
+              postSuccess(env.BOARD)
+            }
+            failure {
+              postFailure(env.BOARD)
+            }
+          }
+        }
+        stage('BNN end2end - KV260_SOM') {
+          when {
+            // beforeAgent set to 'true' to prevent an offline agent hanging the stage
+            beforeAgent true
+            expression { return (env.KV260_ONLINE == 'true' && params['end2end'] && env.BNN_BUILD_KV260_SOM == 'SUCCESS') }
+          }
+          agent {
+            label 'finn-kv260'
+          }
+          environment {
+            BOARD = 'KV260_SOM'
+            USER_CREDENTIALS = credentials('user-ubuntu-credentials')
+          }
+          steps {
+            catchError(stageResult: 'FAILURE') {
+              script {
+                // Clean any files from a previous run
+                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+
+                // Get the test files
+                unstash name: "${env.BOARD}_zip"
+                sh "unzip -o ${env.BOARD}.zip"
+
+                dir(env.BOARD) {
+                  // Get the scripts necessary for running hw tests
+                  unstash name: 'bnn_test_files'
+
+                  // Create test script
+                  createTestScript(env.BOARD, env.BOARD, "bnn_test_hw_${env.BOARD}.xml")
+
+                  // Use an env variable to help collect test results later in pipeline
+                  env.BNN_TEST_KV260_SOM = "SUCCESS"
+
+                  // Execute the script as the root user - needed for zynq platforms
+                  sh 'echo $USER_CREDENTIALS_PSW | sudo -S ./run-tests.sh'
+                }
+              }
+            }
+          }
+          post {
+            always {
+              // Get test result file and delete test files on the board
+              dir(env.BOARD) {
+                // Collect the results file on the slave node by stashing
+                stash name: "xml_bnn_test_${env.BOARD}", includes: "bnn_test_hw_${env.BOARD}.xml"
+              }
+            }
+            success {
+              postSuccess(env.BOARD)
+            }
+            failure {
+              postFailure(env.BOARD)
+            }
+          }
+        }
+      }
+    }
     stage('Check Stage Results') {
       agent {
         label 'finn-build'
@@ -370,6 +756,15 @@ pipeline {
             unstashSuccessfulStage(env.SANITY_BNN_TEST_PYNQZ1, "xml_sanity_bnn_test_PynqZ1")
             unstashSuccessfulStage(env.SANITY_BNN_TEST_ZCU104, "xml_sanity_bnn_test_ZCU104")
             unstashSuccessfulStage(env.SANITY_BNN_TEST_KV260_SOM, "xml_sanity_bnn_test_KV260_SOM")
+            unstashSuccessfulStage(env.END2END, "end2end")
+            unstashSuccessfulStage(env.BNN_BUILD_U250, "bnn_build_full_U250")
+            unstashSuccessfulStage(env.BNN_BUILD_PYNQZ1, "bnn_build_full_PynqZ1")
+            unstashSuccessfulStage(env.BNN_BUILD_ZCU104, "bnn_build_full_ZCU104")
+            unstashSuccessfulStage(env.BNN_BUILD_KV260_SOM, "bnn_build_full_KV260_SOM")
+            unstashSuccessfulStage(env.BNN_TEST_U250, "xml_bnn_test_U250")
+            unstashSuccessfulStage(env.BNN_TEST_PYNQZ1, "xml_bnn_test_PynqZ1")
+            unstashSuccessfulStage(env.BNN_TEST_ZCU104, "xml_bnn_test_ZCU104")
+            unstashSuccessfulStage(env.BNN_TEST_KV260_SOM, "xml_bnn_test_KV260_SOM")
 
             // Plot what XML files were created during the test run
             junit '**/*.xml'
