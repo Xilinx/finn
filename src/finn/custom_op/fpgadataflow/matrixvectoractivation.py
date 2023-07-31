@@ -664,6 +664,8 @@ class MatrixVectorActivation(HLSCustomOp):
             # for no-activation nodes, output dt = acc dt
             self.set_nodeattr("outputDataType", adt.name)
         self.set_nodeattr("accDataType", adt.name)
+        if self.get_nodeattr("noActivation"):
+            self.set_nodeattr("outputDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
 
     def minimize_weight_bit_width(self, model):
