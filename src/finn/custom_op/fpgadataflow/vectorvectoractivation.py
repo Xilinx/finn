@@ -190,6 +190,8 @@ class VectorVectorActivation(HLSCustomOp):
             adt = DataType[new_adt_name]
             # for no-activation nodes, output dt = acc dt
             self.set_nodeattr("outputDataType", adt.name)
+        if self.get_nodeattr("noActivation"):
+            self.set_nodeattr("outputDataType", adt.name)
         self.set_nodeattr("accDataType", adt.name)
         return DataType[self.get_nodeattr("accDataType")]
 
