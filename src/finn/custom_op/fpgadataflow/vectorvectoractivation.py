@@ -979,9 +979,6 @@ class VectorVectorActivation(HLSCustomOp):
             self.code_gen_dict["$PRAGMAS$"].append(
                 "#pragma HLS INTERFACE axis port=weights_" + self.hls_sname()
             )
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS stream depth=8 variable=weights_" + self.hls_sname()
-            )
         else:
             raise Exception(
                 """Please set mem_mode to "const", "decoupled", or external,
