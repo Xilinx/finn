@@ -188,7 +188,8 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     xpm_memory = f"{vivado_path}/data/ip/xpm/xpm_memory/hdl/xpm_memory.sv"
     xpm_cdc = f"{vivado_path}/data/ip/xpm/xpm_cdc/hdl/xpm_cdc.sv"
     xpm_fifo = f"{vivado_path}/data/ip/xpm/xpm_fifo/hdl/xpm_fifo.sv"
-    verilog_file_arg = ["finn_design_wrapper.v", xpm_memory, xpm_cdc, xpm_fifo]
+    swg_pkg = os.environ["FINN_ROOT"] + "/finn-rtllib/swg/swg_pkg.sv"
+    verilog_file_arg = [swg_pkg, "finn_design_wrapper.v", xpm_memory, xpm_cdc, xpm_fifo]
 
     verilator_args = [
         "perl",
