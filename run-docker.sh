@@ -97,6 +97,7 @@ SCRIPTPATH=$(dirname "$SCRIPT")
 : ${OHMYXILINX="${SCRIPTPATH}/deps/oh-my-xilinx"}
 : ${NVIDIA_VISIBLE_DEVICES=""}
 : ${DOCKER_BUILDKIT="1"}
+: ${FINN_SINGULARITY=""}
 
 DOCKER_INTERACTIVE=""
 
@@ -116,8 +117,10 @@ elif [ "$1" = "notebook" ]; then
   DOCKER_CMD="jupyter notebook --allow-root --no-browser --ip=0.0.0.0 --port $JUPYTER_PORT $JUPYTER_PASSWD_ARG notebooks"
   FINN_DOCKER_EXTRA+="-e JUPYTER_PORT=$JUPYTER_PORT "
   FINN_DOCKER_EXTRA+="-e NETRON_PORT=$NETRON_PORT "
-  FINN_DOCKER_EXTRA+="-p $JUPYTER_PORT:$JUPYTER_PORT "
-  FINN_DOCKER_EXTRA+="-p $NETRON_PORT:$NETRON_PORT "
+  if [ -z "$FINN_SINGULARITY" ]; then
+    FINN_DOCKER_EXTRA+="-p $JUPYTER_PORT:$JUPYTER_PORT "
+    FINN_DOCKER_EXTRA+="-p $NETRON_PORT:$NETRON_PORT "
+  fi
 elif [ "$1" = "build_dataflow" ]; then
   BUILD_DATAFLOW_DIR=$(readlink -f "$2")
   FINN_DOCKER_EXTRA+="-v $BUILD_DATAFLOW_DIR:$BUILD_DATAFLOW_DIR "
@@ -143,7 +146,7 @@ else
 fi
 
 
-if [ "$FINN_DOCKER_GPU" != 0 ];then
+if [ "$FINN_DOCKER_GPU" != 0 ] && [ -z "$FINN_SINGULARITY" ];then
   gecho "nvidia-docker detected, enabling GPUs"
   if [ ! -z "$NVIDIA_VISIBLE_DEVICES" ];then
     FINN_DOCKER_EXTRA+="--runtime nvidia -e NVIDIA_VISIBLE_DEVICES=$NVIDIA_VISIBLE_DEVICES "
@@ -174,7 +177,7 @@ if [ "$FINN_SKIP_DEP_REPOS" = "0" ]; then
 fi
 
 # Build the FINN Docker image
-if [ "$FINN_DOCKER_PREBUILT" = "0" ]; then
+if [ "$FINN_DOCKER_PREBUILT" = "0" ] && [ -z "$FINN_SINGULARITY" ]; then
   # Need to ensure this is done within the finn/ root folder:
   OLD_PWD=$(pwd)
   cd $SCRIPTPATH
@@ -184,9 +187,8 @@ fi
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-DOCKER_EXEC="docker run -t --rm $DOCKER_INTERACTIVE --tty --init "
-DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
-DOCKER_EXEC+="-e SHELL=/bin/bash "
+DOCKER_BASE="docker run -t --rm $DOCKER_INTERACTIVE --tty --init --hostname $DOCKER_INST_NAME "
+DOCKER_EXEC="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-w $SCRIPTPATH "
 DOCKER_EXEC+="-v $SCRIPTPATH:$SCRIPTPATH "
 DOCKER_EXEC+="-v $FINN_HOST_BUILD_DIR:$FINN_HOST_BUILD_DIR "
@@ -204,7 +206,7 @@ DOCKER_EXEC+="-e NUM_DEFAULT_WORKERS=$NUM_DEFAULT_WORKERS "
 # Workaround for FlexLM issue, see:
 # https://community.flexera.com/t5/InstallAnywhere-Forum/Issues-when-running-Xilinx-tools-or-Other-vendor-tools-in-docker/m-p/245820#M10647
 DOCKER_EXEC+="-e LD_PRELOAD=/lib/x86_64-linux-gnu/libudev.so.1 "
-if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ];then
+if [ "$FINN_DOCKER_RUN_AS_ROOT" = "0" ] && [ -z "$FINN_SINGULARITY" ];then
   DOCKER_EXEC+="-v /etc/group:/etc/group:ro "
   DOCKER_EXEC+="-v /etc/passwd:/etc/passwd:ro "
   DOCKER_EXEC+="-v /etc/shadow:/etc/shadow:ro "
@@ -244,6 +246,16 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   fi
 fi
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
-DOCKER_EXEC+="$FINN_DOCKER_TAG $DOCKER_CMD"
 
-$DOCKER_EXEC
+if [ -z "$FINN_SINGULARITY" ];then
+  CMD_TO_RUN="$DOCKER_BASE $DOCKER_EXEC $FINN_DOCKER_TAG $DOCKER_CMD"
+else
+  SINGULARITY_BASE="singularity exec"
+  # Replace command options for Singularity
+  SINGULARITY_EXEC="${DOCKER_EXEC//"-e "/"--env "}"
+  SINGULARITY_EXEC="${SINGULARITY_EXEC//"-v "/"-B "}"
+  SINGULARITY_EXEC="${SINGULARITY_EXEC//"-w "/"--pwd "}"
+  CMD_TO_RUN="$SINGULARITY_BASE $SINGULARITY_EXEC $FINN_SINGULARITY /usr/local/bin/finn_entrypoint.sh $DOCKER_CMD"
+fi
+
+$CMD_TO_RUN
