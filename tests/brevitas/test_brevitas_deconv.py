@@ -66,9 +66,7 @@ def test_brevitas_QTransposeConv(ifm_ch, ofm_ch, mh, mw, padding, stride, kw, bi
         bias=bias,
     )
     # outp = el(inp) # expects NCHW data format
-    export_qonnx(
-        b_deconv.cpu(), input_t=inp.cpu(), export_path=export_path, opset_version=11
-    )
+    export_qonnx(b_deconv.cpu(), input_t=inp.cpu(), export_path=export_path, opset_version=11)
     model = ModelWrapper(export_path)
     qonnx_cleanup(model)
     model = model.transform(ConvertQONNXtoFINN())

@@ -28,10 +28,7 @@ class InferPixelPaddingDeconv(Transformation):
                 idt = model.get_tensor_datatype(deconv_input)
                 odt = model.get_tensor_datatype(deconv_output)
                 if not idt.is_integer():
-                    warnings.warn(
-                        "%s : Input is not int. Can't infer PixelPaddingDeconv."
-                        % n.name
-                    )
+                    warnings.warn("%s : Input is not int. Can't infer PixelPaddingDeconv." % n.name)
                     continue
                 # extract conv transpose parameters
                 k_h = get_by_name(n.attribute, "kernel_shape").ints[0]
@@ -86,13 +83,9 @@ class InferPixelPaddingDeconv(Transformation):
                 # Im2Col node belongs to a depthwise convolution
                 dw = False
                 if group == ifm_ch and ofm_ch == ifm_ch:
-                    W_sparse = np.zeros(
-                        (ifm_ch, ofm_ch, k_h, k_w)
-                    )  # (IFM, OFM, k_H, k_W)
+                    W_sparse = np.zeros((ifm_ch, ofm_ch, k_h, k_w))  # (IFM, OFM, k_H, k_W)
                     for ch in range(ofm_ch):
-                        W_sparse[ch][ch] = W_conv[ch][
-                            0
-                        ]  # W_conv = [IFM, OFM, k_H, k_W]
+                        W_sparse[ch][ch] = W_conv[ch][0]  # W_conv = [IFM, OFM, k_H, k_W]
                     W_conv = W_sparse.astype(np.float32)
                     # we need to store information of the
                     # sparsity of the weight matrix. For this
@@ -148,13 +141,7 @@ class InferPixelPaddingDeconv(Transformation):
                     padding = 0
 
                 # k_h=k_w==1: pointwise convolution, thus no im2col needed
-                if (
-                    k_h == 1
-                    and k_w == 1
-                    and padding == 0
-                    and stride_h == 1
-                    and stride_w == 1
-                ):
+                if k_h == 1 and k_w == 1 and padding == 0 and stride_h == 1 and stride_w == 1:
                     need_im2col = False
 
                 if need_im2col:
@@ -208,17 +195,13 @@ class InferPixelPaddingDeconv(Transformation):
                         stride=[1, 1],
                         kernel_size=[k_h, k_w],
                         pad_amount=conv_padding,
-                        input_shape="(1,{},{},{})".format(
-                            padded_odim_h, padded_odim_w, ifm_ch
-                        ),
+                        input_shape="(1,{},{},{})".format(padded_odim_h, padded_odim_w, ifm_ch),
                         depthwise=dw,
                         dilations=dilation,
                     )
 
                 # do matmul
-                matmul_node = helper.make_node(
-                    "MatMul", [matmul_input, weight_name], [matmul_out]
-                )
+                matmul_node = helper.make_node("MatMul", [matmul_input, weight_name], [matmul_out])
                 # NHWC -> NCHW
                 out_trans_node = helper.make_node(
                     "Transpose", [matmul_out], [deconv_output], perm=[0, 3, 1, 2]
@@ -237,8 +220,6 @@ class InferPixelPaddingDeconv(Transformation):
                 # remove old nodes
                 graph.node.remove(n)
 
-        model = model.transform(
-            InferConvInpGen(use_rtl_variant=self.use_convinpgen_rtl_variant)
-        )
+        model = model.transform(InferConvInpGen(use_rtl_variant=self.use_convinpgen_rtl_variant))
         model = model.transform(InferQuantizedMatrixVectorActivation())
         return (model, graph_modified)

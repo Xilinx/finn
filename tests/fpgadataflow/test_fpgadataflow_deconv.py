@@ -75,9 +75,7 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
             idim_w,
         ],
     )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_ch, odim_h, odim_w]
-    )
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_ch, odim_h, odim_w])
 
     W = helper.make_tensor_value_info("W", TensorProto.FLOAT, [ifm_ch, ofm_ch, k, k])
 
@@ -148,9 +146,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding)
     else:
         convinpgen_rtl = True
 
-    ref_model = set_up_reference_model(
-        idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding
-    )
+    ref_model = set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding)
 
     odim_h = (idim_h - 1) * stride_h - 2 * padding + (k - 1) + 1
     odim_w = (idim_w - 1) * stride_w - 2 * padding + (k - 1) + 1
@@ -198,15 +194,11 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding)
     dataflow_model_filename = sdp_node.get_nodeattr("model")
     model = ModelWrapper(dataflow_model_filename)
     model.save("after_partition.onnx")
-    model = model.transform(
-        CreateStitchedIP(test_fpga_part, target_clk_ns, vitis=False)
-    )
+    model = model.transform(CreateStitchedIP(test_fpga_part, target_clk_ns, vitis=False))
     model = model.transform(PrepareRTLSim())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(SetExecMode("rtlsim"))
     model.save("stitched_ip.onnx")
-    y_produced = oxe.execute_onnx(model, input_dict_tr)["global_out"].transpose(
-        0, 3, 1, 2
-    )
+    y_produced = oxe.execute_onnx(model, input_dict_tr)["global_out"].transpose(0, 3, 1, 2)
     assert y_produced.shape == expected_oshape
     assert (y_produced == y_expected).all()
