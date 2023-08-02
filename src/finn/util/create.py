@@ -108,15 +108,11 @@ def hls_mlp_maker(layer_spec):
         odt = lyr["odt"]
 
         if i == 0:
-            global_in = helper.make_tensor_value_info(
-                current_in_name, TensorProto.FLOAT, [1, mw]
-            )
+            global_in = helper.make_tensor_value_info(current_in_name, TensorProto.FLOAT, [1, mw])
             model.graph.input.append(global_in)
 
         if i == len(layer_spec) - 1:
-            global_out = helper.make_tensor_value_info(
-                current_out_name, TensorProto.FLOAT, [1, mh]
-            )
+            global_out = helper.make_tensor_value_info(current_out_name, TensorProto.FLOAT, [1, mh])
             model.graph.output.append(global_out)
 
         # there are two ways to implement bipolar weights and inputs for

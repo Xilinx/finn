@@ -14,21 +14,13 @@ from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
 
 
 def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt):
-    ofm_dim_h = compute_pool_output_dim(
-        ifm_dim[0], kernel_shape[0], strides[0], pads[0], ceil_mode
-    )
-    ofm_dim_w = compute_pool_output_dim(
-        ifm_dim[1], kernel_shape[1], strides[1], pads[1], ceil_mode
-    )
-    inp = oh.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim[0], ifm_dim[1]]
-    )
+    ofm_dim_h = compute_pool_output_dim(ifm_dim[0], kernel_shape[0], strides[0], pads[0], ceil_mode)
+    ofm_dim_w = compute_pool_output_dim(ifm_dim[1], kernel_shape[1], strides[1], pads[1], ceil_mode)
+    inp = oh.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim[0], ifm_dim[1]])
     outp_mp = oh.make_tensor_value_info(
         "outp_mp", TensorProto.FLOAT, [1, ifm_ch, ofm_dim_h, ofm_dim_w]
     )
-    outp = oh.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, ifm_ch]
-    )
+    outp = oh.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, ifm_ch])
 
     maxpool_node = oh.make_node(
         "MaxPool",
@@ -83,9 +75,7 @@ def create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
 @pytest.mark.parametrize("idt", [DataType["INT4"]])
 def test_maxpool_nhwc(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt):
     # create MaxPool node
-    maxpool_model = create_maxpool(
-        ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt
-    )
+    maxpool_model = create_maxpool(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, idt)
 
     # generate input tensor for testing
     input_tensor = gen_finn_dt_tensor(idt, [1, ifm_ch, ifm_dim[0], ifm_dim[1]])
@@ -100,9 +90,7 @@ def test_maxpool_nhwc(ifm_dim, ifm_ch, kernel_shape, pads, strides, ceil_mode, i
 
     # execute transformed model
     output_node_name = maxpool_model.graph.output[0].name
-    output_dict = oxe.execute_onnx(
-        maxpool_model, input_dict, return_full_exec_context=False
-    )
+    output_dict = oxe.execute_onnx(maxpool_model, input_dict, return_full_exec_context=False)
     output = output_dict[output_node_name]
 
     # compare outputs

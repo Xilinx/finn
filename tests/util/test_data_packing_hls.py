@@ -105,16 +105,12 @@ g++ -o test_npy2apintstream test.cpp $FINN_ROOT/deps/cnpy/cnpy.cpp \
     )
     with open(test_dir + "/compile.sh", "w") as f:
         f.write(cmd_compile)
-    compile = subprocess.Popen(
-        ["sh", "compile.sh"], stdout=subprocess.PIPE, cwd=test_dir
-    )
+    compile = subprocess.Popen(["sh", "compile.sh"], stdout=subprocess.PIPE, cwd=test_dir)
     (stdout, stderr) = compile.communicate()
     # make copy before saving the array
     ndarray = ndarray.copy()
     np.save(npy_in, ndarray)
-    execute = subprocess.Popen(
-        "./test_npy2apintstream", stdout=subprocess.PIPE, cwd=test_dir
-    )
+    execute = subprocess.Popen("./test_npy2apintstream", stdout=subprocess.PIPE, cwd=test_dir)
     (stdout, stderr) = execute.communicate()
     produced = np.load(npy_out)
     success = (produced == ndarray).all()

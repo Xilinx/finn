@@ -54,10 +54,8 @@ class InsertTLastMarker(Transformation):
         graph_modified = False
         if final_node.op_type != "TLastMarker" and not (
             final_node.op_type == "IODMA"
-            and get_by_name(final_node.attribute, "direction").s.decode("UTF-8")
-            == "out"
+            and get_by_name(final_node.attribute, "direction").s.decode("UTF-8") == "out"
         ):
-
             custom_op = getCustomOp(final_node)
             num_iters = int(custom_op.get_number_output_values())
             stream_width = int(custom_op.get_outstream_width())
@@ -113,18 +111,13 @@ class InsertTLastMarker(Transformation):
                 # 2. node is either a TLastMarker or an input IODMA
                 if first_node.op_type != "TLastMarker" and not (
                     first_node.op_type == "IODMA"
-                    and get_by_name(first_node.attribute, "direction").s.decode("UTF-8")
-                    == "in"
+                    and get_by_name(first_node.attribute, "direction").s.decode("UTF-8") == "in"
                 ):
-
                     custom_op = getCustomOp(first_node)
                     num_iters = np.prod(custom_op.get_folded_input_shape()[1:-1])
                     inp_idx = list(first_node.input).index(graph_in_name)
                     if inp_idx > 0:
-                        if (
-                            first_node.op_type == "MatrixVectorActivation"
-                            and inp_idx == 1
-                        ):
+                        if first_node.op_type == "MatrixVectorActivation" and inp_idx == 1:
                             stream_width = int(custom_op.get_weightstream_width())
                         elif first_node.op_type == "AddStreams_Batch" and inp_idx == 1:
                             stream_width = int(custom_op.get_instream_width())

@@ -38,9 +38,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--batchsize", help="number of samples for inference", type=int, default=100
     )
-    parser.add_argument(
-        "--dataset", help="dataset to use (mnist of cifar10)", required=True
-    )
+    parser.add_argument("--dataset", help="dataset to use (mnist of cifar10)", required=True)
     parser.add_argument(
         "--platform", help="Target platform: zynq-iodma alveo", default="zynq-iodma"
     )

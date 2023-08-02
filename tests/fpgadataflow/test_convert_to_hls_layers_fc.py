@@ -33,14 +33,19 @@ import onnx
 import onnx.numpy_helper as nph
 import os
 import torch
-from brevitas.export import export_finn_onnx
+from brevitas.export import export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.bipolar_to_xnor import ConvertBipolarMatMulToXnorPopcount
 from qonnx.transformation.fold_constants import FoldConstants
-from qonnx.transformation.general import GiveReadableTensorNames, GiveUniqueNodeNames
+from qonnx.transformation.general import (
+    GiveReadableTensorNames,
+    GiveUniqueNodeNames,
+    GiveUniqueParameterTensors,
+)
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -48,6 +53,7 @@ import finn.transformation.streamline.absorb as absorb
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.round_thresholds import RoundAndClipThresholds
 from finn.util.test import get_test_model_trained
@@ -59,11 +65,14 @@ export_onnx_path = "test_convert_to_hls_layers_fc.onnx"
 @pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a1():
     tfc = get_test_model_trained("TFC", 1, 1)
-    export_finn_onnx(tfc, torch.randn(1, 1, 28, 28), export_onnx_path)
+    export_qonnx(tfc, torch.randn(1, 1, 28, 28), export_onnx_path)
+    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
     model = ModelWrapper(export_onnx_path)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
     model = model.transform(ConvertBipolarMatMulToXnorPopcount())
@@ -130,11 +139,15 @@ def test_convert_to_hls_layers_tfc_w1a1():
 @pytest.mark.vivado
 def test_convert_to_hls_layers_tfc_w1a2():
     tfc = get_test_model_trained("TFC", 1, 2)
-    export_finn_onnx(tfc, torch.randn(1, 1, 28, 28), export_onnx_path)
+    export_qonnx(tfc, torch.randn(1, 1, 28, 28), export_onnx_path)
+    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
     model = ModelWrapper(export_onnx_path)
+    model = model.transform(ConvertQONNXtoFINN())
+    model.save(export_onnx_path)
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(Streamline())
     from finn.transformation.fpgadataflow.convert_to_hls_layers import (

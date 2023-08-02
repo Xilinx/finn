@@ -35,14 +35,16 @@ import onnx
 import onnx.numpy_helper as nph
 import os
 import torch
-from brevitas.export import export_finn_onnx
+from brevitas.export import export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.batchnorm_to_affine import BatchNormToAffine
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.test import get_test_model_trained
 
 export_onnx_path = "test_output_bn2affine.onnx"
@@ -51,8 +53,10 @@ export_onnx_path = "test_output_bn2affine.onnx"
 @pytest.mark.transform
 def test_batchnorm_to_affine_cnv_w1a1():
     lfc = get_test_model_trained("CNV", 1, 1)
-    export_finn_onnx(lfc, torch.randn(1, 3, 32, 32), export_onnx_path)
+    export_qonnx(lfc, torch.randn(1, 3, 32, 32), export_onnx_path)
+    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
     model = ModelWrapper(export_onnx_path)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     fn = pk.resource_filename("finn.qnn-data", "cifar10/cifar10-test-data-class3.npz")
@@ -76,8 +80,10 @@ def test_batchnorm_to_affine_cnv_w1a1():
 @pytest.mark.transform
 def test_batchnorm_to_affine_lfc_w1a1():
     lfc = get_test_model_trained("LFC", 1, 1)
-    export_finn_onnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
+    export_qonnx(lfc, torch.randn(1, 1, 28, 28), export_onnx_path)
+    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
     model = ModelWrapper(export_onnx_path)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     new_model = model.transform(BatchNormToAffine())

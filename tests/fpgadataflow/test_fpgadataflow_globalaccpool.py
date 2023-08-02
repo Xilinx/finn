@@ -61,9 +61,7 @@ def make_accpool_modelwrapper(ch, pe, idim, idt):
         inputDataType=idt.name,
         numInputVectors=[1, idim, idim],
     )
-    graph = helper.make_graph(
-        nodes=[accpool_node], name="graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=[accpool_node], name="graph", inputs=[inp], outputs=[outp])
 
     model = qonnx_make_model(graph, producer_name="thresholding-model")
     model = ModelWrapper(model)

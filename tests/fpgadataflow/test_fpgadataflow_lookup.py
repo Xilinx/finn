@@ -57,9 +57,7 @@ def make_lookup_model(embeddings, ishape, idt, edt):
     class LookupModel(nn.Module):
         def __init__(self, num_embeddings, embedding_dim):
             super().__init__()
-            self.lookup = nn.Embedding(
-                num_embeddings=num_embeddings, embedding_dim=embedding_dim
-            )
+            self.lookup = nn.Embedding(num_embeddings=num_embeddings, embedding_dim=embedding_dim)
 
         def forward(self, x):
             x = self.lookup(x)
@@ -122,6 +120,7 @@ def test_fpgadataflow_lookup(edt, embedding_cfg, exec_mode):
     assert model.graph.node[0].input[1] == ename
     assert model.graph.node[0].output[0] == oname
     if exec_mode == "cppsim":
+        model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))

@@ -74,7 +74,5 @@ class PrepareRTLSim(NodeLocalTransformation):
                 ), "Failed to prepare RTLSim, no rtlsim_so attribute found."
             except KeyError:
                 # exception if op_type is not supported
-                raise Exception(
-                    "Custom op_type %s is currently not supported." % op_type
-                )
+                raise Exception("Custom op_type %s is currently not supported." % op_type)
         return (node, False)

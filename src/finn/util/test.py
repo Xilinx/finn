@@ -114,25 +114,14 @@ def get_build_env(kind, target_clk_ns):
     if kind == "zynq":
         ret["board"] = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
         ret["part"] = pynq_part_map[ret["board"]]
-        ret["ip"] = os.getenv("PYNQ_IP", "")
-        ret["username"] = os.getenv("PYNQ_USERNAME", "xilinx")
-        ret["password"] = os.getenv("PYNQ_PASSWORD", "xilinx")
-        ret["port"] = os.getenv("PYNQ_PORT", 22)
-        ret["target_dir"] = os.getenv("PYNQ_TARGET_DIR", "/home/xilinx/finn")
         ret["build_fxn"] = ZynqBuild(ret["board"], target_clk_ns)
     elif kind == "alveo":
         ret["board"] = os.getenv("ALVEO_BOARD", default="U250")
         ret["part"] = alveo_part_map[ret["board"]]
-        ret["platform"] = alveo_default_platform[ret["board"]]
-        ret["ip"] = os.getenv("ALVEO_IP", "")
-        ret["username"] = os.getenv("ALVEO_USERNAME", "")
-        ret["password"] = os.getenv("ALVEO_PASSWORD", "")
-        ret["port"] = os.getenv("ALVEO_PORT", 22)
-        ret["target_dir"] = os.getenv("ALVEO_TARGET_DIR", "/tmp/finn_alveo_deploy")
         ret["build_fxn"] = VitisBuild(
             ret["part"],
             target_clk_ns,
-            ret["platform"],
+            alveo_default_platform[ret["board"]],
             strategy=VitisOptStrategy.BUILD_SPEED,
         )
     else:
@@ -148,9 +137,7 @@ def get_example_input(topology):
         onnx_tensor = onnx.load_tensor_from_string(raw_i)
         return nph.to_array(onnx_tensor)
     elif topology == "cnv":
-        fn = pk.resource_filename(
-            "finn.qnn-data", "cifar10/cifar10-test-data-class3.npz"
-        )
+        fn = pk.resource_filename("finn.qnn-data", "cifar10/cifar10-test-data-class3.npz")
         input_tensor = np.load(fn)["arr_0"].astype(np.float32)
         return input_tensor
     else:

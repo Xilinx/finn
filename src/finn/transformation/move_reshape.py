@@ -54,9 +54,7 @@ class RemoveCNVtoFCFlatten(Transformation):
                                     fc_inst = getCustomOp(consumer)
                                     mw = fc_inst.get_nodeattr("MW")
                                     mh = fc_inst.get_nodeattr("MH")
-                                    (b, h, w, c) = model.get_tensor_shape(
-                                        transp_node.input[0]
-                                    )
+                                    (b, h, w, c) = model.get_tensor_shape(transp_node.input[0])
                                     # absorb transpose into weight matrix,
                                     # allowing FC layer to operate on the NHWC input
                                     W = model.get_initializer(consumer.input[1])
@@ -78,8 +76,6 @@ class RemoveCNVtoFCFlatten(Transformation):
                                         into subsequent node"
                                     )
                         else:
-                            warnings.warn(
-                                "Unsupported transpose node before flatten layer"
-                            )
+                            warnings.warn("Unsupported transpose node before flatten layer")
 
         return (model, graph_modified)

@@ -51,9 +51,7 @@ def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
     NumChannels = C.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, vecs + [NumChannels])
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, vecs + [NumChannels]
-    )
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, vecs + [NumChannels])
 
     node_inp_list = ["inp", "const"]
 

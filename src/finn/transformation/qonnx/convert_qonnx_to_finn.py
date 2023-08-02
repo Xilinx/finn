@@ -66,9 +66,7 @@ class ConvertQONNXtoFINN(Transformation):
 
     def __init__(
         self,
-        filter_function=default_filter_function_generator(
-            max_multithreshold_bit_width=8
-        ),
+        filter_function=default_filter_function_generator(max_multithreshold_bit_width=8),
     ):
         super().__init__()
         self._filter_function = filter_function
