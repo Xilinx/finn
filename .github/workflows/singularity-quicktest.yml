@@ -1,0 +1,39 @@
+name: SingularityQuicktest
+
+on:
+  pull_request:
+    branches: [ dev ]
+  push:
+    branches: [ dev ]
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: checkout
+        uses: actions/checkout@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      - name: Set up Singularity
+        run: |
+          sudo add-apt-repository -y ppa:apptainer/ppa
+          sudo apt update
+          sudo apt install -y apptainer
+          alias singularity="apptainer"
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v4
+        with:
+          file: docker/Dockerfile.finn
+          context: .
+          tags: finn_docker_export:latest
+      - name: Build Singularity image
+        run: singularity build finn_singularity_image.sif docker-daemon://finn_docker_export:latest
+
+      - name: Run quicktest
+        run: |
+          export FINN_ROOT=$(pwd)
+          export FINN_BUILD_DIR=/tmp/finn_gha
+          export FINN_INST_NAME=finn_gha
+          export FINN_SINGULARITY=finn_singularity_image.sif
+          ./run-docker.sh quicktest
