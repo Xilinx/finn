@@ -294,9 +294,7 @@ def test_minimize_accumulator_width(wdt: DataType, idt: DataType, tdt: DataType,
             # bit width minimization logic in the MVAU and VVAU is exact and should be
             # less than or equal to this calculation
             exp_adt = calculate_accumulator_bit_width(inst, model)
-            assert (
-                cur_adt.bitwidth() <= exp_adt.bitwidth()
-            ), "Mismatched accumulation data types"
+            assert cur_adt.bitwidth() <= exp_adt.bitwidth(), "Mismatched accumulation data types"
 
             # if there is no activation, outputDataType = accDataType
             if inst.get_nodeattr("noActivation"):
