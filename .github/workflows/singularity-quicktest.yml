@@ -27,7 +27,7 @@ jobs:
         with:
           file: docker/Dockerfile.finn
           context: .
-          load: true
+          outputs: type=image,name=finn_docker_export
           tags: finn_docker_export:latest
       - name: Build Singularity image
         run: singularity build finn_singularity_image.sif docker-daemon://finn_docker_export:latest
