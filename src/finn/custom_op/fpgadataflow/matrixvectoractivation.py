@@ -650,6 +650,13 @@ class MatrixVectorActivation(HLSCustomOp):
 
         # if no activation, output and accumulator datatypes are the same
         if self.get_nodeattr("noActivation"):
+            # if this is the last node in the graph, then ensure the datatype is
+            # divisibly by 8 bits
+            if model.find_direct_successors(self.onnx_node) is None:
+                bw = roundup_to_integer_multiple(adt.bitwidth(), 8)
+                new_adt_name = adt.name.replace(str(adt.bitwidth()), str(bw))
+                adt = DataType[new_adt_name]
+            # for no-activation nodes, output dt = acc dt
             self.set_nodeattr("outputDataType", adt.name)
         self.set_nodeattr("accDataType", adt.name)
 
