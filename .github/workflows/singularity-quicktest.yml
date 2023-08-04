@@ -14,7 +14,7 @@ jobs:
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mv: '32768'
+          root-reserve-mb: '32768'
           remove-docker-images: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
