@@ -14,11 +14,13 @@ jobs:
       - name: Maximize build space
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: '16384'
+          root-reserve-mb: '24576'
+          swap-size-mb: '1024'
           remove-docker-images: 'true'
           remove-android: 'true'
           remove-haskell: 'true'
           remove-codeql: 'true'
+          remove-dotnet: 'true'
       - name: Checkout
         uses: actions/checkout@v3
       - name: Set up Docker
