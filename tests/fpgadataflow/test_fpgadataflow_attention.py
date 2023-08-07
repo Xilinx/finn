@@ -17,72 +17,72 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
 # Size of query and key embedding dimension
-@pytest.mark.parametrize("qk_dim", [64])
+@pytest.mark.parametrize("QKDim", [64])
 # Size of value embedding dimension
-@pytest.mark.parametrize("v_dim", [64])
+@pytest.mark.parametrize("VDim", [64])
 # Length of key and value sequences
-@pytest.mark.parametrize("kv_len", [256])
+@pytest.mark.parametrize("KVLen", [256])
 # Length of query sequence
-@pytest.mark.parametrize("q_len", [256])
+@pytest.mark.parametrize("QLen", [256])
 # Different modes to provide a mask
 @pytest.mark.parametrize("mask", ["none", "input", "causal"])
-# Output parallelism
-@pytest.mark.parametrize("pe", [1])
-# Input parallelism
-@pytest.mark.parametrize("simd", [1])
+# Folding along the embedding dimensions
+@pytest.mark.parametrize("EmbFold", [64, 32])
+# Folding along the sequence dimensions
+@pytest.mark.parametrize("SeqFold", [256, 128])
 # Datatypes of queries, keys and values, mask and output
-@pytest.mark.parametrize("q_dtype", [DataType["FLOAT32"]])
-@pytest.mark.parametrize("k_dtype", [DataType["FLOAT32"]])
-@pytest.mark.parametrize("v_dtype", [DataType["FLOAT32"]])
-@pytest.mark.parametrize("mask_dtype", [DataType["FLOAT32"]])
-@pytest.mark.parametrize("o_dtype", [DataType["FLOAT32"]])
+@pytest.mark.parametrize("QType", [DataType["FLOAT32"]])
+@pytest.mark.parametrize("KType", [DataType["FLOAT32"]])
+@pytest.mark.parametrize("VType", [DataType["FLOAT32"]])
+@pytest.mark.parametrize("MType", [DataType["FLOAT32"]])
+@pytest.mark.parametrize("OType", [DataType["FLOAT32"]])
 # Tests python implementation of single scaled dot-product attention head
 def test_attention_python(
-        qk_dim, v_dim, kv_len, q_len, mask, pe, simd, q_dtype, k_dtype, v_dtype,
-        mask_dtype, o_dtype
+        QKDim, VDim, KVLen, QLen, mask, EmbFold, SeqFold, QType, KType, VType,
+        MType, OType
 ):
     # Generate random input data
-    q = gen_finn_dt_tensor(q_dtype, (q_len, qk_dim))
-    k = gen_finn_dt_tensor(k_dtype, (kv_len, qk_dim))
-    v = gen_finn_dt_tensor(v_dtype, (kv_len, v_dim))
+    q = gen_finn_dt_tensor(QType, (QLen, QKDim))
+    k = gen_finn_dt_tensor(KType, (KVLen, QKDim))
+    v = gen_finn_dt_tensor(VType, (KVLen, VDim))
 
     dtypes = {
         # Datatypes of the query, key, value inputs and the output
-        "q_dtype": q_dtype, "k_dtype": k_dtype,
-        "v_dtype": v_dtype, "o_dtype": o_dtype,
+        "QType": QType, "KType": KType,
+        "VType": VType, "OType": OType,
     }
 
     # Generate the operator matching the configuration
     model = ScaledDotProductAttention.make_modelwrapper_like(
-        q, k, v, mask, pe, simd, **dtypes, mask_dtype=mask_dtype
+        q, k, v, mask, EmbFold, SeqFold, **dtypes, MType=MType
     )
 
     # Generate random input mask if the operator expects the mask as fourth
     # input
     if mask == "input":
-        mask = gen_finn_dt_tensor(DataType["FLOAT32"], (q_len, kv_len))
+        mask = gen_finn_dt_tensor(DataType["FLOAT32"], (QLen, KVLen))
     # If a causal attention mask is requested, generate upper triangular matrix
     elif mask == "causal":
         # Start zero initialized mask
-        mask = 0 * gen_finn_dt_tensor(DataType["FLOAT32"], (q_len, kv_len))
+        mask = 0 * gen_finn_dt_tensor(DataType["FLOAT32"], (QLen, KVLen))
         # Fill upper triangular causal attention mask
         mask[np.triu_indices_from(mask, 1)] = - np.inf
     # No mask input requested
     elif mask == "none":
         # No mask is equivalent to a zero mask
-        mask = 0 * gen_finn_dt_tensor(DataType["FLOAT32"], (q_len, kv_len))
+        mask = 0 * gen_finn_dt_tensor(DataType["FLOAT32"], (QLen, KVLen))
 
     # Prepare execution context
     context = {
-        "q": q, "k": k, "v": v, "mask": mask
+        "Q": q, "K": k, "V": v, "mask": mask
     }
     # Set model execution mode to python (numpy execution)
     model = model.transform(SetExecMode("python"))
     # Execute the onnx model to collect the result
-    o_produced = execute_onnx(model, context)["o"]
+    o_produced = execute_onnx(model, context)["O"]
 
     # Compute the attention matrix between queries and keys
-    attention = softmax(q @ k.T * (qk_dim ** -0.5) + mask, axis=-1)
+    attention = softmax(q @ k.T * (QKDim ** -0.5) + mask, axis=-1)
     # Compute product of attention weights and value input
     o_expected = attention @ v
 
