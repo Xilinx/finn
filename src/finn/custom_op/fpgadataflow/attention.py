@@ -486,14 +486,18 @@ class ScaledDotProductAttention(CustomOp):
         # Find the widths of the widest input
         i_bits_max = max((self.get_instream_width(ind) for ind in range(3)))
         # Find the widths of the widest output
-        o_bits_max = max((self.get_instream_width(ind) for ind in range(1)))
+        o_bits_max = max((self.get_outstream_width(ind) for ind in range(1)))
         # Assume no bits to represent the mask, if there is no mask
         m_bits = 0
         # A mask received as input or produced as causal on the fly has a
         # bit-width as well
         if self.get_nodeattr("mask_mode") in {"input", "causal"}:
+            # Parallelism is the number of elements in the last dimension of the
+            # folded output
+            _, _, elems = self.get_folded_output_shape(ind=3)
             # Get width of the mask datatype
-            m_bits = DataType[self.get_nodeattr("MType")].bitwidth()
-        # TODO: Are there more intermediates which need to be considered?
+            m_bits = elems * DataType[self.get_nodeattr("MType")].bitwidth()
+        # TODO: Are there more intermediates which need to be considered? Yes,
+        #  attention weights and MatMul accumulators and outputs.
         # Find maximum of all maximal bit-widths
         return max([i_bits_max, o_bits_max, m_bits])
