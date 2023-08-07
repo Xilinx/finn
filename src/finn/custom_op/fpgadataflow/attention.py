@@ -3,7 +3,7 @@ import warnings
 # Numpy math and arrays
 import numpy as np
 # Derive custom operators form the FINN base custom op
-# from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 # Temporarily derive custom operators from QONNX base custom op
 #   TODO: Remove once switching to HLSCustomOp
 from qonnx.custom_op.base import CustomOp
@@ -14,7 +14,7 @@ from qonnx.core.datatype import DataType
 
 # Scaled Dot-Product Attention Custom Operator
 #   Note: Single head attention
-class ScaledDotProductAttention(CustomOp):
+class ScaledDotProductAttention(HLSCustomOp):
     # Initializes the operator given an onnx graph node
     def __init__(self, onnx_node, **kwargs):
         # Just forward all arguments to the init method of the CustomOp base
@@ -501,3 +501,33 @@ class ScaledDotProductAttention(CustomOp):
         #  attention weights and MatMul accumulators and outputs.
         # Find maximum of all maximal bit-widths
         return max([i_bits_max, o_bits_max, m_bits])
+
+    # Defines C++ type aliases, global constants and macros
+    def defines(self, var):
+        # Get and unpack the shape attributes (except the q matrix length, which
+        # is never folded)
+        qkdim, qlen, vdim, kvlen = self.shapes
+        # Get and unpack the folding attributes
+        embfold, seqfold = self.folds
+        # Insert constants and typer aliases into the dictionary
+        self.code_gen_dict["$DEFINES$"] = [
+            # Shapes of attention inputs: query, key and value
+            f"static constexpr std::size_t QKDim = {qkdim};",
+            f"static constexpr std::size_t QLen = {qlen};",
+            f"static constexpr std::size_t VDim = {vdim};",
+            f"static constexpr std::size_t KVLen = {kvlen};",
+            # Folding configuration
+            f"static constexpr std::size_t EmbFold = {embfold};",
+            f"static constexpr std::size_t SeqFold = {seqfold};",
+        ]
+
+    # Generates C++ blackboxfunction for IP generation
+    def blackboxfunction(self):
+        # Insert function head describing the top level interface of the
+        # attention operator
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            # Note: Assumes stream type aliases to be set in defines
+            """
+            void {}(QStream &q, KStream &k, VStream &v, OStream &out)
+            """.format(self.onnx_node.name)
+        ]
