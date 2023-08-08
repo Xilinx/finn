@@ -603,12 +603,60 @@ class ScaledDotProductAttention(HLSCustomOp):
             f"using KStream = Attention::KStream;",
             f"using VStream = Attention::VStream;",
             f"using OStream = Attention::OStream;",
+            f"using MStream = Attention::MStream;",
         ]
 
     # Generates C++ code for reading data from .npy (numpy format) for testing
     # in C++ simulation
     def read_npy_data(self):
-        pass
+        # Input data is stored in numpy files in the code generation dictionary
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+
+        # Generate function calls for reading the input files into the input
+        # streams
+        self.code_gen_dict["$READNPYDATA$"] = [
+            # Deduce the datatype of elements packed into the query input stream
+            #   TODO: Maybe these type-deductions can be removed by changing the
+            #    order of the template arguments of the npy2apintstream, such
+            #    that type-deduction is handled there?
+            f"using QPacked = decltype(QStream.read());",
+            # Generate function call reding from file into the input stream
+            #   Note: Inputs are always represented as numpy floats
+            f"npy2apintstream<QPacked, QType, QType::width, float>(",
+            f"  {code_gen_dir}/q.npy, q, false",
+            ");",
+
+            # Deduce the datatype of elements packed into the key input stream
+            f"using KPacked = decltype(KStream.read());",
+            # Generate function call reding from file into the input stream
+            #   Note: Inputs are always represented as numpy floats
+            f"npy2apintstream<KPacked, KType, KType::width, float>(",
+            f"  {code_gen_dir}/k.npy, k, false",
+            ");",
+
+            # Deduce the datatype of elements packed into the value input stream
+            f"using VPacked = decltype(VStream.read());",
+            # Generate function call reding from file into the input stream
+            #   Note: Inputs are always represented as numpy floats
+            f"npy2apintstream<VPacked, VType, VType::width, float>(",
+            f"  {code_gen_dir}/v.npy, v, false",
+            ");",
+        ]
+
+        # If the mask is provided as an input, it needs to be read as well
+        if self.get_nodeattr("mask_mode") == "input":
+            # Generate function call for reading the mask file into the input
+            # stream
+            self.code_gen_dict["$READNPYDATA$"] += [
+                # Deduce the datatype of elements packed into the mask input
+                # stream
+                f"using MPacked = decltype(MStream.read());",
+                # Generate function call reding from file into the input stream
+                #   Note: Inputs are always represented as numpy floats
+                f"npy2apintstream<MPacked, MType, MType::width, float>(",
+                f"  {code_gen_dir}/m.npy, m, false",
+                ");",
+            ]
 
     # Generates C++ code for declaring all streams involved in C++ simulation
     # for testing
@@ -643,7 +691,9 @@ class ScaledDotProductAttention(HLSCustomOp):
     # Generates C++ code for saving the output of C++ simulation to a file in
     # numpy format
     def save_as_npy(self):
-        pass
+        # Note: This seems to be empty in ALL HLSCustomOps. Probably it was used
+        # for something before, which is now integrated into dataoutstrm()?
+        self.code_gen_dict["$SAVEASCNPY$"] = []
 
     # Generates essentially the head of the C++ function from which the IP block
     # will be generated during ipgen, i.e. actual synthesis
