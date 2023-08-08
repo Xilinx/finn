@@ -211,6 +211,8 @@ class Thresholding_Batch(HLSCustomOp):
             threshold_tensor
         ).all(), "Thresholds can't be expressed with type %s" % str(tdt)
         self.set_nodeattr("weightDataType", tdt.name)
+        # Update QONNX DataType of tensor for consistency
+        model.set_tensor_datatype(self.onnx_node.input[1], tdt)
         return DataType[self.get_nodeattr("weightDataType")]
 
     def get_instream_width(self, ind=0):
