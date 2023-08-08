@@ -24,7 +24,7 @@ class ScaledDotProductAttention(HLSCustomOp):
     # in another repository right now.
     def get_nodeattr_types(self):
         # Start from parent operator class attributes
-        attrs = {}  # super().get_nodeattr_types()
+        attrs = super().get_nodeattr_types()
         # Update attributes dictionary for new custom operator
         attrs.update({
             # Embedding dimension of queries and keys
@@ -50,29 +50,29 @@ class ScaledDotProductAttention(HLSCustomOp):
             # Datatype of mask matrix elements
             "MType": ("s", False, "INT0"),
             # Datatype of attention weights elements
-            "AType": ("s", True, ""),
+            "AType": ("s", False, "UINT32"),
             # Datatype of output elements
             "OType": ("s", True, ""),
 
             # Datatype of accumulator elements of the Query x Key multiplication
-            "AccQKMatMul": ("s", False, ""),
+            "AccQKMatMul": ("s", False, "UINT32"),
             # Datatype of output elements of the Query x Key multiplication
-            "OutQKMatMul": ("s", False, ""),
+            "OutQKMatMul": ("s", False, "UINT32"),
             # Activation function type of the Query x Key multiplication
-            "ActQKMatMul": ("s", False, ""),
+            "ActQKMatMul": ("s", False, "PassThroughActivation<AType>"),
 
             # Datatype of accumulator elements of the Attention x Value
             # multiplication
-            "AccAVMatMul": ("s", False, ""),
+            "AccAVMatMul": ("s", False, "UINT32"),
             # Datatype of output elements of the Attention x Value
             # multiplication
-            "OutAVMatMul": ("s", False, ""),
+            "OutAVMatMul": ("s", False, "UINT32"),
             # Activation function type of the Attention x Value multiplication
-            "ActAVMatMul": ("s", False, ""),
+            "ActAVMatMul": ("s", False, "PassThroughActivation<OType>"),
 
             # Activation function type of the softmax normalization of the
             # attention weights
-            "ActASoftmax": ("s", False, ""),
+            "ActASoftmax": ("s", False, "PassThroughActivation<OType>"),
 
             # Mode used for providing the attention mask: There can be no mask,
             # a mask sent as the fourth input or a causal attention mask which
@@ -502,26 +502,135 @@ class ScaledDotProductAttention(HLSCustomOp):
         # Find maximum of all maximal bit-widths
         return max([i_bits_max, o_bits_max, m_bits])
 
-    # Defines C++ type aliases, global constants and macros
+    # Gets the number of expected output values, i.e. how many times read()
+    # could/should be called on the output stream of this operator
+    def get_number_output_values(self):
+        # Elements over all but the last dimension of the output folded along
+        # the embedding dimension
+        return np.prod(self.get_folded_output_shape()[:-1])
+
+    # Generates list of C++ includes to be placed at the top of the generated
+    # code
+    def global_includes(self):
+        # FINN HLSLIB activation functions: e.g. PassThroughActivation
+        self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"']
+        # Attention operator HLS code
+        self.code_gen_dict["$GLOBALS$"] += ['#include "attention.hpp"']
+
+    # Generates C++ code of type alias, global constant and macro definitions
     def defines(self, var):
-        # Get and unpack the shape attributes (except the q matrix length, which
-        # is never folded)
-        qkdim, qlen, vdim, kvlen = self.shapes
-        # Get and unpack the folding attributes
-        embfold, seqfold = self.folds
+        # Generate shape definitions from attributes to C++ constant definitions
+        def shapedefs(*names):
+            # C++ qualified type to be used for shape constants
+            shape = "static constexpr std::size_t"
+            # Generate a C++ constant definition for each of the attributes
+            # given by argument list names
+            return (
+                f"{shape} {name} = {self.get_nodeattr(name)};" for name in names
+            )
+
+        # Generate datatype definitions mapping from QONNX DataType to HLS type
+        def typedefs(*names):
+            # Gets the HLS type string for the datatype specified by the named
+            # attribute
+            def hls_type(name):
+                # Looks up the datatype specified for the attribute and
+                # translates from QONNX to HLS type
+                return DataType[self.get_nodeattr(name)].get_hls_datatype_str()
+
+            # Generate a C++ type alias definition for each of the attributes
+            # given by argument list names
+            return (f"using {name} = {hls_type(name)};" for name in names)
+
         # Insert constants and typer aliases into the dictionary
         self.code_gen_dict["$DEFINES$"] = [
-            # Shapes of attention inputs: query, key and value
-            f"static constexpr std::size_t QKDim = {qkdim};",
-            f"static constexpr std::size_t QLen = {qlen};",
-            f"static constexpr std::size_t VDim = {vdim};",
-            f"static constexpr std::size_t KVLen = {kvlen};",
-            # Folding configuration
-            f"static constexpr std::size_t EmbFold = {embfold};",
-            f"static constexpr std::size_t SeqFold = {seqfold};",
+            # Shape constant definitions of attention inputs (query, key and
+            # value) and folding configuration
+            *shapedefs(
+                "QKDim",
+                "QLen",
+                "VDim",
+                "KVLen",
+                "EmbFold",
+                "SeqFold"
+            ),
+            # Type alias definitions for all input, output and intermediate
+            # datatypes
+            *typedefs(
+                "QType",
+                "KType",
+                "VType",
+                "MType",
+                "AType",
+                "OType"
+            ),
+            # Type alias definitions for the matmul accumulators and output
+            # datatypes
+            *typedefs(
+                "AccQKMatMul",
+                "OutQKMatMul",
+                "AccAVMatMul",
+                "OutAVMatMul"
+            ),
+            # Type alias definitions for the activation functions
+            f"using ActQKMatMul = {self.get_nodeattr('ActQKMatMul')};",
+            f"using ActAVMatMul = {self.get_nodeattr('ActAVMatMul')};",
+            f"using ActASoftmax = {self.get_nodeattr('ActASoftmax')};",
+            # Type alias of the properly configured attention operator class
+            f"using Attention = ScaledDotProductAttention<",
+            f"    QKDim,",
+            f"    QLen,",
+            f"    VDim,",
+            f"    KVLen,",
+            f"    EmbFold,",
+            f"    SeqFold,",
+            f"    QType,",
+            f"    KType,",
+            f"    VType,",
+            f"    MType,",
+            f"    AType,",
+            f"    OType,",
+            f"    AccQKMatMul,",
+            f"    OutQKMatMul,",
+            f"    ActQKMatMul,",
+            f"    AccAVMatMul,",
+            f"    OutAVMatMul,",
+            f"    ActAVMatMul,",
+            f"    ActASoftmax",
+            f">;",
+            # Short type aliases of attention input and output streams
+            f"using QStream = Attention::QStream;",
+            f"using KStream = Attention::KStream;",
+            f"using VStream = Attention::VStream;",
+            f"using OStream = Attention::OStream;",
         ]
 
-    # Generates C++ blackboxfunction for IP generation
+    # Generates C++ code for reading data from .npy (numpy format) for testing
+    # in C++ simulation
+    def read_npy_data(self):
+        pass
+
+    # Generates C++ code for declaring all streams involved in C++ simulation
+    # for testing
+    def strm_decl(self):
+        pass
+
+    # Generates C++ code for calling the computation part of the operator
+    def docompute(self):
+        pass
+
+    # Generates C++ code for reading the output stream and converting back to
+    # numpy format for testing in C** simulation
+    def dataoutstrm(self):
+        pass
+
+    # Generates C++ code for saving the output of C++ simulation to a file in
+    # numpy format
+    def save_as_npy(self):
+        pass
+
+    # Generates essentially the head of the C++ function from which the IP block
+    # will be generated during ipgen, i.e. actual synthesis
     def blackboxfunction(self):
         # Insert function head describing the top level interface of the
         # attention operator
@@ -531,3 +640,8 @@ class ScaledDotProductAttention(HLSCustomOp):
             void {}(QStream &q, KStream &k, VStream &v, OStream &out)
             """.format(self.onnx_node.name)
         ]
+
+    # Generates C++ pragmas to be inserted into the main function of the C++
+    # simulation and the ipgen-blackboxfunction as well
+    def pragmas(self):
+        pass
