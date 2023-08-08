@@ -613,7 +613,11 @@ class ScaledDotProductAttention(HLSCustomOp):
     # Generates C++ code for declaring all streams involved in C++ simulation
     # for testing
     def strm_decl(self):
-        pass
+        # Declare input (query, key, value) and output streams
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = [
+            # Note: Assumes stream type aliases to be set in defines
+            'QStream q;', 'KStream k;', 'VStream v;', 'OStream out;'
+        ]
 
     # Generates C++ code for calling the computation part of the operator
     def docompute(self):
