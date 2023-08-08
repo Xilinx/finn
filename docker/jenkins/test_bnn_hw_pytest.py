@@ -1,14 +1,15 @@
-import os
-import numpy as np
-from scipy.stats import linregress
-import subprocess
 import pytest
+
 import itertools
 import logging
+import numpy as np
+import os
+import subprocess
+from scipy.stats import linregress
 
 # no __init__ constructors allowed in Pytest - so use global variables instead
 base_dir_global = os.getcwd()
-default_test_run_timeout = 30 # seconds
+default_test_run_timeout = 30  # seconds
 output_execute_results_file = "output.npy"
 execute_results_reference_file = "output_reference.npy"
 output_throughput_results_file = "nw_metrics.txt"
@@ -18,12 +19,13 @@ logger = logging.getLogger(__name__)
 
 def remove_cache_dirs(dir_list):
     tmp_list = list(dir_list)
-    for i in range(len(tmp_list)-1, -1, -1):
+    for i in range(len(tmp_list) - 1, -1, -1):
         if ".pytest_cache" in tmp_list[i]:
             del tmp_list[i]
         elif "__pycache__" in tmp_list[i]:
             del tmp_list[i]
     return tmp_list
+
 
 def delete_file(file_path):
     # Check if the file exists before deleting it
@@ -36,16 +38,21 @@ def delete_file(file_path):
     else:
         logger.info(f"File '{file_path}' does not exist. Continuing with the script.")
 
+
 def get_platform(board_str):
     return "alveo" if "U250" in board_str else "zynq-iodma"
 
+
 def get_full_parameterized_test_list(marker, test_dir_list, batch_size_list, platform_list):
     test_cases = [
-            (f'{marker}_{param1}_batchSize-{param2}_platform-{param3}', {
-            'test_dir': param1,
-            'batch_size': param2,
-            'platform': param3,
-        })
+        (
+            f"{marker}_{param1}_batchSize-{param2}_platform-{param3}",
+            {
+                "test_dir": param1,
+                "batch_size": param2,
+                "platform": param3,
+            },
+        )
         for param1, param2, param3 in itertools.product(
             test_dir_list,
             batch_size_list,
@@ -54,6 +61,7 @@ def get_full_parameterized_test_list(marker, test_dir_list, batch_size_list, pla
     ]
     return test_cases
 
+
 def pytest_generate_tests(metafunc):
     idlist = []
     argvalues = []
@@ -61,15 +69,21 @@ def pytest_generate_tests(metafunc):
 
     # Separate the full list of markers used on command line.
     # This allows a user to select multiple markers
-    all_markers_used =  metafunc.config.getoption("-m").split(" ")
+    all_markers_used = metafunc.config.getoption("-m").split(" ")
     current_dir = os.getcwd()
-    test_dirs = [name for name in os.listdir(current_dir) if os.path.isdir(os.path.join(current_dir, name))]
+    test_dirs = [
+        name for name in os.listdir(current_dir) if os.path.isdir(os.path.join(current_dir, name))
+    ]
     test_dirs = remove_cache_dirs(test_dirs)
 
     for marker in all_markers_used:
         if "Pynq" in marker or "U250" in marker or "ZCU104" in marker or "KV260_SOM" in marker:
             platform = get_platform(marker)
-            scenarios.extend(get_full_parameterized_test_list(marker, test_dir_list=test_dirs, batch_size_list=[1], platform_list=[platform]))
+            scenarios.extend(
+                get_full_parameterized_test_list(
+                    marker, test_dir_list=test_dirs, batch_size_list=[1], platform_list=[platform]
+                )
+            )
 
     if len(scenarios) > 0:
         for scenario in scenarios:
@@ -92,7 +106,21 @@ class TestBnn:
 
         # Run test option: execute
         bitfile = "a.xclbin" if platform == "alveo" else "resizer.bit"
-        result = subprocess.run(["python", "driver.py", "--exec_mode=execute", f"--batchsize={batch_size}", f"--bitfile={bitfile}", "--inputfile=input.npy", "--outputfile=output.npy", f"--platform={platform}"], capture_output=True, text=True, timeout=default_test_run_timeout)
+        result = subprocess.run(
+            [
+                "python",
+                "driver.py",
+                "--exec_mode=execute",
+                f"--batchsize={batch_size}",
+                f"--bitfile={bitfile}",
+                "--inputfile=input.npy",
+                "--outputfile=output.npy",
+                f"--platform={platform}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=default_test_run_timeout,
+        )
         assert result.returncode == 0
 
         # Load the output and reference arrays
@@ -112,7 +140,21 @@ class TestBnn:
 
         # Run test option: throughput
         bitfile = "a.xclbin" if platform == "alveo" else "resizer.bit"
-        result = subprocess.run(["python", "driver.py", "--exec_mode=throughput_test", f"--batchsize={batch_size}", f"--bitfile={bitfile}", "--inputfile=input.npy", "--outputfile=output.npy", f"--platform={platform}"], capture_output=True, text=True, timeout=default_test_run_timeout)
+        result = subprocess.run(
+            [
+                "python",
+                "driver.py",
+                "--exec_mode=throughput_test",
+                f"--batchsize={batch_size}",
+                f"--bitfile={bitfile}",
+                "--inputfile=input.npy",
+                "--outputfile=output.npy",
+                f"--platform={platform}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=default_test_run_timeout,
+        )
         assert result.returncode == 0
 
         # Check if nw_metrics.txt now exists after test run
@@ -158,7 +200,7 @@ class TestBnn:
                 np.round(v["DRAM_out_bandwidth[MB/s]"], 2),
             )
         ret_str += "\n" + "-----------------------------"
-        largest_bsize = bsize_range[-1]
+        # largest_bsize = bsize_range[-1]
 
         # Dump the metrics to a text file
         with open(throughput_results_formatted_file, "w") as f:

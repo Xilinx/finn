@@ -28,9 +28,8 @@
 
 import pytest
 
-import numpy as np
-
 import itertools
+import numpy as np
 
 # as of Feb'20 there is a bug that segfaults ONNX shape inference if we
 # import pytorch before onnx, so we make sure to import onnx first
@@ -41,7 +40,6 @@ import warnings
 from brevitas.export import export_qonnx
 from dataset_loading import cifar, mnist
 from distutils.dir_util import copy_tree
-from shutil import copy
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
@@ -60,6 +58,7 @@ from qonnx.transformation.insert_topk import InsertTopK
 from qonnx.transformation.lower_convs_to_matmul import LowerConvsToMatMul
 from qonnx.transformation.merge_onnx_models import MergeONNXModels
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
+from shutil import copy
 
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
 import finn.transformation.streamline.absorb as absorb
@@ -348,12 +347,15 @@ def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
 # parameters that make up inputs to test case(s)
 def get_full_parameterized_test_list(marker, wbits_list, abits_list, topology_list, board_list):
     test_cases = [
-            (f'{marker}_w{param1}_a{param2}_{param3}_{param4}', {
-            'wbits': param1,
-            'abits': param2,
-            'topology': param3,
-            'board': param4,
-        })
+        (
+            f"{marker}_w{param1}_a{param2}_{param3}_{param4}",
+            {
+                "wbits": param1,
+                "abits": param2,
+                "topology": param3,
+                "board": param4,
+            },
+        )
         for param1, param2, param3, param4 in itertools.product(
             wbits_list,
             abits_list,
@@ -376,21 +378,63 @@ def pytest_generate_tests(metafunc):
 
     # Separate the full list of markers used on command line.
     # This allows a user to select multiple markers
-    all_markers_used =  metafunc.config.getoption("-m").split(" ")
+    all_markers_used = metafunc.config.getoption("-m").split(" ")
 
     for marker in all_markers_used:
         if "sanity_bnn" in marker:
-            # Define a set of sanity tests that target each of the supported boards with fixed parameters
-            scenarios.extend(get_full_parameterized_test_list("sanity_bnn", wbits_list=[1], abits_list=[1], topology_list=["lfc"], board_list=[test_support_board_map[0]]))
-            scenarios.extend(get_full_parameterized_test_list("sanity_bnn", wbits_list=[1], abits_list=[2], topology_list=["cnv"], board_list=[test_support_board_map[1]]))
-            scenarios.extend(get_full_parameterized_test_list("sanity_bnn", wbits_list=[2], abits_list=[2], topology_list=["tfc"], board_list=[test_support_board_map[2]]))
-            scenarios.extend(get_full_parameterized_test_list("sanity_bnn", wbits_list=[2], abits_list=[2], topology_list=["cnv"], board_list=[test_support_board_map[3]]))
+            # Define a set of sanity tests that target each of
+            # the supported boards with fixed parameters
+            scenarios.extend(
+                get_full_parameterized_test_list(
+                    "sanity_bnn",
+                    wbits_list=[1],
+                    abits_list=[1],
+                    topology_list=["lfc"],
+                    board_list=[test_support_board_map[0]],
+                )
+            )
+            scenarios.extend(
+                get_full_parameterized_test_list(
+                    "sanity_bnn",
+                    wbits_list=[1],
+                    abits_list=[2],
+                    topology_list=["cnv"],
+                    board_list=[test_support_board_map[1]],
+                )
+            )
+            scenarios.extend(
+                get_full_parameterized_test_list(
+                    "sanity_bnn",
+                    wbits_list=[2],
+                    abits_list=[2],
+                    topology_list=["tfc"],
+                    board_list=[test_support_board_map[2]],
+                )
+            )
+            scenarios.extend(
+                get_full_parameterized_test_list(
+                    "sanity_bnn",
+                    wbits_list=[2],
+                    abits_list=[2],
+                    topology_list=["cnv"],
+                    board_list=[test_support_board_map[3]],
+                )
+            )
 
         if "bnn_" in marker:
             # Target the full set of parameters for a single board
             # Extract the board name from the marker used, as it is in the form of 'bnn_<board>'
-            bnn_board = next((element for element in test_support_board_map if marker.split("_")[1] in element.lower()), None)
-            test_cases = get_full_parameterized_test_list("bnn", wbits, abits, topology, [bnn_board])
+            bnn_board = next(
+                (
+                    element
+                    for element in test_support_board_map
+                    if marker.split("_")[1] in element.lower()
+                ),
+                None,
+            )
+            test_cases = get_full_parameterized_test_list(
+                "bnn", wbits, abits, topology, [bnn_board]
+            )
             scenarios.extend(test_cases)
 
     if len(scenarios) > 0:
@@ -400,6 +444,7 @@ def pytest_generate_tests(metafunc):
             argnames = [x[0] for x in items]
             argvalues.append([x[1] for x in items])
         metafunc.parametrize(argnames, argvalues, ids=idlist, scope="class")
+
 
 @pytest.mark.sanity_bnn
 @pytest.mark.bnn_pynq
@@ -706,9 +751,7 @@ class TestEnd2End:
         model.save(get_checkpoint_name(topology, wbits, abits, "driver_" + board))
 
     def test_deploy(self, topology, wbits, abits, board):
-        prev_chkpt_name = get_checkpoint_name(
-            topology, wbits, abits, "driver_" + board
-        )
+        prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "driver_" + board)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model_title = "%s_w%d_a%d_%s" % ("bnn", wbits, abits, topology)
         deploy_based_on_board(model, model_title, topology, wbits, abits, board)
