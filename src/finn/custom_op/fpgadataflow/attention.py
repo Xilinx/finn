@@ -636,9 +636,9 @@ class ScaledDotProductAttention(HLSCustomOp):
         # attention operator
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
             # Note: Assumes stream type aliases to be set in defines
-            """
-            void {}(QStream &q, KStream &k, VStream &v, OStream &out)
-            """.format(self.onnx_node.name)
+            f"void {self.onnx_node.name} (",
+            f"    QStream &q, KStream &k, VStream &v, OStream &out",
+            f")",
         ]
 
     # Generates C++ pragmas to be inserted into the main function of the C++
