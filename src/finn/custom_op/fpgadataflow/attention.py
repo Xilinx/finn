@@ -644,4 +644,19 @@ class ScaledDotProductAttention(HLSCustomOp):
     # Generates C++ pragmas to be inserted into the main function of the C++
     # simulation and the ipgen-blackboxfunction as well
     def pragmas(self):
-        pass
+        # Add HLS interface directives specifying how to create RTL ports for
+        # the top-level function arguments
+        self.code_gen_dict["$PRAGMAS$"] = [
+            # Connect the query input stream with an axi stream interface
+            "#pragma HLS INTERFACE axis port=q",
+            # Connect the key input stream with an axi stream interface
+            "#pragma HLS INTERFACE axis port=k",
+            # Connect the value input stream with an axi stream interface
+            "#pragma HLS INTERFACE axis port=v",
+            # Connect the output stream with an axi stream interface
+            "#pragma HLS INTERFACE axis port=out",
+        ]
+        # No block-level I/O protocol for the function return value
+        self.code_gen_dict["$PRAGMAS$"].append(
+            "#pragma HLS INTERFACE ap_ctrl_none port=return"
+        )
