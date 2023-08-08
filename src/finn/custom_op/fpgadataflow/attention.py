@@ -621,7 +621,19 @@ class ScaledDotProductAttention(HLSCustomOp):
 
     # Generates C++ code for calling the computation part of the operator
     def docompute(self):
-        pass
+        # Write the body of the attention top-level function
+        self.code_gen_dict["$DOCOMPUTE$"] = [
+            # Instantiate the attention operator and connect to the streams
+            # Note: Assumes "Attention" to be aliased appropriate configuration
+            #   in defines with.
+            "Attention attention(q, k, v);",
+            # Transfer from input to output stream
+            # TODO: Ge rid of this once switching to function-call style for the
+            #  attention operator.
+            "for(std::size_t i = 0; i < QLen * EmbFold; ++i) {",
+            "    out.write(attention.out.read());",
+            "}",
+        ]
 
     # Generates C++ code for reading the output stream and converting back to
     # numpy format for testing in C** simulation
