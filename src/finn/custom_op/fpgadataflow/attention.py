@@ -620,7 +620,7 @@ class ScaledDotProductAttention(HLSCustomOp):
             #    order of the template arguments of the npy2apintstream, such
             #    that type-deduction is handled there?
             f"using QPacked = decltype(QStream.read());",
-            # Generate function call reding from file into the input stream
+            # Generate function call reading from file into the input stream
             #   Note: Inputs are always represented as numpy floats
             f"npy2apintstream<QPacked, QType, QType::width, float>(",
             f"  {code_gen_dir}/q.npy, q, false",
@@ -628,7 +628,7 @@ class ScaledDotProductAttention(HLSCustomOp):
 
             # Deduce the datatype of elements packed into the key input stream
             f"using KPacked = decltype(KStream.read());",
-            # Generate function call reding from file into the input stream
+            # Generate function call reading from file into the input stream
             #   Note: Inputs are always represented as numpy floats
             f"npy2apintstream<KPacked, KType, KType::width, float>(",
             f"  {code_gen_dir}/k.npy, k, false",
@@ -636,7 +636,7 @@ class ScaledDotProductAttention(HLSCustomOp):
 
             # Deduce the datatype of elements packed into the value input stream
             f"using VPacked = decltype(VStream.read());",
-            # Generate function call reding from file into the input stream
+            # Generate function call reading from file into the input stream
             #   Note: Inputs are always represented as numpy floats
             f"npy2apintstream<VPacked, VType, VType::width, float>(",
             f"  {code_gen_dir}/v.npy, v, false",
@@ -651,7 +651,7 @@ class ScaledDotProductAttention(HLSCustomOp):
                 # Deduce the datatype of elements packed into the mask input
                 # stream
                 f"using MPacked = decltype(MStream.read());",
-                # Generate function call reding from file into the input stream
+                # Generate function call reading from file into the input stream
                 #   Note: Inputs are always represented as numpy floats
                 f"npy2apintstream<MPacked, MType, MType::width, float>(",
                 f"  {code_gen_dir}/m.npy, m, false",
@@ -676,8 +676,8 @@ class ScaledDotProductAttention(HLSCustomOp):
             #   in defines with.
             "Attention attention(q, k, v);",
             # Transfer from input to output stream
-            # TODO: Ge rid of this once switching to function-call style for the
-            #  attention operator.
+            # TODO: Get rid of this once switching to function-call style for
+            #  the attention operator.
             "for(std::size_t i = 0; i < QLen * EmbFold; ++i) {",
             "    out.write(attention.out.read());",
             "}",
@@ -686,7 +686,28 @@ class ScaledDotProductAttention(HLSCustomOp):
     # Generates C++ code for reading the output stream and converting back to
     # numpy format for testing in C** simulation
     def dataoutstrm(self):
-        pass
+        # Output data will be stored in numpy files in the code generation
+        # dictionary
+        code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
+        # Get the expected shape of the folded output array formatted as a C++
+        # vector initializer
+        # Note: Valid formatting relies on correct placement of curly braces
+        # and line breaks: Open/close all three braces on the same line of code
+        # to avoid '\n' to be inserted into the string
+        shape = f"""{{{
+        ','.join((str(i) for i in self.get_folded_output_shape()))
+        }}}"""
+        # Generate function call for reading from the output stream into the
+        # output file
+        self.code_gen_dict["$DATAOUTSTREAM$"] = [
+            # Deduce the datatype of elements packed into the output stream
+            f'using OPacked = decltype(OStream.read());',
+            # Generate function call reading from stream into the output file
+            #   Note: Outputs are always represented as numpy floats
+            f'apintstream2npy<OPacked, OType, OType::width, float>(',
+            f'  out, {shape}, "{code_gen_dir}/out.npy", false',
+            ');',
+        ]
 
     # Generates C++ code for saving the output of C++ simulation to a file in
     # numpy format
