@@ -4,12 +4,9 @@ import warnings
 import numpy as np
 # Derive custom operators form the FINN base custom op
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
-# Temporarily derive custom operators from QONNX base custom op
-#   TODO: Remove once switching to HLSCustomOp
-from qonnx.custom_op.base import CustomOp
-
 # QONNX/FINN datatypes
-from qonnx.core.datatype import DataType
+from qonnx.core.datatype import DataType  # noqa qonnx dependency is specified
+# in setup.cfg as well as in fetch-repos.sh
 
 
 # Scaled Dot-Product Attention Custom Operator
@@ -121,8 +118,9 @@ class ScaledDotProductAttention(HLSCustomOp):
         # Utility types and function for creating onnx nodes and graphs
         from onnx import TensorProto, helper
         # Utility for creating and wrapping qonnx graphs and models
-        from qonnx.util.basic import qonnx_make_model
-        from qonnx.core.modelwrapper import ModelWrapper
+        from qonnx.util.basic import qonnx_make_model  # noqa qonnx dependency
+        # is specified in setup.cfg as well as in fetch-repos.sh
+        from qonnx.core.modelwrapper import ModelWrapper  # noqa
 
         # Convert unspecified mask to 'none' mode
         mask = 'none' if mask is None else mask
@@ -325,7 +323,8 @@ class ScaledDotProductAttention(HLSCustomOp):
             # Numpy compatible softmax implementation
             from scipy.special import softmax
             # Generate random input data for testing
-            from qonnx.util.basic import gen_finn_dt_tensor
+            from qonnx.util.basic import gen_finn_dt_tensor  # noqa qonnx
+            # dependency is specified in setup.cfg as well as in fetch-repos.sh
 
             # Read input tensors of the query, key and value inputs from context
             q = context[self.onnx_node.input[0]]
@@ -594,7 +593,7 @@ class ScaledDotProductAttention(HLSCustomOp):
             # given by argument list names
             return (f"using {name} = {hls_type(name)};" for name in names)
 
-        # Insert constants and typer aliases into the dictionary
+        # Insert constants and type aliases into the dictionary
         self.code_gen_dict["$DEFINES$"] = [
             # Shape constant definitions of attention inputs (query, key and
             # value) and folding configuration
