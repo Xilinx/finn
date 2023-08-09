@@ -333,7 +333,8 @@ def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
         input_tensor_npy = input_tensor_npy.transpose(0, 3, 2, 1)
     else:
         input_shape = input_tensor_npy.shape
-        input_tensor_npy = (input_shape[0], np.prod(input_shape[1:]))
+        new_input_shape = (input_shape[0], np.prod(input_shape[1:]))
+        input_tensor_npy = input_tensor_npy.reshape(new_input_shape)
 
     np.save(os.path.join(deployment_dir, "input.npy"), input_tensor_npy.copy())
     np.save(os.path.join(deployment_dir, "output_reference.npy"), output_tensor_npy)
