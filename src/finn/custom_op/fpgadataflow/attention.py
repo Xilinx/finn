@@ -59,7 +59,7 @@ class ScaledDotProductAttention(HLSCustomOp):
             # Datatype of output elements of the Query x Key multiplication
             "OutQKMatMul": ("s", False, "UINT32"),
             # Activation function type of the Query x Key multiplication
-            "ActQKMatMul": ("s", False, "PassThroughActivation<AType>"),
+            "ActQKMatMul": ("s", False, "PassThroughActivation<AccQKMatMul>"),
 
             # Datatype of accumulator elements of the Attention x Value
             # multiplication
@@ -68,11 +68,11 @@ class ScaledDotProductAttention(HLSCustomOp):
             # multiplication
             "OutAVMatMul": ("s", False, "UINT32"),
             # Activation function type of the Attention x Value multiplication
-            "ActAVMatMul": ("s", False, "PassThroughActivation<OType>"),
+            "ActAVMatMul": ("s", False, "PassThroughActivation<AccAVMatMul>"),
 
             # Activation function type of the softmax normalization of the
             # attention weights
-            "ActASoftmax": ("s", False, "PassThroughActivation<OType>"),
+            "ActASoftmax": ("s", False, "PassThroughActivation<OutQKMatMul>"),
 
             # Mode used for providing the attention mask: There can be no mask,
             # a mask sent as the fourth input or a causal attention mask which
@@ -427,6 +427,12 @@ class ScaledDotProductAttention(HLSCustomOp):
         # the embedding dimension of the values
         return tuple((self.get_nodeattr("QLen"), self.get_nodeattr("VDim")))
 
+    # Gets the shape of the attention weights at index ind (there is just one)
+    # without folding
+    def get_normal_attention_shape(self, ind=0):  # noqa, there is just one
+        # The attention weights have shape covering both sequence dimensions
+        return tuple((self.get_nodeattr("QLen"), self.get_nodeattr("KVLen")))
+
     # Gets the shape of the input at index ind with folding
     def get_folded_input_shape(self, ind=0):
         # Get the unfolded size of the input
@@ -461,6 +467,17 @@ class ScaledDotProductAttention(HLSCustomOp):
         # assumed to be the second dimension
         return olen, embfold, odim // embfold
 
+    # Gets the shape of the attention weights at index ind (there is just one)
+    # with folding
+    def get_folded_attention_shape(self, ind=0):  # noqa, there is just one
+        # Get the unfolded size of the attention weights
+        alen, adim = self.get_normal_attention_shape(ind)
+        # Get the folding configuration specifying the amount of parallelism
+        embfold, seqfold = self.folds
+        # The attention weights are always folded along the sequence dimension,
+        # which is assumed to be the second dimension
+        return alen, seqfold, adim // seqfold
+
     # Widths of the input data stream of the input at index ind
     def get_instream_width(self, ind=0):
         # Get the number of bits used to represent the input
@@ -493,14 +510,49 @@ class ScaledDotProductAttention(HLSCustomOp):
         # bit-width as well
         if self.get_nodeattr("mask_mode") in {"input", "causal"}:
             # Parallelism is the number of elements in the last dimension of the
-            # folded output
-            _, _, elems = self.get_folded_output_shape(ind=3)
+            # folded mask input
+            _, _, elems = self.get_folded_input_shape(ind=3)
             # Get width of the mask datatype
             m_bits = elems * DataType[self.get_nodeattr("MType")].bitwidth()
-        # TODO: Are there more intermediates which need to be considered? Yes,
-        #  attention weights and MatMul accumulators and outputs.
-        # Find maximum of all maximal bit-widths
-        return max([i_bits_max, o_bits_max, m_bits])
+
+        # Elements per folded key input (second input)
+        _, _, i_elems = self.get_folded_input_shape(ind=1)
+        # Elements per folded value input (third input), same as the number of
+        # output elements
+        _, _, o_elems = self.get_folded_input_shape(ind=2)
+
+        # Parallelism is the number of elements in the last dimension of the
+        # folded attention weights
+        _, _, s_elems = self.get_folded_attention_shape()
+        # Number of bits used for the attention weights stream
+        a_bits = s_elems * DataType[self.get_nodeattr("AType")].bitwidth()
+
+        # Maximum bits per tile of the key and value matrix streams
+        tile_bits_max = max([
+            i_elems * s_elems * DataType[self.get_nodeattr("KType")].bitwidth(),
+            o_elems * s_elems * DataType[self.get_nodeattr("VType")].bitwidth(),
+        ])
+        # Maximum bits per matmul accumulators
+        acc_bits_max = max([
+            # These are not streamed, thus single element width is counted
+            DataType[self.get_nodeattr("AccQKMatMul")].bitwidth(),
+            DataType[self.get_nodeattr("AccAVMatMul")].bitwidth(),
+        ])
+        # Maximum bits per matmul outputs
+        out_bits_max = max([
+            # These are the stream widths, which are always >= than individual
+            # elements
+            s_elems * DataType[self.get_nodeattr("OutQKMatMul")].bitwidth(),
+            o_elems * DataType[self.get_nodeattr("OutAVMatMul")].bitwidth(),
+        ])
+        # Aggregate the maximum bit width in both matmul operators over all
+        # inputs, intermediates and outputs
+        matmul_bits_max = max([
+            tile_bits_max, acc_bits_max, out_bits_max
+        ])
+
+        # Find maximum of all (maximal) bit-widths
+        return max([i_bits_max, o_bits_max, m_bits, a_bits, matmul_bits_max])
 
     # Gets the number of expected output values, i.e. how many times read()
     # could/should be called on the output stream of this operator
