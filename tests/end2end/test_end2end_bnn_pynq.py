@@ -92,7 +92,7 @@ from finn.transformation.streamline.reorder import (
     MakeMaxPoolNHWC,
     MoveScalarLinearPastInvariants,
 )
-from finn.util.basic import get_finn_root, make_build_dir, test_support_board_map
+from finn.util.basic import get_finn_root, make_build_dir, test_board_map
 from finn.util.pytorch import ToTensor
 from finn.util.test import (
     execute_parent,
@@ -390,7 +390,7 @@ def pytest_generate_tests(metafunc):
                     wbits_list=[1],
                     abits_list=[1],
                     topology_list=["lfc"],
-                    board_list=[test_support_board_map[0]],
+                    board_list=[test_board_map[0]],
                 )
             )
             scenarios.extend(
@@ -399,7 +399,7 @@ def pytest_generate_tests(metafunc):
                     wbits_list=[1],
                     abits_list=[2],
                     topology_list=["cnv"],
-                    board_list=[test_support_board_map[1]],
+                    board_list=[test_board_map[1]],
                 )
             )
             scenarios.extend(
@@ -408,7 +408,7 @@ def pytest_generate_tests(metafunc):
                     wbits_list=[2],
                     abits_list=[2],
                     topology_list=["tfc"],
-                    board_list=[test_support_board_map[2]],
+                    board_list=[test_board_map[2]],
                 )
             )
             scenarios.extend(
@@ -417,7 +417,7 @@ def pytest_generate_tests(metafunc):
                     wbits_list=[2],
                     abits_list=[2],
                     topology_list=["cnv"],
-                    board_list=[test_support_board_map[3]],
+                    board_list=[test_board_map[3]],
                 )
             )
 
@@ -425,11 +425,7 @@ def pytest_generate_tests(metafunc):
             # Target the full set of parameters for a single board
             # Extract the board name from the marker used, as it is in the form of 'bnn_<board>'
             bnn_board = next(
-                (
-                    element
-                    for element in test_support_board_map
-                    if marker.split("_")[1] in element.lower()
-                ),
+                (element for element in test_board_map if marker.split("_")[1] in element.lower()),
                 None,
             )
             test_cases = get_full_parameterized_test_list(
