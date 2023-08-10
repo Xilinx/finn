@@ -17,7 +17,7 @@ from qonnx.custom_op.registry import getCustomOp
 # Graphs transformation setting the execution mode attribute
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
-from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
+from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 
 # Size of query and key embedding dimension
@@ -39,7 +39,7 @@ from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 @pytest.mark.parametrize("KType", [DataType["UINT16"]])
 @pytest.mark.parametrize("VType", [DataType["UINT16"]])
 @pytest.mark.parametrize("MType", [DataType["UINT16"]])
-@pytest.mark.parametrize("OType", [DataType["UINT16"]])
+@pytest.mark.parametrize("OType", [DataType["UINT32"]])
 # Tests python implementation of single scaled dot-product attention head
 def test_attention_python(
         QKDim, VDim, KVLen, QLen, mask, EmbFold, SeqFold, QType, KType, VType,
@@ -82,11 +82,11 @@ def test_attention_python(
     }
     # Set model execution mode to python (numpy execution)
     model = model.transform(SetExecMode("python"))
-
     # Generates the C++ source to be compiled as C++ simulation
-    model = model.transform(PrepareCppSim())
-    # Prepares IP-generation
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareCppSim())
+    model = model.transform(CompileCppSim())
+    # Prepares IP-generation
     model = model.transform(PrepareIP("xc7z020clg400-1", 5))
 
     # Execute the onnx model to collect the result
