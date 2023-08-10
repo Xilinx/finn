@@ -66,6 +66,8 @@ class FMPadding_rtl(HLSCustomOp):
             "NumChannels": ("i", True, 0),
             # SIMD Input parallelism
             "SIMD": ("i", False, 1),
+            # MMV spatial parallelism (requires max. SIMD)
+            "M": ("i", False, 1),
             # FINN input datatype
             "inputDataType": ("s", True, ""),
             # shape describing input vecs per execution
@@ -93,8 +95,9 @@ class FMPadding_rtl(HLSCustomOp):
         odim_h, odim_w = self.get_padded_odim()
         channels = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
+        m = self.get_nodeattr("M")
         batch_size = self.get_nodeattr("numInputVectors")
-        exp_cycles = (channels / simd) * batch_size * odim_h * odim_w
+        exp_cycles = (channels / simd) * batch_size * odim_h * odim_w / m
         return int(exp_cycles)
 
     def get_normal_input_shape(self, ind=0):
@@ -111,21 +114,31 @@ class FMPadding_rtl(HLSCustomOp):
         return oshape
 
     def get_folded_input_shape(self, ind=0):
-        normal_ishape = list(self.get_normal_input_shape())
+        idim_h, idim_w = self.get_nodeattr("ImgDim")
         ifm_ch = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
+        m = self.get_nodeattr("M")
         assert ifm_ch % simd == 0, "SIMD must divide input channels"
-        fold = int(normal_ishape[-1] / simd)
-        folded_ishape = normal_ishape[:-1] + [fold, simd]
+        # TODO: assert max. SIMD for M>1 (also for other nodes?!)
+        if idim_w > 1:
+            assert idim_w % m == 0, "Spatial input dim (W) must be divisible by M."
+            folded_ishape = tuple([1, idim_h, idim_w // m, ifm_ch // simd, simd * m])
+        else:
+            assert idim_h % m == 0, "Spatial input dim (H) must be divisible by M."
+            folded_ishape = tuple([1, idim_h // m, idim_w, ifm_ch // simd, simd * m])
         return tuple(folded_ishape)
 
     def get_folded_output_shape(self, ind=0):
-        normal_oshape = list(self.get_normal_output_shape())
+        odim_h, odim_w = self.get_padded_odim()
         ifm_ch = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
+        m = self.get_nodeattr("M")
         assert ifm_ch % simd == 0, "SIMD must divide input channels"
-        fold = int(normal_oshape[-1] / simd)
-        folded_oshape = normal_oshape[:-1] + [fold, simd]
+        # include dummy padding of odim_w (odim_h in 1D case) to multiple of M
+        if odim_w == 1:
+            folded_oshape = (1, math.ceil(odim_h / m), odim_w, ifm_ch // simd, simd * m)
+        else:
+            folded_oshape = (1, odim_h, math.ceil(odim_w / m), ifm_ch // simd, simd * m)
         return tuple(folded_oshape)
 
     def make_shape_compatible_op(self, model):
@@ -166,12 +179,14 @@ class FMPadding_rtl(HLSCustomOp):
     def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
-        return ibits * simd
+        m = self.get_nodeattr("M")
+        return ibits * simd * m
 
     def get_outstream_width(self, ind=0):
         obits = self.get_output_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
-        return obits * simd
+        m = self.get_nodeattr("M")
+        return obits * simd * m
 
     def get_number_output_values(self):
         folded_oshape = self.get_folded_output_shape()
@@ -234,27 +249,48 @@ class FMPadding_rtl(HLSCustomOp):
         )
         # load and reshape output
         output = np.load(out_npy_path)
-        output = np.asarray([output], dtype=np.float32).reshape(*exp_oshape)
-        context[node.output[0]] = output
+        output = np.asarray([output], dtype=np.float32)
+
+        # remove dummy padding from output
+        # if odim_w == 1:
+        #     folded_oshape = (1, math.ceil(odim_h/m), odim_w, ifm_ch // simd, simd * m)
+        # else:
+        #     folded_oshape = (1, odim_h, math.ceil(odim_w/m), ifm_ch // simd, simd * m)
+        # exposhape = (1, odim_h, odim_w, num_ch)
+        m = self.get_nodeattr("M")
+        num_ch = exp_oshape[3]
+        if exp_oshape[2] == 1:
+            output = output.reshape(1, 1, -1, num_ch)
+            pixels_to_remove = out_shape[1] * m - exp_oshape[1]
+        else:
+            output = output.reshape(1, out_shape[1], -1, num_ch)
+            pixels_to_remove = out_shape[2] * m - exp_oshape[2]
+
+        # output = np.delete(output, np.arange(-1, -1-pixels_to_remove, -1), axis=2)
+        output = output[:, :, : output.shape[2] - pixels_to_remove, :]
+        context[node.output[0]] = output.reshape(*exp_oshape)
 
         assert (
             context[node.output[0]].shape == exp_oshape
         ), """Output shape doesn't match expected shape
             (1, OutputDim_H, OutputDim_W, NumChannels)."""
 
-    def get_template_values(self, ifm_dims, pads, chans, simd, idt):
+    def get_template_values(self, ifm_dims, pads, chans, simd, m, idt):
         dimY, dimX = ifm_dims
         padT, padL, padB, padR = pads
         y_counter_bits = int(math.ceil(math.log2(padT + dimY + padB + 1)))
-        x_counter_bits = int(math.ceil(math.log2(padL + dimX + padR + 1)))
+        x_counter_bits = int(
+            math.ceil(math.log2(padL + dimX + padR + 1 + m))
+        )  # + m to make sure no overflow occurs
         topname = self.get_verilog_top_module_name()
-        stream_bits = idt.bitwidth() * simd
+        stream_bits = idt.bitwidth() * simd * m
         stream_bits = int(roundup_to_integer_multiple(stream_bits, 8))
         code_gen_dict = {
             "XCOUNTER_BITS": int(x_counter_bits),
             "YCOUNTER_BITS": int(y_counter_bits),
             "NUM_CHANNELS": int(chans),
             "SIMD": int(simd),
+            "MMV": int(m),
             "ELEM_BITS": idt.bitwidth(),
             "TOP_MODULE_NAME": topname,
             "INIT_XON": int(padL),
@@ -277,8 +313,9 @@ class FMPadding_rtl(HLSCustomOp):
             pads = self.get_nodeattr("Padding")
         chans = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
+        m = self.get_nodeattr("M")
         idt = self.get_input_datatype()
-        code_gen_dict = self.get_template_values(ifm_dims, pads, chans, simd, idt)
+        code_gen_dict = self.get_template_values(ifm_dims, pads, chans, simd, m, idt)
         config = {
             "XON": (0 * 4, (code_gen_dict["INIT_XON"])),
             "XOFF": (1 * 4, (code_gen_dict["INIT_XOFF"])),
@@ -296,8 +333,9 @@ class FMPadding_rtl(HLSCustomOp):
         pads = self.get_nodeattr("Padding")
         chans = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
+        m = self.get_nodeattr("M")
         idt = self.get_input_datatype()
-        code_gen_dict = self.get_template_values(dims, pads, chans, simd, idt)
+        code_gen_dict = self.get_template_values(dims, pads, chans, simd, m, idt)
         # save top module name so we can refer to it after this node has been renamed
         # (e.g. by GiveUniqueNodeNames(prefix) during MakeZynqProject)
         self.set_nodeattr("gen_top_module", self.get_verilog_top_module_name())

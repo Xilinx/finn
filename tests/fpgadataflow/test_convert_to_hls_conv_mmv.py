@@ -61,8 +61,8 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 @pytest.mark.parametrize(
     "conv_config",
     [
-        [[0, 0, 0, 0], [1, 12 + 2], [1, 3], [1, 1], [1, 1]],  # 1D
-        # [[0, 1, 0, 1], [1, 12], [1, 3], [1, 1], [1, 1]], # 1D + pad
+        # [[0, 0, 0, 0], [1, 12 + 2], [1, 3], [1, 1], [1, 1]],  # 1D
+        [[0, 1, 0, 1], [1, 12], [1, 3], [1, 1], [1, 1]],  # 1D + pad
         # [[0, 0, 0, 0], [32+2, 1], [3, 1], [1, 1], [1, 1]], # 1D flipped
         # [[0, 0, 0, 0], [12+2, 12+2], [3, 3], [1, 1], [1, 1]], # 2D
     ],
@@ -154,7 +154,7 @@ def test_convert_to_hls_conv_mmv(conv_config, m, depthwise):
     new_model = model.transform(LowerConvsToMatMul())
     # new_model = new_model.transform(MakeMaxPoolNHWC())
     new_model = new_model.transform(to_hls.InferConvInpGen(use_rtl_variant=True))
-    # new_model = new_model.transform(to_hls.InferStreamingMaxPool())
+    # new_model = new_model.transform(to_hls.InferStreamingMaxPool()) use poolbatch
     if depthwise is True:
         new_model = new_model.transform(to_hls.InferVectorVectorActivation())
         vvau_node = new_model.get_nodes_by_op_type("VectorVectorActivation")[0]
@@ -173,13 +173,13 @@ def test_convert_to_hls_conv_mmv(conv_config, m, depthwise):
         # fc_inst.set_nodeattr("rtlsim_trace", "/workspace/finn/test_fc.vcd")
 
     # configure parallelism of auxiliary nodes
-    # pad_node = new_model.get_nodes_by_op_type("FMPadding_rtl")[0]
-    # pad_inst = getCustomOp(pad_node)
-    # pad_inst.set_nodeattr("M", M)
+    pad_node = new_model.get_nodes_by_op_type("FMPadding_rtl")[0]
+    pad_inst = getCustomOp(pad_node)
+    pad_inst.set_nodeattr("M", m)
 
     # pool_node = new_model.get_nodes_by_op_type("StreamingMaxPool_Batch")[0]
     # pool_inst = getCustomOp(pool_node)
-    # pool_inst.set_nodeattr("M", M)
+    # pool_inst.set_nodeattr("M", m)
 
     swg_node = new_model.get_nodes_by_op_type("ConvolutionInputGenerator_rtl")[0]
     swg_inst = getCustomOp(swg_node)
