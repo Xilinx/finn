@@ -207,9 +207,7 @@ class FMPadding_rtl(HLSCustomOp):
         folded_ishape = self.get_folded_input_shape()
 
         if mode == "cppsim":
-            raise Exception(
-                "cppsim not possible for FMPadding_rtl, please set exec_mode to rtlsim"
-            )
+            raise Exception("cppsim not possible for FMPadding_rtl, please set exec_mode to rtlsim")
         elif mode == "rtlsim":
             code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         else:
@@ -233,9 +231,7 @@ class FMPadding_rtl(HLSCustomOp):
 
         sim = self.get_rtlsim()
         nbits = self.get_instream_width()
-        rtlsim_inp = npy_to_rtlsim_input(
-            "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-        )
+        rtlsim_inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
         super().reset_rtlsim(sim)
         super().toggle_clk(sim)
         rtlsim_output = self.rtlsim(sim, rtlsim_inp)
@@ -244,9 +240,7 @@ class FMPadding_rtl(HLSCustomOp):
         packed_bits = self.get_outstream_width()
         out_npy_path = "{}/output.npy".format(code_gen_dir)
         out_shape = self.get_folded_output_shape()
-        rtlsim_output_to_npy(
-            rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits
-        )
+        rtlsim_output_to_npy(rtlsim_output, out_npy_path, odt, out_shape, packed_bits, target_bits)
         # load and reshape output
         output = np.load(out_npy_path)
         output = np.asarray([output], dtype=np.float32)

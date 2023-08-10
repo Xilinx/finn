@@ -63,9 +63,7 @@ def test_move_scalar_mul_past_matmul():
     model = ModelWrapper(modelproto)
     model = model.transform(InferShapes())
     model.set_initializer("mul_param", np.asarray([[3]], dtype=np.float32))
-    model.set_initializer(
-        "matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32)
-    )
+    model.set_initializer("matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32))
     new_model = model.transform(MoveScalarMulPastMatMul())
     inp_dict = {"top_in": np.asarray([[-1.0, 1.0]], dtype=np.float32)}
     assert ox.compare_execution(model, new_model, inp_dict)
@@ -95,9 +93,7 @@ def test_move_scalar_add_past_matmul():
     model = ModelWrapper(modelproto)
     model = model.transform(InferShapes())
     model.set_initializer("add_param", np.asarray([[3]], dtype=np.float32))
-    model.set_initializer(
-        "matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32)
-    )
+    model.set_initializer("matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32))
     new_model = model.transform(MoveScalarAddPastMatMul())
     inp_dict = {"top_in": np.asarray([[-1.0, 1.0]], dtype=np.float32)}
     assert ox.compare_execution(model, new_model, inp_dict)

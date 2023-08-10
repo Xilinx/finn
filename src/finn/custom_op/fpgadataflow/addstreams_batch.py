@@ -121,9 +121,7 @@ class AddStreams_Batch(HLSCustomOp):
             self.get_nodeattr("inputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required LabelSelect_Batch attributes do not exist."""
-            )
+            info_messages.append("""The required LabelSelect_Batch attributes do not exist.""")
 
         return info_messages
 
@@ -184,9 +182,7 @@ class AddStreams_Batch(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input0 shape doesn't match expected shape ."""
+        assert inp.shape == exp_ishape, """Input0 shape doesn't match expected shape ."""
         export_idt = self.get_input_datatype()
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
@@ -197,9 +193,7 @@ class AddStreams_Batch(HLSCustomOp):
         # exact same thing for input1
         inp = context[node.input[1]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input1 shape doesn't match expected shape ."""
+        assert inp.shape == exp_ishape, """Input1 shape doesn't match expected shape ."""
         export_idt = self.get_input_datatype()
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
@@ -268,37 +262,60 @@ class AddStreams_Batch(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"] = []
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
         npy_in = "%s/input_1.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in1);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in1_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in1 ("in1");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in1_{} ("in1_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
         node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, {}, {}, {}, {}> (in0, in1, out, 1);""".format(
+            """{}<{}, {}, {}, {}, {}> (in0_{}, in1_{}, out_{}, 1);""".format(
                 node.op_type,
                 self.get_nodeattr("PE"),
                 self.get_input_datatype().get_hls_datatype_str(),
                 self.get_input_datatype().get_hls_datatype_str(),
                 self.get_output_datatype().get_hls_datatype_str(),
                 self.get_number_output_values(),
+                self.hls_sname(),
+                self.hls_sname(),
+                self.hls_sname(),
             )
         ]
 
@@ -315,12 +332,13 @@ class AddStreams_Batch(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -331,28 +349,29 @@ class AddStreams_Batch(HLSCustomOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0, hls::stream<ap_uint<{}>> &in1,
-                hls::stream<ap_uint<{}>> &out)""".format(
+            """void {}(hls::stream<ap_uint<{}>> &in0_{}, hls::stream<ap_uint<{}>> &in1_{},
+                hls::stream<ap_uint<{}>> &out_{})""".format(
                 self.onnx_node.name,
                 self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
+                self.hls_sname(),
                 self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
+                self.hls_sname(),
                 self.get_nodeattr("PE") * self.get_output_datatype().bitwidth(),
+                self.hls_sname(),
             )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=in1 name=in1_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in1_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

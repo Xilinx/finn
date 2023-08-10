@@ -213,14 +213,10 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         ]
         if self.needs_lcm():
             lcmWidth = self.get_iowidth_lcm()
-            assert (
-                numInWords % (lcmWidth / inWidth) == 0
-            ), "Error in DWC LCM calculation"
+            assert numInWords % (lcmWidth / inWidth) == 0, "Error in DWC LCM calculation"
             numLCMToOut = numInWords // (lcmWidth / inWidth)
             self.code_gen_dict["$DEFINES$"].append("#define LCMWidth %d" % lcmWidth)
-            self.code_gen_dict["$DEFINES$"].append(
-                "#define NumLCMToOut %d" % (numLCMToOut)
-            )
+            self.code_gen_dict["$DEFINES$"].append("#define NumLCMToOut %d" % (numLCMToOut))
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -236,14 +232,23 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         if self.needs_lcm():
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
@@ -252,7 +257,9 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
                 )
             )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
@@ -263,13 +270,15 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
                 'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
                     self.get_iowidth_lcm()
                 ),
-                "%s<InWidth, LCMWidth, NumInWords>(in0, intermediate, numReps);" % (op),
-                "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out, numReps);"
-                % (op),
+                "%s<InWidth, LCMWidth, NumInWords>(in0_%s, intermediate, numReps);"
+                % (op, self.hls_sname()),
+                "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out_%s, numReps);"
+                % (op, self.hls_sname()),
             ]
         else:
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<InWidth, OutWidth, NumInWords>(in0, out, numReps);" % (op)
+                "%s<InWidth, OutWidth, NumInWords>(in0_%s, out_%s, numReps);"
+                % (op, self.hls_sname(), self.hls_sname())
             ]
 
     def dataoutstrm(self):
@@ -288,12 +297,13 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -308,24 +318,26 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         out_packed_bits = self.get_outstream_width()
         out_packed_hls_type = "ap_uint<%d>" % out_packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, in_packed_hls_type, out_packed_hls_type)
+            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            % (
+                self.onnx_node.name,
+                in_packed_hls_type,
+                self.hls_sname(),
+                out_packed_hls_type,
+                self.hls_sname(),
+            )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
         if self.needs_lcm():
-            self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS DATAFLOW disable_start_propagation"
-            )
+            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -351,9 +363,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert inp.shape == tuple(
-            exp_shape
-        ), "Input shape does not match expected shape."
+        assert inp.shape == tuple(exp_shape), "Input shape does not match expected shape."
 
         if self.get_input_datatype() == DataType["BIPOLAR"]:
             # store bipolar activations as binary
@@ -427,8 +437,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
-                % (node_name, dout_name)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
             )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
@@ -473,8 +482,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             return cmd
         else:
             raise Exception(
-                "DWC implementation style %s not supported, please use hls or vivado"
-                % impl_style
+                "DWC implementation style %s not supported, please use hls or vivado" % impl_style
             )
 
     def lut_estimation(self):

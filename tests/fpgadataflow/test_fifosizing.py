@@ -84,8 +84,7 @@ def test_fifosizing_linear(method, topology):
     with open(tmp_output_dir + "/report/rtlsim_performance.json") as f:
         sim_data = json.load(f)
     assert (
-        float(sim_data["stable_throughput[images/s]"])
-        / float(est_data["estimated_throughput_fps"])
+        float(sim_data["stable_throughput[images/s]"]) / float(est_data["estimated_throughput_fps"])
         > 0.9
     )
     # now run the same build using the generated folding and FIFO config
@@ -98,12 +97,8 @@ def test_fifosizing_linear(method, topology):
     cfg_cmp.folding_config_file = tmp_output_dir + "/final_hw_config.json"
     build.build_dataflow_cfg(tmp_output_dir_cmp + "/model.onnx", cfg_cmp)
 
-    model0 = ModelWrapper(
-        tmp_output_dir + "/intermediate_models/step_create_stitched_ip.onnx"
-    )
-    model1 = ModelWrapper(
-        tmp_output_dir_cmp + "/intermediate_models/step_create_stitched_ip.onnx"
-    )
+    model0 = ModelWrapper(tmp_output_dir + "/intermediate_models/step_create_stitched_ip.onnx")
+    model1 = ModelWrapper(tmp_output_dir_cmp + "/intermediate_models/step_create_stitched_ip.onnx")
 
     assert len(model0.graph.node) == len(model1.graph.node)
     for i in range(len(model0.graph.node)):

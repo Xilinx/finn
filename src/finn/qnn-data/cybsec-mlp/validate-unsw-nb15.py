@@ -57,9 +57,7 @@ if __name__ == "__main__":
         help='name of bitfile (i.e. "resizer.bit")',
         default="../bitfile/finn-accel.bit",
     )
-    parser.add_argument(
-        "--dataset_root", help="dataset root dir for download/reuse", default="."
-    )
+    parser.add_argument("--dataset_root", help="dataset root dir for download/reuse", default=".")
     parser.add_argument(
         "--limit_batches", help="number of batches, -1 for max", type=int, default=-1
     )
@@ -72,9 +70,7 @@ if __name__ == "__main__":
     limit_batches = args.limit_batches
 
     print("Loading dataset...")
-    (test_imgs, test_labels) = make_unsw_nb15_test_batches(
-        bsize, dataset_root, limit_batches
-    )
+    (test_imgs, test_labels) = make_unsw_nb15_test_batches(bsize, dataset_root, limit_batches)
 
     ok = 0
     nok = 0

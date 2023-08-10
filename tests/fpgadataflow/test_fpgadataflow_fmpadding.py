@@ -62,12 +62,8 @@ def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, m, i
     odim_h = idim_h + pad_h
     odim_w = idim_w + pad_w
 
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, idim_h, idim_w, num_ch]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, odim_h, odim_w, num_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim_h, idim_w, num_ch])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim_h, odim_w, num_ch])
 
     FMPadding = helper.make_node(
         optype,
@@ -155,9 +151,7 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, m, idt, mode, impl_styl
     expected_oshape = (1, odim_h, odim_w, num_ch)
     assert y_produced.shape == expected_oshape
 
-    y_expected = np.pad(
-        x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
-    )
+    y_expected = np.pad(x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant")
 
     assert (y_produced == y_expected).all()
 

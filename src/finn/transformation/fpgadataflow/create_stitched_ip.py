@@ -86,9 +86,7 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(
-        self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]
-    ):
+    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -121,17 +119,13 @@ class CreateStitchedIP(Transformation):
         # make clock and reset external, if they aren't already
         if not self.clock_reset_are_external:
             self.connect_cmds.append(
-                "make_bd_pins_external [get_bd_pins %s/%s]"
-                % (inst_name, clock_intf_name)
+                "make_bd_pins_external [get_bd_pins %s/%s]" % (inst_name, clock_intf_name)
             )
             self.connect_cmds.append("set_property name ap_clk [get_bd_ports ap_clk_0]")
             self.connect_cmds.append(
-                "make_bd_pins_external [get_bd_pins %s/%s]"
-                % (inst_name, reset_intf_name)
+                "make_bd_pins_external [get_bd_pins %s/%s]" % (inst_name, reset_intf_name)
             )
-            self.connect_cmds.append(
-                "set_property name ap_rst_n [get_bd_ports ap_rst_n_0]"
-            )
+            self.connect_cmds.append("set_property name ap_rst_n [get_bd_ports ap_rst_n_0]")
             self.clock_reset_are_external = True
             self.intf_names["clk"] = ["ap_clk"]
             self.intf_names["rst"] = ["ap_rst_n"]
@@ -172,13 +166,9 @@ class CreateStitchedIP(Transformation):
             )
             self.connect_cmds.append("assign_bd_address")
             seg_name = "%s/Data_m_axi_gmem/SEG_%s_Reg" % (inst_name, ext_if_name)
-            self.connect_cmds.append(
-                "set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name)
-            )
+            self.connect_cmds.append("set_property offset 0 [get_bd_addr_segs {%s}]" % (seg_name))
             # TODO should propagate this information from the node instead of 4G
-            self.connect_cmds.append(
-                "set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name)
-            )
+            self.connect_cmds.append("set_property range 4G [get_bd_addr_segs {%s}]" % (seg_name))
             self.intf_names["aximm"] = [(ext_if_name, aximm_intf_name[0][1])]
             self.has_aximm = True
 
@@ -215,8 +205,7 @@ class CreateStitchedIP(Transformation):
                 continue
             input_intf_name = input_intf_names[i][0]
             self.connect_cmds.append(
-                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]"
-                % (inst_name, input_intf_name)
+                "make_bd_intf_pins_external [get_bd_intf_pins %s/%s]" % (inst_name, input_intf_name)
             )
             self.connect_cmds.append(
                 "set_property name s_axis_%d [get_bd_intf_ports %s_0]"
@@ -236,12 +225,10 @@ class CreateStitchedIP(Transformation):
         for i in range(len(input_intf_names)):
             input_intf_name = input_intf_names[i]
             self.connect_cmds.append(
-                "make_bd_pins_external [get_bd_pins %s/%s]"
-                % (inst_name, input_intf_name)
+                "make_bd_pins_external [get_bd_pins %s/%s]" % (inst_name, input_intf_name)
             )
             self.connect_cmds.append(
-                "set_property name %s [get_bd_ports %s_0]"
-                % (input_intf_name, input_intf_name)
+                "set_property name %s [get_bd_ports %s_0]" % (input_intf_name, input_intf_name)
             )
 
     def insert_signature(self, checksum_count):
@@ -267,12 +254,10 @@ class CreateStitchedIP(Transformation):
         )
         # set clk and reset
         self.connect_cmds.append(
-            "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/ap_clk]"
-            % signature_name
+            "connect_bd_net [get_bd_ports ap_clk] [get_bd_pins %s/ap_clk]" % signature_name
         )
         self.connect_cmds.append(
-            "connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins %s/ap_rst_n]"
-            % signature_name
+            "connect_bd_net [get_bd_ports ap_rst_n] [get_bd_pins %s/ap_rst_n]" % signature_name
         )
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
@@ -290,9 +275,7 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append(
             "make_bd_intf_pins_external [get_bd_intf_pins %s/s_axi]" % signature_name
         )
-        self.connect_cmds.append(
-            "set_property name s_axilite_info [get_bd_intf_ports s_axi_0]"
-        )
+        self.connect_cmds.append("set_property name s_axilite_info [get_bd_intf_ports s_axi_0]")
         self.connect_cmds.append("assign_bd_address")
 
     def apply(self, model):
@@ -320,9 +303,7 @@ class CreateStitchedIP(Transformation):
                 )
         for node in model.graph.node:
             # ensure that all nodes are fpgadataflow, and that IPs are generated
-            assert is_fpgadataflow_node(
-                node
-            ), "All nodes must be FINN fpgadataflow nodes."
+            assert is_fpgadataflow_node(node), "All nodes must be FINN fpgadataflow nodes."
             node_inst = getCustomOp(node)
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
@@ -337,12 +318,10 @@ class CreateStitchedIP(Transformation):
                     if producer is None:
                         continue
                     j = list(producer.output).index(node.input[i])
-                    src_intf_name = getCustomOp(
-                        producer
-                    ).get_verilog_top_module_intf_names()["m_axis"][j][0]
-                    dst_intf_name = node_inst.get_verilog_top_module_intf_names()[
-                        "s_axis"
-                    ][i][0]
+                    src_intf_name = getCustomOp(producer).get_verilog_top_module_intf_names()[
+                        "m_axis"
+                    ][j][0]
+                    dst_intf_name = node_inst.get_verilog_top_module_intf_names()["s_axis"][i][0]
                     self.connect_cmds.append(
                         "connect_bd_intf_net [get_bd_intf_pins %s/%s] "
                         "[get_bd_intf_pins %s/%s]"
@@ -382,9 +361,10 @@ class CreateStitchedIP(Transformation):
         tcl = []
         # create vivado project
         tcl.append(
-            "create_project %s %s -part %s"
-            % (prjname, vivado_stitch_proj_dir, self.fpgapart)
+            "create_project %s %s -part %s" % (prjname, vivado_stitch_proj_dir, self.fpgapart)
         )
+        # no warnings on long module names
+        tcl.append("set_msg_config -id {[BD 41-1753]} -suppress")
         # add all the generated IP dirs to ip_repo_paths
         ip_dirs_str = " ".join(ip_dirs)
         tcl.append("set_property ip_repo_paths [%s] [current_project]" % ip_dirs_str)
@@ -397,8 +377,7 @@ class CreateStitchedIP(Transformation):
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
         model.set_metadata_prop("clk_ns", str(self.clk_ns))
-        tcl.append("set_property CONFIG.FREQ_HZ %f [get_bd_ports /ap_clk]" % fclk_hz)
-        tcl.append("regenerate_bd_layout")
+        tcl.append("set_property CONFIG.FREQ_HZ %d [get_bd_ports /ap_clk]" % round(fclk_hz))
         tcl.append("validate_bd_design")
         tcl.append("save_bd_design")
         # create wrapper hdl (for rtlsim later on)
@@ -416,8 +395,7 @@ class CreateStitchedIP(Transformation):
         # synthesize to DCP and export stub, DCP and constraints
         if self.vitis:
             tcl.append(
-                "set_property SYNTH_CHECKPOINT_MODE Hierarchical [ get_files %s ]"
-                % bd_filename
+                "set_property SYNTH_CHECKPOINT_MODE Hierarchical [ get_files %s ]" % bd_filename
             )
             tcl.append(
                 "set_property -name {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} "
@@ -450,6 +428,8 @@ class CreateStitchedIP(Transformation):
             )
             % (vivado_stitch_proj_dir, block_vendor, block_library, block_name)
         )
+        # Allow user to customize clock in deployment of stitched IP
+        tcl.append("set_property ipi_drc {ignore_freq_hz true} [ipx::current_core]")
         # in some cases, the IP packager seems to infer an aperture of 64K or 4G,
         # preventing address assignment of the DDR_LOW and/or DDR_HIGH segments
         # the following is a hotfix to remove this aperture during IODMA packaging
@@ -467,16 +447,9 @@ class CreateStitchedIP(Transformation):
         # if targeting Vitis, add some properties to the IP
         if self.vitis:
             # replace source code with dcp
-            tcl.append(
-                "set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv
-            )
-            tcl.append(
-                "set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv
-            )
-            tcl.append(
-                "set_property supported_families { } [ipx::find_open_core %s]"
-                % block_vlnv
-            )
+            tcl.append("set_property sdx_kernel true [ipx::find_open_core %s]" % block_vlnv)
+            tcl.append("set_property sdx_kernel_type rtl [ipx::find_open_core %s]" % block_vlnv)
+            tcl.append("set_property supported_families { } [ipx::find_open_core %s]" % block_vlnv)
             tcl.append(
                 "set_property xpm_libraries {XPM_CDC XPM_MEMORY XPM_FIFO} "
                 "[ipx::find_open_core %s]" % block_vlnv
@@ -491,32 +464,20 @@ class CreateStitchedIP(Transformation):
                 "ipx::remove_all_file "
                 "[ipx::get_file_groups xilinx_anylanguagebehavioralsimulation]"
             )
-            tcl.append(
-                "ipx::remove_all_file "
-                "[ipx::get_file_groups xilinx_anylanguagesynthesis]"
-            )
+            tcl.append("ipx::remove_all_file " "[ipx::get_file_groups xilinx_anylanguagesynthesis]")
             tcl.append(
                 "ipx::remove_file_group "
                 "xilinx_anylanguagebehavioralsimulation [ipx::current_core]"
             )
-            tcl.append(
-                "ipx::remove_file_group "
-                "xilinx_anylanguagesynthesis [ipx::current_core]"
-            )
+            tcl.append("ipx::remove_file_group " "xilinx_anylanguagesynthesis [ipx::current_core]")
             # remove sim and src folders
             tcl.append("file delete -force %s/ip/sim" % vivado_stitch_proj_dir)
             tcl.append("file delete -force %s/ip/src" % vivado_stitch_proj_dir)
             # copy and add DCP, stub, and xdc
             tcl.append("file mkdir %s/ip/dcp" % vivado_stitch_proj_dir)
             tcl.append("file mkdir %s/ip/impl" % vivado_stitch_proj_dir)
-            tcl.append(
-                "file copy -force %s.dcp %s/ip/dcp"
-                % (block_name, vivado_stitch_proj_dir)
-            )
-            tcl.append(
-                "file copy -force %s.xdc %s/ip/impl"
-                % (block_name, vivado_stitch_proj_dir)
-            )
+            tcl.append("file copy -force %s.dcp %s/ip/dcp" % (block_name, vivado_stitch_proj_dir))
+            tcl.append("file copy -force %s.xdc %s/ip/impl" % (block_name, vivado_stitch_proj_dir))
             tcl.append("ipx::add_file_group xilinx_implementation [ipx::current_core]")
             tcl.append(
                 "ipx::add_file impl/%s.xdc [ipx::get_file_groups xilinx_implementation]"
@@ -527,16 +488,12 @@ class CreateStitchedIP(Transformation):
                 "[ipx::get_files impl/%s.xdc "
                 "-of_objects [ipx::get_file_groups xilinx_implementation]]" % block_name
             )
-            tcl.append(
-                "ipx::add_file_group " "xilinx_synthesischeckpoint [ipx::current_core]"
-            )
+            tcl.append("ipx::add_file_group " "xilinx_synthesischeckpoint [ipx::current_core]")
             tcl.append(
                 "ipx::add_file dcp/%s.dcp "
                 "[ipx::get_file_groups xilinx_synthesischeckpoint]" % block_name
             )
-            tcl.append(
-                "ipx::add_file_group xilinx_simulationcheckpoint [ipx::current_core]"
-            )
+            tcl.append("ipx::add_file_group xilinx_simulationcheckpoint [ipx::current_core]")
             tcl.append(
                 "ipx::add_file dcp/%s.dcp "
                 "[ipx::get_file_groups xilinx_simulationcheckpoint]" % block_name
@@ -544,20 +501,84 @@ class CreateStitchedIP(Transformation):
         # add a rudimentary driver mdd to get correct ranges in xparameters.h later on
         example_data_dir = pk.resource_filename("finn.qnn-data", "mdd-data/")
         copytree(example_data_dir, vivado_stitch_proj_dir + "/data")
-        tcl.append("file copy -force data ip/")
-        tcl.append("ipx::add_file_group -type software_driver {} [ipx::current_core]")
+
+        #####
+        # Core Cleanup Operations
         tcl.append(
-            "set_property type mdd [ipx::add_file data/finn_design.mdd "
-            "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
-            "[ipx::current_core]]]"
+            """
+set core [ipx::current_core]
+
+# Add rudimentary driver
+file copy -force data ip/
+set file_group [ipx::add_file_group -type software_driver {} $core]
+set_property type mdd       [ipx::add_file data/finn_design.mdd $file_group]
+set_property type tclSource [ipx::add_file data/finn_design.tcl $file_group]
+
+# Remove all XCI references to subcores
+set impl_files [ipx::get_file_groups xilinx_implementation -of $core]
+foreach xci [ipx::get_files -of $impl_files {*.xci}] {
+    ipx::remove_file [get_property NAME $xci] $impl_files
+}
+
+# Construct a single flat memory map for each AXI-lite interface port
+foreach port [get_bd_intf_ports -filter {CONFIG.PROTOCOL==AXI4LITE}] {
+    set pin $port
+    set awidth ""
+    while { $awidth == "" } {
+        set pins [get_bd_intf_pins -of [get_bd_intf_nets -boundary_type lower -of $pin]]
+        set kill [lsearch $pins $pin]
+        if { $kill >= 0 } { set pins [lreplace $pins $kill $kill] }
+        if { [llength $pins] != 1 } { break }
+        set pin [lindex $pins 0]
+        set awidth [get_property CONFIG.ADDR_WIDTH $pin]
+    }
+    if { $awidth == "" } {
+       puts "CRITICAL WARNING: Unable to construct address map for $port."
+    } {
+       set range [expr 2**$awidth]
+       set range [expr $range < 4096 ? 4096 : $range]
+       puts "INFO: Building address map for $port: 0+:$range"
+       set name [get_property NAME $port]
+       set addr_block [ipx::add_address_block Reg0 [ipx::add_memory_map $name $core]]
+       set_property range $range $addr_block
+       set_property slave_memory_map_ref $name [ipx::get_bus_interfaces $name -of $core]
+    }
+}
+
+# Finalize and Save
+ipx::update_checksums $core
+ipx::save_core $core
+
+# Remove stale subcore references from component.xml
+file rename -force ip/component.xml ip/component.bak
+set ifile [open ip/component.bak r]
+set ofile [open ip/component.xml w]
+set buf [list]
+set kill 0
+while { [eof $ifile] != 1 } {
+    gets $ifile line
+    if { [string match {*<spirit:fileSet>*} $line] == 1 } {
+        foreach l $buf { puts $ofile $l }
+        set buf [list $line]
+    } elseif { [llength $buf] > 0 } {
+        lappend buf $line
+
+        if { [string match {*</spirit:fileSet>*} $line] == 1 } {
+            if { $kill == 0 } { foreach l $buf { puts $ofile $l } }
+            set buf [list]
+            set kill 0
+        } elseif { [string match {*<xilinx:subCoreRef>*} $line] == 1 } {
+            set kill 1
+        }
+    } else {
+        puts $ofile $line
+    }
+}
+close $ifile
+close $ofile
+"""
         )
-        tcl.append(
-            "set_property type tclSource [ipx::add_file data/finn_design.tcl "
-            "[ipx::get_file_groups xilinx_softwaredriver -of_objects "
-            "[ipx::current_core]]]"
-        )
-        tcl.append("ipx::update_checksums [ipx::find_open_core %s]" % block_vlnv)
-        tcl.append("ipx::save_core [ipx::find_open_core %s]" % block_vlnv)
+
         # export list of used Verilog files (for rtlsim later on)
         tcl.append(
             "set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 "

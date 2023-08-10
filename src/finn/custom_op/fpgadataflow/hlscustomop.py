@@ -169,9 +169,7 @@ class HLSCustomOp(CustomOp):
             code_gen_dir != ""
         ), """Node attribute "code_gen_dir_ipgen" is
         not set. Please run HLSSynthIP first."""
-        verilog_path = "{}/project_{}/sol1/impl/verilog/".format(
-            code_gen_dir, self.onnx_node.name
-        )
+        verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, self.onnx_node.name)
         # default impl only returns the HLS verilog codegen dir
         return [verilog_path]
 
@@ -355,9 +353,10 @@ class HLSCustomOp(CustomOp):
         assert os.path.isdir(ipgen_path), "IPGen failed: %s not found" % (ipgen_path)
         self.set_nodeattr("ipgen_path", ipgen_path)
         ip_path = ipgen_path + "/sol1/impl/ip"
-        assert os.path.isdir(
-            ip_path
-        ), "IPGen failed: %s not found. Check log under %s" % (ip_path, code_gen_dir)
+        assert os.path.isdir(ip_path), "IPGen failed: %s not found. Check log under %s" % (
+            ip_path,
+            code_gen_dir,
+        )
         self.set_nodeattr("ip_path", ip_path)
         vlnv = "xilinx.com:hls:%s:1.0" % node.name
         self.set_nodeattr("ip_vlnv", vlnv)
@@ -756,22 +755,15 @@ compilation transformations?
         instream = self.get_instream_width()
         outstream = self.get_outstream_width()
         ret = max([instream, outstream])
-        assert ret <= 32768, (
-            "AP_INT_MAX_W=%d is larger than allowed maximum of 32768" % ret
-        )
+        assert ret <= 32768, "AP_INT_MAX_W=%d is larger than allowed maximum of 32768" % ret
         return ret
 
     def derive_characteristic_fxns(self, period, override_rtlsim_dict=None):
         """Return the unconstrained characteristic functions for this node."""
         # ensure rtlsim is ready
-        assert self.get_nodeattr("rtlsim_so") != "", (
-            "rtlsim not ready for " + self.onnx_node.name
-        )
+        assert self.get_nodeattr("rtlsim_so") != "", "rtlsim not ready for " + self.onnx_node.name
         if self.get_nodeattr("io_chrc_period") > 0:
-            warnings.warn(
-                "Skipping node %s: already has FIFO characteristic"
-                % self.onnx_node.name
-            )
+            warnings.warn("Skipping node %s: already has FIFO characteristic" % self.onnx_node.name)
             return
         exp_cycles = self.get_exp_cycles()
         n_inps = np.prod(self.get_folded_input_shape()[:-1])
@@ -802,9 +794,7 @@ compilation transformations?
         # extra dicts to keep track of cycle-by-cycle transaction behavior
         # note that we restrict key names to filter out weight streams etc
         txns_in = {key: [] for (key, value) in io_dict["inputs"].items() if "in" in key}
-        txns_out = {
-            key: [] for (key, value) in io_dict["outputs"].items() if "out" in key
-        }
+        txns_out = {key: [] for (key, value) in io_dict["outputs"].items() if "out" in key}
 
         def monitor_txns(sim_obj):
             for inp in txns_in:

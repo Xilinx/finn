@@ -135,5 +135,5 @@ if __name__ == "__main__":
         file.close()
         print("Results written to nw_metrics.txt")
     else:
-        raise Exception("Exec mode has to be set to remote_pynq or throughput_test")
+        raise Exception("Exec mode has to be set to execute or throughput_test")
 """

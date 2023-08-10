@@ -85,9 +85,7 @@ class InsertFIFO(Transformation):
     The other node attributes necessary to create a FIFO node are taken from the
     node the FIFO node is inserted after: 'folded_shape' and 'dtype'"""
 
-    def __init__(
-        self, create_shallow_fifos=False, max_qsrl_depth=None, vivado_ram_style="auto"
-    ):
+    def __init__(self, create_shallow_fifos=False, max_qsrl_depth=None, vivado_ram_style="auto"):
         super().__init__()
         self.create_shallow_fifos = create_shallow_fifos
         self.max_qsrl_depth = max_qsrl_depth
@@ -151,10 +149,7 @@ class InsertFIFO(Transformation):
                             graph.value_info.append(fifo_output_tensor)
                             model.set_tensor_datatype(fifo_output_tensor.name, dtype)
 
-                            if (
-                                self.max_qsrl_depth is None
-                                or fifo_depth <= self.max_qsrl_depth
-                            ):
+                            if self.max_qsrl_depth is None or fifo_depth <= self.max_qsrl_depth:
                                 impl_style = "rtl"
                             else:
                                 impl_style = "vivado"
@@ -187,10 +182,7 @@ class InsertFIFO(Transformation):
             for graph_in_name in graph_in_names:
                 first_node = model.find_consumer(graph_in_name)
                 # insert FIFO as first node, except when first node is DMA
-                if (
-                    first_node.op_type != "StreamingFIFO"
-                    and first_node.op_type != "IODMA"
-                ):
+                if first_node.op_type != "StreamingFIFO" and first_node.op_type != "IODMA":
                     inp_ind = list(first_node.input).index(graph_in_name)
                     n_input = first_node.input[inp_ind]
                     n0 = getCustomOp(first_node)
@@ -242,10 +234,7 @@ class InsertFIFO(Transformation):
             graph_out_names = [x.name for x in model.graph.output]
             for graph_out_name in graph_out_names:
                 final_node = model.find_producer(graph_out_name)
-                if (
-                    final_node.op_type != "StreamingFIFO"
-                    and final_node.op_type != "IODMA"
-                ):
+                if final_node.op_type != "StreamingFIFO" and final_node.op_type != "IODMA":
                     assert (
                         final_node.op_type != "TLastMarker"
                     ), """Insert tlast marker should be done

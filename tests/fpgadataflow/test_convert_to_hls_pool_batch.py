@@ -48,9 +48,7 @@ from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 
 
-def make_single_maxpool_modelwrapper(
-    k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d=False
-):
+def make_single_maxpool_modelwrapper(k, stride, pad, ifm_ch, ifm_dim, ofm_dim, idt, use_1d=False):
     odt = idt
     if use_1d:
         ishape = [1, ifm_ch, 1, ifm_dim]
@@ -74,9 +72,7 @@ def make_single_maxpool_modelwrapper(
         pads=pads,
         strides=strides,
     )
-    graph = helper.make_graph(
-        nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp])
 
     model = qonnx_make_model(graph, producer_name="mp-model")
     model = ModelWrapper(model)
@@ -89,12 +85,8 @@ def make_single_maxpool_modelwrapper(
 
 
 def make_single_quantavpool_modelwrapper(k, stride, ifm_ch, ifm_dim, ofm_dim, idt, odt):
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ifm_ch, ofm_dim, ofm_dim]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ifm_ch, ofm_dim, ofm_dim])
 
     mp_node = helper.make_node(
         "QuantAvgPool2d",
@@ -108,9 +100,7 @@ def make_single_quantavpool_modelwrapper(k, stride, ifm_ch, ifm_dim, ofm_dim, id
         signed=1 if idt.signed() else 0,
         data_layout="NCHW",
     )
-    graph = helper.make_graph(
-        nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp])
 
     model = qonnx_make_model(graph, producer_name="mp-model")
     model = ModelWrapper(model)
@@ -143,9 +133,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_convert_to_hls_pool_batch(
-    idt, odt, pool_config, ifm_ch, pe, op_type, exec_mode
-):
+def test_convert_to_hls_pool_batch(idt, odt, pool_config, ifm_ch, pe, op_type, exec_mode):
     k, stride, pad, ifm_dim = pool_config
 
     if ifm_ch % pe != 0:
@@ -184,9 +172,7 @@ def test_convert_to_hls_pool_batch(
 
         if idt.signed() != odt.signed():
             pytest.skip("Skipping QuantAvgPool2d with idt.signed() != odt.signed()")
-        model = make_single_quantavpool_modelwrapper(
-            k, stride, ifm_ch, ifm_dim, ofm_dim, idt, odt
-        )
+        model = make_single_quantavpool_modelwrapper(k, stride, ifm_ch, ifm_dim, ofm_dim, idt, odt)
     else:
         assert False, "{} is not a supported op_type".format(op_type)
 
@@ -209,18 +195,14 @@ def test_convert_to_hls_pool_batch(
         if pad == 0:
             assert len(new_model.graph.node) == 4
             assert new_model.graph.node[0].op_type == "Transpose"
-            assert new_model.graph.node[1].op_type.startswith(
-                "ConvolutionInputGenerator"
-            )
+            assert new_model.graph.node[1].op_type.startswith("ConvolutionInputGenerator")
             assert new_model.graph.node[2].op_type == "Pool_Batch"
             assert new_model.graph.node[3].op_type == "Transpose"
         else:
             assert len(new_model.graph.node) == 5
             assert new_model.graph.node[0].op_type == "Transpose"
             assert new_model.graph.node[1].op_type == "FMPadding_Batch"
-            assert new_model.graph.node[2].op_type.startswith(
-                "ConvolutionInputGenerator"
-            )
+            assert new_model.graph.node[2].op_type.startswith("ConvolutionInputGenerator")
             assert new_model.graph.node[3].op_type == "Pool_Batch"
             assert new_model.graph.node[4].op_type == "Transpose"
     else:
