@@ -458,6 +458,30 @@ class ScaledDotProductAttention(HLSCustomOp):
         # Find maximum of all (maximal) bit-widths
         return max([i_bits_max, o_bits_max, m_bits, a_bits, matmul_bits_max])
 
+    # Minimize the accumulator bit width
+    def minimize_accumulator_width(self, model):  # noqa: model is unused
+        # Ge the query, key, value and attention weights type
+        QType = DataType[self.get_nodeattr("QType")]  # noqa
+        KType = DataType[self.get_nodeattr("KType")]  # noqa
+        VType = DataType[self.get_nodeattr("VType")]  # noqa
+        AType = DataType[self.get_nodeattr("AType")]  # noqa
+        # Minimal and maximal possible results of query-key multiplication
+        qk_min = self.get_nodeattr("QKDim") * QType.min() * KType.min()
+        qk_max = self.get_nodeattr("QKDim") * QType.max() * KType.max()
+        # Minimal and maximal possible results of attention-value multiplication
+        av_min = self.get_nodeattr("VDim") * AType.min() * VType.min()
+        av_max = self.get_nodeattr("VDim") * AType.max() * VType.max()
+        # Update the accumulator types to fit the min-max range
+        #   TODO: Is this correct?
+        _qk_max = max(-qk_min, 1 + qk_max)
+        acc_bit_width = np.log2(_qk_max) + 1
+        acc_bit_width = int(np.ceil(acc_bit_width))
+        self.set_nodeattr("AccQKMatMul", f"UINT{acc_bit_width}")
+        _av_max = max(-av_min, 1 + av_max)
+        acc_bit_width = np.log2(_av_max) + 1
+        acc_bit_width = int(np.ceil(acc_bit_width))
+        self.set_nodeattr("AccAVMatMul", f"UINT{acc_bit_width}")
+
     # Gets the number of expected output values, i.e. how many times read()
     # could/should be called on the output stream of this operator
     def get_number_output_values(self):
@@ -545,12 +569,12 @@ class ScaledDotProductAttention(HLSCustomOp):
             f"    VType,",
             f"    MType,",
             f"    AType,",
-            f"    OType,",
+            f"    OType,",  # Note: OType and last MatMul out must match
             f"    AccQKMatMul,",
             f"    OutQKMatMul,",
             f"    ActQKMatMul,",
             f"    AccAVMatMul,",
-            f"    OutAVMatMul,",
+            f"    OType,",  # Note: OType and last MatMul out must match
             f"    ActAVMatMul,",
             f"    ActASoftmax",
             f">;",
