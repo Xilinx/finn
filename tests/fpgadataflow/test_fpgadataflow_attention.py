@@ -342,8 +342,6 @@ def test_attention_cppsim(
 
     # Create a QONNX model wrapper for testing
     model = attention.make_modelwrapper()
-    # Save the ONNX graph for debugging
-    model.save("attention-test.onnx")
     # Sample some random inputs
     q, k, v = attention.make_rand_input()
     # Prepare execution context
@@ -365,6 +363,8 @@ def test_attention_cppsim(
     # Log outputs for debugging
     print(f"{o_expected}\n", file=open('o_expected.txt', 'w'))
     print(f"{o_produced}\n", file=open('o_produced.txt', 'w'))
+    # Save the ONNX model graph for debugging
+    model.save("attention-cppsim.onnx")
 
     # Test whether the expectation and the onnx model output match
     assert np.allclose(o_produced, o_expected), "cppsim exec failed"

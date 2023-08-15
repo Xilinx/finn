@@ -662,13 +662,7 @@ class ScaledDotProductAttention(HLSCustomOp):
             # Instantiate the attention operator and connect to the streams
             # Note: Assumes "Attention" to be aliased appropriate configuration
             #   in defines with.
-            "Attention attention(q, k, v);",
-            # Transfer from input to output stream
-            # TODO: Get rid of this once switching to function-call style for
-            #  the attention operator.
-            "for(std::size_t i = 0; i < QLen * EmbFold; ++i) {",
-            "    out.write(attention.out.read());",
-            "}",
+            "Attention attention; attention(q, k, v, out);",
         ]
 
     # Generates C++ code for reading the output stream and converting back to
