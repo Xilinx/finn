@@ -53,18 +53,38 @@ class MakeCDriver(Transformation):
         self.platform: str = platform
 
     def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
+        # Define location for the driver files
+        c_driver_dir = make_build_dir(prefix="c_driver_")
+        model.set_metadata_prop("c_driver_dir", c_driver_dir)
+
         # TODO: Preparing folders and files
         driver_shapes: Dict = get_driver_shapes(model)
 
+        # Writer header with shape data
         definitions_header: str = ""
         for name in driver_shapes.keys():
             # FIXME: Convert to C Arrays instead of python lists
-            definitions_header += f"#include {name.upper} {driver_shapes[name]}"
-        definitions_header += "#include EXT_WEIGHT_NUM " + str(ext_weight_dma_cnt)
+            definitions_header += f"#define {name.upper} {driver_shapes[name]}\n"
+        definitions_header += "#define EXT_WEIGHT_NUM " + str(ext_weight_dma_cnt) + "\n"
+
+        with open("finn_shape_data.h", "w+") as f:
+            f.write(definitions_header)
 
         # TODO: Generating weight files
 
         return (model, False)
+
+
+class MakeCPPDriver(Transformation):
+    def __init__(self, platform: str):
+        super().__init__()
+        self.platform: str = platform
+    
+    def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
+        raise NotImplementedError
+        return model, False 
+
+
 
 class MakePYNQDriver(Transformation):
     """Create PYNQ Python code to correctly interface the generated
