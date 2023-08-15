@@ -87,7 +87,7 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.make_driver import MakePYNQDriver, MakeCDriver
+from finn.transformation.fpgadataflow.make_driver import MakePYNQDriver, MakeCPPDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -726,10 +726,10 @@ def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-def step_make_c_driver(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
-    if DataflowOutputType.C_DRIVER in cfg.generate_outputs:
+def step_make_cpp_driver(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
+    if DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
         driver_dir = os.path.join(cfg.output_dir, "driver")
-        model = model.transform(MakeCDriver(cfg._resolve_driver_platform()))
+        model = model.transform(MakeCPPDriver(cfg._resolve_driver_platform()))
 
         # TODO: Compilation
         # TODO: Copying into driver directory
@@ -845,6 +845,7 @@ build_dataflow_step_lookup = {
     "step_create_stitched_ip": step_create_stitched_ip,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
     "step_make_pynq_driver": step_make_pynq_driver,
+    "step_make_cpp_driver": step_make_cpp_driver,
     "step_out_of_context_synthesis": step_out_of_context_synthesis,
     "step_synthesize_bitfile": step_synthesize_bitfile,
     "step_deployment_package": step_deployment_package,

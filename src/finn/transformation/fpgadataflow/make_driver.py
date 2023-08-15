@@ -38,6 +38,7 @@ from typing import Dict, List, Tuple
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
+from finn.builder.build_dataflow_config import CPPDriverTransferType
 
 import finn.util
 from finn.util.basic import make_build_dir
@@ -47,15 +48,16 @@ from finn.transformation.fpgadataflow.get_driver_shapes import get_driver_shapes
 from . import template_driver
 
 
-class MakeCDriver(Transformation):
-    def __init__(self, platform: str):
+class MakeCPPDriver(Transformation):
+    def __init__(self, platform: str, transfer_mode: CPPDriverTransferType):
         super().__init__()
         self.platform: str = platform
+        self.transfer_mode: CPPDriverTransferType = transfer_mode
 
     def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
         # Define location for the driver files
-        c_driver_dir = make_build_dir(prefix="c_driver_")
-        model.set_metadata_prop("c_driver_dir", c_driver_dir)
+        cpp_driver_dir = make_build_dir(prefix="cpp_driver_")
+        model.set_metadata_prop("cp_driver_dir", cpp_driver_dir)
 
         # TODO: Preparing folders and files
         driver_shapes: Dict = get_driver_shapes(model)
@@ -67,22 +69,15 @@ class MakeCDriver(Transformation):
             definitions_header += f"#define {name.upper} {driver_shapes[name]}\n"
         definitions_header += "#define EXT_WEIGHT_NUM " + str(ext_weight_dma_cnt) + "\n"
 
-        with open("finn_shape_data.h", "w+") as f:
+        with open("finn_shape_definitions.h", "w+") as f:
             f.write(definitions_header)
+            f.write("#define USE_STREAM_TRANSFER " + str(self.transfer_mode == CPPDriverTransferType.STREAM))
+            f.write("#define USE_MEMORY_TRANSFER " + str(self.transfer_mode == CPPDriverTransferType.MEMORY_BUFFERED))
 
         # TODO: Generating weight files
 
         return (model, False)
 
-
-class MakeCPPDriver(Transformation):
-    def __init__(self, platform: str):
-        super().__init__()
-        self.platform: str = platform
-    
-    def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
-        raise NotImplementedError
-        return model, False 
 
 
 
