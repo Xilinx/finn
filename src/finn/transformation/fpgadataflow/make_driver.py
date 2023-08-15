@@ -63,16 +63,19 @@ class MakeCPPDriver(Transformation):
         driver_shapes: Dict = get_driver_shapes(model)
 
         # Writer header with shape data
-        definitions_header: str = ""
-        for name in driver_shapes.keys():
-            # FIXME: Convert to C Arrays instead of python lists
-            definitions_header += f"#define {name.upper} {driver_shapes[name]}\n"
-        definitions_header += "#define EXT_WEIGHT_NUM " + str(ext_weight_dma_cnt) + "\n"
+        make_array = lambda lst: "{" + (", ".join(map(lambda x: f"\"{x}\"", lst))) + "};"
+
+        definitions_header: str = f"#include <string>\n#include <array>\nstd::string PLATFORM = \"{self.platform}\";\nstd::string TRANSFER_MODE = \"{self.transfer_mode.value}\";\n\n"
+        idma_len = len(driver_shapes["idma_names"])
+        odma_len = len(driver_shapes["odma_names"])
+        definitions_header += f"std::array<std::string, {idma_len}> IDMA_NAMES = " + make_array(driver_shapes["idma_names"]) + "\n"
+        definitions_header += f"std::array<std::string, {odma_len}> ODMA_NAMES = " + make_array(driver_shapes["odma_names"]) + "\n"
+        for name in ["ishape_normal", "ishape_packed", "ishape_folded", "oshape_normal", "oshape_packed", "oshape_folded"]:
+            definitions_header += "std::array<int, " + str(len(driver_shapes[name])) + "> " + name.upper() + " = " + make_array(driver_shapes[name]) + "\n"
+        definitions_header += "int EXT_WEIGHT_NUMS = " + str(ext_weight_dma_cnt) + ";\n"
 
         with open("finn_shape_definitions.h", "w+") as f:
             f.write(definitions_header)
-            f.write("#define USE_STREAM_TRANSFER " + str(self.transfer_mode == CPPDriverTransferType.STREAM))
-            f.write("#define USE_MEMORY_TRANSFER " + str(self.transfer_mode == CPPDriverTransferType.MEMORY_BUFFERED))
 
         # TODO: Generating weight files
 
