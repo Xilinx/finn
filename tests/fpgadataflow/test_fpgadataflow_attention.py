@@ -69,7 +69,7 @@ class MockScaledDotProductAttention:
     # Datatype of output elements of the Query x Key multiplication
     OutQKMatMul: IntType = DataType["UINT4"]
     # Activation function type of the Query x Key multiplication
-    ActQKMatMul: str = "PassThroughActivation<AccQKMatMul>"
+    ActQKMatMul: str = "thresholds"
 
     # Datatype of accumulator elements of the Attention x Value
     # multiplication
@@ -78,11 +78,11 @@ class MockScaledDotProductAttention:
     # multiplication
     OutAVMatMul: IntType = DataType["UINT4"]
     # Activation function type of the Attention x Value multiplication
-    ActAVMatMul: str = "PassThroughActivation<AccAVMatMul>"
+    ActAVMatMul: str = "thresholds"
 
     # Activation function type of the softmax normalization of the
     # attention weights
-    ActASoftmax: str = "PassThroughActivation<OutQKMatMul>"
+    ActASoftmax: str = "thresholds"
 
     # Initializes those parameters which depend on the initial configuration,
     # which is set by the generated __init__
@@ -191,6 +191,13 @@ class MockScaledDotProductAttention:
 
     # Creates a QONNX ModelWrapper matching the attention configuration
     def make_modelwrapper(self):
+        # Named threshold inputs
+        #   Note: Order matters...
+        thresholds = [
+            "thresholds_qk_matmul",
+            "thresholds_av_matmul",
+            "thresholds_a_softmax"
+        ]
         # Build up the node attribute dictionary
         kwargs = {
             # Refer to this operator type by its name
@@ -201,11 +208,11 @@ class MockScaledDotProductAttention:
             # Execution backend: Required attribute inherited from HLSCustomOp
             "backend": "fpgadataflow",
             # Named inputs and activation thresholds
-            # Note: Currently no mask support
-            "inputs": ["Q", "K", "V"],
+            # TODO: Currently no masking support
+            "inputs": ["Q", "K", "V", *thresholds],
             # Named model output
             "outputs": ["O"],
-            # Currently no masking support
+            # TODO: Currently no masking support
             "mask_mode": "none"
         }
 
@@ -257,14 +264,14 @@ class MockScaledDotProductAttention:
         # appropriate type
         #   TODO: Uses the actual input type to the multithreshold function as
         #    datatype. Somehow the mvau tests always use INT32, why?
-        model.set_tensor_datatype("QKThresholds", self.AccQKMatMul)
-        model.set_initializer("QKThresholds", self.qk_thresholds)
+        model.set_tensor_datatype("thresholds_qk_matmul", self.AccQKMatMul)
+        model.set_initializer("thresholds_qk_matmul", self.qk_thresholds)
 
-        model.set_tensor_datatype("AThresholds", DataType["FLOAT32"])
-        model.set_initializer("AThresholds", self.a_thresholds)
+        model.set_tensor_datatype("thresholds_a_softmax", DataType["FLOAT32"])
+        model.set_initializer("thresholds_a_softmax", self.a_thresholds)
 
-        model.set_tensor_datatype("AVThresholds", self.AccAVMatMul)
-        model.set_initializer("AVThresholds", self.av_thresholds)
+        model.set_tensor_datatype("thresholds_av_matmul", self.AccAVMatMul)
+        model.set_initializer("thresholds_av_matmul", self.av_thresholds)
 
         # Return the constructed qonnx model wrapper
         return model

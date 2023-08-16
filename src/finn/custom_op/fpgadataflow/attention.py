@@ -6,9 +6,13 @@ import warnings
 import numpy as np
 # Derive custom operators form the FINN base custom op
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
+# Convert and pack (numpy) data for C++ code generation
+from finn.util.data_packing import numpy_to_hls_code
 # QONNX/FINN datatypes
 from qonnx.core.datatype import DataType  # noqa qonnx dependency is specified
 # in setup.cfg as well as in fetch-repos.sh
+# QONNX wrapper to ONNX model graphs
+from qonnx.core.modelwrapper import ModelWrapper  # noqa
 
 
 # Scaled Dot-Product Attention Custom Operator
@@ -58,7 +62,7 @@ class ScaledDotProductAttention(HLSCustomOp):
             # Datatype of output elements of the Query x Key multiplication
             "OutQKMatMul": ("s", False, "UINT32"),
             # Activation function type of the Query x Key multiplication
-            "ActQKMatMul": ("s", False, "PassThroughActivation<AccQKMatMul>"),
+            "ActQKMatMul": ("s", False, "none", {"none", "thresholds"}),
 
             # Datatype of accumulator elements of the Attention x Value
             # multiplication
@@ -67,11 +71,17 @@ class ScaledDotProductAttention(HLSCustomOp):
             # multiplication
             "OutAVMatMul": ("s", False, "UINT32"),
             # Activation function type of the Attention x Value multiplication
-            "ActAVMatMul": ("s", False, "PassThroughActivation<AccAVMatMul>"),
+            "ActAVMatMul": ("s", False, "none", {"none", "thresholds"}),
 
+
+            # Datatype of softmax normalization before applying activation or
+            # type cast. THis is called Acc to stick to the naming scheme of the
+            # MatMul operators before.
+            #   Note: Currently this is ALWAYS floats
+            "AccASoftmax": ("s", False, "FLOAT32"),
             # Activation function type of the softmax normalization of the
             # attention weights
-            "ActASoftmax": ("s", False, "PassThroughActivation<OutQKMatMul>"),
+            "ActASoftmax": ("s", False, "none", {"none", "thresholds"}),
 
             # Mode used for providing the attention mask: There can be no mask,
             # a mask sent as the fourth input or a causal attention mask which
@@ -203,12 +213,24 @@ class ScaledDotProductAttention(HLSCustomOp):
                 """.format(mode)
             )
 
-        # Enumerate and name the node inputs. The mask is an optional fourth
-        # input. As "zip" runs over the shortest of its arguments, there will be
-        # no mask file generated if there is no fourth node input.
+        # Give names to the ordered node inputs which are always present: This
+        # serves as a translation table for mapping QONNX node index via the
+        # execution context name to this internal name for generating i/o files
+        #   TODO: Maybe configure the naming and order of inputs somewhere more
+        #    global?
+        named_inputs = ["q", "k", "v"]
+        # The mask is an optional fourth input. While "zip" runs over the
+        # shortest of its arguments, there would be no mask file generated if
+        # there is no fourth node input. However, the fourth input might be
+        # occupied by one of the thresholds instead, which is not an actual
+        # input and thus the mask ust be appended conditionally here.
+        if self.get_nodeattr("mask_mode") == "input":
+            named_inputs.append("m")
+
+        # Enumerate and name the node inputs.
         for ind, (name, context_name) in enumerate(
-            # TODO: Maybe configure the naming and order of inputs somewhere?
-                zip(["q", "k", "v", "m"], self.onnx_node.input)):
+                zip(named_inputs, self.onnx_node.input)
+        ):
             # Read the input from the execution context and reshape to match the
             # expected folding
             x = context[context_name].reshape(self.get_folded_input_shape(ind))
@@ -289,13 +311,41 @@ class ScaledDotProductAttention(HLSCustomOp):
     # Gets the datatype of input at index ind
     def get_input_datatype(self, ind=0):
         # Ordered list of names of allowed inputs
-        inputs = ["Q", "K", "V"]
+        inputs = ["QType", "KType", "VType"]
+
         # If the attention mask is provided as input, it has a type as well
         if self.get_nodeattr("mask_mode") == "input":
             # The mask type is an attribute itself
-            inputs += ["mask"]
+            inputs += ["MType"]
+
+        # TODO: All the following types are probably never requested, they are
+        #  implemented for the sake of completeness for now. If they are ever
+        #  actually required, check whether the following defaults and dummies
+        #  actually still make sense.
+
+        # If there is a thresholding activation for the first matmul, it will
+        # have a type as well
+        if self.get_nodeattr("ActQKMatMul") == "thresholds":
+            # The thresholds will always be of the accumulator type as the
+            # activation maps from AccQKMatMul to OutQKMatMul
+            inputs += ["AccQKMatMul"]
+
+        # If there is a thresholding activation for the second matmul, it will
+        # have a type as well
+        if self.get_nodeattr("ActAVMatMul") == "thresholds":
+            # The thresholds will always be of the accumulator type as the
+            # activation maps from AccAVMatMul to OutAVMatMul
+            inputs += ["AccAVMatMul"]
+
+        # If there is a thresholding activation for the softmax normalization,
+        # it will have a type as well
+        if self.get_nodeattr("ActASoftmax") == "thresholds":
+            # While there is a dummy configurable attribute describing the
+            # threshold type of the softmax, these are currently always floats
+            inputs += ["AccASoftmax"]
+
         # Look up datatype name in attributes and convert to DataType
-        return DataType[self.get_nodeattr(f"{inputs[ind]}Type")]
+        return DataType[self.get_nodeattr(f"{inputs[ind]}")]
 
     # Gets the datatype of the output (at index ind, but there is just one)
     def get_output_datatype(self, ind=0):
@@ -315,12 +365,37 @@ class ScaledDotProductAttention(HLSCustomOp):
             # Value input sequence
             (self.get_nodeattr("KVLen"), self.get_nodeattr("VDim")),
         ]
+
         # If the attention mask is provided as input, it has a shape as well
         if self.get_nodeattr("mask_mode") == "input":
             # Mask shape is inferred from query and key sequence lengths
             inputs_shapes += [
                 (self.get_nodeattr("QLen"), self.get_nodeattr("KVLen"))
             ]
+
+        # TODO: All the following shapes are probably never requested, they are
+        #  implemented for the sake of completeness for now. If they are ever
+        #  actually required, remember to insert meaningful shapes.
+
+        # If there is a thresholding activation for the first matmul, these will
+        # be the next input index after the (optional) mask
+        if self.get_nodeattr("ActQKMatMul") == "thresholds":
+            # TODO: This is just a dummy shape
+            inputs_shapes += [(0, 0)]
+
+        # If there is a thresholding activation for the second matmul, these
+        # will be the next input index after the (optional) first thresholds
+        if self.get_nodeattr("ActAVMatMul") == "thresholds":
+            # TODO: This is just a dummy shape
+            inputs_shapes += [(0, 0)]
+
+        # If there is a thresholding activation for the softmax normalization,
+        # these will be the next (and last) input index after the (optional)
+        # second thresholds
+        if self.get_nodeattr("ActASoftmax") == "thresholds":
+            # TODO: This is just a dummy shape
+            inputs_shapes += [(0, 0)]
+
         # Get the shape by indexing into the ordered list of all inputs
         return inputs_shapes[ind]
 
@@ -358,7 +433,14 @@ class ScaledDotProductAttention(HLSCustomOp):
             # corresponds to the KVLen
             return ilen, seqfold, idim // seqfold
 
-        # If this point is reached, something went wrong
+        # If this point is reached, probably something went wrong
+        # TODO: Requesting the folded shape of thresholds will reach here. Can
+        #  this actually happen? Probably it is indeed an error, there should be
+        #  no reason to ask for the shape of the thresholds, just ask for the
+        #  initializer and get its shape? Folding of the thresholds behaves
+        #  differently and would require to actually keep track of mapping
+        #  indices to optional inputs to correctly associate the folding
+        #  dimensions.
         raise Exception(f"Requested shape of invalid input index {ind}")
 
     # Gets the shape of the output at index ind (there is just one) with folding
@@ -460,7 +542,7 @@ class ScaledDotProductAttention(HLSCustomOp):
 
     # Minimize the accumulator bit width
     def minimize_accumulator_width(self, model):  # noqa: model is unused
-        # Ge the query, key, value and attention weights type
+        # Get the query, key, value and attention weights type
         QType = DataType[self.get_nodeattr("QType")]  # noqa
         KType = DataType[self.get_nodeattr("KType")]  # noqa
         VType = DataType[self.get_nodeattr("VType")]  # noqa
@@ -496,6 +578,52 @@ class ScaledDotProductAttention(HLSCustomOp):
         self.code_gen_dict["$GLOBALS$"] = ['#include "activations.hpp"']
         # Attention operator HLS code
         self.code_gen_dict["$GLOBALS$"] += ['#include "attention.hpp"']
+
+    # Generates C++ parameters file, i.e. activation function thresholds
+    def generate_params(self, model: ModelWrapper, path):
+        # The code generation directory is specified as an argument, so this
+        # will work for both RTL and C++ simulation
+        code_gen_dir = path
+
+        # Note: The attention operator itself has no weights to be generated as
+        # a parameter file
+
+        # Start all three activations defaulting to pass-through of the
+        # accumulator type.
+        #   Note: This might allow type-casts to the output types if they are
+        #   not the same as the accumulators.
+        act_qk_matmul = "PassThroughActivation<AccQKMatMul>"
+        act_av_matmul = "PassThroughActivation<AccAVMatMul>"
+        act_a_softmax = "PassThroughActivation<float>"
+
+        # Query-key matmul can have an optional activation function set to
+        # thresholding activations via node attribute
+        if self.get_nodeattr("ActQKMatMul") == "thresholds":
+            # In this case there will be a thresholds parameter initializer
+            # TODO: Is hard coding the name here ok?
+            thresholds = model.get_initializer("thresholds_qk_matmul")
+            # Number of thresholds is given as the last dimension of the
+            # threshold tensor, first dimension is covering all output elements
+            num = thresholds.shape[-1]
+            # Get the datatype of the thresholds
+            thresholds_dtype = DataType[self.get_nodeattr("AccQKMatMul")]
+            # Format the thresholds as C++ array code
+            thresholds = numpy_to_hls_code(
+                thresholds, thresholds_dtype, "_", False, True
+            )
+            # Replace default pass-through activation by thresholding activation
+            act_qk_matmul = (
+                f"ThresholdsActivation<"
+                f"    SeqFold, KVLen / SeqFold, {num}, AccQKMatMul, OutQKMatMul"
+                f">"
+            )
+            # Open a file to store the thresholds parameters as C++ code
+            with open(f"{code_gen_dir}/params.hpp", "w") as file:
+                # Start writing a type alias definitions
+                file.write("\n".join([
+                    f"using ActQKMatMul = {act_qk_matmul};",
+                    f"ActQKMatMul act_qk_matmul = {thresholds};"
+                ]))
 
     # Generates C++ code of type alias, global constant and macro definitions
     def defines(self, var):
@@ -553,9 +681,21 @@ class ScaledDotProductAttention(HLSCustomOp):
                 "OutAVMatMul"
             ),
             # Type alias definitions for the activation functions
-            f"using ActQKMatMul = {self.get_nodeattr('ActQKMatMul')};",
-            f"using ActAVMatMul = {self.get_nodeattr('ActAVMatMul')};",
-            f"using ActASoftmax = {self.get_nodeattr('ActASoftmax')};",
+            # f"using ActQKMatMul = {self.get_nodeattr('ActQKMatMul')};",
+            f"using ActQKMatMul = ThresholdsActivation<",
+            f"    SeqFold, KVLen / SeqFold, 16, AccQKMatMul, OutQKMatMul",
+            f">;",
+
+            # f"using ActAVMatMul = {self.get_nodeattr('ActAVMatMul')};",
+            f"using ActAVMatMul = ThresholdsActivation<",
+            f"    EmbFold, VDim / EmbFold, 16, AccAVMatMul, OutAVMatMul",
+            f">;",
+
+            # f"using ActASoftmax = {self.get_nodeattr('ActASoftmax')};",
+            f"using ActASoftmax = ThresholdsActivation<",
+            f"    SeqFold, KVLen / SeqFold, 16, float, AType",
+            f">;",
+
             # Type alias of the properly configured attention operator class
             f"using Attention = ScaledDotProductAttention<",
             f"    QKDim,",
@@ -662,7 +802,11 @@ class ScaledDotProductAttention(HLSCustomOp):
             # Instantiate the attention operator and connect to the streams
             # Note: Assumes "Attention" to be aliased appropriate configuration
             #   in defines with.
-            "Attention attention; attention(q, k, v, out);",
+            "Attention attention;"
+            # "{"
+            # "    act_qk_matmul, act_av_matmul, act_a_softmax"
+            # "};",
+            "attention(q, k, v, out);",
         ]
 
     # Generates C++ code for reading the output stream and converting back to
