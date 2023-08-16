@@ -48,6 +48,72 @@ from finn.transformation.fpgadataflow.get_driver_shapes import get_driver_shapes
 from . import template_driver
 
 
+def write_weights(model: ModelWrapper, driver_dir: str) -> Tuple[int, str]:
+    # Generate external weights npy files
+    weights_dir = os.path.join(driver_dir, "/runtime_weights")
+
+    os.makedirs(weights_dir)
+    idma_idx = 0
+    ext_weight_dma_cnt = 0
+
+    for node in model.graph.node:
+        assert (
+            node.op_type == "StreamingDataflowPartition"
+        ), "CreateDataflowPartition needs to be applied before driver generation"
+
+        if len(node.input) > 0:
+            producer = model.find_producer(node.input[0])
+            init_tensor = model.get_initializer(node.input[0])
+        else:
+            producer = None
+            init_tensor = None
+
+        if producer is None:  # input dma?
+            sdp_inst = getCustomOp(node)
+            idma_name = sdp_inst.get_nodeattr("instance_name")
+            df_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
+            assert df_model.graph.node[0].op_type == "IODMA"
+            iodma_node = getCustomOp(df_model.graph.node[0])
+            if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
+                init_tensor = df_model.get_initializer(iodma_node.onnx_node.input[0])
+                ext_weight_dma_cnt += 1
+                w_dtype = df_model.get_tensor_datatype(iodma_node.onnx_node.input[0])
+                init_external_tensor = to_external_tensor(init_tensor, w_dtype)
+                np.save(weights_dir + "/" + idma_name + ".npy", init_external_tensor)
+            idma_idx += 1
+    return ext_weight_dma_cnt, weights_dir
+
+
+def generate_runtime_weights(model: ModelWrapper, weights_dir: str):
+    for sdp_ind, sdp_node in enumerate(model.graph.node):
+        assert sdp_node.op_type == "StreamingDataflowPartition"
+        # get dataflow model
+        sdp_node = getCustomOp(sdp_node)
+        dataflow_model_filename = sdp_node.get_nodeattr("model")
+        dataflow_model = ModelWrapper(dataflow_model_filename)
+        rt_layer_ind = 0
+        for node in dataflow_model.graph.node:
+            if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
+                node_inst = getCustomOp(node)
+                is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
+                if is_rt_weights == 1:
+                    fcl_w = dataflow_model.get_initializer(node.input[1])
+                    w_filename = weights_dir + "/%d_%d_%s.dat" % (
+                        sdp_ind,
+                        rt_layer_ind,
+                        node.name,
+                    )
+                    node_inst.make_weight_file(fcl_w, "decoupled_runtime", w_filename)
+                    rt_layer_ind += 1
+            elif node.op_type == "StreamingDataflowPartition":
+                warnings.warn(
+                    """Nested StreamingDataflowPartition are not supported
+                """
+                )
+            else:
+                continue
+
+
 class MakeCPPDriver(Transformation):
     def __init__(self, platform: str, transfer_mode: CPPDriverTransferType):
         super().__init__()
@@ -61,6 +127,10 @@ class MakeCPPDriver(Transformation):
 
         # TODO: Preparing folders and files
         driver_shapes: Dict = get_driver_shapes(model)
+        ext_weight_dma_cnt: int
+        weights_dir: str
+        ext_weight_dma_cnt, weights_dir = write_weights(model, cpp_driver_dir)
+
 
         # Writer header with shape data
         make_array = lambda lst: "{" + (", ".join(map(lambda x: f"\"{x}\"", lst))) + "};"
@@ -74,10 +144,17 @@ class MakeCPPDriver(Transformation):
             definitions_header += "std::array<int, " + str(len(driver_shapes[name])) + "> " + name.upper() + " = " + make_array(driver_shapes[name]) + "\n"
         definitions_header += "int EXT_WEIGHT_NUMS = " + str(ext_weight_dma_cnt) + ";\n"
 
+
+        # DEBUG: 
+        print("DEFS: ")
+        print(definitions_header)
+
+
         with open("finn_shape_definitions.h", "w+") as f:
             f.write(definitions_header)
 
         # TODO: Generating weight files
+        generate_runtime_weights(model, weights_dir)
 
         return (model, False)
 
@@ -152,38 +229,10 @@ class MakePYNQDriver(Transformation):
         # TODO convert this to an analysis pass?
         driver_shapes: Dict = get_driver_shapes(model)
 
-        # generate external weights npy files
-        weights_dir = pynq_driver_dir + "/runtime_weights"
-
-        os.makedirs(weights_dir)
-        idma_idx = 0
-        ext_weight_dma_cnt = 0
-
-        for node in model.graph.node:
-            assert (
-                node.op_type == "StreamingDataflowPartition"
-            ), "CreateDataflowPartition needs to be applied before driver generation"
-
-            if len(node.input) > 0:
-                producer = model.find_producer(node.input[0])
-                init_tensor = model.get_initializer(node.input[0])
-            else:
-                producer = None
-                init_tensor = None
-
-            if producer is None:  # input dma?
-                sdp_inst = getCustomOp(node)
-                idma_name = sdp_inst.get_nodeattr("instance_name")
-                df_model = ModelWrapper(sdp_inst.get_nodeattr("model"))
-                assert df_model.graph.node[0].op_type == "IODMA"
-                iodma_node = getCustomOp(df_model.graph.node[0])
-                if iodma_node.get_nodeattr("burstMode") == "wrap":  # input weights dma?
-                    init_tensor = df_model.get_initializer(iodma_node.onnx_node.input[0])
-                    ext_weight_dma_cnt += 1
-                    w_dtype = df_model.get_tensor_datatype(iodma_node.onnx_node.input[0])
-                    init_external_tensor = to_external_tensor(init_tensor, w_dtype)
-                    np.save(weights_dir + "/" + idma_name + ".npy", init_external_tensor)
-                idma_idx += 1
+        # Write weights
+        ext_weight_dma_cnt: int
+        weights_dir: str 
+        ext_weight_dma_cnt, weights_dir = write_weights(model, pynq_driver_dir)
 
         # fill in the driver template
         driver_py = pynq_driver_dir + "/driver.py"
@@ -213,33 +262,6 @@ class MakePYNQDriver(Transformation):
         shutil.copy(validate_template, validate_py)
 
         # generate weight files for runtime-writable layers
-
-        for sdp_ind, sdp_node in enumerate(model.graph.node):
-            assert sdp_node.op_type == "StreamingDataflowPartition"
-            # get dataflow model
-            sdp_node = getCustomOp(sdp_node)
-            dataflow_model_filename = sdp_node.get_nodeattr("model")
-            dataflow_model = ModelWrapper(dataflow_model_filename)
-            rt_layer_ind = 0
-            for node in dataflow_model.graph.node:
-                if node.op_type in ["MatrixVectorActivation", "Thresholding_Batch"]:
-                    node_inst = getCustomOp(node)
-                    is_rt_weights = node_inst.get_nodeattr("runtime_writeable_weights")
-                    if is_rt_weights == 1:
-                        fcl_w = dataflow_model.get_initializer(node.input[1])
-                        w_filename = weights_dir + "/%d_%d_%s.dat" % (
-                            sdp_ind,
-                            rt_layer_ind,
-                            node.name,
-                        )
-                        node_inst.make_weight_file(fcl_w, "decoupled_runtime", w_filename)
-                        rt_layer_ind += 1
-                elif node.op_type == "StreamingDataflowPartition":
-                    warnings.warn(
-                        """Nested StreamingDataflowPartition are not supported
-                    """
-                    )
-                else:
-                    continue
+        generate_runtime_weights(model, weights_dir)
 
         return (model, False)
