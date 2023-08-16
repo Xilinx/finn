@@ -34,9 +34,11 @@ import os
 import qonnx
 import shutil
 import warnings
+from math import ceil
 from typing import Dict, List, Tuple
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
+from qonnx.core.datatype import DataType
 from qonnx.transformation.base import Transformation
 from finn.builder.build_dataflow_config import CPPDriverTransferType
 
@@ -133,15 +135,25 @@ class MakeCPPDriver(Transformation):
 
 
         # Writer header with shape data
-        make_array = lambda lst: "{" + (", ".join(map(lambda x: f"\"{x}\"", lst))) + "};"
+        make_array = lambda lst: "{" + (", ".join(map(lambda x: f"\"{x}\"", lst))) + "}"
 
-        definitions_header: str = f"#include <string>\n#include <array>\nstd::string PLATFORM = \"{self.platform}\";\nstd::string TRANSFER_MODE = \"{self.transfer_mode.value}\";\n\n"
-        idma_len = len(driver_shapes["idma_names"])
-        odma_len = len(driver_shapes["odma_names"])
-        definitions_header += f"std::array<std::string, {idma_len}> IDMA_NAMES = " + make_array(driver_shapes["idma_names"]) + "\n"
-        definitions_header += f"std::array<std::string, {odma_len}> ODMA_NAMES = " + make_array(driver_shapes["odma_names"]) + "\n"
+        definitions_header: str = f"#include <string>\n#include <vector>\nstd::string PLATFORM = \"{self.platform}\";\nstd::string TRANSFER_MODE = \"{self.transfer_mode.value}\";\n\n"
+
+        input_datatypes: List[DataType] = driver_shapes["idt"]
+        output_datatypes: List[DataType] = driver_shapes["odt"]
+
+        assert all([dt.is_integer() for dt in input_datatypes]), f"One of the datatypes for the input is not an integer! Datatypes: {input_datatypes}"
+        assert all([dt.is_integer() for dt in output_datatypes]), f"One of the datatypes for the output is not an integer! Datatypes: {output_datatypes}"
+
+        definitions_header += "std::vector<int> INPUT_BYTEWIDTH = {" + ", ".join([ceil(dt.bitwidth()/8) for dt in input_datatypes]) + "};\n"
+        definitions_header += "std::vector<int> ONPUT_BYTEWIDTH = {" + ", ".join([ceil(dt.bitwidth()/8) for dt in output_datatypes]) + "};\n"
+
+        definitions_header += f"std::vector<std::string> IDMA_NAMES = " + make_array(driver_shapes["idma_names"]) + ";\n"
+        definitions_header += f"std::vector<std::string> ODMA_NAMES = " + make_array(driver_shapes["odma_names"]) + ";\n"        
         for name in ["ishape_normal", "ishape_packed", "ishape_folded", "oshape_normal", "oshape_packed", "oshape_folded"]:
-            definitions_header += "std::array<int, " + str(len(driver_shapes[name])) + "> " + name.upper() + " = " + make_array(driver_shapes[name]) + "\n"
+            definitions_header += "std::vector<std::vector<int>> " + name.upper() + " = {\n"
+            definitions_header += ",\n".join([make_array(shape) for shape in driver_shapes[name]])
+            definitions_header += "}\n"
         definitions_header += "int EXT_WEIGHT_NUMS = " + str(ext_weight_dma_cnt) + ";\n"
 
 

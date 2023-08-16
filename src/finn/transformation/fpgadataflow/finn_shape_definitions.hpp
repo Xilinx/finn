@@ -1,16 +1,19 @@
 // PLACEHOLDER FOR TESTING
 #include <string>
-#include <array>
+#include <vector>
 
 std::string PLATFORM = "alveo";
 std::string TRANSFER_MODE = "memory_buffered";
 
-std::array<std::string, 3> IDMA_NAMES = {"a", "b", "c"};
-std::array<int, 3> ISHAPE_NORMAL = {1, 2, 3};
-std::array<int, 3> ISHAPE_FOLDED = {1, 2, 3};
-std::array<int, 3> ISHAPE_PACKED = {1, 2, 3};
+std::vector<int> INPUT_BYTEWIDTH = {1, 1, 2};
+std::vector<int> OUTPUT_BYTEWIDTH = {1, 1, 2};
 
-std::array<std::string, 3> ODMA_NAMES = {"a", "b", "c"};
-std::array<int, 3> OSHAPE_NORMAL = {1, 2, 3};
-std::array<int, 3> OSHAPE_FOLDED = {1, 2, 3};
-std::array<int, 3> OSHAPE_PACKED = {1, 2, 3};
+std::vector<std::string> IDMA_NAMES = {"a", "b", "c"};
+std::vector<std::vector<int>> ISHAPE_NORMAL = {{1,2,3}};
+std::vector<std::vector<int>> ISHAPE_FOLDED = {{1,2,3}};
+std::vector<std::vector<int>> ISHAPE_PACKED = {{1,2,3}};
+
+std::vector<std::string> ODMA_NAMES = {"a", "b", "c"};
+std::vector<std::vector<int>> OSHAPE_NORMAL = {{1,2,3}};
+std::vector<std::vector<int>> OSHAPE_FOLDED = {{1,2,3}};
+std::vector<std::vector<int>> OSHAPE_PACKED = {{1,2,3}};

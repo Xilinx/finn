@@ -7,6 +7,7 @@ from finn.util.data_packing import (
     pack_innermost_dim_as_hex_string,
 )
 from typing import Dict
+import numpy as np
 
 
 # TODO: License?
