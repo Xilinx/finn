@@ -121,6 +121,7 @@ from finn.util.basic import (
     get_rtlsim_trace_depth,
     pyverilate_get_liveness_threshold_cycles,
 )
+from finn.builder.build_dataflow_config import CPPDriverTransferType
 from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import execute_parent
 
@@ -729,7 +730,11 @@ def step_make_pynq_driver(model: ModelWrapper, cfg: DataflowBuildConfig):
 def step_make_cpp_driver(model: ModelWrapper, cfg: DataflowBuildConfig) -> ModelWrapper:
     if DataflowOutputType.CPP_DRIVER in cfg.generate_outputs:
         driver_dir = os.path.join(cfg.output_dir, "driver")
-        model = model.transform(MakeCPPDriver(cfg._resolve_driver_platform()))
+
+        # TODO: REMOVE DEBUG
+        cfg.cpp_driver_transfer_type = CPPDriverTransferType.MEMORY_BUFFERED
+
+        model = model.transform(MakeCPPDriver(cfg._resolve_driver_platform()), cfg.cpp_driver_transfer_type)
 
         # TODO: Compilation
         # TODO: Copying into driver directory
