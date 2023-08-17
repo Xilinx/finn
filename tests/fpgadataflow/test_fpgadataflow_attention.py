@@ -6,8 +6,6 @@ from dataclasses import dataclass
 
 # Use numpy for python execution / computing the ground truth expected values
 import numpy as np
-# Numpy compatible implementation of the softmax operation
-from scipy.special import softmax
 
 # Utility types and function for creating onnx nodes and graphs
 from onnx import TensorProto, helper
@@ -31,6 +29,25 @@ from qonnx.custom_op.general.multithreshold import multithreshold  # noqa
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+
+
+# Softmax function on numpy arrays with overflow handling matching the HLS
+# operator
+def softmax(x, axis):
+    # For overflow handling, find the maximum value along axis and place ones at
+    # each occurrence
+    max_ones = (x == np.max(x, axis=axis, keepdims=True)).astype(np.float32)
+    # Count the occurrences of the maximum along the normalization axis
+    max_counts = np.sum(max_ones, axis=axis, keepdims=True)
+    # Exponential of the input
+    exp = np.exp(x)
+    # Compute the total along axis
+    total = np.sum(exp, axis=1, keepdims=True)
+    # Detect overflow of the summation
+    overflow = np.isinf(total)
+    # Replace overflows by equal weight given to all instances of the maximum
+    # input value. For non overflow just compute normal softmax
+    return np.where(overflow, max_ones / max_counts, exp / total)
 
 
 # Python/Numpy model of the scaled dot-product attention operator as it is (will
@@ -166,9 +183,12 @@ class MockScaledDotProductAttention:
     # Computes the softmax normalization of attention weights with activation
     # function simulating quantization via thresholding
     def softmax(self, attention):
-        # TODO: Correctly model OUR softmax implementation, especially its
-        #  overflow handling
-        return multithreshold(softmax(attention, axis=1), self.a_thresholds)
+        # Input and output scale factors for float <-> int conversion
+        iscale = 1.0 / (self.OutQKMatMul.get_num_possible_values() - 1)
+        # Scale the inputs, normalize using softmax and activate via thresholds
+        return multithreshold(
+            softmax(iscale * attention, axis=1), self.a_thresholds
+        )
 
     # Computes the attention-value matmul with activation function simulating
     # quantization via thresholding
