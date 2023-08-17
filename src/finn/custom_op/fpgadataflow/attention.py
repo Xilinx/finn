@@ -4,6 +4,7 @@ import os
 import warnings
 # Numpy math and arrays
 import numpy as np
+
 # Derive custom operators form the FINN base custom op
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 # Convert and pack (numpy) data for C++ code generation
@@ -13,6 +14,8 @@ from qonnx.core.datatype import DataType  # noqa qonnx dependency is specified
 # in setup.cfg as well as in fetch-repos.sh
 # QONNX wrapper to ONNX model graphs
 from qonnx.core.modelwrapper import ModelWrapper  # noqa
+# Partitions tensor into folded/pe groups
+from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions  # noqa
 
 
 # Scaled Dot-Product Attention Custom Operator
@@ -579,6 +582,46 @@ class ScaledDotProductAttention(HLSCustomOp):
         # Attention operator HLS code
         self.code_gen_dict["$GLOBALS$"] += ['#include "attention.hpp"']
 
+    # Converts names of optional inputs to the node input index and from there
+    # to the ONNX node input name if the input is present.
+    #   Note: This mapping is required as the ONNX graph/node may provide
+    #   different names (in particular automatically generated unique names) and
+    #   some of these are optional inputs.
+    def get_input_name_by_name(self, name):
+        # Ordered names of the (optional) threshold inputs
+        thresholds = [
+            "thresholds_qk_matmul",
+            "thresholds_av_matmul",
+            "thresholds_a_softmax"
+        ]
+
+        # Ordered names of primary query, key, value inputs and optional mask
+        # and threshold inputs.
+        inputs = ["Q", "K", "V", "M", *thresholds]
+
+        # Specify for each input whether it is present or not
+        inputs_present = [
+            # Note: Primary inputs are always present, the mask is present in
+            # input mask mode
+            True, True, True, self.get_nodeattr("mask_mode") == "input",
+        ]
+
+        # Thresholds are present if the activation function is set to
+        # thresholds
+        inputs_present.extend([
+            self.get_nodeattr("ActQKMatMul") == "thresholds",
+            self.get_nodeattr("ActAVMatMul") == "thresholds",
+            self.get_nodeattr("ActASoftmax") == "thresholds"
+        ])
+
+        # Filter the ordered list of input names for those which are actually
+        # present
+        inputs = [x for x, present in zip(inputs, inputs_present) if present]
+
+        # Find the position of the requested input name and look up the
+        # corresponding input name of the ONNX node
+        return self.onnx_node.input[inputs.index(name)]
+
     # Generates C++ parameters file, i.e. activation function thresholds
     def generate_params(self, model: ModelWrapper, path):
         # The code generation directory is specified as an argument, so this
@@ -596,34 +639,123 @@ class ScaledDotProductAttention(HLSCustomOp):
         act_av_matmul = "PassThroughActivation<AccAVMatMul>"
         act_a_softmax = "PassThroughActivation<float>"
 
+        # Start all thresholds defaulting to empty default initializer braces
+        thresholds_qk_matmul = "{}"
+        thresholds_av_matmul = "{}"
+        thresholds_a_softmax = "{}"
+
+        # Prepares a threshold tensor as C++ string for code generation
+        def prepare_thresholds(ts, length, fold, dtype):
+            # Number of thresholds is given as the last dimension of the
+            # threshold tensor, first dimension is covering all output elements
+            num = ts.shape[-1]  # noqa
+            # Partition the thresholds along the length into folds of parallel
+            # elements
+            ts = interleave_matrix_outer_dim_from_partitions(ts, length // fold)
+            # Reshape folded thresholds adding an outer dimension
+            # TODO: Why? MVAU does this, just copied the behavior. This is
+            #  probably to generate the outer C++ initializer braces {} for
+            #  object construction. Isn't it weird to rely on an artificial
+            #  dimension just to have the code generator produce the correct
+            #  string?
+            ts = ts.reshape(1, length // fold, fold, num)
+            # Format the thresholds as C++ array code
+            # Note: no packing, no variable name/type declaration
+            return numpy_to_hls_code(ts, dtype, "_", False, True), num
+
+        # Get shape and folding configuration. None of the activations fold
+        # along the query-key embedding dimension or the query sequence length
+        (_, _, vdim, kvlen), (embfold, seqfold) = self.shapes, self.folds
+
         # Query-key matmul can have an optional activation function set to
         # thresholding activations via node attribute
         if self.get_nodeattr("ActQKMatMul") == "thresholds":
             # In this case there will be a thresholds parameter initializer
-            # TODO: Is hard coding the name here ok?
-            thresholds = model.get_initializer("thresholds_qk_matmul")
-            # Number of thresholds is given as the last dimension of the
-            # threshold tensor, first dimension is covering all output elements
-            num = thresholds.shape[-1]
+            thresholds = model.get_initializer(
+                self.get_input_name_by_name("thresholds_qk_matmul")
+            )
             # Get the datatype of the thresholds
             thresholds_dtype = DataType[self.get_nodeattr("AccQKMatMul")]
-            # Format the thresholds as C++ array code
-            thresholds = numpy_to_hls_code(
-                thresholds, thresholds_dtype, "_", False, True
+            # Format the thresholds as C++ array code: QK matmul outputs fold
+            # along the key-value sequence length dimension
+            thresholds_qk_matmul, num = prepare_thresholds(
+                thresholds, kvlen, seqfold, thresholds_dtype
             )
             # Replace default pass-through activation by thresholding activation
-            act_qk_matmul = (
-                f"ThresholdsActivation<"
-                f"    SeqFold, KVLen / SeqFold, {num}, AccQKMatMul, OutQKMatMul"
+            #   Note: Relies on type and shape definitions generated by the
+            #   "defines" method
+            act_qk_matmul = "\n".join([
+                f"ThresholdsActivation<",
+                f"    SeqFold, KVLen/SeqFold, {num}, AccQKMatMul, OutQKMatMul",
                 f">"
+            ])
+
+        # Attention-value matmul can have an optional activation function set to
+        # thresholding activations via node attribute
+        if self.get_nodeattr("ActAVMatMul") == "thresholds":
+            # In this case there will be a thresholds parameter initializer
+            thresholds = model.get_initializer(
+                self.get_input_name_by_name("thresholds_av_matmul")
             )
-            # Open a file to store the thresholds parameters as C++ code
-            with open(f"{code_gen_dir}/params.hpp", "w") as file:
-                # Start writing a type alias definitions
-                file.write("\n".join([
-                    f"using ActQKMatMul = {act_qk_matmul};",
-                    f"ActQKMatMul act_qk_matmul = {thresholds};"
-                ]))
+            # Get the datatype of the thresholds
+            thresholds_dtype = DataType[self.get_nodeattr("AccAVMatMul")]
+            # Format the thresholds as C++ array code: AV matmul outputs fold
+            # along the value embedding dimension
+            thresholds_av_matmul, num = prepare_thresholds(
+                thresholds, vdim, embfold, thresholds_dtype
+            )
+            # Replace default pass-through activation by thresholding activation
+            #   Note: Relies on type and shape definitions generated by the
+            #   "defines" method
+            act_av_matmul = "\n".join([
+                f"ThresholdsActivation<",
+                f"    EmbFold, VDim/EmbFold, {num}, AccAVMatMul, OutAVMatMul",
+                f">"
+            ])
+
+        # Softmax can have an optional activation function set to thresholding
+        # activations via node attribute
+        if self.get_nodeattr("ActASoftmax") == "thresholds":
+            # In this case there will be a thresholds parameter initializer
+            thresholds = model.get_initializer(
+                self.get_input_name_by_name("thresholds_a_softmax")
+            )
+            # Get the datatype of the thresholds
+            thresholds_dtype = DataType[self.get_nodeattr("AccASoftmax")]
+            # Format the thresholds as C++ array code: Softmax outputs fold
+            # along the key-value sequence length dimension
+            thresholds_a_softmax, num = prepare_thresholds(
+                thresholds, kvlen, seqfold, thresholds_dtype
+            )
+            # Replace default pass-through activation by thresholding activation
+            #   Note: Relies on type and shape definitions generated by the
+            #   "defines" method
+            act_a_softmax = "\n".join([
+                f"ThresholdsActivation<",
+                f"    SeqFold, KVLen/SeqFold, {num}, AccASoftmax, AType",
+                f">"
+            ])
+
+        # Open a file to store the thresholds parameters as C++ code
+        with open(f"{code_gen_dir}/params.hpp", "w") as file:
+            # Write lines of C++ code separated by newlines to the file
+            file.write("\n".join([
+                # Add type definition and threshold initialization of the
+                # query-key matmul activation
+                f"using ActQKMatMul = {act_qk_matmul};",
+                f"ActQKMatMul act_qk_matmul = {thresholds_qk_matmul};",
+                # Add type definition and threshold initialization of the
+                # attention-value matmul activation
+                f"using ActAVMatMul = {act_av_matmul};",
+                f"ActAVMatMul act_av_matmul = {thresholds_av_matmul};",
+                # Add type definition and threshold initialization of the
+                # softmax activation
+                f"using ActASoftmax = {act_a_softmax};",
+                f"ActASoftmax act_a_softmax = {thresholds_a_softmax};",
+                # Append a newline at the end of the file (to avoid problems
+                # when including, required by C standard?)
+                "\n"
+            ]))
 
     # Generates C++ code of type alias, global constant and macro definitions
     def defines(self, var):
@@ -678,24 +810,13 @@ class ScaledDotProductAttention(HLSCustomOp):
                 "AccQKMatMul",
                 "OutQKMatMul",
                 "AccAVMatMul",
-                "OutAVMatMul"
+                "OutAVMatMul",
+                "AccASoftmax"
             ),
-            # Type alias definitions for the activation functions
-            # f"using ActQKMatMul = {self.get_nodeattr('ActQKMatMul')};",
-            f"using ActQKMatMul = ThresholdsActivation<",
-            f"    SeqFold, KVLen / SeqFold, 16, AccQKMatMul, OutQKMatMul",
-            f">;",
-
-            # f"using ActAVMatMul = {self.get_nodeattr('ActAVMatMul')};",
-            f"using ActAVMatMul = ThresholdsActivation<",
-            f"    EmbFold, VDim / EmbFold, 16, AccAVMatMul, OutAVMatMul",
-            f">;",
-
-            # f"using ActASoftmax = {self.get_nodeattr('ActASoftmax')};",
-            f"using ActASoftmax = ThresholdsActivation<",
-            f"    SeqFold, KVLen / SeqFold, 16, float, AType",
-            f">;",
-
+            # Include the activation function type definitions and parameters
+            #   Note: The typedefs in this header require the typedefs above,
+            #   thus adding this to the global includes is not possible.
+            f'#include "params.hpp"',
             # Type alias of the properly configured attention operator class
             f"using Attention = ScaledDotProductAttention<",
             f"    QKDim,",
