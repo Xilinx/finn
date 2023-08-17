@@ -920,13 +920,14 @@ class ScaledDotProductAttention(HLSCustomOp):
     def docompute(self):
         # Write the body of the attention top-level function
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            # Instantiate the attention operator and connect to the streams
+            # Instantiate the attention operator and connect to the generated
+            # threshold parameters
             # Note: Assumes "Attention" to be aliased appropriate configuration
             #   in defines with.
-            "Attention attention;"
-            # "{"
-            # "    act_qk_matmul, act_av_matmul, act_a_softmax"
-            # "};",
+            "Attention attention {",
+            "    act_qk_matmul, act_av_matmul, act_a_softmax",
+            "};",
+            # Connect the attention operator to the input and output streams
             "attention(q, k, v, out);",
         ]
 
