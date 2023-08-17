@@ -34,6 +34,8 @@ import os
 import qonnx
 import shutil
 import warnings
+import subprocess
+from shutil import which
 from math import ceil
 from typing import Dict, List, Tuple
 from qonnx.core.modelwrapper import ModelWrapper
@@ -137,7 +139,7 @@ class MakeCPPDriver(Transformation):
         # Writer header with shape data
         make_array = lambda lst: "{" + (", ".join(map(lambda x: f"\"{x}\"", lst))) + "}"
 
-        definitions_header: str = f"#include <string>\n#include <vector>\nstd::string PLATFORM = \"{self.platform}\";\nstd::string TRANSFER_MODE = \"{self.transfer_mode.value}\";\n\n"
+        definitions_header: str = f"#include <string>\n#include <vector>\nstd::string platform = \"{self.platform}\";\nstd::string transferMode = \"{self.transfer_mode.value}\";\n\n"
 
         input_datatypes: List[DataType] = driver_shapes["idt"]
         output_datatypes: List[DataType] = driver_shapes["odt"]
@@ -161,9 +163,17 @@ class MakeCPPDriver(Transformation):
         print("DEFS: ")
         print(definitions_header)
 
-
-        with open("finn_shape_definitions.h", "w+") as f:
+        # TODO(bwintermann): Move compilation somewhere else / Include header file from relative path from cpp submodule?
+        with open(os.path.join("finn-cpp-driver", "src", "template_driver.hpp"), "w+") as f:
             f.write(definitions_header)
+
+        # Compilation
+        assert which("cmake") is not None, "cmake not found! Please install it or add it to path!"
+        assert which("make") is not None, "make not found! Please install it or add it to path!"
+        os.chdir(os.path.join(self.cpp_template_dir, "build"))
+        subprocess.run("cmake --build .", shell=True)
+        subprocess.run("make -j4", shell=True) 
+
 
         # TODO: Generating weight files
         generate_runtime_weights(model, weights_dir)
