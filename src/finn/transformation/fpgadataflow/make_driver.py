@@ -42,7 +42,8 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.core.datatype import DataType
 from qonnx.transformation.base import Transformation
-from finn.builder.build_dataflow_config import CPPDriverTransferType
+from finn.builder.build_dataflow_config import CPPDriverTransferType, DataflowBuildConfig, DataflowOutputType
+
 
 import finn.util
 from finn.util.basic import make_build_dir
@@ -119,10 +120,11 @@ def generate_runtime_weights(model: ModelWrapper, weights_dir: str):
 
 
 class MakeCPPDriver(Transformation):
-    def __init__(self, platform: str, transfer_mode: CPPDriverTransferType):
+    def __init__(self, platform: str, transfer_mode: CPPDriverTransferType, cpp_template_dir: str):
         super().__init__()
         self.platform: str = platform
         self.transfer_mode: CPPDriverTransferType = transfer_mode
+        self.cpp_template_dir = cpp_template_dir
 
     def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
         # Define location for the driver files
@@ -164,7 +166,7 @@ class MakeCPPDriver(Transformation):
         print(definitions_header)
 
         # TODO(bwintermann): Move compilation somewhere else / Include header file from relative path from cpp submodule?
-        with open(os.path.join("finn-cpp-driver", "src", "template_driver.hpp"), "w+") as f:
+        with open(os.path.join(self.cpp_template_dir, "src", "template_driver.hpp"), "w+") as f:
             f.write(definitions_header)
 
         # Compilation
