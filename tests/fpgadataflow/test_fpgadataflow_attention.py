@@ -364,7 +364,7 @@ def test_attention_cppsim(
         AccQKMatMul=DataType["UINT11"],
         OutQKMatMul=DataType["UINT4"],
         AccAVMatMul=DataType["UINT11"],
-        OutAVMatMul=DataType["UINT4"]
+        OutAVMatMul=OType
     )
 
     # Create a QONNX model wrapper for testing
