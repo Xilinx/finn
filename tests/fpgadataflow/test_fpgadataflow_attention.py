@@ -310,12 +310,12 @@ class MockScaledDotProductAttention:
 # Folding along the sequence dimensions
 @pytest.mark.parametrize("SeqFold", [8])
 # Datatypes of queries, keys and values, mask and output
-@pytest.mark.parametrize("QType", [DataType["UINT4"]])
-@pytest.mark.parametrize("KType", [DataType["UINT4"]])
-@pytest.mark.parametrize("VType", [DataType["UINT4"]])
-@pytest.mark.parametrize("MType", [DataType["UINT4"]])
-@pytest.mark.parametrize("AType", [DataType["UINT4"]])
-@pytest.mark.parametrize("OType", [DataType["UINT4"]])
+@pytest.mark.parametrize("QType", [DataType["UINT6"]])
+@pytest.mark.parametrize("KType", [DataType["UINT6"]])
+@pytest.mark.parametrize("VType", [DataType["UINT6"]])
+@pytest.mark.parametrize("MType", [DataType["UINT6"]])
+@pytest.mark.parametrize("AType", [DataType["UINT6"]])
+@pytest.mark.parametrize("OType", [DataType["UINT6"]])
 # Different modes to provide a mask
 @pytest.mark.parametrize("mask", ["none"])
 # This is a slow running fpgadataflow type of test which requires vivado
@@ -361,9 +361,9 @@ def test_attention_cppsim(
         AType=AType,
         OType=OType,
         # Accumulator type configuration
-        AccQKMatMul=DataType["UINT11"],
-        OutQKMatMul=DataType["UINT4"],
-        AccAVMatMul=DataType["UINT11"],
+        AccQKMatMul=DataType["UINT16"],
+        OutQKMatMul=DataType["UINT6"],
+        AccAVMatMul=DataType["UINT16"],
         OutAVMatMul=OType
     )
 
