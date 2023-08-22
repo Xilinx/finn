@@ -509,8 +509,8 @@ class ScaledDotProductAttention(HLSCustomOp):
         qk_min = self.get_nodeattr("QKDim") * QType.min() * KType.min()
         qk_max = self.get_nodeattr("QKDim") * QType.max() * KType.max()
         # Minimal and maximal possible results of attention-value multiplication
-        av_min = self.get_nodeattr("VDim") * AType.min() * VType.min()
-        av_max = self.get_nodeattr("VDim") * AType.max() * VType.max()
+        av_min = self.get_nodeattr("KVLen") * AType.min() * VType.min()
+        av_max = self.get_nodeattr("KVLen") * AType.max() * VType.max()
         # Update the accumulator types to fit the min-max range
         #   TODO: Is this correct?
         _qk_max = max(-qk_min, 1 + qk_max)

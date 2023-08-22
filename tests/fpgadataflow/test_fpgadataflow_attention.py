@@ -298,13 +298,13 @@ class MockScaledDotProductAttention:
 
 
 # Size of query and key embedding dimension
-@pytest.mark.parametrize("QKDim", [4])
+@pytest.mark.parametrize("QKDim", [4, 8, 16])
 # Size of value embedding dimension
-@pytest.mark.parametrize("VDim", [8])
+@pytest.mark.parametrize("VDim", [4, 8, 16])
 # Length of key and value sequences
-@pytest.mark.parametrize("KVLen", [24])
+@pytest.mark.parametrize("KVLen", [16, 24])
 # Length of query sequence
-@pytest.mark.parametrize("QLen", [16])
+@pytest.mark.parametrize("QLen", [16, 24])
 # Folding along the embedding dimensions
 @pytest.mark.parametrize("EmbFold", [2])
 # Folding along the sequence dimensions
@@ -361,9 +361,9 @@ def test_attention_cppsim(
         AType=AType,
         OType=OType,
         # Accumulator type configuration
-        AccQKMatMul=DataType["UINT16"],
+        AccQKMatMul=DataType["UINT18"],
         OutQKMatMul=DataType["UINT6"],
-        AccAVMatMul=DataType["UINT16"],
+        AccAVMatMul=DataType["UINT18"],
         OutAVMatMul=OType
     )
 
