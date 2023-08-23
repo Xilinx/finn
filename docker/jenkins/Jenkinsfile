@@ -96,7 +96,7 @@ pipeline {
                 stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
 
                 // Use an env variable to help collect test results later in pipeline
-                env.FPGADATAFLOW = "SUCCESS"
+                env.FPGADATAFLOW_RESULT = "SUCCESS"
               }
             }
           }
@@ -129,7 +129,7 @@ pipeline {
                 stash name: env.TEST_NAME, includes: "${env.TEST_NAME}.xml,${env.TEST_NAME}.html"
 
                 // Use an env variable to help collect test results later in pipeline
-                env.END2END = "SUCCESS"
+                env.END2END_RESULT = "SUCCESS"
               }
             }
           }
@@ -705,13 +705,13 @@ pipeline {
             dir('reports') {
               // Only unstash for stages that ran
               unstashSuccessfulStage(env.SANITY_UT, "sanity_ut")
-              unstashSuccessfulStage(env.FPGADATAFLOW, "fpgadataflow")
+              unstashSuccessfulStage(env.FPGADATAFLOW_RESULT, "fpgadataflow")
               unstashSuccessfulStage(env.BNN_BUILD_SANITY, "bnn_build_sanity")
               unstashSuccessfulStage(env.SANITY_BNN_TEST_U250, "xml_sanity_bnn_test_U250")
               unstashSuccessfulStage(env.SANITY_BNN_TEST_PYNQZ1, "xml_sanity_bnn_test_PynqZ1")
               unstashSuccessfulStage(env.SANITY_BNN_TEST_ZCU104, "xml_sanity_bnn_test_ZCU104")
               unstashSuccessfulStage(env.SANITY_BNN_TEST_KV260_SOM, "xml_sanity_bnn_test_KV260_SOM")
-              unstashSuccessfulStage(env.END2END, "end2end")
+              unstashSuccessfulStage(env.END2END_RESULT, "end2end")
               unstashSuccessfulStage(env.BNN_BUILD_U250, "bnn_build_full_U250")
               unstashSuccessfulStage(env.BNN_BUILD_PYNQZ1, "bnn_build_full_PynqZ1")
               unstashSuccessfulStage(env.BNN_BUILD_ZCU104, "bnn_build_full_ZCU104")
@@ -730,7 +730,7 @@ pipeline {
             archiveArtifacts artifacts: "reports/*.html"
 
             archiveSuccessfulStage(env.SANITY_UT, "coverage_sanity_ut")
-            archiveSuccessfulStage(env.FPGADATAFLOW, "coverage_fpgadataflow")
+            archiveSuccessfulStage(env.FPGADATAFLOW_RESULT, "coverage_fpgadataflow")
 
             // Plot what XML files were created during the test run
             junit 'reports/*.xml'
