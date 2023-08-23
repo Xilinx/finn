@@ -29,6 +29,9 @@ from qonnx.custom_op.general.multithreshold import multithreshold  # noqa
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
+from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
 
 
 # Softmax function on numpy arrays with overflow handling matching the HLS
@@ -298,7 +301,7 @@ class MockScaledDotProductAttention:
 
 
 # Size of query and key embedding dimension
-@pytest.mark.parametrize("QKDim", [4, 8, 16])
+@pytest.mark.parametrize("QKDim", [4, 8, 16])  # noqa: Duplicated code fragment
 # Size of value embedding dimension
 @pytest.mark.parametrize("VDim", [4, 8, 16])
 # Length of key and value sequences
@@ -342,9 +345,9 @@ def test_attention_cppsim(
         # Type of mask to use: either 'none', 'input', or 'causal'
         mask
 ):
-    # Attention instance simulating in python and generating a matching QONNX
-    # configuration
-    attention = MockScaledDotProductAttention(
+    # Attention instance simulating in python and generating a matching
+    # QONNX configuration
+    attention = MockScaledDotProductAttention(  # noqa: Duplicated code fragment
         # Shape configuration
         QKDim=QKDim,
         QLen=QLen,
@@ -383,13 +386,13 @@ def test_attention_cppsim(
     model = model.transform(CompileCppSim())
 
     # Compute ground-truth output in software
-    o_expected = attention(q, k, v)
+    o_expected = attention(q, k, v)  # noqa: Duplicated code fragment
     # Execute the onnx model to collect the result
     o_produced = execute_onnx(model, context)["O"]
 
     # Log outputs for debugging
-    print(f"{o_expected}\n", file=open('o_expected.txt', 'w'))
-    print(f"{o_produced}\n", file=open('o_produced.txt', 'w'))
+    print(f"{o_expected}\n", file=open('o_expected_cppsim.txt', 'w'))
+    print(f"{o_produced}\n", file=open('o_produced_cppsim.txt', 'w'))
     # Save the ONNX model graph for debugging
     model.save("attention-cppsim.onnx")
 
@@ -402,3 +405,104 @@ def test_attention_cppsim(
 # Tests rtl simulation of single scaled dot-product attention head
 def test_fpgadataflow_attention_rtlsim():
     pass
+
+
+# Size of query and key embedding dimension
+@pytest.mark.parametrize("QKDim", [4])  # noqa: Duplicated code fragment
+# Size of value embedding dimension
+@pytest.mark.parametrize("VDim", [4])
+# Length of key and value sequences
+@pytest.mark.parametrize("KVLen", [16])
+# Length of query sequence
+@pytest.mark.parametrize("QLen", [16])
+# Folding along the embedding dimensions
+@pytest.mark.parametrize("EmbFold", [2])
+# Folding along the sequence dimensions
+@pytest.mark.parametrize("SeqFold", [8])
+# Datatypes of queries, keys and values, mask and output
+@pytest.mark.parametrize("QType", [DataType["UINT8"]])
+@pytest.mark.parametrize("KType", [DataType["UINT8"]])
+@pytest.mark.parametrize("VType", [DataType["UINT8"]])
+@pytest.mark.parametrize("MType", [DataType["UINT8"]])
+@pytest.mark.parametrize("AType", [DataType["UINT8"]])
+@pytest.mark.parametrize("OType", [DataType["UINT8"]])
+# Different modes to provide a mask
+@pytest.mark.parametrize("mask", ["none"])
+# This is a slow running fpgadataflow type of test which requires vivado
+@pytest.mark.fpgadataflow
+@pytest.mark.slow
+@pytest.mark.vivado
+# Tests rtl simulation of single scaled dot-product attention head
+def test_attention_rtlsim(
+        # Shape configuration
+        QKDim,  # noqa: "Argument should be lowercase"
+        VDim,  # noqa
+        KVLen,  # noqa
+        QLen,  # noqa
+        # Folding configuration
+        EmbFold,  # noqa
+        SeqFold,  # noqa
+        # Type configuration
+        QType,  # noqa
+        KType,  # noqa
+        VType,  # noqa
+        MType,  # noqa
+        AType,  # noqa
+        OType,  # noqa
+        # Type of mask to use: either 'none', 'input', or 'causal'
+        mask
+):
+    # Attention instance simulating in python and generating a matching
+    # QONNX configuration
+    attention = MockScaledDotProductAttention(  # noqa: Duplicated code fragment
+        # Shape configuration
+        QKDim=QKDim,
+        QLen=QLen,
+        VDim=VDim,
+        KVLen=KVLen,
+        # Folding configuration
+        EmbFold=EmbFold,
+        SeqFold=SeqFold,
+        # Type configuration
+        QType=QType,
+        KType=KType,
+        VType=VType,
+        MType=MType,
+        AType=AType,
+        OType=OType,
+        # Accumulator type configuration
+        AccQKMatMul=DataType["UINT22"],
+        OutQKMatMul=DataType["UINT8"],
+        AccAVMatMul=DataType["UINT22"],
+        OutAVMatMul=OType
+    )
+
+    # Create a QONNX model wrapper for testing
+    model = attention.make_modelwrapper()
+    # Sample some random inputs
+    q, k, v = attention.make_rand_input()
+    # Prepare execution context
+    context = {
+        "Q": q, "K": k, "V": v, "mask": mask
+    }
+    # Set model execution mode to RTL simulation
+    model = model.transform(SetExecMode("rtlsim"))
+    # Generates the C++ source and compiles the RTL simulation
+    model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(PrepareIP("xczu7ev-ffvc1156-2-e", 10))
+    model = model.transform(HLSSynthIP())
+    model = model.transform(PrepareRTLSim())
+
+    # Compute ground-truth output in software
+    o_expected = attention(q, k, v)  # noqa: Duplicated code fragment
+    # Execute the onnx model to collect the result
+    o_produced = execute_onnx(model, context)["O"]
+
+    # Log outputs for debugging
+    print(f"{o_expected}\n", file=open('o_expected_rtlsim.txt', 'w'))
+    print(f"{o_produced}\n", file=open('o_produced_rtlsim.txt', 'w'))
+    # Save the ONNX model graph for debugging
+    model.save("attention-rtlsim.onnx")
+
+    # Test whether the expectation and the onnx model output match
+    assert np.allclose(o_produced, o_expected), "rtlsim exec failed"
