@@ -36,6 +36,12 @@ class InferPixelPaddingDeconv(Transformation):
                 stride_h = get_by_name(n.attribute, "strides").ints[0]
                 stride_w = get_by_name(n.attribute, "strides").ints[1]
                 group = get_by_name(n.attribute, "group").i
+                if group != 1:
+                    warnings.warn(
+                        "%s : Only group=1 is currently supported. Can't infer PixelPaddingDeconv."
+                        % n.name
+                    )
+                    continue
                 weight_name = n.input[1]
                 W_conv = model.get_initializer(weight_name)
                 ifm_ch = model.get_tensor_shape(n.input[0])[1]  # assume NCHW
@@ -77,27 +83,6 @@ class InferPixelPaddingDeconv(Transformation):
                     assert (
                         ifm_dim_h == 1 or ifm_dim_w == 1
                     ), "Padding is assumed to be 1D, image is 2D"
-
-                    # if depthwise conv create sparse matrix and variable "dw"
-                # to store as attribute in Im2Col that indicates that the created
-                # Im2Col node belongs to a depthwise convolution
-                dw = False
-                if group == ifm_ch and ofm_ch == ifm_ch:
-                    W_sparse = np.zeros((ifm_ch, ofm_ch, k_h, k_w))  # (IFM, OFM, k_H, k_W)
-                    for ch in range(ofm_ch):
-                        W_sparse[ch][ch] = W_conv[ch][0]  # W_conv = [IFM, OFM, k_H, k_W]
-                    W_conv = W_sparse.astype(np.float32)
-                    # we need to store information of the
-                    # sparsity of the weight matrix. For this
-                    # we use the sparsity annotation of the
-                    # weight tensor
-                    sparsity = {"dw": {"kernel_shape": [k_h, k_w]}}
-                    model.set_tensor_sparsity(weight_name, sparsity)
-                    # additionally create variable "dw" to store
-                    # as attribute in Im2Col that indicates that the created
-                    # Im2Col node belongs to a depthwise convolution
-                    dw = True
-
                 # reuse ConvTranspose weights for new matmul weights
                 # conv weights are [IFM][OFM][k][k]
                 # We need to rotate the weights and make them [OFM][IFM][k][k]
@@ -196,7 +181,7 @@ class InferPixelPaddingDeconv(Transformation):
                         kernel_size=[k_h, k_w],
                         pad_amount=conv_padding,
                         input_shape="(1,{},{},{})".format(padded_odim_h, padded_odim_w, ifm_ch),
-                        depthwise=dw,
+                        depthwise=False,
                         dilations=dilation,
                     )
 
