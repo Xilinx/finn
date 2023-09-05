@@ -32,6 +32,7 @@ from qonnx.core.datatype import DataType
 from onnx import helper
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.infer_datatypes import InferDataTypes
+from qonnx.transformation.general import GiveUniqueNodeNames
 from finn.transformation.fpgadataflow.minimize_accumulator_width import MinimizeAccumulatorWidth
 
 class InferRTLMatrixVectorActivation(Transformation):
@@ -105,5 +106,6 @@ class InferRTLMatrixVectorActivation(Transformation):
             model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
+            model = model.transform(GiveUniqueNodeNames())
         
         return (model, graph_modified)
