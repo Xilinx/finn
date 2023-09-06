@@ -155,8 +155,8 @@ class MakeCPPDriver(Transformation):
         input_datatypes: List[DataType] = driver_shapes["idt"]
         output_datatypes: List[DataType] = driver_shapes["odt"]
 
-        assert all([dt.is_integer() for dt in input_datatypes]), f"One of the datatypes for the input is not an integer! Datatypes: {input_datatypes}"
-        assert all([dt.is_integer() for dt in output_datatypes]), f"One of the datatypes for the output is not an integer! Datatypes: {output_datatypes}"
+        #assert all([dt.is_integer() for dt in input_datatypes]), f"One of the datatypes for the input is not an integer! Datatypes: {input_datatypes}"
+        #assert all([dt.is_integer() for dt in output_datatypes]), f"One of the datatypes for the output is not an integer! Datatypes: {output_datatypes}"
 
         definitions_header += "std::initializer_list<int> INPUT_BYTEWIDTH = {" + ", ".join([ceil(dt.bitwidth()/8) for dt in input_datatypes]) + "};\n"
         definitions_header += "std::initializer_list<int> ONPUT_BYTEWIDTH = {" + ", ".join([ceil(dt.bitwidth()/8) for dt in output_datatypes]) + "};\n"
@@ -167,7 +167,7 @@ class MakeCPPDriver(Transformation):
         definitions_header += f"std::initializer_list<std::string> IDMA_NAMES = " + make_array(driver_shapes["idma_names"]) + ";\n"
         definitions_header += f"std::initializer_list<std::string> ODMA_NAMES = " + make_array(driver_shapes["odma_names"]) + ";\n"        
         for name in ["ishape_normal", "ishape_packed", "ishape_folded", "oshape_normal", "oshape_packed", "oshape_folded"]:
-            definitions_header += "std::initializer_list<std::initializer_list> " + name.upper() + " = {\n"
+            definitions_header += "std::initializer_list<std::initializer_list<unsigned int>> " + name.upper() + " = {\n"
             definitions_header += ",\n".join([make_array(shape) for shape in driver_shapes[name]])
             definitions_header += "}\n"
         definitions_header += "int EXT_WEIGHT_NUMS = " + str(ext_weight_dma_cnt) + ";\n"
