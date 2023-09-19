@@ -123,7 +123,7 @@ class MatrixVectorActivation(HLSCustomOp):
             # weight data from the weight FIFOs.
             "runtime_writeable_weights": ("i", False, 0, {0, 1}),
             # Flag to specify whether RTL-based or HLS-based implementation is preferred
-            "impl": ("s", False, "rtl", {"hls", "rtl"})
+            "preferred_backend": ("s", False, "rtl", {"hls", "rtl"})
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
