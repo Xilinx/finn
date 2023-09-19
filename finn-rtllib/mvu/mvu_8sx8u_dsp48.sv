@@ -4,7 +4,9 @@ module mvu_8sx8u_dsp48 #(
 	int unsigned  ACCU_WIDTH,
 	int unsigned  ACTIVATION_WIDTH,
 	int unsigned  WEIGHT_WIDTH,
-	bit FORCE_BEHAVIORAL = 0,
+
+	bit  SIGNED_ACTIVATIONS = 0,
+	bit  FORCE_BEHAVIORAL = 0,
 
 	localparam int unsigned SINGLE_PROD_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH
 )(
@@ -16,8 +18,8 @@ module mvu_8sx8u_dsp48 #(
 	// Input
 	input	logic  last,
 	input	logic  zero,	// ignore current inputs and force this partial product to zero
-	input	logic signed [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]  w,	// signed weights
-	input	logic                [SIMD-1:0][ACTIVATION_WIDTH-1:0]  a,	// unsigned activations
+	input	logic signed [PE-1:0][SIMD-1:0][WEIGHT_WIDTH    -1:0]  w,	// signed weights
+	input	logic                [SIMD-1:0][ACTIVATION_WIDTH-1:0]  a,	// unsigned activations (override by SIGNED_ACTIVATIONS)
 
 	// Ouput
 	output	logic  vld,
@@ -47,7 +49,7 @@ module mvu_8sx8u_dsp48 #(
 	assign	vld = L[5];
 
 	// Stages #1 - #3: DSP Lanes + cross-lane canaries duplicated with SIMD parallelism
-    localparam int unsigned  D[2:0] = '{ ACCU_WIDTH+SINGLE_PROD_WIDTH, SINGLE_PROD_WIDTH, 0 }; // Lane offsets
+	localparam int unsigned  D[2:0] = '{ ACCU_WIDTH+SINGLE_PROD_WIDTH, SINGLE_PROD_WIDTH, 0 }; // Lane offsets
 
 	localparam int unsigned  PIPE_COUNT = (PE+1)/2;
 	for(genvar  c = 0; c < PIPE_COUNT; c++) begin : genPipes
@@ -61,7 +63,7 @@ module mvu_8sx8u_dsp48 #(
 		for(genvar  s = 0; s < SIMD; s++) begin : genSIMD
 
 			// Input Lane Assembly
-			uwire [23:0]  bb = a[s];
+			uwire [23:0]  bb = { {(24-ACTIVATION_WIDTH){SIGNED_ACTIVATIONS && a[s][ACTIVATION_WIDTH-1]}}, a[s] };
 			logic [33:0]  aa;
 			logic [26:0]  dd;
 			logic [ 1:0]  xx;
