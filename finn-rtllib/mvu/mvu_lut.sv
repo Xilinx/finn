@@ -1,13 +1,15 @@
-module mvu_lut #(
-	int unsigned  PE,
-	int unsigned  SIMD,
+module mvu_vvu_lut #(
+    bit IS_MVU,
+    int unsigned  PE,
+    int unsigned  SIMD,
 	int unsigned  ACCU_WIDTH,
     int unsigned  ACTIVATION_WIDTH,
     int unsigned  WEIGHT_WIDTH,
     bit  SIGNED_ACTIVATIONS,
     bit  M_REG = 1,
 
-    localparam unsigned MULT_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH
+    localparam int unsigned MULT_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH,
+    localparam int unsigned ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD
 )(
 	// Global Control
 	input	logic  clk,
@@ -17,8 +19,8 @@ module mvu_lut #(
 	// Input
 	input	logic  last,
 	input	logic  zero,	// ignore current inputs and force this partial product to zero
-	input	logic signed [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]      w,	// signed weights
-	input	logic                [SIMD-1:0][ACTIVATION_WIDTH-1:0]  a,	// (un)signed activations
+	input	logic signed [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]             w,	// signed weights
+	input	logic        [ACTIVATION_ELEMENTS-1:0][ACTIVATION_WIDTH-1:0]  a,	// (un)signed activations
 
 	// Ouput
 	output	logic  vld,
@@ -63,16 +65,16 @@ module mvu_lut #(
                 always_ff @(posedge clk) begin
                     if(rst)         M[j] = '{ default : 0 };
                     else if (en)    M[j] = zero ? 0 :
-                                            SIGNED_ACTIVATIONS ? $signed(a[j]) * $signed(w[i][j]) :
-                                                                 $signed({1'b0, a[j]}) * $signed(w[i][j]); 
-                    // (SIGNED_ACTIVATIONS ? $signed(a[j]) : a[j]) * $signed(w[i][j]) isn't valid -- leads to unsigned multiplication
+                                            SIGNED_ACTIVATIONS ? $signed(a[(IS_MVU ? 0 : SIMD*i) + j]) * $signed(w[i][j]) :
+                                                                 $signed({1'b0, a[(IS_MVU ? 0 : SIMD*i) + j]}) * $signed(w[i][j]); 
+                    // (SIGNED_ACTIVATIONS ? $signed(a[(IS_MVU ? 0 : SIMD*i) + j]) : a[(IS_MVU ? 0 : SIMD*i) + j]) * $signed(w[i][j]) isn't valid -- leads to unsigned multiplication
                 end
                 assign  m1[j] = M[j];
             end : genMreg
             else begin : genNoMreg 
                 assign m1[j] = zero ? 0 :
-                               SIGNED_ACTIVATIONS ? $signed(a[j]) * $signed(w[i][j]) :
-                                                    $signed({1'b0, a[j]}) * $signed(w[i][j]);
+                               SIGNED_ACTIVATIONS ? $signed(a[(IS_MVU ? 0 : SIMD*i) + j]) * $signed(w[i][j]) :
+                                                    $signed({1'b0, a[(IS_MVU ? 0 : SIMD*i) + j]}) * $signed(w[i][j]);
             end : genNoMreg
         end : genSIMD
 
@@ -99,4 +101,4 @@ module mvu_lut #(
         assign  p[i] = P2[i];
     end : genPE
 
-endmodule : mvu_lut
+endmodule : mvu_vvu_lut
