@@ -195,8 +195,8 @@ module mvu_vvu_axi #(
 			.vld(ovld), .p(odat)
 		);
 	"mvu_vvu_lut":
-		mvu_vvu_lut #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
-		.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .M_REG(M_REG_LUT)) core (
+		mvu_vvu_lut #(.IS_MVU(IS_MVU), .PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH),
+		.WEIGHT_WIDTH(WEIGHT_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .M_REG(M_REG_LUT)) core (
 			.clk, .rst, .en,
 			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau_i),
 			.vld(ovld), .p(odat)
