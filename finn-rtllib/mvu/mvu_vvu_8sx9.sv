@@ -32,7 +32,7 @@
  *****************************************************************************/
 
 module mvu_vvu_8sx9 #(
-	parameter IS_MVU,
+	bit IS_MVU,
     int unsigned PE,
     int unsigned SIMD,
     int unsigned ACTIVATION_WIDTH,
@@ -42,7 +42,7 @@ module mvu_vvu_8sx9 #(
     int unsigned SEGMENTLEN = 0, // Default to 0 (which implies a single segment)
 	bit FORCE_BEHAVIORAL = 0,
 
-	int unsigned  ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD
+	localparam int unsigned ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD
   )
   (
     // Global Control
