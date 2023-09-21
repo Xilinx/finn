@@ -28,7 +28,7 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Verilog AXI-lite wrapper for MVU.
+ * @brief	Verilog AXI-lite wrapper for MVU & VVU.
  *****************************************************************************/
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
