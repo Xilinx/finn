@@ -69,4 +69,4 @@ $TOP_MODULE_NAME$_impl #(
 	.out_V_V_TREADY(out_V_TREADY)
 );
 
-endmodule : $TOP_MODULE_NAME$
+endmodule // $TOP_MODULE_NAME$

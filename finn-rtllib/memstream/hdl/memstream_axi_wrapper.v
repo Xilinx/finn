@@ -120,4 +120,4 @@ module memstream_axi_wrapper #(
 		.m_axis_0_tdata(m_axis_0_tdata)
 	);
 
-endmodule : memstream_axi_wrapper
+endmodule // memstream_axi_wrapper

@@ -178,4 +178,4 @@ $TOP_MODULE_NAME$_impl #(
     .cfg_last_write(cfg_last_write)
 );
 
-endmodule : $TOP_MODULE_NAME$
+endmodule // $TOP_MODULE_NAME$
