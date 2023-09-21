@@ -31,7 +31,8 @@
  * @brief	Matrix Vector Unit (MVU) core compute kernel utilizing DSP58.
  *****************************************************************************/
 
-module mvu_8sx9 #(
+module mvu_vvu_8sx9 #(
+	parameter IS_MVU,
     int unsigned PE,
     int unsigned SIMD,
     int unsigned ACTIVATION_WIDTH,
@@ -39,7 +40,9 @@ module mvu_8sx9 #(
 	int unsigned ACCU_WIDTH,
     bit SIGNED_ACTIVATIONS = 0,
     int unsigned SEGMENTLEN = 0, // Default to 0 (which implies a single segment)
-	bit FORCE_BEHAVIORAL = 0
+	bit FORCE_BEHAVIORAL = 0,
+
+	int unsigned  ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD
   )
   (
     // Global Control
@@ -51,7 +54,7 @@ module mvu_8sx9 #(
     input   logic last,
     input   logic zero, // ignore current inputs and force this partial product to zero
     input   logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] w, // weights
-	input   logic [SIMD-1:0][ACTIVATION_WIDTH-1:0] a, // activations
+	input   logic [ACTIVATION_ELEMENTS-1:0][ACTIVATION_WIDTH-1:0] a, // activations
 
 	// Ouput
 	output  logic vld,
@@ -67,9 +70,10 @@ module mvu_8sx9 #(
 //-------------------- Declare global signals --------------------\\
 	localparam int unsigned CHAINLEN = (SIMD+2)/3;
 	localparam int unsigned SEGLEN = SEGMENTLEN == 0 ? CHAINLEN : SEGMENTLEN; // Additional constant to default a SEGMENTLEN of '0' to the DSP-chain length
-	uwire [26:0] a_in_i [CHAINLEN];
+	localparam int unsigned PE_ACTIVATION = IS_MVU ? 1 : PE;
+	uwire [26:0] a_in_i [PE_ACTIVATION * CHAINLEN];
 	uwire [23:0] b_in_i [PE][CHAINLEN];
-	uwire [57:0] pcout [PE][CHAINLEN];
+	uwire [PE-1:0][CHAINLEN-1:0][57:0] pcout; // Array with packed dimension > 256 (with a loop-carried dependency) cannot be handled out-of-the-box with PyVerilator
 
 //-------------------- Shift register for opmode select signal --------------------\\
 	localparam int unsigned MAX_PIPELINE_STAGES = (CHAINLEN + SEGLEN-1)/SEGLEN; // >=1 (== number of pipeline registers + 1 (A/B inputs always have 1 register))
@@ -99,48 +103,48 @@ module mvu_8sx9 #(
 
 //-------------------- Buffer for input activations --------------------\\
 	localparam int unsigned PAD_BITS_ACT = 9 - ACTIVATION_WIDTH;
+	for (genvar k=0; k<PE_ACTIVATION; k++) begin : genActPE
+		for (genvar i=0; i<CHAINLEN; i++) begin : genActSIMD
+			localparam int TOTAL_PREGS = i/SEGLEN;
+			localparam int EXTERNAL_PREGS = TOTAL_PREGS>1 ? TOTAL_PREGS-1 : 0;
+			localparam int LANES_OCCUPIED = i == CHAINLEN-1 ? SIMD - 3*i : 3;
 
-	for (genvar i=0; i<CHAINLEN; i++) begin : genActSIMD
-		localparam int TOTAL_PREGS = i/SEGLEN;
-		localparam int EXTERNAL_PREGS = TOTAL_PREGS>1 ? TOTAL_PREGS-1 : 0;
-		localparam int LANES_OCCUPIED = i == CHAINLEN-1 ? SIMD - 3*i : 3;
-
-		if (EXTERNAL_PREGS > 0) begin : genExternalPregAct
-			logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0] A = '{ default : 0};
-			always_ff @(posedge clk) begin
-				if (rst)     A <= '{default: 0};
-				else if(en) begin
-					A[EXTERNAL_PREGS-1] <= 
-// synthesis translate_off
-						zero ? '1 : 
-// synthesis translate_on						
-						a[3*i +: LANES_OCCUPIED];
-					if (EXTERNAL_PREGS > 1)   A[0:EXTERNAL_PREGS-2] <= A[1:EXTERNAL_PREGS-1];
+			if (EXTERNAL_PREGS > 0) begin : genExternalPregAct
+				logic [0:EXTERNAL_PREGS-1][LANES_OCCUPIED-1:0][ACTIVATION_WIDTH-1:0] A = '{ default : 0};
+				always_ff @(posedge clk) begin
+					if (rst)     A <= '{default: 0};
+					else if(en) begin
+						A[EXTERNAL_PREGS-1] <= 
+	// synthesis translate_off
+							zero ? '1 : 
+	// synthesis translate_on						
+							a[SIMD*k + 3*i +: LANES_OCCUPIED];
+						if (EXTERNAL_PREGS > 1)   A[0:EXTERNAL_PREGS-2] <= A[1:EXTERNAL_PREGS-1];
+					end
 				end
-			end
-			for (genvar j=0; j<LANES_OCCUPIED; j++) begin : genAin
-			assign a_in_i[i][9*j +: 9] = SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? A[0][j] : { {PAD_BITS_ACT{A[0][j][ACTIVATION_WIDTH-1]}}, A[0][j] } 
-												: PAD_BITS_ACT == 0 ? A[0][j] : { {PAD_BITS_ACT{1'b0}}, A[0][j] } ;
-			end : genAin
-			for (genvar j=LANES_OCCUPIED; j<3; j++) begin : genAinZero
-				assign a_in_i[i][9*j +: 9] = 9'b0;
-			end : genAinZero
-		end : genExternalPregAct
-		else begin : genInpDSPAct
-			for (genvar j=0; j<LANES_OCCUPIED; j++) begin : genAin
-				assign a_in_i[i][9*j +: 9] = 
-// synthesis translate_off
-					zero ? '1 : 				
-// synthesis translate_on
-					SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? a[3*i+j] : { {PAD_BITS_ACT{a[3*i+j][ACTIVATION_WIDTH-1]}}, a[3*i+j] }
-												: PAD_BITS_ACT == 0 ? a[3*i+j] : { {PAD_BITS_ACT{1'b0}}, a[3*i+j] } ;
-			end : genAin
-			for (genvar j=LANES_OCCUPIED; j<3; j++) begin : genAinZero
-				assign a_in_i[i][9*j +: 9] = 9'b0;
-			end : genAinZero
-		end : genInpDSPAct
-
-	end : genActSIMD
+				for (genvar j=0; j<LANES_OCCUPIED; j++) begin : genAin
+				assign a_in_i[CHAINLEN*k+i][9*j +: 9] = SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? A[0][j] : { {PAD_BITS_ACT{A[0][j][ACTIVATION_WIDTH-1]}}, A[0][j] } 
+													  : PAD_BITS_ACT == 0 ? A[0][j] : { {PAD_BITS_ACT{1'b0}}, A[0][j] } ;
+				end : genAin
+				for (genvar j=LANES_OCCUPIED; j<3; j++) begin : genAinZero
+					assign a_in_i[CHAINLEN*k+i][9*j +: 9] = 9'b0;
+				end : genAinZero
+			end : genExternalPregAct
+			else begin : genInpDSPAct
+				for (genvar j=0; j<LANES_OCCUPIED; j++) begin : genAin
+					assign a_in_i[CHAINLEN*k+i][9*j +: 9] = 
+	// synthesis translate_off
+						zero ? '1 : 				
+	// synthesis translate_on
+						SIGNED_ACTIVATIONS ? PAD_BITS_ACT == 0 ? a[SIMD*k+3*i+j] : { {PAD_BITS_ACT{a[SIMD*k+3*i+j][ACTIVATION_WIDTH-1]}}, a[SIMD*k+3*i+j] }
+													: PAD_BITS_ACT == 0 ? a[SIMD*k+3*i+j] : { {PAD_BITS_ACT{1'b0}}, a[SIMD*k+3*i+j] } ;
+				end : genAin
+				for (genvar j=LANES_OCCUPIED; j<3; j++) begin : genAinZero
+					assign a_in_i[CHAINLEN*k+i][9*j +: 9] = 9'b0;
+				end : genAinZero
+			end : genInpDSPAct
+		end : genActSIMD
+	end : genActPE
 
 //-------------------- Buffer for weights --------------------\\
 	localparam int unsigned PAD_BITS_WEIGHT = 8 - WEIGHT_WIDTH;
@@ -209,7 +213,7 @@ module mvu_8sx9 #(
 				always_ff @(posedge clk) begin
 					if (rst)	Areg <= '{ default : 0};
 					else if (en) begin
-						Areg[0] <= { 7'bx, a_in_i[j] };
+						Areg[0] <= { 7'bx, a_in_i[(IS_MVU ? 0 : CHAINLEN*i) + j] };
 						if (INTERNAL_PREGS == 2) Areg[1] <= Areg[0];
 					end
 				end
@@ -384,7 +388,7 @@ module mvu_8sx9 #(
 							7'b000_0000
 					}), // 9-bit input: Operation mode
 					// Data inputs: Data Ports
-					.A({ 7'bx, a_in_i[j] }),            // 34-bit input: A data
+					.A({ 7'bx, a_in_i[(IS_MVU ? 0 : CHAINLEN*i) + j] }),            // 34-bit input: A data
 					.B(b_in_i[i][j]),                   // 24-bit input: B data
 					.C('x),                             // 58-bit input: C data
 					.CARRYIN('0),                       // 1-bit input: Carry-in
@@ -420,4 +424,4 @@ module mvu_8sx9 #(
 		end : genDSPChain
 	end : genDSPPE
 
-endmodule : mvu_8sx9
+endmodule : mvu_vvu_8sx9
