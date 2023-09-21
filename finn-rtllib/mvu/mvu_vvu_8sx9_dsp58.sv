@@ -31,7 +31,7 @@
  * @brief	Matrix Vector Unit (MVU) core compute kernel utilizing DSP58.
  *****************************************************************************/
 
-module mvu_vvu_8sx9 #(
+module mvu_vvu_8sx9_dsp58 #(
 	bit IS_MVU,
     int unsigned PE,
     int unsigned SIMD,
@@ -424,4 +424,4 @@ module mvu_vvu_8sx9 #(
 		end : genDSPChain
 	end : genDSPPE
 
-endmodule : mvu_vvu_8sx9
+endmodule : mvu_vvu_8sx9_dsp58
