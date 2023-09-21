@@ -144,8 +144,8 @@ module replay_buffer #(
 		uwire  wr = irdy && ivld;
 		uwire  rd = !OVld || ordy;
 		always_ff @(posedge clk) begin
-			if(wr)  Mem[WP[AWIDTH:0]] <= idat;
-			if(rd)  ODat <= Mem[RP[AWIDTH:0]];
+			if(wr)  Mem[WP[AWIDTH-1:0]] <= idat;
+			if(rd)  ODat <= Mem[RP[AWIDTH-1:0]];
 		end
 
 		uwire  vld = (RP != WP);
