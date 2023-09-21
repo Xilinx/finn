@@ -28,19 +28,25 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
- * @brief	Matrix Vector Unit (MVU) AXI-lite interface wrapper.
+ * @brief	Matrix Vector Unit (MVU) & Vector Vector Unit (VVU) AXI-lite interface wrapper.
  * @details
+ *	 The following compute cores are supported:
+ *   - 4-bit MVU on DSP48 & DSP58 achieving 4 MACs/DSP, 
+ *     (4,8]-bit MVU on DSP48 achieving 2 MACs/DSP,
+ *     [4,9]-bit MVU and VVU on DSP58 achieving 3 MACs/DSP,
+ *     'unconstrained' LUT-based MVU and VVU.
  *  Folding hints:
- *	 - 4-bit MVU:          PE scaling should divide MH.
- *	 - 8-bit MVU - DSP48:  PE scaling should divide MH.
- *	 - 8-bit MVU - DSP58:  SIMD scaling should aim at a full multiple of 3 and divide MW.
+ *	 - PE scaling should divide MH.
+ *   - SIMD scaling should divide MW.
  *	 - Otherwise, keep SIMD and PE somewhat balanced. SIMD scaling tends to
  *	   impact critical paths more than PE scaling. PE scaling implies a
  *	   bigger fanout on the input activations.
  *	 - Full unfolding along MH (PE=MH) results in no replay buffer instantiated
  *****************************************************************************/
 
-module mvu_axi #(
+module mvu_vvu_axi #(
+	bit IS_MVU, // string type causes error in Vivado
+	parameter COMPUTE_CORE,
 	int unsigned MW,
 	int unsigned MH,
 	int unsigned PE,
@@ -51,16 +57,16 @@ module mvu_axi #(
 	bit SIGNED_ACTIVATIONS = 0,
 	int unsigned SEGMENTLEN = 0,
 	bit FORCE_BEHAVIORAL = 0,
-	parameter MVU_IMPL_STYLE, // string type causes error in Vivado
+	bit M_REG_LUT = 1,
 
+	// Safely deducible parameters
 	localparam int unsigned WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-	localparam int unsigned INPUT_STREAM_WIDTH_BA = (SIMD*ACTIVATION_WIDTH+7)/8 * 8,
+	localparam int unsigned INPUT_STREAM_WIDTH_BA = ((IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH + 7) / 8 * 8,
 	localparam int unsigned WEIGHT_STREAM_WIDTH = PE*SIMD*WEIGHT_WIDTH,
-	localparam int unsigned INPUT_STREAM_WIDTH = SIMD*ACTIVATION_WIDTH,
+	localparam int unsigned INPUT_STREAM_WIDTH =  (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
 	localparam int unsigned SF = MW/SIMD,
 	localparam int unsigned NF = MH/PE,
-	localparam int unsigned OUTPUT_LANES = PE,
-	localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (OUTPUT_LANES*ACCU_WIDTH + 7)/8 * 8
+	localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
 )
 (
 	// Global Control
@@ -93,24 +99,28 @@ module mvu_axi #(
 			$error("Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
 			$finish;
 		end
-		if (ACTIVATION_WIDTH > 9) begin
-			$error("Activation width of %0d-bits exceeds maximum of 9-bits", ACTIVATION_WIDTH);
-			$finish;
-		end
 		if (WEIGHT_WIDTH > 8) begin
 			$error("Weight width of %0d-bits exceeds maximum of 8-bits", WEIGHT_WIDTH);
 			$finish;
 		end
-		if (SIGNED_ACTIVATIONS == 0 && ACTIVATION_WIDTH==9) begin
-			$error("Activation width of %0d-bits exceeds maximum of 8-bits for unsigned numbers", ACTIVATION_WIDTH);
-			$finish;
+		if (ACTIVATION_WIDTH > 8) begin
+			if (!(SIGNED_ACTIVATIONS == 1 && ACTIVATION_WIDTH == 9 && COMPUTE_CORE == "mvu_vvu_8sx9_dsp58")) begin
+				$error("Activation width of %0d-bits exceeds maximum of 9-bits for signed numbers on DSP48", ACTIVATION_WIDTH);
+				$finish;
+			end
 		end
-		if (MVU_IMPL_STYLE == "mvu_8sx9") begin
+		if (COMPUTE_CORE == "mvu_vvu_8sx9_dsp58") begin
 			if (SEGMENTLEN == 0) begin
-				$warning("Segment length of %0d defaults to chain length", SEGMENTLEN);
+				$warning("Segment length of %0d defaults to chain length of %0d", SEGMENTLEN, (SIMD+2)/3);
 			end
 			if (SEGMENTLEN > (SIMD+2)/3) begin
 				$error("Segment length of %0d exceeds chain length of %0d", SEGMENTLEN, (SIMD+2)/3);
+				$finish;
+			end
+		end
+		if (!IS_MVU) begin
+			if (COMPUTE_CORE != "mvu_vvu_8sx9_dsp58" && COMPUTE_CORE != "mvu_vvu_lut") begin
+				$error("VVU only supported on DSP58 or LUT-based implementation");
 				$finish;
 			end
 		end
@@ -127,10 +137,10 @@ module mvu_axi #(
 	uwire avld;
 	uwire ardy;
 
-	replay_buffer #(.LEN(SF), .REP(NF), .W($bits(mvauin_t))) activation_replay (
-		.clk, .rst,
-		.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvauin_t'(s_axis_input_tdata)),
-		.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast), .ofin(afin)
+	replay_buffer #(.LEN(SF), .REP(IS_MVU ? NF : 1), .W($bits(mvauin_t))) activation_replay (
+	.clk, .rst,
+	.ivld(s_axis_input_tvalid), .irdy(s_axis_input_tready), .idat(mvauin_t'(s_axis_input_tdata)),
+	.ovld(avld), .ordy(ardy), .odat(amvau), .olast(alast), .ofin(afin)
 	);
 
 //-------------------- Input control --------------------\\
@@ -139,37 +149,60 @@ module mvu_axi #(
 	assign ardy = en && s_axis_weights_tvalid;
 	assign s_axis_weights_tready = en && avld;
 
-//-------------------- Core MVU --------------------\\
+//-------------------- Core MVU/VVU --------------------\\
 	uwire ovld;
 	uwire [PE-1:0][ACCU_WIDTH-1:0] odat;
 	typedef logic [WEIGHT_STREAM_WIDTH-1 : 0] mvauin_weight_t;
+	uwire mvauin_t amvau_i;
 
-	case(MVU_IMPL_STYLE)
-	"mvu_8sx9_dsp58":
-		mvu_8sx9 #(.PE(PE), .SIMD(SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
+	if (IS_MVU) begin : genMVUInput
+		assign  amvau_i = amvau;
+	end : genMVUInput
+	else begin : genVVUInput
+		// The input stream will have the channels interleaved for VVU when PE>1
+		// Hence, we need to 'untangle' the input stream, i.e. [..][SIMD*PE][..] --> [..][PE][SIMD][..]
+		// Note that for each 'SIMD' (S) and 'PE' (P) element, we have something like:
+		// (S_0, P_0), ..., (S_0, P_i), (S_1, P_0), ..., (S_1, P_i), ..., (S_i, P_i) which we need to 'untangle' to
+		// (S_0, P_0), ..., (S_i, P_0), (S_0, P_1), ..., (S_i,, P_1), ..., (S_i, P_i)
+		localparam int num_of_elements = INPUT_STREAM_WIDTH/ACTIVATION_WIDTH;
+		for (genvar i=0; i<num_of_elements; i++) begin : genRewire
+			assign  amvau_i[i*ACTIVATION_WIDTH +: ACTIVATION_WIDTH] = (PE > 1) ?
+									amvau[(i/SIMD + (i*PE % num_of_elements) + 1) * ACTIVATION_WIDTH : (i/SIMD + (i*PE % num_of_elements)) * ACTIVATION_WIDTH]
+									: amvau[i*ACTIVATION_WIDTH +: ACTIVATION_WIDTH];
+		end : genRewire
+	end : genVVUInput
+
+	case(COMPUTE_CORE)
+	"mvu_vvu_8sx9_dsp58":
+		mvu_vvu_8sx9 #(.IS_MVU(IS_MVU), .PE(PE), .SIMD(SIMD), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
 		.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
 		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
-			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
+			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau_i),
 			.vld(ovld), .p(odat)
 		);
-
 	"mvu_4sx4u":
 		mvu_4sx4u #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
-			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
+			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau_i),
 			.vld(ovld), .p(odat)
 		);
-
 	"mvu_8sx8u_dsp48":
 		mvu_8sx8u_dsp48 #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
 		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
-			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau),
+			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau_i),
+			.vld(ovld), .p(odat)
+		);
+	"mvu_vvu_lut":
+		mvu_vvu_lut #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
+		.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .M_REG(M_REG_LUT)) core (
+			.clk, .rst, .en,
+			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau_i),
 			.vld(ovld), .p(odat)
 		);
 	default: initial begin
-		$error("Unrecognized MVU_IMPL_STYLE '%s'", MVU_IMPL_STYLE);
+		$error("Unrecognized COMPUTE_CORE '%s'", COMPUTE_CORE);
 		$finish;
 	end
 	endcase
@@ -203,7 +236,7 @@ module mvu_axi #(
 
 	assign	b_load = !B.vld || m_axis_output_tready;
 	always_ff @(posedge clk) begin
-		if(rst)		B <= '{ default: 'x };
+		if(rst)		B <= '{ vld: 0, default: 'x };
 		else begin
 			if(b_load)	B <= '{ vld: A.vld, dat: A.dat};
 		end
@@ -212,4 +245,4 @@ module mvu_axi #(
 	assign	m_axis_output_tvalid = B.vld;
 	assign	m_axis_output_tdata  = B.dat;
 
-endmodule : mvu_axi
+endmodule : mvu_vvu_axi
