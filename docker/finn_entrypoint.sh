@@ -118,6 +118,7 @@ if [ -d "$FINN_ROOT/.Xilinx" ]; then
   mkdir "$HOME/.Xilinx"
   if [ -f "$FINN_ROOT/.Xilinx/HLS_init.tcl" ]; then
     cp "$FINN_ROOT/.Xilinx/HLS_init.tcl" "$HOME/.Xilinx/"
+    gecho "Found HLS_init.tcl and copied to $HOME/.Xilinx/HLS_init.tcl"
   else
     yecho "Unable to find $FINN_ROOT/.Xilinx/HLS_init.tcl"
   fi
@@ -125,14 +126,13 @@ if [ -d "$FINN_ROOT/.Xilinx" ]; then
   if [ -f "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" ]; then
     mkdir "$HOME/.Xilinx/Vivado/"
     cp "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" "$HOME/.Xilinx/Vivado/"
+    gecho "Found Vivado_init.tcl and copied to $HOME/.Xilinx/Vivado/Vivado_init.tcl"
   else
     yecho "Unable to find $FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl"
   fi
 else
-  yecho "Unable to find $FINN_ROOT/.Xilinx"
-  yecho "Functionality dependent on beta devices will not be available."
-  yecho "If you need to enable a beta device, ensure .Xilinx/HLS_init.tcl and/or .Xilinx/Vivado/Vivado_init.tcl "
-  yecho "are set correctly and mounted into the Docker container."
+  echo "If you need to enable a beta device, ensure .Xilinx/HLS_init.tcl and/or .Xilinx/Vivado/Vivado_init.tcl are set correctly and mounted"
+  echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
 fi
 
 export PATH=$PATH:$HOME/.local/bin
