@@ -182,14 +182,14 @@ module mvu_vvu_axi #(
 			.vld(ovld), .p(odat)
 		);
 	"mvu_4sx4u":
-		mvu_4sx4u #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
+		mvu_4sx4u #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
 			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau_i),
 			.vld(ovld), .p(odat)
 		);
 	"mvu_8sx8u_dsp48":
 		mvu_8sx8u_dsp48 #(.PE(PE), .SIMD(SIMD), .ACCU_WIDTH(ACCU_WIDTH), .ACTIVATION_WIDTH(ACTIVATION_WIDTH), .WEIGHT_WIDTH(WEIGHT_WIDTH),
-		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
+		.SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
 			.last(alast && avld), .zero(!istb), .w(mvauin_weight_t'(s_axis_weights_tdata)), .a(amvau_i),
 			.vld(ovld), .p(odat)

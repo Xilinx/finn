@@ -2,6 +2,7 @@ module mvu_4sx4u #(
 	int unsigned  PE,
 	int unsigned  SIMD,
 	int unsigned  ACCU_WIDTH,
+	bit SIGNED_ACTIVATIONS = 0,
 	bit FORCE_BEHAVIORAL = 0
 )(
 	// Global Control
@@ -57,7 +58,7 @@ module mvu_4sx4u #(
 		for(genvar  s = 0; s < SIMD; s++) begin : genSIMD
 
 			// Input Lane Assembly
-			uwire [23:0]  bb = a[s];
+			uwire [23:0]  bb = { {(20){SIGNED_ACTIVATIONS && a[s][3]}}, a[s] };
 			logic [33:0]  aa;
 			logic [26:0]  dd;
 			logic [ 1:0]  xx[3:1];
