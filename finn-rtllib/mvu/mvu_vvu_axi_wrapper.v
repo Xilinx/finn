@@ -46,9 +46,9 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter	FORCE_BEHAVIORAL = $FORCE_BEHAVIORAL$,
 
 	// Safely deducible parameters
-	localparam	WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
-	localparam 	INPUT_STREAM_WIDTH_BA = ((IS_MVU == 1 ? 1 : PE) * SIMD * ACTIVATION_WIDTH + 7) / 8 * 8,
-	localparam 	OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
+	parameter	WEIGHT_STREAM_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8 * 8,
+	parameter 	INPUT_STREAM_WIDTH_BA = ((IS_MVU == 1 ? 1 : PE) * SIMD * ACTIVATION_WIDTH + 7) / 8 * 8,
+	parameter 	OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF weights_V:in0_V:out_V, ASSOCIATED_RESET ap_rst_n" *)
