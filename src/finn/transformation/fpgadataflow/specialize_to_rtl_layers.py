@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import numpy as np
 from qonnx.transformation.base import Transformation
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.core.datatype import DataType
@@ -60,7 +61,7 @@ class InferRTLMatrixVectorActivation(Transformation):
         for n in graph.node:
             node_ind += 1
             if n.op_type == "MatrixVectorActivation":
-                preferred_in_rtl = getCustomOp(n).get_nodeattr("impl") == "rtl" and getCustomOp(n).get_nodeattr("resType") == "dsp"
+                preferred_in_rtl = getCustomOp(n).get_nodeattr("preferred_backend") == "rtl"
                 supported_in_rtl = self._is_rtl_variant_compatible(n)
                 if (preferred_in_rtl and supported_in_rtl):
                     mvau_input = n.input[0]
@@ -76,6 +77,7 @@ class InferRTLMatrixVectorActivation(Transformation):
                     pe = getCustomOp(n).get_nodeattr("PE")
                     mem_mode = getCustomOp(n).get_nodeattr("mem_mode")
                     ram_style = getCustomOp(n).get_nodeattr("ram_style")
+                    resType = getCustomOp(n).get_nodeattr("resType")
                     runtime_writeable_weights = getCustomOp(n).get_nodeattr("runtime_writeable_weights")
 
                     new_node = helper.make_node(
@@ -93,9 +95,87 @@ class InferRTLMatrixVectorActivation(Transformation):
                         outputDataType=outputDataType,
                         numInputVectors=numInputVectors,
                         mem_mode=mem_mode,
+                        resType=resType,
                         name=n.name + "_rtl",
                         ram_style=ram_style,
                         runtime_writeable_weights=runtime_writeable_weights
+                    )
+                    graph.node.insert(node_ind, new_node)
+                    # remove old node
+                    graph.node.remove(n)
+                    graph_modified=True
+        
+        if graph_modified:
+            model = model.transform(MinimizeAccumulatorWidth())
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+            model = model.transform(GiveUniqueNodeNames())
+        
+        return (model, graph_modified)
+
+class InferRTLVectorVectorActivation(Transformation):
+    """Convert (HLS-based) VectorVectorActivation layers to specialized RTL layers is supported."""
+
+    def __init__(self):
+        super().__init__()
+
+    def _is_rtl_variant_compatible(self, n):
+        no_activation = getCustomOp(n).get_nodeattr("noActivation") == 1
+        act_width_in_range = (DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() <= 8) or (DataType[getCustomOp(n).get_nodeattr("inputDataType")].bitwidth() == 9 and DataType[getCustomOp(n).get_nodeattr("inputDataType")].min() < 0)
+        weight_width_in_range = DataType[getCustomOp(n).get_nodeattr("weightDataType")].bitwidth() <= 8
+        folding_supported = (getCustomOp(n).get_nodeattr("Channels") % getCustomOp(n).get_nodeattr("PE") == 0) and (np.prod(getCustomOp(n).get_nodeattr("Kernel")) % getCustomOp(n).get_nodeattr("SIMD") == 0)
+        
+        if (no_activation and act_width_in_range and weight_width_in_range and folding_supported):
+            return True
+        else:
+            return False
+    
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for n in graph.node:
+            node_ind += 1
+            if n.op_type == "VectorVectorActivation":
+                preferred_in_rtl = getCustomOp(n).get_nodeattr("preferred_backend") == "rtl"
+                supported_in_rtl = self._is_rtl_variant_compatible(n)
+                if (preferred_in_rtl and supported_in_rtl):
+                    vvau_input = n.input[0]
+                    vvau_weight = n.input[1]
+                    vvau_output = n.output[0]
+                    inputDataType = getCustomOp(n).get_nodeattr("inputDataType")
+                    weightDataType = getCustomOp(n).get_nodeattr("weightDataType")
+                    outputDataType = getCustomOp(n).get_nodeattr("outputDataType")
+                    pe = getCustomOp(n).get_nodeattr("PE")
+                    simd = getCustomOp(n).get_nodeattr("SIMD")
+                    dim = getCustomOp(n).get_nodeattr("Dim")
+                    channels = getCustomOp(n).get_nodeattr("Channels")
+                    kernel = getCustomOp(n).get_nodeattr("Kernel")
+                    resType = getCustomOp(n).get_nodeattr("resType")
+                    mem_mode = getCustomOp(n).get_nodeattr("mem_mode")
+                    runtime_writeable_weights = getCustomOp(n).get_nodeattr("runtime_writeable_weights")
+                    ram_style = getCustomOp(n).get_nodeattr("ram_style")
+                    resType = getCustomOp(n).get_nodeattr("resType")                    
+
+                    new_node = helper.make_node(
+                        "VectorVectorActivation_rtl",
+                        [vvau_input, vvau_weight],
+                        [vvau_output],
+                        domain="finn.custom_op.fpgadataflow",
+                        backend="fpgadataflow",
+                        name=n.name + "_rtl",
+                        PE=pe,
+                        SIMD=simd,
+                        Dim=dim,
+                        Channels=channels,
+                        Kernel=kernel,
+                        resType=resType,
+                        inputDataType=inputDataType,
+                        weightDataType=weightDataType,
+                        outputDataType=outputDataType,
+                        mem_mode=mem_mode,
+                        runtime_writeable_weights=runtime_writeable_weights,
+                        ram_style=ram_style
                     )
                     graph.node.insert(node_ind, new_node)
                     # remove old node
