@@ -71,7 +71,7 @@ module mvu_vvu_axi #(
 )(
 	// Global Control
 	input	logic  ap_clk,
-	input	logic  ap_clk2x,	// only used when PUMPED_COMPUTE
+	input	logic  ap_clk2x,	// synchronous, double-speed clock; only used for PUMPED_COMPUTE
 	input	logic  ap_rst_n,
 
 	// Weight Stream
@@ -174,7 +174,7 @@ module mvu_vvu_axi #(
 		// (S_0, P_0), ..., (S_i, P_0), (S_0, P_1), ..., (S_i, P_1), ..., (S_i, P_i)
 		for(genvar  pe = 0; pe < (IS_MVU? 1:PE); pe++) begin
 			for(genvar  simd = 0; simd < SIMD; simd++) begin
-				assign	amvau_i[pe][simd] = amvau[];
+				assign	amvau_i[pe][simd] = amvau[];	// TODO: Do the right thing as below here.
 			end
 		end
 
