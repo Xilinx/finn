@@ -69,6 +69,9 @@ pipeline {
 
                 // Use an env variable to help collect test results later in pipeline
                 env.SANITY_UT = "SUCCESS"
+
+                // Archive coverage report if successful
+                archiveSuccessfulStage(env.SANITY_UT, "coverage_sanity_ut")
               }
             }
           }
@@ -97,6 +100,9 @@ pipeline {
 
                 // Use an env variable to help collect test results later in pipeline
                 env.FPGADATAFLOW_RESULT = "SUCCESS"
+
+                // Archive coverage report if successful
+                archiveSuccessfulStage(env.FPGADATAFLOW_RESULT, "coverage_fpgadataflow")
               }
             }
           }
@@ -728,9 +734,6 @@ pipeline {
             // Archive the XML & HTML test results
             archiveArtifacts artifacts: "reports/*.xml"
             archiveArtifacts artifacts: "reports/*.html"
-
-            archiveSuccessfulStage(env.SANITY_UT, "coverage_sanity_ut")
-            archiveSuccessfulStage(env.FPGADATAFLOW_RESULT, "coverage_fpgadataflow")
 
             // Plot what XML files were created during the test run
             junit 'reports/*.xml'
