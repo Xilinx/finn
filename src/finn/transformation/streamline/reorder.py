@@ -135,9 +135,6 @@ class MoveScalarMulPastMatMul(Transformation):
         for index, node in enumerate(graph.node):
             # First pattern matching condition: For the transform to be
             # applicable, the node has to be a MatMul operator
-            #   Note: Cannot handle fork nodes for now, as it is unclear how to
-            #   distribute the mul into the branches (without knowing the
-            #   operators for all branches)
             if node.op_type == "MatMul":
                 # Get the left hand side and right hand side inputs
                 #   Note: Assumes the ordering of left to right inputs to match
