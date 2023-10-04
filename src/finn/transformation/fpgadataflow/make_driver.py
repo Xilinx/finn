@@ -120,8 +120,9 @@ def generate_runtime_weights(model: ModelWrapper, weights_dir: str):
 
 
 class MakeCPPDriver(Transformation):
-    def __init__(self, platform: str, transfer_mode: CPPDriverTransferType, cpp_template_dir: str):
+    def __init__(self, platform: str, transfer_mode: CPPDriverTransferType, cpp_template_dir: str, run_name: str = "RUN_ID"):
         super().__init__()
+        self.run_name = run_name
         self.platform: str = platform
         self.transfer_mode: CPPDriverTransferType = transfer_mode
         self.cpp_template_dir = cpp_template_dir
@@ -138,55 +139,136 @@ class MakeCPPDriver(Transformation):
         ext_weight_dma_cnt, weights_dir = write_weights(model, cpp_driver_dir)
 
 
-        # Writer header with shape data
-        make_array = lambda lst: "{" + (", ".join(map(lambda x: f"\"{x}\"", lst))) + "}"
+        #* Setting up compilation
+        if not os.path.isdir(os.path.join(self.cpp_template_dir, "build")):
+            os.mkdir(os.path.join(self.cpp_template_dir, "build"))
+
+        #* Setting Filepaths for compilation of the C++ driver
+        # By default the structure is
+        # finn-cpp-driver
+        # --- build
+        # ------ src
+        # --------- finn (exec)
+        # --------- finn-accel.xclbin
+        # --- src
+        # ------ config
+        # --------- header.h
+        # --------- config.json
+        # 
+        # Here config.json specifies the location of the xclbin (from BUILD_PATH), and the two compiler macros point to the header location (from self.cpp_template_dir + "/src/") and the config json (from self.cpp_template_dir + "/unittests/core/") [all "froms" if the path is relative! Should be absolute!]
+        # Due to the complex structure its best to pass every path as absolute
+        
+        # EXEC/BUILD
+        BUILD_PATH = os.path.abspath(os.path.join(self.cpp_template_dir, "build"))
+        
+        # HEADER
+        CPP_CONFIG_DIR = os.path.join(self.cpp_template_dir, "src", "config")
+        HEADER_NAME = f"FDTT_Header_Compiled_{self.run_name}.h"
+        HEADER_PATH = os.path.join(CPP_CONFIG_DIR, HEADER_NAME)
+        CMAKE_FINN_HEADER_LOCATION = os.path.abspath(HEADER_PATH)
+
+        # CONFIG
+        JSON_NAME = f"config_{self.run_name}.json"
+        JSON_PATH = os.path.join(CPP_CONFIG_DIR, JSON_NAME)
+        CMAKE_FINN_CUSTOM_UNITTEST_CONFIG = os.path.abspath(JSON_PATH)
+
+
+        #* Writing the header file
+        # TODO: Enable multiple input types! Now only assumes the first one
         def resolve_dt_name(s: str) -> str:
-            if "ap_int" in s:
-                return "INT"
-            elif "ap_uint" in s:
-                return "UINT"
-            elif "ap_fixed" in s:
-                return "FLOAT"
+            if s in ["BINARY", "TERNARY", "BIPOLAR"]:
+                return "Datatype" + s[0] + s[1:].lower()
+            elif "INT" in s:
+                if s.startswith("U"):
+                    return "DatatypeUint<" + s.replace("UINT", "") + ">"
+                else:
+                    return "DatatypeInt<" + s.replace("INT", "") + ">"
+            elif "FLOAT" in s:
+                return "DatatypeFloat<" + s.replace("FLOAT", "") + ">"
+            elif "FIXED" in s:
+                return "DatatypeFixed" + s.replace("FIXED", "")
             else:
-                return "UNKNOWN"
+                return "UNKNOWN_DATATYPE_ERROR_BY_FINN_COMPILER"
 
-        definitions_header: str = f"#include <string>\n#include <vector>\nstd::string platform = \"{self.platform}\";\nstd::string transferMode = \"{self.transfer_mode.value}\";\n\n"
-
-        input_datatypes: List[DataType] = driver_shapes["idt"]
-        output_datatypes: List[DataType] = driver_shapes["odt"]
-
-        #assert all([dt.is_integer() for dt in input_datatypes]), f"One of the datatypes for the input is not an integer! Datatypes: {input_datatypes}"
-        #assert all([dt.is_integer() for dt in output_datatypes]), f"One of the datatypes for the output is not an integer! Datatypes: {output_datatypes}"
-
-        definitions_header += "std::initializer_list<int> INPUT_BYTEWIDTH = {" + ", ".join([ceil(dt.bitwidth()/8) for dt in input_datatypes]) + "};\n"
-        definitions_header += "std::initializer_list<int> ONPUT_BYTEWIDTH = {" + ", ".join([ceil(dt.bitwidth()/8) for dt in output_datatypes]) + "};\n"
-
-        definitions_header += "std::initializer_list<std::string>> INPUT_DATATYPE = {" + ", ".join([resolve_dt_name(dt.get_hls_datatype_str()) for dt in input_datatypes] + "};\n")
-        definitions_header += "std::initializer_list<std::string>> OUTPUT_DATATYPE = {" + ", ".join([resolve_dt_name(dt.get_hls_datatype_str()) for dt in output_datatypes] + "};\n")
-
-        definitions_header += f"std::initializer_list<std::string> IDMA_NAMES = " + make_array(driver_shapes["idma_names"]) + ";\n"
-        definitions_header += f"std::initializer_list<std::string> ODMA_NAMES = " + make_array(driver_shapes["odma_names"]) + ";\n"        
-        for name in ["ishape_normal", "ishape_packed", "ishape_folded", "oshape_normal", "oshape_packed", "oshape_folded"]:
-            definitions_header += "std::initializer_list<std::initializer_list<unsigned int>> " + name.upper() + " = {\n"
-            definitions_header += ",\n".join([make_array(shape) for shape in driver_shapes[name]])
-            definitions_header += "}\n"
-        definitions_header += "int EXT_WEIGHT_NUMS = " + str(ext_weight_dma_cnt) + ";\n"
+        inputDatatype: str = resolve_dt_name(driver_shapes["idt"].get_canonical_name())
+        outputDatatype: str = resolve_dt_name(driver_shapes["odt"].get_canonical_name())
+        print(f"Writing input header file for run with name {self.run_name}. Used datatypes will be {inputDatatype} and {outputDatatype}!")
+        with open(HEADER_PATH, 'w+') as f:
+            f.write("//! THIS FILE IS AUTOGENERATED BY THE FINN COMPILER\n")
+            f.write("#include \"../utils/FinnDatatypes.hpp\"\n#include \"../core/BaseDriver.hpp\"\n\n")
+            f.write(f"using InputFinnType = Finn::{inputDatatype};\n")
+            f.write(f"using OutputFinnType = Finn::{outputDatatype};\n")
+            f.write(f"namespace Finn {{ using Driver = Finn::BaseDriver<InputFinnType, OutputFinnType, uint8_t>; }} // namespace Finn\n")
 
 
-        # DEBUG: 
-        print("DEFS: ")
-        print(definitions_header)
+        #* Writing the json file
+        # TODO: Update this for multi-fpga usage (more than one device!)
+        
+        # Path of the xclbin in the finn compiler project
+        xclbin_finn_path = model.get_metadata_prop("bitfile") 
 
-        # TODO(bwintermann): Move compilation somewhere else / Include header file from relative path from cpp submodule?
-        with open(os.path.join(self.cpp_template_dir, "src", "template_driver.hpp"), "w+") as f:
-            f.write(definitions_header)
+        # Path of the xclbin in the instantiated finn driver build directory, where the finn driver executable gets placed
+        #! Because the json is read at RUNTIME, the path to the xclbin has to either be given as absolute or relative to the location of the finn exec!!
+        xclbin_cppdriver_path = os.path.abspath(os.path.join(self.cpp_template_dir, "build", "src", "finn-accel.xclbin")) # TODO: Check
 
-        # Compilation
-        assert which("cmake") is not None, "cmake not found! Please install it or add it to path!"
-        assert which("make") is not None, "make not found! Please install it or add it to path!"
-        os.chdir(os.path.join(self.cpp_template_dir, "build"))
-        subprocess.run("cmake --build .", shell=True)
-        subprocess.run("make -j4", shell=True) 
+        # Copying finn-accel bitstream to the build folder of the cpp driver
+        import shutil
+        shutil.copy(xclbin_finn_path, xclbin_cppdriver_path) 
+
+        # Get kernel names using xclbinutil
+        import subprocess
+        import json
+        assert shutil.which("xclbinutil") is not None, "xclbinutil not in PATH or not installed. Required to read kernel names for driver config!"
+        subprocess.run(f"xclbinutil -i {xclbin_finn_path} --dump-section IP_LAYOUT:JSON:ip_layout.json", shell=True)
+        ips = None
+        with open("ip_layout.json") as f:
+            ips = json.loads(f.read())["ip_layout"]["m_ip_data"]
+
+        # Get only ips that are kernels
+        isIO = lambda x: x["m_type"] == "IP_KERNEL" and x["m_base_address"] != "not_used" and ("idma" in x["m_name"] or "odma" in x["m_name"])
+        idmas = [x["m_name"] for x in ips if isIO(x) and "idma" in x["m_name"]]
+        odmas = [x["m_name"] for x in ips if isIO(x) and "odma" in x["m_name"]]
+
+        # Create idma and odma entries
+        jsonIdmas = []
+        jsonOdmas = []
+        for i in range(len(driver_shapes["idma_names"])):
+            jsonIdmas.append({
+                "kernelName": [name for name in idmas if driver_shapes["idma_names"][i] in name][0],
+                "normalShape": driver_shapes["ishape_normal"][i],
+                "foldedShape": driver_shapes["ishape_folded"][i],
+                "packedShape": driver_shapes["ishape_packed"][i]
+            })
+        for i in range(len(driver_shapes["odma_names"])):
+            jsonOdmas.append({
+                "kernelName": [name for name in odmas if driver_shapes["odma_names"][i] in name][0],
+                "normalShape": driver_shapes["oshape_normal"][i],
+                "foldedShape": driver_shapes["oshape_folded"][i],
+                "packedShape": driver_shapes["oshape_packed"][i]
+            })
+
+        data = [] 
+        data.append({
+            "xrtDeviceIndex": 0,
+            
+            #! XCLBIN must be in the same directory as the finn executable!
+            # TODO: This script has to move the xclbin into the build/src folder of the cpp driver
+            # TODO: For that the script must know where it is, and where the xclbin isnt.
+            "xclbinPath":xclbin_cppdriver_path,
+
+            "name": "MainDevice",
+            "idmas": jsonIdmas,
+            "odmas": jsonOdmas
+        })
+        with open(JSON_PATH, 'w+') as f:
+            f.write(json.dumps(data, indent=4))
+
+        #* Compilation
+        assert os.path.isfile(CMAKE_FINN_HEADER_LOCATION) and os.path.isfile(CMAKE_FINN_CUSTOM_UNITTEST_CONFIG) and os.path.isdir(BUILD_PATH), "Header, configjson or build folder missing. Cannot compile C++ driver!"
+        compile_result = subprocess.run(f"cd {BUILD_PATH};cmake -DCMAKE_BUILD_TYPE=Release -DFINN_HEADER_LOCATION=\"{CMAKE_FINN_HEADER_LOCATION}\" -DFINN_CUSTOM_UNITTEST_CONFIG=\"{CMAKE_FINN_CUSTOM_UNITTEST_CONFIG}\" .;cmake --build . --target finn", stdout=subprocess.PIPE, shell=True)
+        assert compile_result.returncode == 0, "[MakeCPPDriver - Transformation] Compilation failed!"
+        print("Compiled C++ driver successfully.")
+
 
 
         # TODO: Generating weight files
