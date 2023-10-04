@@ -33,6 +33,7 @@ from finn.core.onnx_exec import execute_onnx
 
 # TODO move StreamingDataflowPartition to HLSCustomOp base class
 
+from IPython.core.debugger import set_trace
 
 class StreamingDataflowPartition(CustomOp):
     """Class that corresponds to the meta/container node StreamingDataflowPartition
@@ -71,6 +72,7 @@ class StreamingDataflowPartition(CustomOp):
             if old_iname != new_iname:
                 inp_ctx[new_iname] = inp_ctx[old_iname]
                 del inp_ctx[old_iname]
+
         ret = execute_onnx(model, inp_ctx, return_full_exec_context)
         # outputs may have been renamed in partition
         for i, node_oname in enumerate(node.output):

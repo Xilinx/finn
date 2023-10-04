@@ -63,6 +63,8 @@ from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour_Batch
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
 
+from finn.custom_op.fpgadataflow.accl import AcclIn, AcclOut
+
 custom_op = dict()
 
 # make sure new HLSCustomOp subclasses are imported here so that they get
@@ -93,3 +95,5 @@ custom_op["StreamingConcat"] = StreamingConcat
 custom_op["CheckSum"] = CheckSum
 custom_op["StreamingEltwise"] = StreamingEltwise
 custom_op["FMPadding_rtl"] = FMPadding_rtl
+custom_op["AcclIn"] = AcclIn
+custom_op["AcclOut"] = AcclOut

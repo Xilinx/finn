@@ -61,6 +61,7 @@ RUN apt-get update && \
     python3 \
     python-is-python3 \
     python3-pip
+
 RUN echo "StrictHostKeyChecking no" >> /etc/ssh/ssh_config
 RUN locale-gen "en_US.UTF-8"
 
@@ -116,6 +117,17 @@ RUN pip install tokenize-rt==4.2.1
 # pyverilator
 RUN pip install tclwrapper==0.0.1
 
+# install accl dependencies
+RUN apt-get install -y
+    cmake
+    libjsoncpp-dev
+    libtclap-dev
+    libopenmpi-dev
+    xvfb
+
+RUN git clone https://github.com/zeromq/zmqpp
+RUN cd zmqpp && make && make install
+
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"
 
@@ -123,5 +135,6 @@ COPY docker/finn_entrypoint.sh /usr/local/bin/
 COPY docker/quicktest.sh /usr/local/bin/
 RUN chmod 755 /usr/local/bin/finn_entrypoint.sh
 RUN chmod 755 /usr/local/bin/quicktest.sh
+
 ENTRYPOINT ["finn_entrypoint.sh"]
 CMD ["bash"]
