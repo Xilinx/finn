@@ -5,10 +5,10 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.lower_convs_to_matmul import _auto_pad_to_explicit_padding
 from qonnx.util.basic import get_by_name
 
-from finn.transformation.fpgadataflow.convert_to_hls_layers import (
-    InferConvInpGen,
-    InferQuantizedMatrixVectorActivation,
-)
+# from finn.transformation.fpgadataflow.convert_to_hls_layers import (
+#     InferConvInpGen,
+#     InferQuantizedMatrixVectorActivation,
+# )
 
 
 class InferPixelPaddingDeconv(Transformation):
@@ -27,9 +27,10 @@ class InferPixelPaddingDeconv(Transformation):
                 deconv_output = n.output[0]
                 idt = model.get_tensor_datatype(deconv_input)
                 odt = model.get_tensor_datatype(deconv_output)
-                if not idt.is_integer():
-                    warnings.warn("%s : Input is not int. Can't infer PixelPaddingDeconv." % n.name)
-                    continue
+                # if not idt.is_integer():
+                #     warnings.warn("%s : Input is not int.
+                #     Can't infer PixelPaddingDeconv." % n.name)
+                #     continue
                 # extract conv transpose parameters
                 k_h = get_by_name(n.attribute, "kernel_shape").ints[0]
                 k_w = get_by_name(n.attribute, "kernel_shape").ints[1]
@@ -205,6 +206,6 @@ class InferPixelPaddingDeconv(Transformation):
                 # remove old nodes
                 graph.node.remove(n)
 
-        model = model.transform(InferConvInpGen(use_rtl_variant=self.use_convinpgen_rtl_variant))
-        model = model.transform(InferQuantizedMatrixVectorActivation())
+        # model = model.transform(InferConvInpGen(use_rtl_variant=self.use_convinpgen_rtl_variant))
+        # model = model.transform(InferQuantizedMatrixVectorActivation())
         return (model, graph_modified)
