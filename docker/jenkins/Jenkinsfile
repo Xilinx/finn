@@ -126,7 +126,7 @@ pipeline {
             catchError(stageResult: 'FAILURE') {
               script {
                 // Delete any build files from a previous build
-                sh "rm -rf ${env.FINN_HOST_BUILD_DIR}/*"
+                cleanPreviousBuildFiles(env.FINN_HOST_BUILD_DIR)
 
                 // Pass in the marker to run with pytest and the XML test results filename
                 runDockerPytestWithMarker(env.TEST_NAME, "${env.TEST_NAME}", '')
@@ -310,7 +310,7 @@ pipeline {
             catchError(stageResult: 'FAILURE') {
               script {
                 // Clean any files from a previous run
-                sh "rm -rf ${env.BOARD}*"
+                cleanPreviousBuildFiles("${env.BOARD}*")
 
                 // Get the test files
                 unstash name: "sanity_${env.BOARD}_zip"
@@ -358,7 +358,7 @@ pipeline {
             catchError(stageResult: 'FAILURE') {
               script {
                 // Clean any files from a previous run
-                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+                cleanPreviousBoardBuildFiles("${env.BOARD}*")
 
                 // Get the test files
                 unstash name: "sanity_PynqZ1_zip"
@@ -409,7 +409,7 @@ pipeline {
             catchError(stageResult: 'FAILURE') {
               script {
                 // Clean any files from a previous run
-                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+                cleanPreviousBoardBuildFiles("${env.BOARD}*")
 
                 // Get the test files
                 unstash name: "sanity_${env.BOARD}_zip"
@@ -458,7 +458,7 @@ pipeline {
             catchError(stageResult: 'FAILURE') {
               script {
                 // Clean any files from a previous run
-                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+                cleanPreviousBoardBuildFiles("${env.BOARD}*")
 
                 // Get the test files
                 unstash name: "sanity_${env.BOARD}_zip"
@@ -510,7 +510,7 @@ pipeline {
             catchError(stageResult: 'FAILURE') {
               script {
                 // Clean any files from a previous run
-                sh "rm -rf ${env.BOARD}*"
+                cleanPreviousBuildFiles("${env.BOARD}*")
 
                 // Get the test files
                 unstash name: "${env.BOARD}_zip"
@@ -558,7 +558,7 @@ pipeline {
             catchError(stageResult: 'FAILURE') {
               script {
                 // Clean any files from a previous run
-                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+                cleanPreviousBoardBuildFiles("${env.BOARD}*")
 
                 // Get the test files
                 unstash name: "PynqZ1_zip"
@@ -609,7 +609,7 @@ pipeline {
             catchError(stageResult: 'FAILURE') {
               script {
                 // Clean any files from a previous run
-                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+                cleanPreviousBoardBuildFiles("${env.BOARD}*")
 
                 // Get the test files
                 unstash name: "${env.BOARD}_zip"
@@ -658,7 +658,7 @@ pipeline {
             catchError(stageResult: 'FAILURE') {
               script {
                 // Clean any files from a previous run
-                sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${env.BOARD}*"
+                cleanPreviousBoardBuildFiles("${env.BOARD}*")
 
                 // Get the test files
                 unstash name: "${env.BOARD}_zip"
@@ -747,7 +747,17 @@ pipeline {
 void cleanPreviousBuildFiles(String buildDir) {
   // Delete any build files from a previous build
   // Previous build folders affect findCopyZip() and can cause the stage to fail
-  sh "rm -rf ${buildDir}/*"
+  if (!buildDir.empty) {
+      sh "rm -rf ${buildDir}"
+  }
+}
+
+void cleanPreviousBoardBuildFiles(String boardDir) {
+  // Delete any board build files
+  // Specifically used on Pynq boards which require sudo to delete
+  if (!boardDir.empty) {
+      sh "echo $USER_CREDENTIALS_PSW | sudo -S rm -rf ${boardDir}*"
+  }
 }
 
 void createMultiMarkerScript(String markers, String testResultsFilename, String additionalOptions) {
@@ -765,7 +775,7 @@ void runDockerPytestWithMarker(String marker, String testResultsFilename, String
   sh """./run-docker.sh python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html ${additionalOptions}"""
 }
 
-void findBoardBuildFiles(String board, String searchDir, String dirToFind) {
+def findBoardBuildFiles(String searchDir, String dirToFind) {
   def result = sh(script: "find $searchDir -type d -name \"$dirToFind*\"", returnStdout: true).trim()
   if (result.empty) {
       error "Directory containing '$dirToFind' not found."
@@ -774,7 +784,7 @@ void findBoardBuildFiles(String board, String searchDir, String dirToFind) {
 }
 
 void findCopyZip(String board, String findDir, String copyDir, String stashName) {
-  def buildDir = findBoardBuildFiles(board, findDir, "hw_deployment_${board}")
+  def buildDir = findBoardBuildFiles(findDir, "hw_deployment_${board}")
   sh "cp -r ${buildDir}/${board} ${copyDir}/"
   dir(copyDir) {
     sh "zip -r ${board}.zip ${board}/"
@@ -802,7 +812,7 @@ python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${tes
   sh 'chmod 777 run-tests.sh'
 }
 
-void isNodeOnline(String labelName) {
+def isNodeOnline(String labelName) {
   Label label = Jenkins.instance.getLabel(labelName)
   def agentOnline = false
 
