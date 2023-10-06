@@ -738,12 +738,10 @@ def step_make_cpp_driver(model: ModelWrapper, cfg: DataflowBuildConfig) -> Model
             MakeCPPDriver(
                 cfg._resolve_driver_platform(),
                 transfer_mode=cfg.cpp_driver_transfer_type,
-                cpp_template_dir="finn-cpp-driver"
+                cpp_template_dir=os.path.join(cfg.output_dir, "cppdriver")
+                
             )
         )
-
-        # TODO: Compilation
-        # TODO: Copying into driver directory
     else:
         print("WARNING: The step step_make_cpp_driver is in the build list but will not be executed since CPP_DRIVER is not in generate_outputs in your build.py file!")
     return model
