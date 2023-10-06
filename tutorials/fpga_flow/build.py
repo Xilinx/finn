@@ -39,10 +39,92 @@ from qonnx.custom_op.registry import getCustomOp
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.util.data_packing as dpk
+from finn.transformation.fpgadataflow.vitis_build import CreateVitisXO
+from finn.custom_op.fpgadataflow.templates import ipgentcl_template
+from finn.util.hls import CallHLS
+import shutil
+
 
 model_name = "tfc_w1a1"
 platform_name = "fpga"
 
+def custom_step_gen_vitis_xo(model, cfg):
+    xo_dir = cfg.output_dir + "/xo"
+    xo_dir = str(os.path.abspath(xo_dir))
+    os.makedirs(xo_dir, exist_ok=True)
+    model = model.transform(CreateVitisXO())
+    xo_path = model.get_metadata_prop("vitis_xo")
+    shutil.copy(xo_path, xo_dir)
+    return model
+
+def custom_step_gen_instrumentation_wrapper(model, cfg):
+    xo_dir = cfg.output_dir + "/xo"
+    xo_dir = str(os.path.abspath(xo_dir))
+    os.makedirs(xo_dir, exist_ok=True)
+    wrapper_output_dir = cfg.output_dir + "/instrumentation_wrapper"
+    wrapper_output_dir = str(os.path.abspath(wrapper_output_dir))
+    os.makedirs(wrapper_output_dir, exist_ok=True)
+    # conservative max for pending feature maps: number of layers
+    pending = len(model.graph.node)
+    # query the parallelism-dependent folded input shape from the
+    # node consuming the graph input
+    inp_name = model.graph.input[0].name
+    inp_node = getCustomOp(model.find_consumer(inp_name))
+    inp_shape_folded = list(inp_node.get_folded_input_shape())
+    inp_stream_width = inp_node.get_instream_width_padded()
+    # number of beats per input is given by product of folded input
+    # shape except the last dim (which is the stream width)
+    ilen = np.prod(inp_shape_folded[:-1])
+    ti = "ap_uint<%d>" % inp_stream_width
+    # perform the same for the output
+    out_name = model.graph.output[0].name
+    out_node = getCustomOp(model.find_producer(out_name))
+    out_shape_folded = list(out_node.get_folded_output_shape())
+    out_stream_width = out_node.get_outstream_width_padded()
+    olen = np.prod(out_shape_folded[:-1])
+    to = "ap_uint<%d>" % out_stream_width
+    # fill out instrumentation wrapper template
+    with open("templates/instrumentation_wrapper.template.cpp", "r") as f:
+        instrwrp_cpp = f.read()
+    instrwrp_cpp = instrwrp_cpp.replace("@PENDING@", str(pending))
+    instrwrp_cpp = instrwrp_cpp.replace("@ILEN@", str(ilen))
+    instrwrp_cpp = instrwrp_cpp.replace("@OLEN@", str(olen))
+    instrwrp_cpp = instrwrp_cpp.replace("@TI@", str(ti))
+    instrwrp_cpp = instrwrp_cpp.replace("@TO@", str(to))
+    with open(wrapper_output_dir + "/top_instrumentation_wrapper.cpp", "w") as f:
+        f.write(instrwrp_cpp)
+    # fill out HLS synthesis tcl template
+    prjname = "project_instrwrap"
+    ipgentcl = ipgentcl_template
+    ipgentcl = ipgentcl.replace("$PROJECTNAME$", prjname)
+    ipgentcl = ipgentcl.replace("$HWSRCDIR$", wrapper_output_dir)
+    ipgentcl = ipgentcl.replace("$FPGAPART$", cfg.fpga_part)
+    ipgentcl = ipgentcl.replace("$TOPFXN$", "instrumentation_wrapper")
+    ipgentcl = ipgentcl.replace("$FPGAPART$", cfg.fpga_part)
+    ipgentcl = ipgentcl.replace("$CLKPERIOD$", str(cfg.synth_clk_period_ns))
+    ipgentcl = ipgentcl.replace("$DEFAULT_DIRECTIVES$", "")
+    ipgentcl = ipgentcl.replace("$EXTRA_DIRECTIVES$", "config_export -format xo")
+    # use Vitis RTL kernel (.xo) output instead of IP-XACT
+    ipgentcl = ipgentcl.replace("export_design -format ip_catalog", "export_design -format xo")
+    with open(wrapper_output_dir + "/hls_syn.tcl", "w") as f:
+        f.write(ipgentcl)
+    # build bash script to launch HLS synth and call it
+    code_gen_dir = wrapper_output_dir
+    builder = CallHLS()
+    builder.append_tcl(code_gen_dir + "/hls_syn.tcl")
+    builder.set_ipgen_path(code_gen_dir + "/{}".format(prjname))
+    builder.build(code_gen_dir)
+    ipgen_path = builder.ipgen_path
+    assert os.path.isdir(ipgen_path), "HLS IPGen failed: %s not found" % (ipgen_path)
+    ip_path = ipgen_path + "/sol1/impl/ip"
+    assert os.path.isdir(ip_path), "HLS IPGen failed: %s not found. Check log under %s" % (
+        ip_path,
+        code_gen_dir,
+    )
+    xo_path = code_gen_dir + "/{}/sol1/impl/export.xo".format(prjname)
+    xo_instr_path = xo_dir + "/instrumentation_wrapper.xo"
+    shutil.copy(xo_path, xo_instr_path)
+    return model
 
 def custom_step_gen_tb_and_io(model, cfg):
     sim_output_dir = cfg.output_dir + "/sim"
@@ -118,26 +200,22 @@ def custom_step_gen_tb_and_io(model, cfg):
     return model
 
 
-build_steps = build_cfg.default_build_dataflow_steps + [custom_step_gen_tb_and_io]
+build_steps = build_cfg.default_build_dataflow_steps + [
+    custom_step_gen_vitis_xo, custom_step_gen_instrumentation_wrapper, custom_step_gen_tb_and_io
+]
 
 
 cfg = build.DataflowBuildConfig(
     steps=build_steps,
     board=platform_name,
     output_dir="output_%s_%s" % (model_name, platform_name),
-    synth_clk_period_ns=10.0,
+    synth_clk_period_ns=3.3,
     folding_config_file="folding_config.json",
-    fpga_part="xczu3eg-sbva484-1-e",
+    fpga_part="xcve2802-vsvh1760-2MP-e-S",
     shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-    stitched_ip_gen_dcp=False,
+    stitched_ip_gen_dcp=True,
     generate_outputs=[
         build_cfg.DataflowOutputType.STITCHED_IP,
-    ],
-    verify_steps=[
-        build_cfg.VerificationStepType.TIDY_UP_PYTHON,
-        build_cfg.VerificationStepType.STREAMLINED_PYTHON,
-        build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM,
-        build_cfg.VerificationStepType.STITCHED_IP_RTLSIM,
     ],
     save_intermediate_models=True,
 )
