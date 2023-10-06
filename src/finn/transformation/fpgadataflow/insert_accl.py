@@ -36,7 +36,7 @@ from qonnx.transformation.general import SortGraph
 from qonnx.util.basic import get_by_name
 
 
-class InsertAccl(Transformation):
+class InsertACCL(Transformation):
     def __init__(self, max_intfwidth=512):
         self.max_intfwidth = 512
 
@@ -59,7 +59,7 @@ class InsertAccl(Transformation):
             graph_in_names = [x.name for x in model.graph.input]
             for graph_in_name in graph_in_names:
                 first_node = model.find_consumer(graph_in_name)
-                if first_node.op_type == "AcclIn":
+                if first_node.op_type == "ACCLIn":
                     continue
                 else:
                     in_shape = model.get_tensor_shape(graph_in_name)
@@ -91,7 +91,7 @@ class InsertAccl(Transformation):
                     first_node.input[0] = first_node_in.name
 
                     accl_node = oh.make_node(
-                        "AcclIn",
+                        "ACCLIn",
                         [graph_in_name],
                         [first_node_in.name],
                         numInputVectors=in_folded_shape[:-1],
@@ -111,7 +111,7 @@ class InsertAccl(Transformation):
             graph_out_names = [x.name for x in model.graph.output]
             for graph_out_name in graph_out_names:
                 final_node = model.find_producer(graph_out_name)
-                if final_node.op_type == "AcclOut":
+                if final_node.op_type == "ACCLOut":
                     continue
                 else:
                     out_shape = model.get_tensor_shape(graph_out_name)
@@ -144,7 +144,7 @@ class InsertAccl(Transformation):
                     # FIXME: currently always using 8-bit dtypes to work around the
                     # padding problems for i/o DMA
                     dma_node = oh.make_node(
-                        "AcclOut",
+                        "ACCLOut",
                         [final_node_out.name],
                         [graph_out_name],
                         numInputVectors=out_folded_shape[:-1],

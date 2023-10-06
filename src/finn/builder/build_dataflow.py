@@ -188,7 +188,6 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     print("Completed successfully")
     return 0
 
-
 def build_dataflow_directory(path_to_cfg_dir: str):
     """Best-effort build a dataflow accelerator from the specified directory.
 

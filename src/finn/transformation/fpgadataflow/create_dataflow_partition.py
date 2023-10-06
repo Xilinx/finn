@@ -43,14 +43,12 @@ class CreateDataflowPartition(Transformation):
     that indicates the filename for the second graph that only contains
     dataflow nodes. No action is taken if there are no dataflow nodes."""
 
-    def __init__(self, partition_model_dir=None, num_devices=1):
+    def __init__(self, partition_model_dir=None):
         super().__init__()
         if partition_model_dir is None:
             self.partition_model_dir = make_build_dir("dataflow_partition_")
         else:
             self.partition_model_dir = partition_model_dir
-
-        self.num_devices = num_devices
 
     def apply(self, model):
         def filter_fc_extw(x):
@@ -64,23 +62,6 @@ class CreateDataflowPartition(Transformation):
         if len(extw_dma_nodes) > 0:
             model = model.transform(ExternalizeParams())
 
-        node_stats = dict()
-
-        def compute_node_stats(node):
-            if node.name not in node_stats:
-                num_nodes_up_to = 1
-                predecessors = model.find_direct_predecessors(node)
-                if predecessors:
-                    for pred in predecessors:
-                        compute_node_stats(pred)
-                        num_nodes_up_to += node_stats[pred.name]
-                node_stats[node.name] = num_nodes_up_to
-
-        for node in model.graph.node:
-            compute_node_stats(node)
-
-        total_nodes = max(node_stats.values())
-
         def assign_partition_id(node):
             if node.op_type in ["GenericPartition", "StreamingDataflowPartition"]:
                 return -1
@@ -91,7 +72,7 @@ class CreateDataflowPartition(Transformation):
                     if assigned_partition is not None:
                         return assigned_partition.i
                     else:
-                        return int(node_stats[node.name] / (total_nodes + 1) * self.num_devices)
+                        return 0
                 else:
                     return -1
 
@@ -133,10 +114,5 @@ class CreateDataflowPartition(Transformation):
             new_p_node_inst.set_nodeattr("partition_id", partition_ind)
             new_p_node_inst.set_nodeattr("slr", slr)
             new_p_node_inst.set_nodeattr("mem_port", mem_port)
-
-            p_model.set_metadata_prop("accl_world_size", str(self.num_devices))
-            p_model.set_metadata_prop("accl_rank", str(partition_ind))
-            p_model.save(node_model_filename)
-
 
         return (parent_model, False)

@@ -27,6 +27,8 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+set -e
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
@@ -113,7 +115,7 @@ elif [ "$1" = "notebook" ]; then
   else
     JUPYTER_PASSWD_ARG="--NotebookApp.password='$JUPYTER_PASSWD_HASH'"
   fi
-  DOCKER_CMD="jupyter notebook --allow-root --no-browser --ip=0.0.0.0 --port $JUPYTER_PORT $JUPYTER_PASSWD_ARG notebooks"
+  DOCKER_CMD="jupyter notebook --allow-root --no-browser --ip=0.0.0.0 --port $JUPYTER_PORT $JUPYTER_PASSWD_ARG finn-examples/finn_examples/notebooks"
   FINN_DOCKER_EXTRA+="-e JUPYTER_PORT=$JUPYTER_PORT "
   FINN_DOCKER_EXTRA+="-e NETRON_PORT=$NETRON_PORT "
   FINN_DOCKER_EXTRA+="-p $JUPYTER_PORT:$JUPYTER_PORT "

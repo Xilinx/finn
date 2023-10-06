@@ -118,15 +118,17 @@ RUN pip install tokenize-rt==4.2.1
 RUN pip install tclwrapper==0.0.1
 
 # install accl dependencies
-RUN apt-get install -y
-    cmake
-    libjsoncpp-dev
-    libtclap-dev
-    libopenmpi-dev
-    xvfb
+RUN apt-get install -y \
+    cmake \
+    libjsoncpp-dev \
+    libtclap-dev \
+    libopenmpi-dev \
+    xvfb \
+    libzmq3-dev
 
-RUN git clone https://github.com/zeromq/zmqpp
-RUN cd zmqpp && make && make install
+RUN git clone https://github.com/zeromq/zmqpp && \
+    cd zmqpp && \
+    make && make install
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"

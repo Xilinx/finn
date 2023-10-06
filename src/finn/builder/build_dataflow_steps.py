@@ -85,8 +85,10 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveFIFOSizes,
 )
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
+from finn.transformation.fpgadataflow.insert_accl import InsertACCL
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
+from finn.transformation.fpgadataflow.make_distributed import MakeDistributed
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
@@ -125,11 +127,11 @@ from finn.util.pyverilator import verilator_fifosim
 from finn.util.test import execute_parent
 
 
-def verify_step(
+
+def verify_model(
     model: ModelWrapper,
     cfg: DataflowBuildConfig,
     step_name: str,
-    need_parent: bool,
     rtlsim_pre_hook=None,
 ):
     print("Running verification for " + step_name)
@@ -144,40 +146,22 @@ def verify_step(
     for b in range(bsize_in):
         in_npy = np.expand_dims(in_npy_all[b], axis=0)
         exp_out_npy = np.expand_dims(exp_out_npy_all[b], axis=0)
-        if need_parent:
-            assert cfg.save_intermediate_models, "Enable save_intermediate_models for verification"
-            parent_model_fn = intermediate_models_dir + "/dataflow_parent.onnx"
-            child_model_fn = intermediate_models_dir + "/verify_%s.onnx" % step_name
-            model.save(child_model_fn)
-            parent_model = ModelWrapper(parent_model_fn)
-            out_tensor_name = parent_model.graph.output[0].name
-            exp_ishape = parent_model.get_tensor_shape(parent_model.graph.input[0].name)
-            if in_npy.shape != exp_ishape:
-                print(
-                    "Verification input has shape %s while model expects %s"
-                    % (str(in_npy.shape), str(exp_ishape))
-                )
-                print("Attempting to force model shape on verification input")
-                in_npy = in_npy.reshape(exp_ishape)
-            out_dict = execute_parent(parent_model_fn, child_model_fn, in_npy, return_full_ctx=True)
-            out_npy = out_dict[out_tensor_name]
+        inp_tensor_name = model.graph.input[0].name
+        out_tensor_name = model.graph.output[0].name
+        exp_ishape = model.get_tensor_shape(inp_tensor_name)
+        if in_npy.shape != exp_ishape:
+            print(
+                "Verification input has shape %s while model expects %s"
+                % (str(in_npy.shape), str(exp_ishape))
+            )
+            print("Attempting to force model shape on verification input")
+            in_npy = in_npy.reshape(exp_ishape)
+        inp_dict = {inp_tensor_name: in_npy}
+        if rtlsim_pre_hook is not None:
+            out_dict = rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
         else:
-            inp_tensor_name = model.graph.input[0].name
-            out_tensor_name = model.graph.output[0].name
-            exp_ishape = model.get_tensor_shape(inp_tensor_name)
-            if in_npy.shape != exp_ishape:
-                print(
-                    "Verification input has shape %s while model expects %s"
-                    % (str(in_npy.shape), str(exp_ishape))
-                )
-                print("Attempting to force model shape on verification input")
-                in_npy = in_npy.reshape(exp_ishape)
-            inp_dict = {inp_tensor_name: in_npy}
-            if rtlsim_pre_hook is not None:
-                out_dict = rtlsim_exec(model, inp_dict, pre_hook=rtlsim_pre_hook)
-            else:
-                out_dict = execute_onnx(model, inp_dict, True)
-            out_npy = out_dict[out_tensor_name]
+            out_dict = execute_onnx(model, inp_dict, True)
+        out_npy = out_dict[out_tensor_name]
         exp_oshape = exp_out_npy.shape
         if out_npy.shape != exp_oshape:
             print(
@@ -211,6 +195,59 @@ def verify_step(
                 new_vcd_path = vcd_path.replace(".vcd", "_%d.vcd" % b)
                 shutil.move(vcd_path, new_vcd_path)
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
+
+
+def dataflow_partition_map(step):
+    def f(model: ModelWrapper, cfg: DataflowBuildConfig):
+        d_nodes = model.get_nodes_by_op_type("DistributedDataflow")
+
+        if d_nodes:
+            assert len(d_nodes) == 1, "Only one distributed dataflow node is supported"
+            d_model_file = getCustomOp(d_nodes[0]).get_nodeattr("model")
+            d_model = ModelWrapper(d_model_file)
+            p_nodes = d_model.get_nodes_by_op_type("StreamingDataflowPartition")  
+        else:
+            p_nodes = model.get_nodes_by_op_type("StreamingDataflowPartition")
+
+        for p_node in p_nodes:
+            p_node_inst = getCustomOp(p_node)
+
+            partition_id = p_node_inst.get_nodeattr("partition_id")
+            p_node_file = p_node_inst.get_nodeattr("model")
+
+            p_model = ModelWrapper(p_node_file)
+
+            if len(p_nodes) > 1:
+                child_cfg = deepcopy(cfg)
+                child_cfg.output_dir = cfg.output_dir + f"/{partition_id}"
+            else:
+                child_cfg = cfg
+
+            os.makedirs(child_cfg.output_dir, exist_ok=True)
+
+            p_model = step(p_model, child_cfg)
+            p_model.save(p_node_file)
+
+        return model        
+
+    f.__name__ = step.__name__
+
+    return f
+
+
+def verify_step(step_type):
+    def decorator(step):
+        def f(model: ModelWrapper, cfg: DataflowBuildConfig):
+            model = step(model, cfg)
+            if step_type in cfg._resolve_verification_steps():
+                verify_model(model, cfg, step.__name__)
+            return model
+
+        f.__name__ = step.__name__
+
+        return f
+
+    return decorator
 
 
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
@@ -257,6 +294,7 @@ def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
     return verify_model
 
 
+@verify_step(VerificationStepType.QONNX_TO_FINN_PYTHON)
 def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     This step will only execute if QONNX nodes are found.
@@ -288,6 +326,7 @@ def step_qonnx_to_finn(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+@verify_step(VerificationStepType.TIDY_UP_PYTHON)
 def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Run the tidy-up step on given model. This includes shape and datatype
     inference, constant folding, and giving nodes and tensors better names.
@@ -300,12 +339,10 @@ def step_tidy_up(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(InferDataTypes())
     model = model.transform(RemoveStaticGraphInputs())
 
-    if VerificationStepType.TIDY_UP_PYTHON in cfg._resolve_verification_steps():
-        verify_step(model, cfg, "initial_python", need_parent=False)
-
     return model
 
 
+@verify_step(VerificationStepType.STREAMLINED_PYTHON)
 def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Run streamlining on given model. Streamlining involves moving floating point
     scale/shift parameters around, collapsing adjacent ones into a single parameter,
@@ -329,9 +366,6 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(absorb.AbsorbScalarMulAddIntoTopK())
     model = model.transform(InferDataLayouts())
     model = model.transform(RemoveUnusedTensors())
-
-    if VerificationStepType.STREAMLINED_PYTHON in cfg._resolve_verification_steps():
-        verify_step(model, cfg, "streamlined_python", need_parent=False)
 
     return model
 
@@ -376,20 +410,24 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
 
     parent_model = model.transform(
         CreateDataflowPartition(
-            partition_model_dir=cfg.output_dir + "/intermediate_models/supported_op_partitions"
+            partition_model_dir=cfg.output_dir + "/intermediate_models/supported_op_partitions",
         )
     )
     sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
     assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
-    sdp_node = sdp_nodes[0]
-    sdp_node = getCustomOp(sdp_node)
-    dataflow_model_filename = sdp_node.get_nodeattr("model")
-    if cfg.save_intermediate_models:
-        parent_model.save(cfg.output_dir + "/intermediate_models/dataflow_parent.onnx")
-    model = ModelWrapper(dataflow_model_filename)
+    return parent_model
+
+def step_make_distributed(model: ModelWrapper, cfg: DataflowBuildConfig):
+    model = model.transform(
+        MakeDistributed(cfg.synth_clk_period_ns, cfg.board, cfg.num_boards)
+    )
+
+    d_nodes = model.get_nodes_by_op_type("DistributedDataflow")
+    assert len(d_nodes) == 1, "Only a single DistributedDataflow node supported"
+
     return model
 
-
+@dataflow_partition_map
 def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfig):
     """If target_fps was specified, use the SetFolding transformation to determine
     parallelization attributes. The auto-generated config will be saved under
@@ -420,6 +458,7 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
     return model
 
 
+@dataflow_partition_map
 def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Apply the folding configuration file onto the model to set folding (parallelization)
     and other attributes, if config file is specified."""
@@ -428,15 +467,24 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(ApplyConfig(cfg.folding_config_file))
 
+    return model
+
+
+@verify_step(VerificationStepType.FOLDED_HLS_CPPSIM)
+@dataflow_partition_map
+def step_insert_accl_comms(model: ModelWrapper, cfg: DataflowBuildConfig):
+    model = model.transform(InsertACCL)
+
     if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
         # prepare cppsim
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))
-        verify_step(model, cfg, "folded_hls_cppsim", need_parent=True)
+
     return model
 
 
+@dataflow_partition_map
 def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig):
     "Generate per-layer resource and cycle estimates using analytical models."
 
@@ -472,6 +520,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
+@dataflow_partition_map
 def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Tighten the weight and accumulator bit widths for each layer."""
     if cfg.minimize_bit_width:
@@ -817,7 +866,6 @@ def step_deployment_package(model: ModelWrapper, cfg: DataflowBuildConfig):
         copy_tree(driver_dir, deploy_dir + "/driver")
     return model
 
-
 #: map step name strings to step functions
 build_dataflow_step_lookup = {
     "step_qonnx_to_finn": step_qonnx_to_finn,
@@ -825,6 +873,7 @@ build_dataflow_step_lookup = {
     "step_streamline": step_streamline,
     "step_convert_to_hls": step_convert_to_hls,
     "step_create_dataflow_partition": step_create_dataflow_partition,
+    "step_make_distributed": step_make_distributed,
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
     "step_minimize_bit_width": step_minimize_bit_width,

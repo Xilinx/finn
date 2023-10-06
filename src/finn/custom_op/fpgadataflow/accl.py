@@ -38,7 +38,7 @@ from IPython.core.debugger import set_trace
 import subprocess
 import os
 
-class AcclOp(HLSCustomOp):
+class ACCLOp(HLSCustomOp):
     def get_nodeattr_types(self):
         my_attrs = {
             "NumChannels": ("i", True, 0),
@@ -153,7 +153,7 @@ class AcclOp(HLSCustomOp):
     def verify_node(self):
         ...
 
-class AcclOut(AcclOp):
+class ACCLOut(ACCLOp):
     def get_instream_width(self, ind=0):
         return self.get_nodeattr("streamWidth")
 
@@ -245,7 +245,7 @@ class AcclOut(AcclOp):
     def blackboxfunction(self):
         pass
 
-class AcclIn(AcclOp):
+class ACCLIn(ACCLOp):
     def get_instream_width(self, ind=0):
         return self.get_nodeattr("intfWidth")
 
