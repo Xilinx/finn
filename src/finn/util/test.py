@@ -26,10 +26,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
+import importlib_resources as importlib
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
@@ -137,8 +136,9 @@ def get_example_input(topology):
         onnx_tensor = onnx.load_tensor_from_string(raw_i)
         return nph.to_array(onnx_tensor)
     elif topology == "cnv":
-        fn = pk.resource_filename("finn.qnn-data", "cifar10/cifar10-test-data-class3.npz")
-        input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+        ref = importlib.files("finn.qnn-data") / "cifar10/cifar10-test-data-class3.npz"
+        with importlib.as_file(ref) as fn:
+            input_tensor = np.load(fn)["arr_0"].astype(np.float32)
         return input_tensor
     else:
         raise Exception("Unknown topology, can't return example input")

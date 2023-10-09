@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
 import json
@@ -83,7 +81,7 @@ class CybSecMLPForExport(nn.Module):
 
 @pytest.mark.end2end
 def test_end2end_cybsec_mlp_export():
-    assets_dir = pk.resource_filename("finn.qnn-data", "cybsec-mlp/")
+    assets_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/cybsec-mlp"
     # load up trained net in Brevitas
     input_size = 593
     hidden1 = 64
