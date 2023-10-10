@@ -83,7 +83,6 @@ class StreamingDataflowPartition(CustomOp):
             for tname in ret.keys():
                 if tname not in [x.name for x in model.graph.output]:
                     context[node.name + "_" + tname] = ret[tname]
-        pass
 
     def verify_node(self):
         info_messages = []

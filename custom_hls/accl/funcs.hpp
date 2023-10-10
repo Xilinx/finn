@@ -1,3 +1,44 @@
+#include <iostream>
+#include <memory>
+
+#include <accl.hpp>
+#include <accl_network_utils.hpp>
+
+#include "cclo_bfm.h"
+
+std::unique_ptr<ACCL::ACCL> init_accl(
+    unsigned int world_size,
+    unsigned int rank,
+    unsigned int start_port
+) {
+    accl_network_utils::acclDesign design = accl_network_utils::acclDesign::AXIS3x;
+
+    std::vector<ACCL::rank_t> ranks;
+    ranks = accl_network_utils::generate_ranks(true, rank, world_size, start_port, 1);
+
+    return accl_network_utils::initialize_accl(ranks, rank, true, design);
+}
+
+std::unique_ptr<CCLO_BFM> init_cclo_and_wait_for_input(
+    unsigned int zmqport,
+    unsigned int rank,
+    unsigned int world_size,
+    const std::vector<unsigned int> &dest,
+    hlslib::Stream<command_word> &cmd_to_cclo,
+    hlslib::Stream<command_word> &sts_from_cclo,
+    hlslib::Stream<stream_word> &data_from_cclo,
+    hlslib::Stream<stream_word> &data_to_cclo
+) {
+    auto cclo = std::make_unique<CCLO_BFM>(zmqport, rank, world_size, dest,
+                    cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);
+    cclo->run();
+
+    std::string inp;
+    std::cin >> inp;
+
+    return cclo;
+}
+
 template<unsigned int accl_width, unsigned int stream_width, unsigned int count>
 void accl_out(
     unsigned int destination,
@@ -24,7 +65,9 @@ void accl_out(
     int num_bits = count * accl_width;
     int step = std::gcd(accl_width, stream_width);
 
-    for (int i = 0; i < num_bits - step + 1; num_bits += step) {
+    std::cerr << "accl_out starting to output data to rank " << destination << " (" << num_bits << " bits)" << std::endl;
+
+    for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % stream_width == 0) {
             stream_word = in.read();
         }
@@ -39,12 +82,16 @@ void accl_out(
         }
     }
 
+    std::cerr << "accl_out calling accl" << std::endl;
+
     accl.stream_put(num_bits / 32, 9, destination, 0);
+
+    std::cerr << "accl_out finished" << std::endl;
 }
 
 template<unsigned int accl_width, unsigned int stream_width, unsigned int count>
 void accl_in(
-    unsigned int destination,
+    unsigned int source,
     ap_uint<32> comm_adr,
     ap_uint<32> dpcfg_adr,
     STREAM<command_word> &cmd_to_cclo,
@@ -68,7 +115,9 @@ void accl_in(
     int num_bits = count * accl_width;
     int step = std::gcd(accl_width, stream_width);
 
-    for (int i = 0; i < num_bits - step + 1; num_bits += step) {
+    std::cerr << "accl_in start receiving data" << std::endl;
+
+    for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % accl_width == 0) {
             accl_word = data.pull().data;
         }
@@ -82,4 +131,6 @@ void accl_in(
             out.write(stream_word);
         }
     }
+
+    std::cerr << "accl_in finished" << std::endl;
 }

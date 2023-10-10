@@ -139,9 +139,11 @@ estimate_only_dataflow_steps = [
     "step_streamline",
     "step_convert_to_hls",
     "step_create_dataflow_partition",
-    "step_make_distributed",
+    "step_distribute_dataflow",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
+    "step_insert_accl",
+    "step_verify_with_cppsim",
     "step_minimize_bit_width",
     "step_generate_estimate_reports",
 ]

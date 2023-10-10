@@ -65,5 +65,5 @@ class CallHLS:
         f.write("cd {}\n".format(working_dir))
         f.close()
         bash_command = ["bash", self.ipgen_script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
-        process_compile.communicate()
+        process_compile = subprocess.run(bash_command)
+        # process_compile.communicate()

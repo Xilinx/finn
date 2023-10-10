@@ -88,7 +88,7 @@ from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_accl import InsertACCL
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.make_distributed import MakeDistributed
+from finn.transformation.fpgadataflow.distribute_dataflow import DistributeDataflow
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
@@ -197,12 +197,12 @@ def verify_model(
     print("Verification for %s : %s" % (step_name, res_to_str[all_res]))
 
 
-def dataflow_partition_map(step):
+def map_over_sdps(step):
     def f(model: ModelWrapper, cfg: DataflowBuildConfig):
         d_nodes = model.get_nodes_by_op_type("DistributedDataflow")
 
         if d_nodes:
-            assert len(d_nodes) == 1, "Only one distributed dataflow node is supported"
+            assert len(d_nodes) == 1, "More than one distributed dataflow node is supported"
             d_model_file = getCustomOp(d_nodes[0]).get_nodeattr("model")
             d_model = ModelWrapper(d_model_file)
             p_nodes = d_model.get_nodes_by_op_type("StreamingDataflowPartition")  
@@ -417,9 +417,9 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
     assert len(sdp_nodes) == 1, "Only a single StreamingDataflowPartition supported."
     return parent_model
 
-def step_make_distributed(model: ModelWrapper, cfg: DataflowBuildConfig):
+def step_distribute_dataflow(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(
-        MakeDistributed(cfg.synth_clk_period_ns, cfg.board, cfg.num_boards)
+        DistributeDataflow(cfg.synth_clk_period_ns, cfg.board, cfg.num_boards)
     )
 
     d_nodes = model.get_nodes_by_op_type("DistributedDataflow")
@@ -427,7 +427,8 @@ def step_make_distributed(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     return model
 
-@dataflow_partition_map
+
+@map_over_sdps
 def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfig):
     """If target_fps was specified, use the SetFolding transformation to determine
     parallelization attributes. The auto-generated config will be saved under
@@ -458,7 +459,7 @@ def step_target_fps_parallelization(model: ModelWrapper, cfg: DataflowBuildConfi
     return model
 
 
-@dataflow_partition_map
+@map_over_sdps
 def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Apply the folding configuration file onto the model to set folding (parallelization)
     and other attributes, if config file is specified."""
@@ -470,11 +471,48 @@ def step_apply_folding_config(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-@verify_step(VerificationStepType.FOLDED_HLS_CPPSIM)
-@dataflow_partition_map
-def step_insert_accl_comms(model: ModelWrapper, cfg: DataflowBuildConfig):
-    model = model.transform(InsertACCL)
+def step_insert_accl(model: ModelWrapper, cfg: DataflowBuildConfig):
+    distr_nodes = model.get_nodes_by_op_type("DistributedDataflow")
 
+    if len(distr_nodes) == 1:
+        distr_model_file = getCustomOp(distr_nodes[0]).get_nodeattr("model")
+        distr_model = ModelWrapper(distr_model_file)
+        sdp_nodes = distr_model.get_nodes_by_op_type("StreamingDataflowPartition")  
+
+        world_size = len(sdp_nodes)
+
+        for sdp_node in sdp_nodes:
+            sdp_inst = getCustomOp(sdp_node)
+            rank = sdp_inst.get_nodeattr("partition_id")
+
+            recv_from = None
+            send_to = None
+
+            preds = distr_model.find_direct_predecessors(sdp_node)
+            if preds:
+                assert len(preds) == 1, "Only one predecessor, successor supported for now"
+                inst = getCustomOp(preds[0])
+                recv_from = inst.get_nodeattr("partition_id")
+
+            succs = distr_model.find_direct_successors(sdp_node)
+            if succs:
+                assert len(succs) == 1, "Only one predecessor, successor supported for now"
+                inst = getCustomOp(succs[0])
+                send_to = inst.get_nodeattr("partition_id")
+
+            sdp_model_file = sdp_inst.get_nodeattr("model")
+            sdp_model = ModelWrapper(sdp_model_file)
+            sdp_model = sdp_model.transform(InsertACCL(world_size, rank, recv_from, send_to))
+            sdp_model.save(sdp_model_file)
+    elif len(d_nodes) > 1:
+        assert len(d_nodes) == 1, "There should only be one DistributedDataflow node"
+
+    return model
+
+
+@verify_step(VerificationStepType.FOLDED_HLS_CPPSIM)
+@map_over_sdps
+def step_verify_with_cppsim(model: ModelWrapper, cfg: DataflowBuildConfig):
     if VerificationStepType.FOLDED_HLS_CPPSIM in cfg._resolve_verification_steps():
         # prepare cppsim
         model = model.transform(PrepareCppSim())
@@ -484,7 +522,7 @@ def step_insert_accl_comms(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
-@dataflow_partition_map
+@map_over_sdps
 def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig):
     "Generate per-layer resource and cycle estimates using analytical models."
 
@@ -520,7 +558,7 @@ def step_generate_estimate_reports(model: ModelWrapper, cfg: DataflowBuildConfig
     return model
 
 
-@dataflow_partition_map
+@map_over_sdps
 def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Tighten the weight and accumulator bit widths for each layer."""
     if cfg.minimize_bit_width:
@@ -873,9 +911,11 @@ build_dataflow_step_lookup = {
     "step_streamline": step_streamline,
     "step_convert_to_hls": step_convert_to_hls,
     "step_create_dataflow_partition": step_create_dataflow_partition,
-    "step_make_distributed": step_make_distributed,
+    "step_distribute_dataflow": step_distribute_dataflow,
     "step_target_fps_parallelization": step_target_fps_parallelization,
     "step_apply_folding_config": step_apply_folding_config,
+    "step_insert_accl": step_insert_accl,
+    "step_verify_with_cppsim": step_verify_with_cppsim,
     "step_minimize_bit_width": step_minimize_bit_width,
     "step_generate_estimate_reports": step_generate_estimate_reports,
     "step_hls_codegen": step_hls_codegen,

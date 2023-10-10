@@ -35,10 +35,17 @@ from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import SortGraph
 from qonnx.util.basic import get_by_name
 
+from IPython.core.debugger import set_trace
 
 class InsertACCL(Transformation):
-    def __init__(self, max_intfwidth=512):
+    def __init__(self, world_size, rank, recv_from=None, send_to=None, max_intfwidth=512):
         self.max_intfwidth = 512
+
+        self.world_size = world_size
+        self.rank = rank
+        self.recv_from = recv_from
+        self.send_to = send_to
+
 
     def apply(self, model):
         modified = False
@@ -49,13 +56,7 @@ class InsertACCL(Transformation):
             for x in all_nodes
         )
 
-        world_size = int(model.get_metadata_prop("accl_world_size"))
-        rank = int(model.get_metadata_prop("accl_rank"))
-
-        insert_input = rank > 0
-        insert_output = rank < world_size - 1
-
-        if insert_input:
+        if self.recv_from is not None:
             graph_in_names = [x.name for x in model.graph.input]
             for graph_in_name in graph_in_names:
                 first_node = model.find_consumer(graph_in_name)
@@ -66,9 +67,7 @@ class InsertACCL(Transformation):
                     in_dtype = model.get_tensor_datatype(graph_in_name)
                     first_node_inst = getCustomOp(first_node)
                     in_folded_shape = first_node_inst.get_folded_input_shape()
-                    # take advantage of AXI stream width padding for DMA alignment
-                    # (AXI streams are always padded to 8 bits)
-                    # this is the width of stream output expected from the DMA
+
                     padded_instream_width = first_node_inst.get_instream_width_padded()
                     padded_instream_bytes = padded_instream_width // 8
                     # determine the feasible interface width
@@ -86,28 +85,26 @@ class InsertACCL(Transformation):
                     model.graph.value_info.append(first_node_in)
                     model.set_tensor_datatype(first_node_in.name, in_dtype)
                     # reroute first node input
-                    # FIXME: currently always using 8-bit dtypes to work around the
-                    # padding problems for i/o DMA
                     first_node.input[0] = first_node_in.name
 
                     accl_node = oh.make_node(
                         "ACCLIn",
                         [graph_in_name],
                         [first_node_in.name],
-                        numInputVectors=in_folded_shape[:-1],
+                        numInputVectors=in_shape[:-1],
                         NumChannels=padded_instream_bytes,
                         dataType="UINT8",
                         intfWidth=intfwidth,
                         streamWidth=padded_instream_width,
                         domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
-                        rank=rank,
-                        worldSize=world_size,
-                        otherRank=rank-1,
+                        rank=self.rank,
+                        worldSize=self.world_size,
+                        otherRank=self.recv_from,
                     )
                     model.graph.node.insert(0, accl_node)
                     modified = True
-        if insert_output:
+        if self.send_to:
             graph_out_names = [x.name for x in model.graph.output]
             for graph_out_name in graph_out_names:
                 final_node = model.find_producer(graph_out_name)
@@ -129,6 +126,7 @@ class InsertACCL(Transformation):
                     transfer_bits = padded_outstream_width * np.prod(
                         out_folded_shape[:-1]
                     )
+
                     intfwidth = math.gcd(transfer_bits, self.max_intfwidth)
                     assert (
                         intfwidth % 8 == 0
@@ -141,8 +139,7 @@ class InsertACCL(Transformation):
                     model.set_tensor_datatype(final_node_out.name, out_dtype)
                     # reroute final node output to final_node_out_name
                     final_node.output[0] = final_node_out.name
-                    # FIXME: currently always using 8-bit dtypes to work around the
-                    # padding problems for i/o DMA
+
                     dma_node = oh.make_node(
                         "ACCLOut",
                         [final_node_out.name],
@@ -154,9 +151,9 @@ class InsertACCL(Transformation):
                         streamWidth=padded_outstream_width,
                         domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
-                        rank=rank,
-                        worldSize=world_size,
-                        otherRank=rank+1,
+                        rank=self.rank,
+                        worldSize=self.world_size,
+                        otherRank=self.send_to,
                     )
                     model.graph.node.append(dma_node)
                     modified = True

@@ -1,3 +1,5 @@
+import numpy as np
+
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -8,7 +10,9 @@ from finn.util.basic import make_build_dir
 
 from finnexperimental.analysis.partitioning import partition
 
-class MakeDistributed(Transformation):
+from IPython.core.debugger import set_trace
+
+class DistributeDataflow(Transformation):
     def __init__(self, target_clk_ns, target_platform, ndevices):
         self.target_clk_ns = target_clk_ns
         self.target_platform = target_platform
@@ -24,21 +28,28 @@ class MakeDistributed(Transformation):
         child_node_inst = getCustomOp(child_node)
 
         child_model = ModelWrapper(child_node_inst.get_nodeattr("model"))
-        floorplan = partition(child_model, self.target_clk_ns, self.target_platform, self.ndevices)[0]
+
+        # TODO: assert that the child model only contains dataflow nodes
+
+        floorplans = partition(
+            child_model,
+            self.target_clk_ns,
+            self.target_platform,
+            self.ndevices,
+            # TODO: Make sure we are using multiple devices
+            abs_anchors=[(0, [3]), (1, [7])]
+        )
+
+        if floorplans is None:
+            raise Exception("Partitioning failed")
+
+        floorplan = floorplans[0]
 
         def assign_partition_id(node):
             if node.op_type in ["GenericPartition", "StreamingDataflowPartition"]:
                 return -1
-            else:
-                backend = get_by_name(node.attribute, "backend")
-                if backend is not None and backend.s.decode("UTF-8") == "fpgadataflow":
-                    assigned_partition = get_by_name(node.attribute, "partition_id")
-                    if assigned_partition is not None:
-                        return assigned_partition.i
-                    else:
-                        floorplan[node.name]["device_id"]
-                else:
-                    return -1
+
+            return floorplan[node.name]["device_id"]
 
         distr_model = child_model.transform(
             PartitionFromLambda(
@@ -47,7 +58,6 @@ class MakeDistributed(Transformation):
         )
 
         p_nodes = distr_model.get_nodes_by_op_type("GenericPartition")
-        print(floorplan)
 
         for partition_ind, p_node in enumerate(p_nodes):
             # done, change node type and add info in parent graph

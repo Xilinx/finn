@@ -29,6 +29,10 @@
 import math
 import numpy as np
 import warnings
+import time
+import threading
+from collections import defaultdict
+
 from qonnx.core.datatype import DataType
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
@@ -39,6 +43,8 @@ import subprocess
 import os
 
 class ACCLOp(HLSCustomOp):
+    barriers = defaultdict(lambda: threading.Barrier(2))
+
     def get_nodeattr_types(self):
         my_attrs = {
             "NumChannels": ("i", True, 0),
@@ -70,11 +76,41 @@ class ACCLOp(HLSCustomOp):
 
     def compile_singlenode_code(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
-        subprocess.run(["/usr/bin/cmake", f"{os.environ['FINN_ROOT']}/ACCL/test/model/bfm"],
-            cwd=code_gen_dir)
-        subprocess.run(["make"], cwd=code_gen_dir)
+
+        build_dir = f"{os.environ['FINN_ROOT']}/custom_hls/accl/build"
+        os.makedirs(build_dir, exist_ok=True)
+
+        subprocess.run([
+                "/usr/bin/cmake",
+                f"{os.environ['FINN_ROOT']}/custom_hls/accl",
+                f"-DCODE_GEN_DIR={code_gen_dir}",
+            ],
+            cwd=build_dir,
+            stdout=subprocess.PIPE,
+        )
+        subprocess.run(["make"], cwd=build_dir)
     
-        self.set_nodeattr("executable_path", code_gen_dir + "/bin/node_model")
+        self.set_nodeattr("executable_path", code_gen_dir + "/node_model")
+
+    def execute_kernel(self, edge_name):
+        executable_path = self.get_nodeattr("executable_path")
+        if executable_path == "":
+            raise Exception(
+                """
+Found no executable for this node, did you run the codegen and
+compilation transformations?
+            """
+            )
+
+        p = subprocess.Popen(executable_path, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
+
+        while b"CCLO BFM connected" not in p.stdout.readline():
+            time.sleep(0.001)
+
+        ACCLOp.barriers[edge_name].wait()
+
+        p.stdin.write(b"...")
+        p.communicate()
 
     def get_number_output_values(self):
         oshape = self.get_normal_output_shape()
@@ -121,7 +157,7 @@ class ACCLOp(HLSCustomOp):
         self.code_gen_dict["$GLOBALS$"] = [
             '#include <accl_hls.h>',
             '#include "cclo_bfm.h"',
-            '#include "accl_funcs.hpp"',
+            '#include "accl/funcs.hpp"',
         ]
 
     def pragmas(self):
@@ -144,7 +180,8 @@ class ACCLOp(HLSCustomOp):
             'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo"), data_to_cclo("data_to_cclo");',
             'hls::stream<ap_uint<{}>> stream;'.format(self.get_nodeattr("streamWidth")),
             'std::vector<unsigned int> dest{9};',
-            'CCLO_BFM cclo({}, {}, {}, dest, cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo); cclo.run();'.format(start_port, rank, world_size, dest),
+            'std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});'.format(world_size, rank, start_port),
+            'std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input({}, {}, {}, dest, cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);'.format(start_port, rank, world_size, dest),
         ]
 
     def defines(self, mode):
@@ -179,8 +216,14 @@ class ACCLOut(ACCLOp):
         stream_width = self.get_nodeattr("streamWidth")
         fold = self.get_folded_output_shape()[-1]
 
+        dest = self.get_nodeattr("otherRank")
+
+        comm_adr = 'accl->get_communicator_addr()'
+
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            'accl_out<{}, {}, {}>({}, {}, {}, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(intf_width, stream_width, fold, 0, 0, 0)
+            'auto dpcfg_adr = accl->get_arithmetic_config_addr({ACCL::dataType::int32, ACCL::dataType::int32});',
+            'accl_out<{}, {}, {}>({}, {}, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(intf_width, stream_width, fold, dest, comm_adr),
+            'cclo->stop();',
         ]
 
     def execute_node(self, context, graph):
@@ -202,7 +245,6 @@ class ACCLOut(ACCLOp):
         ), """Input datatype is
         not float32 as expected."""
         expected_inp_shape = self.get_folded_output_shape()
-        expected_inp_shape = (*expected_inp_shape[:-1], expected_inp_shape[-1] * self.get_input_datatype().bitwidth())
 
         reshaped_input = context[node.input[0]].reshape(expected_inp_shape)
         if self.get_input_datatype() == DataType["BIPOLAR"]:
@@ -218,7 +260,7 @@ class ACCLOut(ACCLOp):
             reshaped_input,
         )
 
-        super().exec_precompiled_singlenode_model()
+        self.execute_kernel(self.onnx_node.output[0])
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -271,8 +313,14 @@ class ACCLIn(ACCLOp):
         stream_width = self.get_nodeattr("streamWidth")
         fold = self.get_folded_input_shape()[-1]
 
+        source = self.get_nodeattr("otherRank")
+
+        comm_adr = 'accl->get_communicator_addr()'
+
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            'accl_in<{}, {}, {}>({}, {}, {}, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(intf_width, stream_width, fold, 0, 0, 0)
+            'auto dpcfg_adr = accl->get_arithmetic_config_addr({ACCL::dataType::int32, ACCL::dataType::int32});',
+            'accl_in<{}, {}, {}>({}, {}, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(intf_width, stream_width, fold, source, comm_adr),
+            'cclo->stop();',
         ]
 
     def execute_node(self, context, graph):
@@ -288,7 +336,8 @@ class ACCLIn(ACCLOp):
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
 
-        super().exec_precompiled_singlenode_model()
+        self.execute_kernel(self.onnx_node.input[0])
+
         super().npy_to_dynamic_output(context)
 
         if self.get_output_datatype() == DataType["BIPOLAR"]:
