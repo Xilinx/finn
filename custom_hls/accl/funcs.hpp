@@ -14,7 +14,8 @@ std::unique_ptr<ACCL::ACCL> init_accl(
     accl_network_utils::acclDesign design = accl_network_utils::acclDesign::AXIS3x;
 
     std::vector<ACCL::rank_t> ranks;
-    ranks = accl_network_utils::generate_ranks(true, rank, world_size, start_port, 1);
+    // TODO: Get the rxbuf size as a config parameter
+    ranks = accl_network_utils::generate_ranks(true, rank, world_size, start_port, 16 * 1024);
 
     return accl_network_utils::initialize_accl(ranks, rank, true, design);
 }
@@ -33,6 +34,8 @@ std::unique_ptr<CCLO_BFM> init_cclo_and_wait_for_input(
                     cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);
     cclo->run();
 
+    // Makeshift barrier
+    std::cout << "CCLO BFM started" << std::endl;
     std::string inp;
     std::cin >> inp;
 
@@ -84,7 +87,7 @@ void accl_out(
 
     std::cerr << "accl_out calling accl" << std::endl;
 
-    accl.stream_put(num_bits / 32, 9, destination, 0);
+    accl.stream_put(num_bits / 32, 9, destination, (ap_uint<64>)&accl_word);
 
     std::cerr << "accl_out finished" << std::endl;
 }
@@ -112,10 +115,10 @@ void accl_in(
     ap_uint<512> accl_word;
     ap_uint<stream_width> stream_word;
 
-    int num_bits = count * accl_width;
+    int num_bits = count * stream_width;
     int step = std::gcd(accl_width, stream_width);
 
-    std::cerr << "accl_in start receiving data" << std::endl;
+    std::cerr << "accl_in start receiving data (" << num_bits << " bits)" << std::endl;
 
     for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % accl_width == 0) {

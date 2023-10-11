@@ -122,10 +122,9 @@ RUN apt-get install -y \
     cmake \
     libjsoncpp-dev \
     libtclap-dev \
-    libopenmpi-dev \
     xvfb \
     libzmq3-dev \
-    libboost-test-dev
+    doxygen
 
 RUN git clone https://github.com/zeromq/zmqpp && \
     cd zmqpp && \

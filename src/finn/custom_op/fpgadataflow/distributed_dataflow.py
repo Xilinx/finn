@@ -150,7 +150,7 @@ class DistributedDataflow(CustomOp):
         emulator_dir = f"{os.environ['FINN_ROOT']}/ACCL/test/model/emulator"
 
         subprocess.run(["/usr/bin/cmake", "."], cwd=emulator_dir, stdout=subprocess.PIPE)
-        emulator = subprocess.Popen(["python3", "run.py", "-n 2"], cwd=emulator_dir)
+        emulator = subprocess.Popen(["python3", "run.py", "-n 2", "--no-kernel-loopback"], cwd=emulator_dir)
 
         ret = execute_distributed_onnx(model, inp_ctx, return_full_exec_context)
 

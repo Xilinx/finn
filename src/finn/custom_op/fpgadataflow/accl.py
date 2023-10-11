@@ -104,7 +104,7 @@ compilation transformations?
 
         p = subprocess.Popen(executable_path, stdout=subprocess.PIPE, stdin=subprocess.PIPE)
 
-        while b"CCLO BFM connected" not in p.stdout.readline():
+        while b"CCLO BFM started" not in p.stdout.readline():
             time.sleep(0.001)
 
         ACCLOp.barriers[edge_name].wait()
