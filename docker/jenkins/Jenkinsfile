@@ -797,14 +797,12 @@ void createTestScript(String board, String marker, String testResultsFilename) {
     sh """echo "#!/bin/bash
 . /opt/xilinx/xrt/setup.sh
 . ${CONDA_ENV_ACTIVATE}
-python hack_driver_script.py
 python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
     """
   else
     sh """echo "#!/bin/bash
 . /etc/profile.d/pynq_venv.sh
 . /etc/profile.d/xrt_setup.sh
-python hack_driver_script.py
 python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
     """
 
