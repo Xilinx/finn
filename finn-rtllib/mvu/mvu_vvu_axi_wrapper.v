@@ -32,7 +32,7 @@
  *****************************************************************************/
 
 module $MODULE_NAME_AXI_WRAPPER$ #(
-	parameter	IS_MVU = "$IS_MVU$",
+	parameter	IS_MVU = $IS_MVU$,
 	parameter	COMPUTE_CORE = "$COMPUTE_CORE$",
 	parameter	MW = $MW$,
 	parameter	MH = $MH$,
