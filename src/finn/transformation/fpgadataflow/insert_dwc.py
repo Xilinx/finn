@@ -7,7 +7,7 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 
 
 def _is_dwc_node(node):
-    if node.op_type == "StreamingDataWidthConverter_Batch":
+    if node.op_type in ["StreamingDataWidthConverter_Batch", "StreamingDataWidthConverter_ParallelWindow_Batch"]:
         return True
     else:
         return False
@@ -29,6 +29,12 @@ def _suitable_node(node):
     else:
         return False
 
+
+def _is_parallel_window_mode(producer, consumer):
+    if producer.get_nodeattr("parallel_window") == 1 and consumer.op_type in ["VectorVectorActivation", "VectorVectorActivation_rtl"]:
+        return True
+    else:
+        return False
 
 class InsertDWC(Transformation):
     """Add data width converters between layers where necessary."""
@@ -98,19 +104,40 @@ class InsertDWC(Transformation):
                                 dwc_shape,
                             )
                             graph.value_info.append(dwc_output_tensor)
-
-                            dwc_node = oh.make_node(
-                                "StreamingDataWidthConverter_Batch",
-                                [output_name],
-                                [dwc_output_tensor.name],
-                                domain="finn.custom_op.fpgadataflow",
-                                backend="fpgadataflow",
-                                shape=dwc_shape,
-                                inWidth=dwc_in_width,
-                                outWidth=dwc_out_width,
-                                dataType=str(dtype.name),
-                                impl_style=impl_style,
-                            )
+                            
+                            if _is_parallel_window_mode(n0, consumer):
+                                simd = n1.get_nodeattr("SIMD")
+                                pe = n1.get_nodeattr("PE")
+                                channels = n1.get_nodeattr("Channels")
+                                kernel = n1.get_nodeattr("Kernel")
+                                dwc_node = oh.make_node(
+                                    "StreamingDataWidthConverter_ParallelWindow_Batch",
+                                    [output_name],
+                                    [dwc_output_tensor.name],
+                                    domain="finn.custom_op.fpgadataflow",
+                                    backend="fpgadataflow",
+                                    shape=dwc_shape,
+                                    inWidth=dwc_in_width,
+                                    outWidth=dwc_out_width,
+                                    dataType=str(dtype.name),
+                                    SIMD=simd,
+                                    PE=pe,
+                                    Channels=channels,
+                                    Kernel=kernel,
+                                )
+                            else:    
+                                dwc_node = oh.make_node(
+                                    "StreamingDataWidthConverter_Batch",
+                                    [output_name],
+                                    [dwc_output_tensor.name],
+                                    domain="finn.custom_op.fpgadataflow",
+                                    backend="fpgadataflow",
+                                    shape=dwc_shape,
+                                    inWidth=dwc_in_width,
+                                    outWidth=dwc_out_width,
+                                    dataType=str(dtype.name),
+                                    impl_style=impl_style,
+                                )
                             # insert dwc
                             graph.node.insert(node_ind + 1, dwc_node)
 
