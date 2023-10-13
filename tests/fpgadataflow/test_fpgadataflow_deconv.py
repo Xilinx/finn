@@ -39,6 +39,10 @@ from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.convert_to_hls_layers import (
+    InferConvInpGen,
+    InferQuantizedMatrixVectorActivation,
+)
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -133,11 +137,13 @@ def set_up_reference_model(idt, wdt, k, idim, ifm_ch, ofm_ch, stride, padding):
 @pytest.mark.parametrize("k", [2, 4])
 # padding
 @pytest.mark.parametrize("padding", [0, 1])
+@pytest.mark.parametrize("idt", [DataType["INT4"], DataType["INT8"]])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding):
-    idt = wdt = DataType["INT4"]
+def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding, idt):
+    # idt = wdt = DataType["INT4"]
+    wdt = idt
     idim_h, idim_w = idim
     stride_h, stride_w = stride
 
@@ -157,6 +163,8 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding)
     input_dict_tr = {"global_in": input_tensor_tr}
 
     model = ref_model.transform(InferPixelPaddingDeconv(convinpgen_rtl))
+    model = model.transform(InferConvInpGen(use_rtl_variant=convinpgen_rtl))
+    model = model.transform(InferQuantizedMatrixVectorActivation())
     model = model.transform(InferShapes())
     model = model.transform(GiveUniqueNodeNames())
 
