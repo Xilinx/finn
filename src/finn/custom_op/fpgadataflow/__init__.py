@@ -57,12 +57,14 @@ from finn.custom_op.fpgadataflow.streamingdataflowpartition import (
 from finn.custom_op.fpgadataflow.streamingdatawidthconverter_batch import (
     StreamingDataWidthConverter_Batch,
 )
+from finn.custom_op.fpgadataflow.streamingdatawidthconverter_parallelwindow_batch import StreamingDataWidthConverter_ParallelWindow_Batch
 from finn.custom_op.fpgadataflow.streamingfifo import StreamingFIFO
 from finn.custom_op.fpgadataflow.streamingmaxpool_batch import StreamingMaxPool_Batch
 from finn.custom_op.fpgadataflow.thresholding_batch import Thresholding_Batch
 from finn.custom_op.fpgadataflow.tlastmarker import TLastMarker
 from finn.custom_op.fpgadataflow.upsampler import UpsampleNearestNeighbour_Batch
 from finn.custom_op.fpgadataflow.vectorvectoractivation import VectorVectorActivation
+from finn.custom_op.fpgadataflow.vectorvectoractivation_rtl import VectorVectorActivation_rtl
 
 custom_op = dict()
 
@@ -77,6 +79,7 @@ custom_op["ConvolutionInputGenerator1D"] = ConvolutionInputGenerator1D
 custom_op["ConvolutionInputGenerator_rtl"] = ConvolutionInputGenerator_rtl
 custom_op["TLastMarker"] = TLastMarker
 custom_op["StreamingDataWidthConverter_Batch"] = StreamingDataWidthConverter_Batch
+custom_op["StreamingDataWidthConverter_ParallelWindow_Batch"] = StreamingDataWidthConverter_ParallelWindow_Batch
 custom_op["StreamingFIFO"] = StreamingFIFO
 custom_op["GlobalAccPool_Batch"] = GlobalAccPool_Batch
 custom_op["Pool_Batch"] = Pool_Batch
@@ -86,6 +89,7 @@ custom_op["AddStreams_Batch"] = AddStreams_Batch
 custom_op["LabelSelect_Batch"] = LabelSelect_Batch
 custom_op["DuplicateStreams_Batch"] = DuplicateStreams_Batch
 custom_op["VectorVectorActivation"] = VectorVectorActivation
+custom_op["VectorVectorActivation_rtl"] = VectorVectorActivation_rtl
 custom_op["ChannelwiseOp_Batch"] = ChannelwiseOp_Batch
 custom_op["IODMA"] = IODMA
 custom_op["StreamingDataflowPartition"] = StreamingDataflowPartition
