@@ -34,6 +34,7 @@ import threading
 from collections import defaultdict
 
 from qonnx.core.datatype import DataType
+from qonnx.util.basic import roundup_to_integer_multiple
 
 from finn.custom_op.fpgadataflow.hlscustomop import HLSCustomOp
 
@@ -41,6 +42,8 @@ from IPython.core.debugger import set_trace
 
 import subprocess
 import os
+
+accl_word_size = 512
 
 class ACCLOp(HLSCustomOp):
     barriers = defaultdict(lambda: threading.Barrier(2))
@@ -50,12 +53,9 @@ class ACCLOp(HLSCustomOp):
             "NumChannels": ("i", True, 0),
             # FINN input datatype
             "dataType": ("s", True, ""),
-            # utilized width of accl words
-            "intfWidth": ("i", False, 32),
-            # Width of input or output stream
-            "streamWidth": ("i", False, 32),
             # shape describing input vecs per execution
             "numInputVectors": ("ints", False, [1]),
+            "usedBits": ("i", True, 0),
             # accl specific attrs
             "startPort": ("i", False, 5500),
             "rank": ("i", True, 0),
@@ -115,12 +115,12 @@ compilation transformations?
     def get_number_output_values(self):
         oshape = self.get_normal_output_shape()
         itype_bits = self.get_input_datatype().bitwidth()
-        stream_width = self.get_nodeattr("streamWidth")
+        stream_width = self.get_stream_width()
         nelems = np.prod(oshape)
         nbits = nelems * itype_bits
         assert (
             nbits % stream_width == 0
-        ), "DMA: total transfer size must be word multiple"
+        ), "ACCL: total transfer size must be word multiple"
         ovalues = nbits // stream_width
         return ovalues
 
@@ -152,6 +152,17 @@ compilation transformations?
         """Returns FINN DataType of output. (Same as input datatype)"""
         return self.get_input_datatype()
 
+    def get_folded_input_shape(self):
+        ich = self.get_nodeattr("NumChannels")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+
+        ich_bits = ich * self.get_input_datatype().bitwidth()
+        fold = int(math.ceil(ich_bits / accl_word_size))
+
+        return (*vecs, fold, ich)
+
+    def get_folded_output_shape(self):
+        return self.get_folded_input_shape()
 
     def global_includes(self):
         self.code_gen_dict["$GLOBALS$"] = [
@@ -169,6 +180,10 @@ compilation transformations?
             '#pragma HLS INTERFACE axis port=stream',
         ]
 
+    def get_stream_width(self):
+        tbits = self.get_input_datatype().bitwidth()
+        return tbits * self.get_nodeattr("NumChannels")
+
     def strm_decl(self):
         start_port = self.get_nodeattr("startPort")
         rank = self.get_nodeattr("rank")
@@ -178,7 +193,7 @@ compilation transformations?
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
             'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo"), sts_from_cclo("sts_from_cclo");',
             'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo"), data_to_cclo("data_to_cclo");',
-            'hls::stream<ap_uint<{}>> stream;'.format(self.get_nodeattr("streamWidth")),
+            'hls::stream<ap_uint<{}>> stream;'.format(self.get_stream_width()),
             'std::vector<unsigned int> dest{9};',
             'std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});'.format(world_size, rank, start_port),
             'std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input({}, {}, {}, dest, cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);'.format(start_port, rank, world_size, dest),
@@ -192,29 +207,17 @@ compilation transformations?
 
 class ACCLOut(ACCLOp):
     def get_instream_width(self, ind=0):
-        return self.get_nodeattr("streamWidth")
+        return self.get_stream_width()
 
     def get_outstream_width(self, ind=0):
-        return self.get_nodeattr("intfWidth")
-
-    def get_folded_output_shape(self, ind=0):
-        shape = list(self.get_normal_output_shape())
-        itype_bits = self.get_output_datatype().bitwidth()
-        intfw = self.get_nodeattr("streamWidth")
-        assert (
-            intfw % itype_bits == 0
-        ), "Input stream width must be a multiple of datatype bits"
-        elems_per_word = intfw // itype_bits
-        assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
-        fold_depth = shape[-1] // elems_per_word
-        shape[-1] = fold_depth
-        shape.append(elems_per_word)
-        return tuple(shape)
+        return accl_word_size
 
     def docompute(self):
-        intf_width = self.get_nodeattr("intfWidth")
-        stream_width = self.get_nodeattr("streamWidth")
-        fold = self.get_folded_output_shape()[-1]
+        stream_width = self.get_instream_width()
+
+        itype_bits = self.get_input_datatype().bitwidth()
+        shape = self.get_folded_output_shape()
+        num_bits = np.prod(shape) * itype_bits
 
         dest = self.get_nodeattr("otherRank")
 
@@ -222,7 +225,7 @@ class ACCLOut(ACCLOp):
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
             'auto dpcfg_adr = accl->get_arithmetic_config_addr({ACCL::dataType::int32, ACCL::dataType::int32});',
-            'accl_out<{}, {}, {}>({}, {}, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(intf_width, stream_width, fold, dest, comm_adr),
+            'accl_out<{}, {}>({}, {}, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(stream_width, num_bits, dest, comm_adr),
             'cclo->stop();',
         ]
 
@@ -272,6 +275,7 @@ class ACCLOut(ACCLOp):
         npy_type = "float"
         npy_in = "%s/input.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
+
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
             'npy2apintstream<%s, %s, %d, %s>("%s", stream, false);'
@@ -289,42 +293,33 @@ class ACCLOut(ACCLOp):
 
 class ACCLIn(ACCLOp):
     def get_instream_width(self, ind=0):
-        return self.get_nodeattr("intfWidth")
+        return accl_word_size
 
     def get_outstream_width(self, ind=0):
-        return self.get_nodeattr("streamWidth")
-
-    def get_folded_input_shape(self, ind=0):
-        shape = list(self.get_normal_input_shape())
-        itype_bits = self.get_input_datatype().bitwidth()
-        intfw = self.get_nodeattr("streamWidth")
-        assert (
-            intfw % itype_bits == 0
-        ), "Input stream width must be a multiple of datatype bits"
-        elems_per_word = intfw // itype_bits
-        assert shape[-1] % elems_per_word == 0, "Fold depth must be integer"
-        fold_depth = shape[-1] // elems_per_word
-        shape[-1] = fold_depth
-        shape.append(elems_per_word)
-        return tuple(shape)
+        return self.get_stream_width()
 
     def docompute(self):
-        intf_width = self.get_nodeattr("intfWidth")
-        stream_width = self.get_nodeattr("streamWidth")
-        fold = self.get_folded_input_shape()[-1]
+        stream_width = self.get_stream_width()
+
+        itype_bits = self.get_input_datatype().bitwidth()
+        shape = self.get_folded_output_shape()
+        num_bits = np.prod(shape) * itype_bits
 
         source = self.get_nodeattr("otherRank")
 
         comm_adr = 'accl->get_communicator_addr()'
+        # Just using int32s should be fine for now
+        arith_types = '{ACCL::dataType::int32, ACCL::dataType::int32}'
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            'auto dpcfg_adr = accl->get_arithmetic_config_addr({ACCL::dataType::int32, ACCL::dataType::int32});',
-            'accl_in<{}, {}, {}>({}, {}, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(intf_width, stream_width, fold, source, comm_adr),
+            'auto dpcfg_adr = accl->get_arithmetic_config_addr({});'.format(arith_types),
+            'accl_in<{}, {}>({}, {}, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(stream_width, num_bits, source, comm_adr),
             'cclo->stop();',
         ]
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
+        node = self.onnx_node
 
         if mode != "cppsim":
             raise Exception(
@@ -368,7 +363,7 @@ class ACCLIn(ACCLOp):
         elem_hls_type = dtype.get_hls_datatype_str()
         npy_type = "float"
         npy_out = "%s/output.npy" % code_gen_dir
-        shape = self.get_folded_input_shape()
+        shape = self.get_folded_output_shape()
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
@@ -380,7 +375,7 @@ class ACCLIn(ACCLOp):
                 npy_type,
                 shape_cpp_str,
                 npy_out,
-            )
+            ),
         ]
 
     def blackboxfunction(self):

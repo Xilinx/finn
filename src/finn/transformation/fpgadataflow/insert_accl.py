@@ -38,9 +38,7 @@ from qonnx.util.basic import get_by_name
 from IPython.core.debugger import set_trace
 
 class InsertACCL(Transformation):
-    def __init__(self, world_size, rank, recv_from=None, send_to=None, max_intfwidth=512):
-        self.max_intfwidth = 512
-
+    def __init__(self, world_size, rank, recv_from=None, send_to=None):
         self.world_size = world_size
         self.rank = rank
         self.recv_from = recv_from
@@ -65,23 +63,14 @@ class InsertACCL(Transformation):
                 else:
                     in_shape = model.get_tensor_shape(graph_in_name)
                     in_dtype = model.get_tensor_datatype(graph_in_name)
+
                     first_node_inst = getCustomOp(first_node)
                     in_folded_shape = first_node_inst.get_folded_input_shape()
 
-                    padded_instream_width = first_node_inst.get_instream_width_padded()
-                    padded_instream_bytes = padded_instream_width // 8
-                    # determine the feasible interface width
-                    transfer_bits = padded_instream_width * np.prod(
-                        in_folded_shape[:-1]
-                    )
                     # make new buffer
                     first_node_in = oh.make_tensor_value_info(
                         model.make_new_valueinfo_name(), TensorProto.FLOAT, in_shape
                     )
-                    intfwidth = math.gcd(transfer_bits, self.max_intfwidth)
-                    assert (
-                        intfwidth % 8 == 0
-                    ), "No feasible interface width for transfer size"
                     model.graph.value_info.append(first_node_in)
                     model.set_tensor_datatype(first_node_in.name, in_dtype)
                     # reroute first node input
@@ -91,11 +80,9 @@ class InsertACCL(Transformation):
                         "ACCLIn",
                         [graph_in_name],
                         [first_node_in.name],
-                        numInputVectors=in_shape[:-1],
-                        NumChannels=padded_instream_bytes,
-                        dataType="UINT8",
-                        intfWidth=intfwidth,
-                        streamWidth=padded_instream_width,
+                        numInputVectors=in_folded_shape[:-1],
+                        NumChannels=in_folded_shape[-1],
+                        dataType=str(in_dtype),
                         domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
                         rank=self.rank,
@@ -104,7 +91,7 @@ class InsertACCL(Transformation):
                     )
                     model.graph.node.insert(0, accl_node)
                     modified = True
-        if self.send_to:
+        if self.send_to is not None:
             graph_out_names = [x.name for x in model.graph.output]
             for graph_out_name in graph_out_names:
                 final_node = model.find_producer(graph_out_name)
@@ -113,24 +100,10 @@ class InsertACCL(Transformation):
                 else:
                     out_shape = model.get_tensor_shape(graph_out_name)
                     out_dtype = model.get_tensor_datatype(graph_out_name)
+
                     final_node_inst = getCustomOp(final_node)
                     out_folded_shape = final_node_inst.get_folded_output_shape()
-                    # take advantage of AXI stream width padding for DMA alignment
-                    # (AXI streams are always padded to 8 bits)
-                    # this is the width of stream input to DMA
-                    padded_outstream_width = (
-                        final_node_inst.get_outstream_width_padded()
-                    )
-                    padded_outstream_bytes = padded_outstream_width // 8
-                    # determine the feasible interface width
-                    transfer_bits = padded_outstream_width * np.prod(
-                        out_folded_shape[:-1]
-                    )
 
-                    intfwidth = math.gcd(transfer_bits, self.max_intfwidth)
-                    assert (
-                        intfwidth % 8 == 0
-                    ), "No feasible interface width for transfer size"
                     # make new buffer
                     final_node_out = oh.make_tensor_value_info(
                         model.make_new_valueinfo_name(), TensorProto.FLOAT, out_shape
@@ -145,10 +118,8 @@ class InsertACCL(Transformation):
                         [final_node_out.name],
                         [graph_out_name],
                         numInputVectors=out_folded_shape[:-1],
-                        NumChannels=padded_outstream_bytes,
-                        dataType="UINT8",
-                        intfWidth=intfwidth,
-                        streamWidth=padded_outstream_width,
+                        NumChannels=out_folded_shape[-1],
+                        dataType=str(out_dtype),
                         domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
                         rank=self.rank,

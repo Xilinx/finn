@@ -42,7 +42,9 @@ std::unique_ptr<CCLO_BFM> init_cclo_and_wait_for_input(
     return cclo;
 }
 
-template<unsigned int accl_width, unsigned int stream_width, unsigned int count>
+const size_t accl_width = 512;
+
+template<unsigned int stream_width, unsigned int num_bits>
 void accl_out(
     unsigned int destination,
     ap_uint<32> comm_adr,
@@ -62,13 +64,12 @@ void accl_out(
     accl_hls::ACCLCommand accl(cmd_to_cclo, sts_from_cclo, comm_adr, dpcfg_adr, 0, 3);
     accl_hls::ACCLData data(data_to_cclo, data_from_cclo);
 
-    ap_uint<512> accl_word;
+    ap_uint<accl_width> accl_word;
     ap_uint<stream_width> stream_word;
 
-    int num_bits = count * accl_width;
-    int step = std::gcd(accl_width, stream_width);
-
     std::cerr << "accl_out starting to output data to rank " << destination << " (" << num_bits << " bits)" << std::endl;
+
+    int step = std::gcd(accl_width, stream_width);
 
     for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % stream_width == 0) {
@@ -85,14 +86,20 @@ void accl_out(
         }
     }
 
-    std::cerr << "accl_out calling accl" << std::endl;
+    bool leftover = num_bits % accl_width != 0;
+    int num_transferred_bits = num_bits + leftover ? accl_width : 0;
 
-    accl.stream_put(num_bits / 32, 9, destination, (ap_uint<64>)&accl_word);
+    if (num_bits < num_transferred_bits) {
+        data.push(accl_word, 0);
+    }
+
+    std::cerr << "accl_out calling accl" << std::endl;
+    accl.stream_put(num_transferred_bits / 32, 9, destination, (ap_uint<64>)&accl_word);
 
     std::cerr << "accl_out finished" << std::endl;
 }
 
-template<unsigned int accl_width, unsigned int stream_width, unsigned int count>
+template<unsigned int stream_width, unsigned int num_bits>
 void accl_in(
     unsigned int source,
     ap_uint<32> comm_adr,
@@ -112,13 +119,12 @@ void accl_in(
     accl_hls::ACCLCommand accl(cmd_to_cclo, sts_from_cclo, comm_adr, dpcfg_adr, 0, 3);
     accl_hls::ACCLData data(data_to_cclo, data_from_cclo);
 
-    ap_uint<512> accl_word;
+    ap_uint<accl_width> accl_word;
     ap_uint<stream_width> stream_word;
 
-    int num_bits = count * stream_width;
-    int step = std::gcd(accl_width, stream_width);
+    std::cerr << "accl_in starting to receive data from rank " << source << " (" << num_bits << " bits)" << std::endl;
 
-    std::cerr << "accl_in start receiving data (" << num_bits << " bits)" << std::endl;
+    int step = std::gcd(accl_width, stream_width);
 
     for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % accl_width == 0) {
@@ -130,7 +136,8 @@ void accl_in(
         stream_word(i % stream_width, ni % stream_width) =
             accl_word(i % accl_width, ni % accl_width);
 
-        if (ni % accl_width == 0) {
+        if (ni % stream_width == 0) {
+            std::cerr << "accl_in writing to stream" << std::endl;
             out.write(stream_word);
         }
     }

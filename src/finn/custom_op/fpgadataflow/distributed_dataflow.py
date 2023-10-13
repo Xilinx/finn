@@ -1,27 +1,26 @@
 import os
 import subprocess
-import threading
-import time
+import psutil
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import qonnx.analysis.topology as ta
-import qonnx.core.execute_custom_node as ex_cu_node
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.core.onnx_exec import execute_node
 from qonnx.custom_op.base import CustomOp
 from qonnx.util.basic import (
-    get_preferred_onnx_opset,
     get_sanitize_quant_tensors,
-    is_finn_op,
-    qonnx_make_model,
     sanitize_quant_values,
 )
-from finn.core.onnx_exec import execute_onnx
 
-from IPython.core.debugger import set_trace
 
-def execute_distributed_onnx(model, input_dict, return_full_exec_context=False, start_node=None, end_node=None):
+def execute_distributed_onnx(
+    model,
+    input_dict,
+    return_full_exec_context=False,
+    start_node=None,
+    end_node=None
+):
     """Executes given ONNX ModelWrapper with given named inputs.
 
     If return_full_exec_context is False, a dict of named outputs is returned
@@ -90,22 +89,32 @@ def execute_distributed_onnx(model, input_dict, return_full_exec_context=False, 
         for node in subgraph:
             if get_sanitize_quant_tensors() != 0:
                 # round input values to match quantization annotation
-                execution_context = sanitize_quant_values(model, node.input, execution_context)
+                execution_context = sanitize_quant_values(
+                    model, node.input, execution_context)
 
         with ThreadPoolExecutor() as executor:
             futures = []
             for node in subgraph:
-                futures.append(executor.submit(execute_node, node, execution_context, graph, return_full_exec_context, opset_version))
+                futures.append(executor.submit(
+                    execute_node,
+                    node,
+                    execution_context,
+                    graph,
+                    return_full_exec_context,
+                    opset_version
+                ))
 
         for future in as_completed(futures):
             future.result()
-    
+
         for node in subgraph:
             if get_sanitize_quant_tensors() != 0:
                 # round output values to quantization annotation
-                execution_context = sanitize_quant_values(model, node.output, execution_context)
+                execution_context = sanitize_quant_values(
+                    model, node.output, execution_context)
     else:
-        raise Exception('Metadata property "exec_mode" is set to an unknown value.')
+        raise Exception(
+            'Metadata property "exec_mode" is set to an unknown value.')
 
     if return_full_exec_context:
         return execution_context
@@ -116,6 +125,7 @@ def execute_distributed_onnx(model, input_dict, return_full_exec_context=False, 
             out_name = out_tensor.name
             output_dict[out_name] = execution_context[out_name]
         return output_dict
+
 
 class DistributedDataflow(CustomOp):
     def get_nodeattr_types(self):
@@ -137,7 +147,8 @@ class DistributedDataflow(CustomOp):
 
     def execute_node(self, context, graph):
         model = ModelWrapper(self.get_nodeattr("model"))
-        return_full_exec_context = self.get_nodeattr("return_full_exec_context") == 1
+        return_full_exec_context = self.get_nodeattr(
+            "return_full_exec_context") == 1
         node = self.onnx_node
 
         inp_ctx = dict(filter(lambda x: x[0] in node.input, context.items()))
@@ -149,14 +160,18 @@ class DistributedDataflow(CustomOp):
 
         emulator_dir = f"{os.environ['FINN_ROOT']}/ACCL/test/model/emulator"
 
-        subprocess.run(["/usr/bin/cmake", "."], cwd=emulator_dir, stdout=subprocess.PIPE)
-        emulator = subprocess.Popen(["python3", "run.py", "-n 2", "--no-kernel-loopback"], cwd=emulator_dir)
+        subprocess.run(["/usr/bin/cmake", "."],
+                       cwd=emulator_dir, stdout=subprocess.PIPE)
+        emulator = subprocess.Popen(
+            ["python3", "run.py", "-n 2", "--no-kernel-loopback", "-l 1"], cwd=emulator_dir)
 
-        ret = execute_distributed_onnx(model, inp_ctx, return_full_exec_context)
+        ret = execute_distributed_onnx(
+            model, inp_ctx, return_full_exec_context)
 
+        parent_proc = psutil.Process(emulator.pid)
+        for child in parent_proc.children(recursive=True):
+            child.kill()
         emulator.kill()
-
-        out_thread.join() 
 
         for i, node_oname in enumerate(node.output):
             model_oname = model.graph.output[i].name
