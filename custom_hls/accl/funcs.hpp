@@ -52,14 +52,14 @@ void accl_out(
     STREAM<command_word> &cmd_to_cclo,
     STREAM<command_word> &sts_from_cclo,
     STREAM<stream_word> &data_to_cclo,
-    STREAM<stream_word> &data_from_cclo,
     hls::stream<ap_uint<stream_width>> &in
 ) {
     #pragma HLS INTERFACE axis port=cmd_to_cclo
     #pragma HLS INTERFACE axis port=sts_from_cclo
     #pragma HLS INTERFACE axis port=data_to_cclo
-    #pragma HLS INTERFACE axis port=data_from_cclo
     #pragma HLS INTERFACE axis port=in
+
+    STREAM<stream_word> data_from_cclo;
 
     accl_hls::ACCLCommand accl(cmd_to_cclo, sts_from_cclo, comm_adr, dpcfg_adr, 0, 3);
     accl_hls::ACCLData data(data_to_cclo, data_from_cclo);
@@ -76,12 +76,12 @@ void accl_out(
             stream_word = in.read();
         }
 
-        int ni = i + step;
+        int ni = i + step - 1;
 
-        accl_word(i % accl_width, ni % accl_width) =
-            stream_word(i % stream_width, ni % stream_width);
+        accl_word(ni % accl_width, i % accl_width) =
+            stream_word(ni % stream_width, i % stream_width);
 
-        if (ni % accl_width == 0) {
+        if ((ni + 1) % accl_width == 0) {
             data.push(accl_word, 0);
         }
     }
@@ -102,22 +102,11 @@ void accl_out(
 template<unsigned int stream_width, unsigned int num_bits>
 void accl_in(
     unsigned int source,
-    ap_uint<32> comm_adr,
-    ap_uint<32> dpcfg_adr,
-    STREAM<command_word> &cmd_to_cclo,
-    STREAM<command_word> &sts_from_cclo,
-    STREAM<stream_word> &data_to_cclo,
     STREAM<stream_word> &data_from_cclo,
     hls::stream<ap_uint<stream_width>> &out
 ) {
-    #pragma HLS INTERFACE axis port=cmd_to_cclo
-    #pragma HLS INTERFACE axis port=sts_from_cclo
-    #pragma HLS INTERFACE axis port=data_to_cclo
     #pragma HLS INTERFACE axis port=data_from_cclo
     #pragma HLS INTERFACE axis port=out
-
-    accl_hls::ACCLCommand accl(cmd_to_cclo, sts_from_cclo, comm_adr, dpcfg_adr, 0, 3);
-    accl_hls::ACCLData data(data_to_cclo, data_from_cclo);
 
     ap_uint<accl_width> accl_word;
     ap_uint<stream_width> stream_word;
@@ -128,15 +117,15 @@ void accl_in(
 
     for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % accl_width == 0) {
-            accl_word = data.pull().data;
+            accl_word = data_from_cclo.read().data;
         }
 
-        int ni = i + step;
+        int ni = i + step - 1;
 
-        stream_word(i % stream_width, ni % stream_width) =
-            accl_word(i % accl_width, ni % accl_width);
+        stream_word(ni % stream_width, i % stream_width) =
+            accl_word(ni % accl_width, i % accl_width);
 
-        if (ni % stream_width == 0) {
+        if ((ni + 1) % stream_width == 0) {
             std::cerr << "accl_in writing to stream" << std::endl;
             out.write(stream_word);
         }

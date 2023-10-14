@@ -197,6 +197,8 @@ compilation transformations?
             'std::vector<unsigned int> dest{9};',
             'std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});'.format(world_size, rank, start_port),
             'std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input({}, {}, {}, dest, cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);'.format(start_port, rank, world_size, dest),
+            'ap_uint<32> comm_adr = accl->get_communicator_addr();',
+            'ap_uint<32> dpcfg_adr = accl->get_arithmetic_config_addr({ACCL::dataType::int32, ACCL::dataType::int32});',
         ]
 
     def defines(self, mode):
@@ -210,7 +212,7 @@ class ACCLOut(ACCLOp):
         return self.get_stream_width()
 
     def get_outstream_width(self, ind=0):
-        return accl_word_size
+        return accl_width
 
     def docompute(self):
         stream_width = self.get_instream_width()
@@ -221,11 +223,8 @@ class ACCLOut(ACCLOp):
 
         dest = self.get_nodeattr("otherRank")
 
-        comm_adr = 'accl->get_communicator_addr()'
-
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            'auto dpcfg_adr = accl->get_arithmetic_config_addr({ACCL::dataType::int32, ACCL::dataType::int32});',
-            'accl_out<{}, {}>({}, {}, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(stream_width, num_bits, dest, comm_adr),
+            'accl_out<{}, {}>({}, comm_adr, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, stream);'.format(stream_width, num_bits, dest),
             'cclo->stop();',
         ]
 
@@ -292,8 +291,8 @@ class ACCLOut(ACCLOp):
         pass
 
 class ACCLIn(ACCLOp):
-    def get_instream_width(self, ind=0):
-        return accl_word_size
+    def get_outstream_width(self, ind=0):
+        return accl_width
 
     def get_outstream_width(self, ind=0):
         return self.get_stream_width()
@@ -307,13 +306,8 @@ class ACCLIn(ACCLOp):
 
         source = self.get_nodeattr("otherRank")
 
-        comm_adr = 'accl->get_communicator_addr()'
-        # Just using int32s should be fine for now
-        arith_types = '{ACCL::dataType::int32, ACCL::dataType::int32}'
-
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            'auto dpcfg_adr = accl->get_arithmetic_config_addr({});'.format(arith_types),
-            'accl_in<{}, {}>({}, {}, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, data_from_cclo, stream);'.format(stream_width, num_bits, source, comm_adr),
+            'accl_in<{}, {}>({}, data_from_cclo, stream);'.format(stream_width, num_bits, source),
             'cclo->stop();',
         ]
 

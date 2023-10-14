@@ -171,6 +171,8 @@ def verify_model(
             print("Attempting to force model shape on verification output")
             out_npy = out_npy.reshape(exp_oshape)
 
+        print(out_npy, exp_out_npy)
+
         res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
         all_res = all_res and res
         res_to_str = {True: "SUCCESS", False: "FAIL"}
