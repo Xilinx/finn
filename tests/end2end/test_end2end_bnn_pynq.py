@@ -330,7 +330,7 @@ def deploy_based_on_board(model, model_title, topology, wbits, abits, board):
     # The FC models contain a Reshape node, which FINN uses, so we therefore have to
     # reshape the input tensor data to match the reshaping in the model
     if topology == "cnv":
-        input_tensor_npy = input_tensor_npy.transpose(0, 3, 2, 1)
+        input_tensor_npy = input_tensor_npy.transpose(0, 2, 3, 1)
     else:
         input_shape = input_tensor_npy.shape
         new_input_shape = (input_shape[0], np.prod(input_shape[1:]))
