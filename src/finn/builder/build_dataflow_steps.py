@@ -251,7 +251,6 @@ def verify_step(step_type):
 
     return decorator
 
-
 def prepare_for_stitched_ip_rtlsim(verify_model, cfg):
     if not cfg.rtlsim_use_vivado_comps:
         need_restitch = False
@@ -370,7 +369,6 @@ def step_streamline(model: ModelWrapper, cfg: DataflowBuildConfig):
     model = model.transform(RemoveUnusedTensors())
 
     return model
-
 
 def step_convert_to_hls(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Convert eligible nodes to `HLSCustomOp` subclasses that represent HLS
@@ -505,9 +503,12 @@ def step_insert_accl(model: ModelWrapper, cfg: DataflowBuildConfig):
             sdp_model_file = sdp_inst.get_nodeattr("model")
             sdp_model = ModelWrapper(sdp_model_file)
             sdp_model = sdp_model.transform(InsertACCL(world_size, rank, recv_from, send_to))
+            sdp_model = sdp_model.transform(GiveUniqueNodeNames())
             sdp_model.save(sdp_model_file)
     elif len(d_nodes) > 1:
         assert len(d_nodes) == 1, "There should only be one DistributedDataflow node"
+
+    model = model.transform(GiveUniqueNodeNames())
 
     return model
 
@@ -571,6 +572,7 @@ def step_minimize_bit_width(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+@map_over_sdps
 def step_hls_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     "Generate Vivado HLS code to prepare HLSCustomOp nodes for IP generation."
 
@@ -578,6 +580,7 @@ def step_hls_codegen(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+@map_over_sdps
 def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Run Vivado HLS synthesis on generated code for HLSCustomOp nodes,
     in order to generate IP blocks."""
@@ -592,6 +595,7 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+@map_over_sdps
 def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     """
     Depending on the auto_fifo_depths setting, do one of the following:
@@ -690,6 +694,7 @@ def step_set_fifo_depths(model: ModelWrapper, cfg: DataflowBuildConfig):
     return model
 
 
+@map_over_sdps
 def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Create stitched IP for a graph after all HLS IP blocks have been generated.
     Depends on the DataflowOutputType.STITCHED_IP output product."""

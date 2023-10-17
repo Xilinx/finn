@@ -36,7 +36,7 @@ class DistributeDataflow(Transformation):
             self.target_clk_ns,
             self.target_platform,
             self.ndevices,
-            # TODO: Make sure we are using multiple devices
+            # TODO: Remove this after testing
             abs_anchors=[(0, [3]), (1, [7])]
         )
 
@@ -68,10 +68,12 @@ class DistributeDataflow(Transformation):
 
         child_node.op_type = "DistributedDataflow"
         new_child_node_inst = getCustomOp(child_node)
-        new_child_node_inst.set_nodeattr("world_size", len(p_nodes))
+
+        distr_model.set_metadata_prop("world_size", str(len(p_nodes)))
 
         distr_model_file = self.partition_model_dir + "/distributed_dataflow.onnx"
         distr_model.save(distr_model_file)
+
         new_child_node_inst.set_nodeattr("model", distr_model_file)
 
         return (model, False)

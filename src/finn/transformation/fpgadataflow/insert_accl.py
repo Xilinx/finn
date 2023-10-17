@@ -128,6 +128,7 @@ class InsertACCL(Transformation):
                     )
                     model.graph.node.append(dma_node)
                     modified = True
+
         if modified:
             model = model.transform(SortGraph())
         return (model, modified)

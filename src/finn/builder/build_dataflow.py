@@ -162,6 +162,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
             sys.stderr = stderr_orig
             time_per_step[step_name] = step_end - step_start
             chkpt_name = "%s.onnx" % (step_name)
+            # TODO: Make this work in the distributed setting
             if cfg.save_intermediate_models:
                 intermediate_model_dir = cfg.output_dir + "/intermediate_models"
                 if not os.path.exists(intermediate_model_dir):

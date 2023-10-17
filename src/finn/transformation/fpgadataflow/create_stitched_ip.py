@@ -48,7 +48,7 @@ from finn.util.fpgadataflow import is_fpgadataflow_node
 def is_external_input(model, node, i):
     # indicate whether input i of node should be made external
     # True only if input is unconnected and has no initializer
-    # Only esception is second input of FC layers when mem_mode is external
+    # Only exception is second input of FC layers when mem_mode is external
     node_inst = getCustomOp(node)
     producer = model.find_producer(node.input[i])
     if producer is None:
@@ -286,9 +286,9 @@ class CreateStitchedIP(Transformation):
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         if self.signature:
             ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/axi_info")
-        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA"]:
+        if model.graph.node[0].op_type not in ["StreamingFIFO", "IODMA", "ACCLIn"]:
             warnings.warn(
-                """First node is not StreamingFIFO or IODMA.
+                """First node is not StreamingFIFO, IODMA or ACCLIn.
                 You may experience incorrect stitched-IP rtlsim or hardware
                 behavior. It is strongly recommended to insert FIFOs prior to
                 calling CreateStitchedIP."""

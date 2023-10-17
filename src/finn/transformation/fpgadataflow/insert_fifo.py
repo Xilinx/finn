@@ -181,8 +181,8 @@ class InsertFIFO(Transformation):
             graph_in_names = [x.name for x in model.graph.input]
             for graph_in_name in graph_in_names:
                 first_node = model.find_consumer(graph_in_name)
-                # insert FIFO as first node, except when first node is DMA
-                if first_node.op_type != "StreamingFIFO" and first_node.op_type != "IODMA":
+                # insert FIFO as first node, except when first node is DMA, ACCL
+                if first_node.op_type not in ["StreamingFIFO", "IODMA", "ACCLIn"]:
                     inp_ind = list(first_node.input).index(graph_in_name)
                     n_input = first_node.input[inp_ind]
                     n0 = getCustomOp(first_node)
@@ -230,11 +230,11 @@ class InsertFIFO(Transformation):
                             % (graph_in_name, fifo_depth)
                         )
 
-            # insert FIFO as last node, except when last node is DMA
+            # insert FIFO as last node, except when last node is DMA, ACCL
             graph_out_names = [x.name for x in model.graph.output]
             for graph_out_name in graph_out_names:
                 final_node = model.find_producer(graph_out_name)
-                if final_node.op_type != "StreamingFIFO" and final_node.op_type != "IODMA":
+                if final_node.op_type not in ["StreamingFIFO", "IODMA", "ACCLOut"]:
                     assert (
                         final_node.op_type != "TLastMarker"
                     ), """Insert tlast marker should be done

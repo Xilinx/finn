@@ -48,6 +48,9 @@ accl_word_size = 512
 class ACCLOp(HLSCustomOp):
     barriers = defaultdict(lambda: threading.Barrier(2))
 
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
+
     def get_nodeattr_types(self):
         my_attrs = {
             "NumChannels": ("i", True, 0),
@@ -55,7 +58,6 @@ class ACCLOp(HLSCustomOp):
             "dataType": ("s", True, ""),
             # shape describing input vecs per execution
             "numInputVectors": ("ints", False, [1]),
-            "usedBits": ("i", True, 0),
             # accl specific attrs
             "startPort": ("i", False, 5500),
             "rank": ("i", True, 0),
@@ -152,57 +154,31 @@ compilation transformations?
         """Returns FINN DataType of output. (Same as input datatype)"""
         return self.get_input_datatype()
 
-    def get_folded_input_shape(self):
-        ich = self.get_nodeattr("NumChannels")
-        vecs = list(self.get_nodeattr("numInputVectors"))
-
-        ich_bits = ich * self.get_input_datatype().bitwidth()
-        fold = int(math.ceil(ich_bits / accl_word_size))
-
-        return (*vecs, fold, ich)
-
-    def get_folded_output_shape(self):
-        return self.get_folded_input_shape()
-
     def global_includes(self):
-        self.code_gen_dict["$GLOBALS$"] = [
-            '#include <accl_hls.h>',
-            '#include "cclo_bfm.h"',
-            '#include "accl/funcs.hpp"',
-        ]
+        self.code_gen_dict["$GLOBALS$"] = []
 
-    def pragmas(self):
-        self.code_gen_dict["$PRAGMAS$"] = [
-            '#pragma HLS INTERFACE axis port=cmd_to_cclo',
-            '#pragma HLS INTERFACE axis port=sts_from_cclo',
-            '#pragma HLS INTERFACE axis port=data_to_cclo',
-            '#pragma HLS INTERFACE axis port=data_from_cclo',
-            '#pragma HLS INTERFACE axis port=stream',
+    def defines(self, mode):
+        # Do the includes here as well as they have dependencies on the defines
+        self.code_gen_dict["$DEFINES$"] = []
+        if mode == 'cppsim':
+            self.code_gen_dict["$DEFINES$"] += [
+                "#define CPPSIM",
+                '#include "cclo_bfm.h"',
+                '#include "accl/sim.hpp"',
+            ]
+        elif mode == 'ipgen':
+            self.code_gen_dict["$DEFINES$"] += [
+                '#define ACCL_SYNTHESIS',
+            ]
+
+        self.code_gen_dict["$DEFINES$"] += [
+            '#include <accl_hls.h>',
+            '#include "accl/funcs.hpp"',
         ]
 
     def get_stream_width(self):
         tbits = self.get_input_datatype().bitwidth()
         return tbits * self.get_nodeattr("NumChannels")
-
-    def strm_decl(self):
-        start_port = self.get_nodeattr("startPort")
-        rank = self.get_nodeattr("rank")
-        world_size = self.get_nodeattr("worldSize")
-        dest = self.get_nodeattr("worldSize")
-
-        self.code_gen_dict["$STREAMDECLARATIONS$"] = [
-            'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo"), sts_from_cclo("sts_from_cclo");',
-            'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo"), data_to_cclo("data_to_cclo");',
-            'hls::stream<ap_uint<{}>> stream;'.format(self.get_stream_width()),
-            'std::vector<unsigned int> dest{9};',
-            'std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});'.format(world_size, rank, start_port),
-            'std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input({}, {}, {}, dest, cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);'.format(start_port, rank, world_size, dest),
-            'ap_uint<32> comm_adr = accl->get_communicator_addr();',
-            'ap_uint<32> dpcfg_adr = accl->get_arithmetic_config_addr({ACCL::dataType::int32, ACCL::dataType::int32});',
-        ]
-
-    def defines(self, mode):
-        self.code_gen_dict["$DEFINES$"] = ['']
 
     def verify_node(self):
         ...
@@ -212,20 +188,72 @@ class ACCLOut(ACCLOp):
         return self.get_stream_width()
 
     def get_outstream_width(self, ind=0):
-        return accl_width
+        return accl_word_size
+
+    def get_folded_input_shape(self, ind=0):
+        ich = self.get_nodeattr("NumChannels")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+
+        ich_bits = ich * self.get_input_datatype().bitwidth()
+        fold = int(math.ceil(ich_bits / accl_word_size))
+
+        return (*vecs, fold, ich)
+
+    def get_folded_output_shape(self, ind=0):
+        ich = self.get_nodeattr("NumChannels")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+
+        num_bits = np.prod(vecs) * ich * self.get_input_datatype().bitwidth()
+        fold = int(math.ceil(num_bits / accl_word_size))
+
+        return (fold, 1)
+
+    def pragmas(self):
+        self.code_gen_dict["$PRAGMAS$"] = [
+            '#pragma HLS INTERFACE axis port=cmd_to_cclo',
+            '#pragma HLS INTERFACE axis port=sts_from_cclo',
+            '#pragma HLS INTERFACE axis port=data_to_cclo',
+            '#pragma HLS INTERFACE axis port=in0_{}'.format(self.hls_sname()),
+        ]
+
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+
+    def strm_decl(self):
+        start_port = self.get_nodeattr("startPort")
+        rank = self.get_nodeattr("rank")
+        world_size = self.get_nodeattr("worldSize")
+
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = [
+            'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo"), sts_from_cclo("sts_from_cclo");',
+            'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo"), data_to_cclo("data_to_cclo");',
+            'hls::stream<ap_uint<{}>> in0_{};'.format(self.get_stream_width(), self.hls_sname()),
+            'std::unique_ptr<ACCL::ACCL> accl = init_accl({}, {}, {});'.format(world_size, rank, start_port),
+            'std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input({}, {}, {}, cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);'.format(start_port, rank, world_size),
+            'ap_uint<32> comm_adr = accl->get_communicator_addr();',
+            'ap_uint<32> dpcfg_adr = accl->get_arithmetic_config_addr({ACCL::dataType::int32, ACCL::dataType::int32});',
+        ]
 
     def docompute(self):
         stream_width = self.get_instream_width()
 
         itype_bits = self.get_input_datatype().bitwidth()
-        shape = self.get_folded_output_shape()
+        shape = self.get_folded_input_shape()
         num_bits = np.prod(shape) * itype_bits
+
+        step = math.gcd(stream_width, accl_word_size)
 
         dest = self.get_nodeattr("otherRank")
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            'accl_out<{}, {}>({}, comm_adr, dpcfg_adr, cmd_to_cclo, sts_from_cclo, data_to_cclo, stream);'.format(stream_width, num_bits, dest),
-            'cclo->stop();',
+            '''accl_out<{}, {}, {}>(
+                {},
+                comm_adr,
+                dpcfg_adr,
+                cmd_to_cclo,
+                sts_from_cclo,
+                data_to_cclo,
+                in0_{}
+            );'''.format(stream_width, num_bits, step, dest, self.hls_sname()),
         ]
 
     def execute_node(self, context, graph):
@@ -246,7 +274,7 @@ class ACCLOut(ACCLOp):
             str(context[node.input[0]].dtype) == "float32"
         ), """Input datatype is
         not float32 as expected."""
-        expected_inp_shape = self.get_folded_output_shape()
+        expected_inp_shape = self.get_folded_input_shape()
 
         reshaped_input = context[node.input[0]].reshape(expected_inp_shape)
         if self.get_input_datatype() == DataType["BIPOLAR"]:
@@ -277,8 +305,8 @@ class ACCLOut(ACCLOp):
 
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", stream, false);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in, self.hls_sname())
         )
 
     def save_as_npy(self):
@@ -288,14 +316,86 @@ class ACCLOut(ACCLOp):
         self.code_gen_dict["$DATAOUTSTREAM$"] = ['']
 
     def blackboxfunction(self):
-        pass
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            '''void {}(
+                STREAM<command_word> &cmd_to_cclo,
+                STREAM<command_word> &sts_from_cclo,
+                STREAM<stream_word> &data_to_cclo,
+                ap_uint<32> comm_adr,
+                ap_uint<32> dpcfg_adr,
+                hls::stream<ap_uint<{}>> &in0_{}
+            )'''
+            .format(
+                self.onnx_node.name,
+                self.get_instream_width(),
+                self.hls_sname()
+            )
+        ]
+
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+
+        intf_names["m_axis"] = [("data_to_cclo", accl_word_size), ("cmd_to_cclo", 32)]
+        intf_names["s_axis"].append(("sts_from_cclo", 32))
+
+        return intf_names
+
+    def code_generation_ipi(self):
+        cmd = super().code_generation_ipi()
+        cmd += [
+            'make_bd_intf_pins_external [get_bd_intf_pins {}/{}]'.format(
+                self.onnx_node.name,
+                pin_name
+            )
+            for pin_name in ["cmd_to_cclo", "sts_from_cclo"]
+        ]
+        return cmd
+
 
 class ACCLIn(ACCLOp):
-    def get_outstream_width(self, ind=0):
-        return accl_width
+    def get_instream_width(self, ind=0):
+        return accl_word_size
 
     def get_outstream_width(self, ind=0):
         return self.get_stream_width()
+
+    def get_folded_input_shape(self, ind=0):
+        ich = self.get_nodeattr("NumChannels")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+
+        num_bits = np.prod(vecs) * ich * self.get_input_datatype().bitwidth()
+        fold = int(math.ceil(num_bits / accl_word_size))
+
+        return (fold, 1)
+
+    def get_folded_output_shape(self, ind=0):
+        ich = self.get_nodeattr("NumChannels")
+        vecs = list(self.get_nodeattr("numInputVectors"))
+
+        ich_bits = ich * self.get_input_datatype().bitwidth()
+        fold = int(math.ceil(ich_bits / accl_word_size))
+
+        return (*vecs, fold, ich)
+
+    def pragmas(self):
+        self.code_gen_dict["$PRAGMAS$"] = [
+            '#pragma HLS INTERFACE axis port=data_from_cclo',
+            '#pragma HLS INTERFACE axis port=out_{}'.format(self.hls_sname()),
+        ]
+
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+
+    def strm_decl(self):
+        start_port = self.get_nodeattr("startPort")
+        rank = self.get_nodeattr("rank")
+        world_size = self.get_nodeattr("worldSize")
+
+        self.code_gen_dict["$STREAMDECLARATIONS$"] = [
+            'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo"), sts_from_cclo("sts_from_cclo");',
+            'hlslib::Stream<stream_word, 512> data_from_cclo("data_from_cclo"), data_to_cclo("data_to_cclo");',
+            'hls::stream<ap_uint<{}>> out_{};'.format(self.get_stream_width(), self.hls_sname()),
+            'std::unique_ptr<CCLO_BFM> cclo = init_cclo_and_wait_for_input({}, {}, {}, cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);'.format(start_port, rank, world_size),
+        ]
 
     def docompute(self):
         stream_width = self.get_stream_width()
@@ -304,11 +404,18 @@ class ACCLIn(ACCLOp):
         shape = self.get_folded_output_shape()
         num_bits = np.prod(shape) * itype_bits
 
+        step = math.gcd(stream_width, accl_word_size)
+
         source = self.get_nodeattr("otherRank")
 
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            'accl_in<{}, {}>({}, data_from_cclo, stream);'.format(stream_width, num_bits, source),
-            'cclo->stop();',
+            'accl_in<{}, {}, {}>({}, data_from_cclo, out_{});'.format(
+                stream_width,
+                num_bits,
+                step,
+                source,
+                self.hls_sname()
+            ),
         ]
 
     def execute_node(self, context, graph):
@@ -361,17 +468,31 @@ class ACCLIn(ACCLOp):
         shape_cpp_str = str(shape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(stream, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             ),
         ]
 
     def blackboxfunction(self):
-        pass
+        self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
+            'void {}(STREAM<stream_word> &data_from_cclo, hls::stream<ap_uint<{}>> &out_{})'
+            .format(
+                self.onnx_node.name,
+                self.get_outstream_width(),
+                self.hls_sname()
+            )
+        ]
 
+    def get_verilog_top_module_intf_names(self):
+        intf_names = super().get_verilog_top_module_intf_names()
+
+        intf_names["s_axis"] = [("data_from_cclo", accl_word_size)]
+
+        return intf_names

@@ -162,16 +162,23 @@ class DistributedDataflow(CustomOp):
 
         subprocess.run(["/usr/bin/cmake", "."],
                        cwd=emulator_dir, stdout=subprocess.PIPE)
-        emulator = subprocess.Popen(
-            ["python3", "run.py", "-n 2", "--no-kernel-loopback", "-l 1"], cwd=emulator_dir)
 
-        ret = execute_distributed_onnx(
-            model, inp_ctx, return_full_exec_context)
+        world_size = int(model.get_metadata_prop("world_size"))
 
-        parent_proc = psutil.Process(emulator.pid)
-        for child in parent_proc.children(recursive=True):
-            child.kill()
-        emulator.kill()
+        emulator = subprocess.Popen([
+            "python3",
+            "run.py",
+            f"-n {world_size}",
+            "--no-kernel-loopback"
+        ], cwd=emulator_dir)
+
+        try:
+            ret = execute_distributed_onnx(model, inp_ctx, return_full_exec_context)
+        finally:
+            parent_proc = psutil.Process(emulator.pid)
+            for child in parent_proc.children(recursive=True):
+                child.kill()
+            emulator.kill()
 
         for i, node_oname in enumerate(node.output):
             model_oname = model.graph.output[i].name
@@ -181,3 +188,4 @@ class DistributedDataflow(CustomOp):
             for tname in ret.keys():
                 if tname not in [x.name for x in model.graph.output]:
                     context[node.name + "_" + tname] = ret[tname]
+
