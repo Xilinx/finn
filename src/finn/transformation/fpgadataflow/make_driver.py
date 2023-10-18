@@ -29,6 +29,7 @@
 
 import pkg_resources as pk
 
+import json
 import numpy as np
 import os
 import qonnx
@@ -120,92 +121,53 @@ def generate_runtime_weights(model: ModelWrapper, weights_dir: str):
 
 
 class MakeCPPDriver(Transformation):
-    #! This is likely the wrong path because this module is likely not called from the transformation/fpgadatflow path. 
-    # TODO: Correct this later on 
-    CPP_DRIVER_TEMPLATE_LOCATION: str = "finn-cpp-driver" 
+    # TODO: Enable multiple input types! Now only assumes the first one
+    def resolve_dt_name(s: str) -> str:
+        if s in ["BINARY", "TERNARY", "BIPOLAR"]:
+            return "Datatype" + s[0] + s[1:].lower()
+        elif "INT" in s:
+            if s.startswith("U"):
+                return "DatatypeUint<" + s.replace("UINT", "") + ">"
+            else:
+                return "DatatypeInt<" + s.replace("INT", "") + ">"
+        elif "FLOAT" in s:
+            return "DatatypeFloat<" + s.replace("FLOAT", "") + ">"
+        elif "FIXED" in s:
+            return "DatatypeFixed" + s.replace("FIXED", "")
+        else:
+            return "UNKNOWN_DATATYPE_ERROR_BY_FINN_COMPILER"
 
-    def __init__(self, platform: str, transfer_mode: CPPDriverTransferType, cpp_template_dir: str, run_name: str = "RUN_ID"):
+    def __init__(self, platform: str, transfer_mode: CPPDriverTransferType, cpp_template_dir: str, output_dir: str, run_name: str = "RUN_ID"):
         super().__init__()
         self.run_name = run_name
         self.platform: str = platform
         self.transfer_mode: CPPDriverTransferType = transfer_mode
-
-        # CPP Template dir is the directory where the build should happen, this must
-        # not necessarily be the finn folder itself, but can also be the projects build folder
-        # TODO: Find out where the location of the project folder is stored (where driver, bitfile, logs etc. are placed)
         self.cpp_template_dir = cpp_template_dir
+        self.output_dir = output_dir
+
+        # Locations of files
+        self.xclbin_path = os.path.join(output_dir, "bitfile", "finn-accel.xclbin")
+        self.template_target_dir = os.path.join(output_dir, "finn-cpp-driver")
+        self.json_path = os.path.join(output_dir, "driver", "cppdconfig.json")
+        self.header_path = os.path.join(self.template_target_dir, "src", "config", "FinnDriverUsedDatatypes.h")
+        self.finn_driver_exec_path = os.path.join(output_dir, "driver", "finn")
 
     def apply(self, model: ModelWrapper) -> Tuple[ModelWrapper, bool]:
-        # Define location for the driver files
-        #cpp_driver_dir = make_build_dir(prefix="cpp_driver_")
-        #model.set_metadata_prop("cpp_driver_dir", cpp_driver_dir)
-
-        # TODO: Preparing folders and files
         driver_shapes: Dict = get_driver_shapes(model)
         ext_weight_dma_cnt: int
         weights_dir: str
-#        ext_weight_dma_cnt, weights_dir = write_weights(model, cpp_driver_dir)
+        # ext_weight_dma_cnt, weights_dir = write_weights(model, cpp_driver_dir)
 
-        #* Copying the template c++ driver dir to the specified location
-        assert os.path.isdir(self.cpp_template_dir), "CPP Driver location dir not found: " + self.cpp_template_dir
-        shutil.copy(MakeCPPDriver.CPP_DRIVER_TEMPLATE_LOCATION, os.path.join(self.cpp_template_dir, "finn-cpp-driver"))
-        self.cpp_template_dir = os.path.join(self.cpp_template_dir, "finn-cpp-driver")
-
-        #* Setting up compilation
-        if not os.path.isdir(os.path.join(self.cpp_template_dir, "build")):
-            os.mkdir(os.path.join(self.cpp_template_dir, "build"))
-
-        #* Setting Filepaths for compilation of the C++ driver
-        # By default the structure is
-        # finn-cpp-driver
-        # --- build
-        # ------ src
-        # --------- finn (exec)
-        # --------- finn-accel.xclbin
-        # --- src
-        # ------ config
-        # --------- header.h
-        # --------- config.json
-        # 
-        # Here config.json specifies the location of the xclbin (from BUILD_PATH), and the two compiler macros point to the header location (from self.cpp_template_dir + "/src/") and the config json (from self.cpp_template_dir + "/unittests/core/") [all "froms" if the path is relative! Should be absolute!]
-        # Due to the complex structure its best to pass every path as absolute
-        
-        # EXEC/BUILD
-        BUILD_PATH = os.path.abspath(os.path.join(self.cpp_template_dir, "build"))
-        
-        # HEADER
-        CPP_CONFIG_DIR = os.path.join(self.cpp_template_dir, "src", "config")
-        HEADER_NAME = f"FDTT_Header_Compiled_{self.run_name}.h"
-        HEADER_PATH = os.path.join(CPP_CONFIG_DIR, HEADER_NAME)
-        CMAKE_FINN_HEADER_LOCATION = os.path.abspath(HEADER_PATH)
-
-        # CONFIG
-        JSON_NAME = f"config_{self.run_name}.json"
-        JSON_PATH = os.path.join(CPP_CONFIG_DIR, JSON_NAME)
-        CMAKE_FINN_CUSTOM_UNITTEST_CONFIG = os.path.abspath(JSON_PATH)
-
+        #* Copying the finn-cpp-driver into the output folder to have a clean template every run
+        if os.path.isdir(self.template_target_dir):
+            subprocess.run("rm -rf " + self.template_target_dir, shell=True, stdout=subprocess.PIPE)
+        subprocess.run(f"cp -r {self.cpp_template_dir} {self.template_target_dir}", shell=True, stdout=subprocess.PIPE)
 
         #* Writing the header file
-        # TODO: Enable multiple input types! Now only assumes the first one
-        def resolve_dt_name(s: str) -> str:
-            if s in ["BINARY", "TERNARY", "BIPOLAR"]:
-                return "Datatype" + s[0] + s[1:].lower()
-            elif "INT" in s:
-                if s.startswith("U"):
-                    return "DatatypeUint<" + s.replace("UINT", "") + ">"
-                else:
-                    return "DatatypeInt<" + s.replace("INT", "") + ">"
-            elif "FLOAT" in s:
-                return "DatatypeFloat<" + s.replace("FLOAT", "") + ">"
-            elif "FIXED" in s:
-                return "DatatypeFixed" + s.replace("FIXED", "")
-            else:
-                return "UNKNOWN_DATATYPE_ERROR_BY_FINN_COMPILER"
-
-        inputDatatype: str = resolve_dt_name(driver_shapes["idt"][0].get_canonical_name())
-        outputDatatype: str = resolve_dt_name(driver_shapes["odt"][0].get_canonical_name())
+        inputDatatype: str = MakeCPPDriver.resolve_dt_name(driver_shapes["idt"][0].get_canonical_name())
+        outputDatatype: str = MakeCPPDriver.resolve_dt_name(driver_shapes["odt"][0].get_canonical_name())
         print(f"Writing input header file for run with name {self.run_name}. Used datatypes will be {inputDatatype} and {outputDatatype}!")
-        with open(HEADER_PATH, 'w+') as f:
+        with open(self.header_path, 'w+') as f:
             f.write("//! THIS FILE IS AUTOGENERATED BY THE FINN COMPILER\n")
             f.write("#include \"../utils/FinnDatatypes.hpp\"\n#include \"../core/BaseDriver.hpp\"\n\n")
             f.write(f"using InputFinnType = Finn::{inputDatatype};\n")
@@ -215,23 +177,10 @@ class MakeCPPDriver(Transformation):
 
         #* Writing the json file
         # TODO: Update this for multi-fpga usage (more than one device!)
-        
         # Path of the xclbin in the finn compiler project
-        xclbin_finn_path = model.get_metadata_prop("bitfile") 
-
-        # Path of the xclbin in the instantiated finn driver build directory, where the finn driver executable gets placed
-        #! Because the json is read at RUNTIME, the path to the xclbin has to either be given as absolute or relative to the location of the finn exec!!
-        xclbin_cppdriver_path = os.path.abspath(os.path.join(self.cpp_template_dir, "build", "src", "finn-accel.xclbin")) # TODO: Check
-
-        # Copying finn-accel bitstream to the build folder of the cpp driver
-        import shutil
-        shutil.copy(xclbin_finn_path, xclbin_cppdriver_path) 
-
         # Get kernel names using xclbinutil
-        import subprocess
-        import json
         assert shutil.which("xclbinutil") is not None, "xclbinutil not in PATH or not installed. Required to read kernel names for driver config!"
-        subprocess.run(f"xclbinutil -i {xclbin_finn_path} --dump-section IP_LAYOUT:JSON:ip_layout.json", shell=True)
+        subprocess.run(f"xclbinutil -i {self.xclbin_path} --dump-section IP_LAYOUT:JSON:ip_layout.json", shell=True)
         ips = None
         with open("ip_layout.json") as f:
             ips = json.loads(f.read())["ip_layout"]["m_ip_data"]
@@ -262,26 +211,25 @@ class MakeCPPDriver(Transformation):
         data = [] 
         data.append({
             "xrtDeviceIndex": 0,
-            
-            #! XCLBIN must be in the same directory as the finn executable!
-            # TODO: This script has to move the xclbin into the build/src folder of the cpp driver
-            # TODO: For that the script must know where it is, and where the xclbin isnt.
-            "xclbinPath":xclbin_cppdriver_path,
+            "xclbinPath":os.path.abspath(self.xclbin_path),
 
             "name": "MainDevice",
             "idmas": jsonIdmas,
             "odmas": jsonOdmas
         })
-        with open(JSON_PATH, 'w+') as f:
+        with open(self.json_path, 'w+') as f:
             f.write(json.dumps(data, indent=4))
 
         #* Compilation
-        assert os.path.isfile(CMAKE_FINN_HEADER_LOCATION) and os.path.isfile(CMAKE_FINN_CUSTOM_UNITTEST_CONFIG) and os.path.isdir(BUILD_PATH), "Header, configjson or build folder missing. Cannot compile C++ driver!"
-        compile_result = subprocess.run(f"cd {BUILD_PATH};cmake -DCMAKE_BUILD_TYPE=Release -DFINN_HEADER_LOCATION=\"{CMAKE_FINN_HEADER_LOCATION}\" -DFINN_CUSTOM_UNITTEST_CONFIG=\"{CMAKE_FINN_CUSTOM_UNITTEST_CONFIG}\" .;cmake --build . --target finn", stdout=subprocess.PIPE, shell=True)
+        build_path = os.path.join(self.template_target_dir, "build")
+        if not os.path.isdir(build_path):
+            os.mkdir(build_path)
+        compile_result = subprocess.run(f"cmake -DCMAKE_BUILD_TYPE=Release -DFINN_HEADER_LOCATION=\"{self.header_path}\" .;cmake --build . --target finn", stdout=subprocess.PIPE, shell=True, cwd=build_path)
         assert compile_result.returncode == 0, "[MakeCPPDriver - Transformation] Compilation failed!"
         print("Compiled C++ driver successfully.")
 
-
+        #* Copy exec back 
+        shutil.copy(os.join(build_path, "src", "finn"), self.finn_driver_exec_path)
 
         # TODO: Generating weight files
         generate_runtime_weights(model, weights_dir)
