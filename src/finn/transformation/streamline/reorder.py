@@ -136,6 +136,11 @@ class MoveScalarMulPastMatMul(Transformation):
             # First pattern matching condition: For the transform to be
             # applicable, the node has to be a MatMul operator
             if node.op_type == "MatMul":
+                # Note: When touching the following code, remember to treat both
+                # branches equivalently!
+                # TODO: Can this be enforeced or at least be made easier by
+                #  extracting common code patterns to a function?
+
                 # Get the left hand side and right hand side inputs
                 #   Note: Assumes the ordering of left to right inputs to match
                 #   indices 0 to 1. However, it does not "hurt" if it is
@@ -145,8 +150,15 @@ class MoveScalarMulPastMatMul(Transformation):
 
                 # Give precedence to the left hand side input testing for the
                 # presence of a scalar multiplication
-                if (is_const_scalar_mul(lhs, model)
-                        and not model.is_fork_node(lhs)):
+                if is_const_scalar_mul(lhs, model):
+                    # Cannto handle fork nodes: We would have to distribute the
+                    # Mul into all branches
+                    # TODO: Maybe reconsider this at some point, there is
+                    #  probabably nothing preventing this in general, it is just
+                    #  more difficult and apparanetly not necessary right now.
+                    if model.is_fork_node(lhs):
+                        # Softly skip this node
+                        continue
                     # Unpack the connection pattern of a scalar mul feeding the
                     # lhs input of the matmul
                     # Names of the three input tensors to the mul-matmul complex
@@ -177,8 +189,15 @@ class MoveScalarMulPastMatMul(Transformation):
 
                 # Next try whether the right hand side matches the pattern of a
                 # scalar multiplication
-                if (is_const_scalar_mul(rhs, model)
-                        and not model.is_fork_node(rhs)):
+                if is_const_scalar_mul(rhs, model):
+                    # Cannto handle fork nodes: We would have to distribute the
+                    # Mul into all branches
+                    # TODO: Maybe reconsider this at some point, there is
+                    #  probabably nothing preventing this in general, it is just
+                    #  more difficult and apparanetly not necessary right now.
+                    if model.is_fork_node(rhs):
+                        # Softly skip this node
+                        continue
                     # Unpack the connection pattern of a scalar mul feeding the
                     # rhs input of the matmul
                     # Names of the three input tensors to the mul-matmul complex
