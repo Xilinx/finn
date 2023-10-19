@@ -123,6 +123,7 @@ def generate_runtime_weights(model: ModelWrapper, weights_dir: str):
 class MakeCPPDriver(Transformation):
     # TODO: Enable multiple input types! Now only assumes the first one
     def resolve_dt_name(s: str) -> str:
+        s = s.replace("Datatype[", "").replace("]", "")
         print("Converting tensor datatype " + str(s))
         if s in ["BINARY", "TERNARY", "BIPOLAR"]:
             return "Datatype" + s[0] + s[1:].lower()
