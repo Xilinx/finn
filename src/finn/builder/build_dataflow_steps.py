@@ -738,7 +738,7 @@ def step_make_cpp_driver(model: ModelWrapper, cfg: DataflowBuildConfig) -> Model
             MakeCPPDriver(
                 cfg._resolve_driver_platform(),
                 transfer_mode=cfg.cpp_driver_transfer_type,
-                cpp_template_dir=os.path.join(os.path.dirname(__file__), "finn-cpp-driver"),
+                cpp_template_dir=os.path.join(os.path.dirname(__file__), "..", "transformation", "fpgadataflow",  "finn-cpp-driver"),
                 output_dir = cfg.output_dir
             )
         )
