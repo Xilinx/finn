@@ -114,6 +114,27 @@ else
   yecho "If you need Vitis HLS, ensure HLS_PATH is set correctly and mounted into the Docker container."
 fi
 
+if [ -d "$FINN_ROOT/.Xilinx" ]; then
+  mkdir "$HOME/.Xilinx"
+  if [ -f "$FINN_ROOT/.Xilinx/HLS_init.tcl" ]; then
+    cp "$FINN_ROOT/.Xilinx/HLS_init.tcl" "$HOME/.Xilinx/"
+    gecho "Found HLS_init.tcl and copied to $HOME/.Xilinx/HLS_init.tcl"
+  else
+    yecho "Unable to find $FINN_ROOT/.Xilinx/HLS_init.tcl"
+  fi
+
+  if [ -f "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" ]; then
+    mkdir "$HOME/.Xilinx/Vivado/"
+    cp "$FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl" "$HOME/.Xilinx/Vivado/"
+    gecho "Found Vivado_init.tcl and copied to $HOME/.Xilinx/Vivado/Vivado_init.tcl"
+  else
+    yecho "Unable to find $FINN_ROOT/.Xilinx/Vivado/Vivado_init.tcl"
+  fi
+else
+  echo "If you need to enable a beta device, ensure .Xilinx/HLS_init.tcl and/or .Xilinx/Vivado/Vivado_init.tcl are set correctly and mounted"
+  echo "See https://docs.xilinx.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Initialization-Scripts"
+fi
+
 export PATH=$PATH:$HOME/.local/bin
 # execute the provided command(s) as root
 exec "$@"
