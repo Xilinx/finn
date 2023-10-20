@@ -162,7 +162,7 @@ def test_fpgadataflow_deconv(idim, stride, ifm_ch, ofm_ch, simd, pe, k, padding,
     input_dict = {"inp": input_tensor}
     input_dict_tr = {"global_in": input_tensor_tr}
 
-    model = ref_model.transform(InferPixelPaddingDeconv(convinpgen_rtl))
+    model = ref_model.transform(InferPixelPaddingDeconv())
     model = model.transform(InferConvInpGen(use_rtl_variant=convinpgen_rtl))
     model = model.transform(InferQuantizedMatrixVectorActivation())
     model = model.transform(InferShapes())

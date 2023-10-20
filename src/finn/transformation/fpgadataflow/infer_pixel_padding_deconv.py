@@ -7,9 +7,8 @@ from qonnx.util.basic import get_by_name
 
 
 class InferPixelPaddingDeconv(Transformation):
-    def __init__(self, use_convinpgen_rtl_variant=False):
+    def __init__(self):
         super().__init__()
-        self.use_convinpgen_rtl_variant = use_convinpgen_rtl_variant
 
     def apply(self, model):
         graph = model.graph
