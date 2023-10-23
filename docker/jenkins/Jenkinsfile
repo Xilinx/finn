@@ -796,7 +796,7 @@ void createTestScript(String board, String marker, String testResultsFilename) {
    if(board == "U250")
     sh """echo "#!/bin/bash
 . /opt/xilinx/xrt/setup.sh
-. ${CONDA_ENV_ACTIVATE}
+. ${VENV_ACTIVATE}
 python -m pytest -m ${marker} --junitxml=${testResultsFilename}.xml --html=${testResultsFilename}.html --self-contained-html" >> run-tests.sh
     """
   else
