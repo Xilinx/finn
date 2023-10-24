@@ -14,31 +14,31 @@ node {
         parallel firstBranch: {
             stage('Brevitas export') {
                 dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh pytest --addopts -mbrevitas_export")
+                sh("bash run-docker.sh pytest -mbrevitas_export")
                 }
             }
         }, secondBranch: {
             stage('Streamlining transformations') {
                 dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh pytest --addopts -mstreamline")
+                sh("bash run-docker.sh pytest -mstreamline")
                 }
             }
         }, thirdBranch: {
             stage('Util functions') {
                 dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh pytest --addopts -mutil")
+                sh("bash run-docker.sh pytest -mutil")
                 }
             }
         }, fourthBranch: {
             stage('General transformations') {
                 dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh pytest --addopts -mtransform")
+                sh("bash run-docker.sh pytest -mtransform")
                 }
             }
         }, fifthBranch: {
             stage('Fpgadataflow transformations and simulations') {
                 dir("${env.WORKSPACE}") {
-                sh("bash run-docker.sh pytest --addopts -mfpgadataflow")
+                sh("bash run-docker.sh pytest -mfpgadataflow")
                 }
             }
         }
