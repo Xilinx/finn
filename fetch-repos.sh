@@ -122,17 +122,23 @@ fetch_repo $AVNET_BDF_URL $AVNET_BDF_COMMIT $AVNET_BDF_DIR
 fetch_repo $XIL_BDF_URL $XIL_BDF_COMMIT $XIL_BDF_DIR
 fetch_repo $KV260_BDF_URL $KV260_BDF_COMMIT $KV260_SOM_BDF_DIR
 
-# download extra Pynq board files and extract if needed
-if [ ! -d "$SCRIPTPATH/deps/board_files" ]; then
-    fetch_board_files
+# Can skip downloading of board files entirely if desired
+if [ "$FINN_SKIP_BOARD_FILES" = "1" ]; then
+    echo "Skipping download and verification of board files"
 else
-    cd $SCRIPTPATH
-    BOARD_FILES_MD5=$(find deps/board_files/ -type f -exec md5sum {} \; | sort -k 2 | md5sum | cut -d' ' -f 1)
-    if [ "$BOARD_FILES_MD5" = "$EXP_BOARD_FILES_MD5" ]; then
-        echo "Verified board files folder content md5: $BOARD_FILES_MD5"
-    else
-        echo "Board files folder content mismatch, removing and re-downloading"
-        rm -rf deps/board_files/
+    # download extra board files and extract if needed
+    if [ ! -d "$SCRIPTPATH/deps/board_files" ]; then
         fetch_board_files
+    else
+        cd $SCRIPTPATH
+        BOARD_FILES_MD5=$(find deps/board_files/ -type f -exec md5sum {} \; | sort -k 2 | md5sum | cut -d' ' -f 1)
+        if [ "$BOARD_FILES_MD5" = "$EXP_BOARD_FILES_MD5" ]; then
+            echo "Verified board files folder content md5: $BOARD_FILES_MD5"
+        else
+            echo "Board files folder md5: expected $BOARD_FILES_MD5 found $EXP_BOARD_FILES_MD5"
+            echo "Board files folder content mismatch, removing and re-downloading"
+            rm -rf deps/board_files/
+            fetch_board_files
+        fi
     fi
 fi
