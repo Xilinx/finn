@@ -113,7 +113,9 @@ These are summarized below:
 * (optional) ``FINN_DOCKER_RUN_AS_ROOT`` (default 0) if set to 1 then run Docker container as root, default is the current user.
 * (optional) ``FINN_DOCKER_GPU`` (autodetected) if not 0 then expose all Nvidia GPUs or those selected by ``NVIDIA_VISIBLE_DEVICES`` to Docker container for accelerated DNN training. Requires `Nvidia Container Toolkit <https://github.com/NVIDIA/nvidia-docker>`_
 * (optional) ``FINN_DOCKER_EXTRA`` (default "") pass extra arguments to the ``docker run`` command when executing ``./run-docker.sh``
-* (optional) ``FINN_SKIP_DEP_REPOS`` (default "0") skips the download of FINN dependency repos (uses the ones already downloaded under deps/.
+* (optional) ``FINN_DOCKER_BUILD_EXTRA`` (default "") pass extra arguments to the ``docker build`` command when executing ``./run-docker.sh``
+* (optional) ``FINN_SKIP_DEP_REPOS`` (default "0") skips the download of all FINN dependency repos and PYNQ board files (uses the ones already downloaded under deps/).
+* (optional) ``FINN_SKIP_BOARD_FILES`` (default "0") skips the download of board files, but still downloads FINN dependency repos if needed.
 * (optional) ``NVIDIA_VISIBLE_DEVICES`` (default "") specifies specific Nvidia GPUs to use in Docker container. Possible values are a comma-separated list of GPU UUID(s) or index(es) e.g. ``0,1,2``, ``all``, ``none``, or void/empty/unset.
 * (optional) ``DOCKER_BUILDKIT`` (default "1") enables `Docker BuildKit <https://docs.docker.com/develop/develop-images/build_enhancements/>`_ for faster Docker image rebuilding (recommended).
 
