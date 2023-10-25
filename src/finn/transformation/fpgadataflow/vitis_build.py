@@ -76,6 +76,7 @@ class VitisOptStrategy(Enum):
 class VivadoImplStrategy(str, Enum):
     "Values applicable to VitisBuild Vivado implementation strategy"
 
+    ALL = "ALL"
     DEFAULT = "'Vivado Implementation Defaults'"
     PERFORMANCE_BALANCESLR = "Performance_BalanceSLRs"
     PERFORMANCE_HIGHUTILSLR = "Performance_HighUtilSLRs"

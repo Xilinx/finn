@@ -90,6 +90,7 @@ class VitisOptStrategyCfg(str, Enum):
 class VivadoImplStrategyCfg(str, Enum):
     "Values applicable to VitisBuild Vivado implementation strategy"
 
+    ALL = "ALL"
     DEFAULT = "'Vivado Implementation Defaults'"
     PERFORMANCE_BALANCESLR = "Performance_BalanceSLRs"
     PERFORMANCE_HIGHUTILSLR = "Performance_HighUtilSLRs"
@@ -413,6 +414,16 @@ class DataflowBuildConfig:
             VitisOptStrategyCfg.BUILD_SPEED: VitisOptStrategy.BUILD_SPEED,
         }
         return name_to_strategy[self.vitis_opt_strategy]
+
+    def _resolve_vivado_impl_strategy(self):
+        # convert human-readable enum to value expected by v++
+        name_to_strategy = {
+            VivadoImplStrategyCfg.ALL: VivadoImplStrategy.ALL,
+            VivadoImplStrategyCfg.DEFAULT: VivadoImplStrategy.DEFAULT,
+            VivadoImplStrategyCfg.PERFORMANCE_BALANCESLR: VivadoImplStrategy.PERFORMANCE_BALANCESLR,
+            VivadoImplStrategyCfg.PERFORMANCE_HIGHUTILSLR: VivadoImplStrategy.PERFORMANCE_HIGHUTILSLR,  # noqa
+        }
+        return name_to_strategy[self.vivado_impl_strategy]
 
     def _resolve_vitis_platform(self):
         if self.vitis_platform is not None:
