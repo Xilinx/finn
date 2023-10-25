@@ -1,0 +1,46 @@
+node {
+    def app
+    stage('Clone repository') {
+        /* Let's make sure we have the repository cloned to our workspace */
+        checkout scm
+    }
+    withEnv([
+        "FINN_XILINX_PATH=/proj/xbuilds/SWIP/2022.2_1014_8888/installs/lin64",
+        "FINN_XILINX_VERSION=2022.2",
+        "FINN_DOCKER_TAG=xilinx/finn:jenkins",
+        "FINN_HOST_BUILD_DIR=/scratch/users/finn_ci",
+        "PLATFORM_REPO_PATHS=/opt/xilinx/platforms"
+    ]){
+        parallel firstBranch: {
+            stage('Brevitas export') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh pytest -mbrevitas_export")
+                }
+            }
+        }, secondBranch: {
+            stage('Streamlining transformations') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh pytest -mstreamline")
+                }
+            }
+        }, thirdBranch: {
+            stage('Util functions') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh pytest -mutil")
+                }
+            }
+        }, fourthBranch: {
+            stage('General transformations') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh pytest -mtransform")
+                }
+            }
+        }, fifthBranch: {
+            stage('Fpgadataflow transformations and simulations') {
+                dir("${env.WORKSPACE}") {
+                sh("bash run-docker.sh pytest -mfpgadataflow")
+                }
+            }
+        }
+    }
+}

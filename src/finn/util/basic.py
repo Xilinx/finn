@@ -31,6 +31,9 @@ import subprocess
 import sys
 import tempfile
 
+# test boards
+test_board_map = ["Pynq-Z1", "KV260_SOM", "ZCU104", "U250"]
+
 # mapping from PYNQ board names to FPGA part names
 pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
