@@ -76,6 +76,7 @@ from finn.core.rtlsim_exec import rtlsim_exec
 from finn.core.throughput_test import throughput_test_rtlsim
 from finn.transformation.fpgadataflow.annotate_cycles import AnnotateCycles
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
+from finn.transformation.fpgadataflow.coyote_build import CoyoteBuild
 from finn.transformation.fpgadataflow.create_dataflow_partition import (
     CreateDataflowPartition,
 )
@@ -117,7 +118,7 @@ from finn.transformation.qonnx.quant_act_to_multithreshold import (
 )
 from finn.transformation.streamline import Streamline
 from finn.transformation.streamline.reorder import MakeMaxPoolNHWC
-from finn.util.basic import (
+from finn.util.basic import (  # make_build_dir,
     get_rtlsim_trace_depth,
     pyverilate_get_liveness_threshold_cycles,
 )
@@ -607,14 +608,23 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
         stitched_ip_dir = cfg.output_dir + "/stitched_ip"
-        model = model.transform(
-            CreateStitchedIP(
-                cfg._resolve_fpga_part(),
-                cfg.synth_clk_period_ns,
-                vitis=cfg.stitched_ip_gen_dcp,
-                signature=cfg.signature,
+        if cfg.shell_flow_type == ShellFlowType.COYOTE_ALVEO:
+            model = model.transform(
+                CoyoteBuild(
+                    fpga_part=cfg._resolve_fpga_part(),
+                    period_ns=cfg.synth_clk_period_ns,
+                    signature=cfg.signature,
+                )
             )
-        )
+        else:
+            model = model.transform(
+                CreateStitchedIP(
+                    cfg._resolve_fpga_part(),
+                    cfg.synth_clk_period_ns,
+                    vitis=cfg.stitched_ip_gen_dcp,
+                    signature=cfg.signature,
+                )
+            )
         # TODO copy all ip sources into output dir? as zip?
         copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
         print("Vivado stitched IP written into " + stitched_ip_dir)
