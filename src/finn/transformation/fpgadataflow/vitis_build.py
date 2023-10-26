@@ -86,7 +86,6 @@ class CreateVitisXO(Transformation):
         self.ip_name = ip_name
 
     def apply(self, model):
-        _check_vitis_envvars()
         vivado_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         stitched_ip_dir = vivado_proj_dir + "/ip"
         interfaces = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))
