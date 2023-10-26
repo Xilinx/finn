@@ -257,3 +257,50 @@ open_project $VITIS_PROJ_PATH$/_x/link/vivado/vpl/prj/prj.xpr
 open_run impl_1
 report_utilization -hierarchical -hierarchical_depth 5 -file $VITIS_PROJ_PATH$/synth_report.xml -format xml
 """
+
+# All paths relative to coyote hw build directory
+coyote_finn_instantiation_template = """
+open_project lynx/lynx.xpr
+open_project lynx/lynx.xpr
+update_compile_order -fileset sources_1"""
+# TODO: Append to IP repo paths
+# NOTE: Here absolute paths
+"""
+set_property  ip_repo_paths  {/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/iprepo /pub/scratch/adegendt/clean_setup/coyote_finn/cybersecurity/outputs_tlast/stitched_ip/ip} [current_project]
+create_ip -name finn_design -vendor xilinx_finn -library finn -version 1.0 -module_name finn_design_0
+generate_target {instantiation_template} [get_files /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/finn_design_0/finn_design_0.xci]
+update_compile_order -fileset sources_1
+generate_target all [get_files  /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/finn_design_0/finn_design_0.xci]
+export_ip_user_files -of_objects [get_files /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/finn_design_0/finn_design_0.xci] -no_script -sync -force -quiet
+create_ip_run [get_files -of_objects [get_fileset sources_1] /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/finn_design_0/finn_design_0.xci]
+export_simulation -of_objects [get_files /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/finn_design_0/finn_design_0.xci] -directory /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.ip_user_files/sim_scripts -ip_user_files_dir /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.ip_user_files -ipstatic_source_dir /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.ip_user_files/ipstatic -lib_map_path [list {modelsim=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/modelsim} {questa=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/questa} {xcelium=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/xcelium} {vcs=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/vcs} {riviera=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/riviera}] -use_ip_compiled_libs -force -quiet
+create_ip -name axis_dwidth_converter -vendor xilinx.com -library ip -version 1.1 -module_name axis_dwidth_converter_host_to_finn
+set_property -dict [list \
+  CONFIG.Component_Name {axis_dwidth_converter_host_to_finn} \
+  CONFIG.HAS_TLAST {1} \
+  CONFIG.M_TDATA_NUM_BYTES {1} \
+  CONFIG.S_TDATA_NUM_BYTES {64} \
+] [get_ips axis_dwidth_converter_host_to_finn]
+generate_target {instantiation_template} [get_files /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_host_to_finn/axis_dwidth_converter_host_to_finn.xci]
+update_compile_order -fileset sources_1
+generate_target all [get_files  /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_host_to_finn/axis_dwidth_converter_host_to_finn.xci]
+catch { config_ip_cache -export [get_ips -all axis_dwidth_converter_host_to_finn] }
+export_ip_user_files -of_objects [get_files /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_host_to_finn/axis_dwidth_converter_host_to_finn.xci] -no_script -sync -force -quiet
+create_ip_run [get_files -of_objects [get_fileset sources_1] /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_host_to_finn/axis_dwidth_converter_host_to_finn.xci]
+launch_runs axis_dwidth_converter_host_to_finn_synth_1 -jobs 40
+export_simulation -of_objects [get_files /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_host_to_finn/axis_dwidth_converter_host_to_finn.xci] -directory /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.ip_user_files/sim_scripts -ip_user_files_dir /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.ip_user_files -ipstatic_source_dir /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.ip_user_files/ipstatic -lib_map_path [list {modelsim=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/modelsim} {questa=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/questa} {xcelium=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/xcelium} {vcs=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/vcs} {riviera=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/riviera}] -use_ip_compiled_libs -force -quiet
+create_ip -name axis_dwidth_converter -vendor xilinx.com -library ip -version 1.1 -module_name axis_dwidth_converter_finn_to_host
+set_property -dict [list \
+  CONFIG.Component_Name {axis_dwidth_converter_finn_to_host} \
+  CONFIG.HAS_TLAST {1} \
+  CONFIG.M_TDATA_NUM_BYTES {64} \
+] [get_ips axis_dwidth_converter_finn_to_host]
+generate_target {instantiation_template} [get_files /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_finn_to_host/axis_dwidth_converter_finn_to_host.xci]
+update_compile_order -fileset sources_1
+generate_target all [get_files  /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_finn_to_host/axis_dwidth_converter_finn_to_host.xci]
+catch { config_ip_cache -export [get_ips -all axis_dwidth_converter_finn_to_host] }
+export_ip_user_files -of_objects [get_files /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_finn_to_host/axis_dwidth_converter_finn_to_host.xci] -no_script -sync -force -quiet
+create_ip_run [get_files -of_objects [get_fileset sources_1] /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_finn_to_host/axis_dwidth_converter_finn_to_host.xci]
+launch_runs axis_dwidth_converter_finn_to_host_synth_1 -jobs 40
+export_simulation -of_objects [get_files /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.srcs/sources_1/ip/axis_dwidth_converter_finn_to_host/axis_dwidth_converter_finn_to_host.xci] -directory /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.ip_user_files/sim_scripts -ip_user_files_dir /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.ip_user_files -ipstatic_source_dir /pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.ip_user_files/ipstatic -lib_map_path [list {modelsim=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/modelsim} {questa=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/questa} {xcelium=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/xcelium} {vcs=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/vcs} {riviera=/pub/scratch/adegendt/clean_setup/coyote_finn/Coyote/hw/build/lynx/lynx.cache/compile_simlib/riviera}] -use_ip_compiled_libs -force -quiet
+"""
