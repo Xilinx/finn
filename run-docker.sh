@@ -226,15 +226,25 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
   VITIS_PATH="$FINN_XILINX_PATH/Vitis/$FINN_XILINX_VERSION"
   HLS_PATH="$FINN_XILINX_PATH/Vitis_HLS/$FINN_XILINX_VERSION"
   DOCKER_EXEC+="-v $FINN_XILINX_PATH:$FINN_XILINX_PATH "
+  PATH_FLAG=0
   if [ -d "$VIVADO_PATH" ];then
     DOCKER_EXEC+="-e "XILINX_VIVADO=$VIVADO_PATH" "
     DOCKER_EXEC+="-e VIVADO_PATH=$VIVADO_PATH "
+  else
+    recho "VIVADO_PATH: ${VIVADO_PATH} does not exist"
+    PATH_FLAG=1
   fi
   if [ -d "$HLS_PATH" ];then
     DOCKER_EXEC+="-e HLS_PATH=$HLS_PATH "
+  else
+    recho "HLS_PATH: ${HLS_PATH} does not exist"
+    PATH_FLAG=1
   fi
   if [ -d "$VITIS_PATH" ];then
     DOCKER_EXEC+="-e VITIS_PATH=$VITIS_PATH "
+  else
+    recho "VITIS_PATH: ${VITIS_PATH} does not exist"
+    PATH_FLAG=1
   fi
   if [ -d "$PLATFORM_REPO_PATHS" ];then
     DOCKER_EXEC+="-v $PLATFORM_REPO_PATHS:$PLATFORM_REPO_PATHS "
@@ -244,6 +254,12 @@ if [ ! -z "$FINN_XILINX_PATH" ];then
     DOCKER_EXEC+="-e ALVEO_PASSWORD=$ALVEO_PASSWORD "
     DOCKER_EXEC+="-e ALVEO_BOARD=$ALVEO_BOARD "
     DOCKER_EXEC+="-e ALVEO_TARGET_DIR=$ALVEO_TARGET_DIR "
+  else
+    recho "PLATFORM_REPO_PATHS: ${PLATFORM_REPO_PATHS} does not exist"
+    PATH_FLAG=1
+  fi
+  if [ $PATH_FLAG != 0 ];then
+    exit -1
   fi
 fi
 DOCKER_EXEC+="$FINN_DOCKER_EXTRA "
