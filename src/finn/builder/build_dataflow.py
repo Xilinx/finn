@@ -162,7 +162,6 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
             sys.stderr = stderr_orig
             time_per_step[step_name] = step_end - step_start
             chkpt_name = "%s.onnx" % (step_name)
-            # TODO: Make this work in the distributed setting
             if cfg.save_intermediate_models:
                 intermediate_model_dir = cfg.output_dir + "/intermediate_models"
                 if not os.path.exists(intermediate_model_dir):
@@ -188,6 +187,43 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
         json.dump(time_per_step, f, indent=2)
     print("Completed successfully")
     return 0
+
+
+def build_distributed_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
+    steps = resolve_build_steps(cfg)
+    step_names = list(map(lambda x: x.__name__, steps))
+
+    split_step = "step_split_dataflow" 
+    if split_step not in step_names:
+        print("Dataflow should be split up as part of distributed build")
+        return -1
+
+    global_cfg = deepcopy(cfg)
+    global_cfg.steps = steps[:step_names.index(split_step) + 1]
+
+    if not cfg.save_intermediate_models: 
+        print("save_intermediate_models must be enabled for distributed build")
+        return -1
+
+    if build_dataflow_cfg(model_filename, global_cfg) != 0:
+        print("Global build failed")
+        return -1
+
+    intermediate_models_dir = cfg.output_dir + "/intermediate_models"
+    parent_model = ModelWrapper(intermediate_model_dir)
+
+    local_cfg = deepcopy(cfg)
+    local_cfg.steps = steps[step_names.index(split_step) + 1:]
+
+    sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
+    for i, node in enumerate(sdp_nodes):
+        local_cfg.output_dir = f"{cfg.output_dir}/{i}"
+
+        node_inst = getCustomOp(node)
+        child_model_filename = node_inst.get_nodeattr("model")
+
+        print(f"Launching build for partition {i}")
+        build_dataflow_cfg(child_model_filename, local_cfg)
 
 def build_dataflow_directory(path_to_cfg_dir: str):
     """Best-effort build a dataflow accelerator from the specified directory.

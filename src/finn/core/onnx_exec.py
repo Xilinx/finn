@@ -28,11 +28,19 @@
 
 import copy
 import numpy as np
+import os
+import subprocess
+import psutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 import qonnx.analysis.topology as ta
-from qonnx.core.onnx_exec import execute_onnx as execute_onnx_base
+from qonnx.core.onnx_exec import execute_onnx as execute_onnx_base, execute_node
+from qonnx.util.basic import (
+    get_sanitize_quant_tensors,
+    sanitize_quant_values,
+)
 
 from finn.core.rtlsim_exec import rtlsim_exec
-
 
 def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=None, end_node=None):
     """Executes given ONNX ModelWrapper with given named inputs.
@@ -139,3 +147,5 @@ def compare_execution(
     res_a = list(execute_onnx(model_a, input_dict).items())[0][1]
     res_b = list(execute_onnx(model_b, input_dict).items())[0][1]
     return compare_fxn(res_a, res_b)
+
+

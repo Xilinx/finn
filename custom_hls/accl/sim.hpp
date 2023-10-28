@@ -33,6 +33,7 @@ std::unique_ptr<CCLO_BFM> init_cclo_and_wait_for_input(
 
     auto cclo = std::make_unique<CCLO_BFM>(zmqport, rank, world_size, dest,
                     cmd_to_cclo, sts_from_cclo, data_from_cclo, data_to_cclo);
+
     cclo->run();
 
     // Makeshift barrier

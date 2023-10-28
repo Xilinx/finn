@@ -62,7 +62,6 @@ class ACCLOp(HLSCustomOp):
             "numInputVectors": ("ints", False, [1]),
             # accl specific attrs
             "startPort": ("i", False, 5500),
-            "rank": ("i", True, 0),
             "worldSize": ("i", True, 0),
             "otherRank": ("i", True, 0),
         }
@@ -93,23 +92,12 @@ class ACCLOp(HLSCustomOp):
             stdout=subprocess.PIPE,
         )
         subprocess.run(["make"], cwd=build_dir)
-    
+
         self.set_nodeattr("executable_path", code_gen_dir + "/node_model")
 
     def execute_kernel(self, edge_name):
-        executable_path = self.get_nodeattr("executable_path")
-        if executable_path == "":
-            raise Exception(
-                """
-Found no executable for this node, did you run the codegen and
-compilation transformations?
-            """
-            )
-
-        idx = ACCLOp.barriers[edge_name + "_pre"].wait()
-
+        idx = ACCLOp.barriers[edge_name].wait()
         emulator = None
-
         try:
             if idx == 0:
                 emulator_dir = f"{os.environ['FINN_ROOT']}/ACCL/test/model/emulator"
@@ -125,6 +113,15 @@ compilation transformations?
                     "--no-kernel-loopback"
                 ], cwd=emulator_dir)
 
+            executable_path = self.get_nodeattr("executable_path")
+            if executable_path == "":
+                raise Exception(
+                    """
+Found no executable for this node, did you run the codegen and
+compilation transformations?
+                """
+                )
+
             p = subprocess.Popen(
                 executable_path,
                 stdout=subprocess.PIPE,
@@ -132,26 +129,25 @@ compilation transformations?
                 encoding="utf-8"
             )
 
-            while "CCLO BFM started" not in (line := p.stdout.readline()):
+            while line := p.stdout.readline():
                 print(line, end='')
+                if "CCLO BFM started" in line:
+                    break
+            else:
+                raise Exception("Process did not signal that CCLO was started")
 
             ACCLOp.barriers[edge_name].wait()
-
             p.communicate("...")
-
-            idx = ACCLOp.barriers[edge_name + "_post"].wait()
+            idx = ACCLOp.barriers[edge_name].wait()
         except Exception:
             print(traceback.format_exc())
+            ACCLOp.barriers[edge_name].abort()
         finally:
             if emulator is not None:
                 parent_proc = psutil.Process(emulator.pid)
                 for child in parent_proc.children(recursive=True):
                     child.kill()
                 emulator.kill()
-
-            ACCLOp.barriers[edge_name].abort()
-            ACCLOp.barriers[edge_name + "_post"].abort()
-
 
     def get_number_output_values(self):
         oshape = self.get_normal_output_shape()
@@ -259,7 +255,7 @@ class ACCLOut(ACCLOp):
 
     def strm_decl(self):
         start_port = self.get_nodeattr("startPort")
-        rank = self.get_nodeattr("rank")
+        rank = self.get_nodeattr("device_id")
         world_size = self.get_nodeattr("worldSize")
 
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
@@ -336,7 +332,11 @@ class ACCLOut(ACCLOp):
             reshaped_input,
         )
 
-        self.execute_kernel(self.onnx_node.output[0])
+        self.thread = threading.Thread(
+            target=self.execute_kernel,
+            args=(self.onnx_node.output[0],)
+        )
+        self.thread.start()
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -423,8 +423,10 @@ class ACCLIn(ACCLOp):
 
     def strm_decl(self):
         start_port = self.get_nodeattr("startPort")
-        rank = self.get_nodeattr("rank")
+        rank = self.get_nodeattr("device_id")
         world_size = self.get_nodeattr("worldSize")
+
+        assert world_size != 0
 
         self.code_gen_dict["$STREAMDECLARATIONS$"] = [
             'hlslib::Stream<command_word> cmd_to_cclo("cmd_to_cclo"), sts_from_cclo("sts_from_cclo");',
