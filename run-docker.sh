@@ -27,8 +27,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-set -e
-
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 NC='\033[0m' # No Color
@@ -142,7 +140,6 @@ elif [ -z "$1" ]; then
 else
   gecho "Running container with passed arguments"
   DOCKER_CMD="$@"
-  FINN_DOCKER_EXTRA+="-p $NETRON_PORT:$NETRON_PORT "
 fi
 
 
@@ -187,7 +184,7 @@ fi
 # Launch container with current directory mounted
 # important to pass the --init flag here for correct Vivado operation, see:
 # https://stackoverflow.com/questions/55733058/vivado-synthesis-hangs-in-docker-container-spawned-by-jenkins
-DOCKER_EXEC="docker run -t $DOCKER_INTERACTIVE --tty --init "
+DOCKER_EXEC="docker run -t --rm $DOCKER_INTERACTIVE --tty --init "
 DOCKER_EXEC+="--hostname $DOCKER_INST_NAME "
 DOCKER_EXEC+="-e SHELL=/bin/bash "
 DOCKER_EXEC+="-w $SCRIPTPATH "
