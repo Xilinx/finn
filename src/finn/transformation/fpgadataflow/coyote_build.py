@@ -61,14 +61,12 @@ class CreateStitchedIPForCoyote(Transformation):
         # We want dynamic True so we leave default arguments
         # Also, we only want it at the output since the Coyote interface already provides tlast to
         # the input width converter
-        print("Inserting tlast marker")
         model = model.transform(InsertTLastMarker())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(self.fpga_part, self.period_ns))
         model = model.transform(HLSSynthIP())
         model = model.transform(ReplaceVerilogRelPaths())
         # NOTE: Use CreateStitchedIP default IP name = "finn_design"
-        print("Calling create stitched ip")
         model = model.transform(
             CreateStitchedIP(
                 fpgapart=self.fpga_part,
@@ -242,7 +240,6 @@ class GenerateCoyoteProject(Transformation):
             self.create_width_converter(
                 module_name="axis_dwidth_converter_host_to_finn",
                 config={
-                    "Component_Name": "axis_dwidth_converter_host_to_finn",
                     "HAS_TLAST": "1",
                     "M_TDATA_NUM_BYTES": "1",
                     "S_TDATA_NUM_BYTES": "64",
@@ -253,7 +250,6 @@ class GenerateCoyoteProject(Transformation):
             self.create_width_converter(
                 module_name="axis_dwidth_converter_finn_to_host",
                 config={
-                    "Component_Name": "axis_dwidth_converter_finn_to_host",
                     "HAS_TLAST": "1",
                     "M_TDATA_NUM_BYTES": "64",
                     "S_TDATA_NUM_BYTES": "1",
