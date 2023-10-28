@@ -1,5 +1,9 @@
 const size_t accl_width = 512;
 
+#ifdef CPPSIM
+#include <iostream>
+#endif
+
 template<unsigned int stream_width, unsigned int num_bits, unsigned int step>
 void accl_out(
     unsigned int destination,
@@ -8,13 +12,9 @@ void accl_out(
     STREAM<command_word> &cmd_to_cclo,
     STREAM<command_word> &sts_from_cclo,
     STREAM<stream_word> &data_to_cclo,
-    hls::stream<ap_uint<stream_width>> &in
+    hls::stream<ap_uint<stream_width>> &in,
+    bool wait_for_ack
 ) {
-    #pragma HLS INTERFACE axis port=cmd_to_cclo
-    #pragma HLS INTERFACE axis port=sts_from_cclo
-    #pragma HLS INTERFACE axis port=data_to_cclo
-    #pragma HLS INTERFACE axis port=in
-
     STREAM<stream_word> data_from_cclo;
 
     accl_hls::ACCLCommand accl(cmd_to_cclo, sts_from_cclo, comm_adr, dpcfg_adr, 0, 3);
@@ -27,7 +27,14 @@ void accl_out(
     std::cerr << "accl_out starting to output data to rank " << destination << " (" << num_bits << " bits)" << std::endl;
 #endif
 
-    for (int i = 0; i < num_bits - step + 1; i += step) {
+    bool leftover = num_bits % accl_width != 0;
+    int num_transfer_bits = ((num_bits + accl_width - 1) / accl_width) * accl_width;
+
+    accl.stream_put(num_transfer_bits / 32, 9, destination, 0, true);
+
+    // TODO: Doing it like this is probably not optimal. It seems like we're reinventing a
+    // dwc here somehow.
+    send: for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % stream_width == 0) {
             stream_word = in.read();
         }
@@ -42,18 +49,19 @@ void accl_out(
         }
     }
 
-    bool leftover = num_bits % accl_width != 0;
-    int num_transfer_bits = ((num_bits + accl_width - 1) / accl_width) * accl_width;
-
     if (num_bits < num_transfer_bits) {
         data.push(accl_word, 0);
     }
 
 #ifdef CPPSIM
-    std::cerr << "accl_out calling accl" << std::endl;
+    std::cerr << "accl_out waiting on ack" << std::endl;
 #endif
 
-    accl.stream_put(num_transfer_bits / 32, 9, destination, 0);
+    if (wait_for_ack) accl.finalize_call();
+
+#ifdef CPPSIM
+    std::cerr << "accl_out finished" << std::endl;
+#endif
 }
 
 template<unsigned int stream_width, unsigned int num_bits, unsigned int step>
@@ -62,9 +70,6 @@ void accl_in(
     STREAM<stream_word> &data_from_cclo,
     hls::stream<ap_uint<stream_width>> &out
 ) {
-    #pragma HLS INTERFACE axis port=data_from_cclo
-    #pragma HLS INTERFACE axis port=out
-
     STREAM<stream_word> data_to_cclo;
     accl_hls::ACCLData data(data_to_cclo, data_from_cclo);
 
@@ -75,7 +80,7 @@ void accl_in(
     std::cerr << "accl_in starting to receive data from rank " << source << " (" << num_bits << " bits)" << std::endl;
 #endif
 
-    for (int i = 0; i < num_bits - step + 1; i += step) {
+    recv: for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % accl_width == 0) {
             accl_word = data.pull().data;
         }

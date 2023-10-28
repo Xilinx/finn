@@ -217,6 +217,9 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "verilator_fifosim.cpp",
         "--threads",
         "4",
+        "--trace",
+        "--CFLAGS",
+        "-DDEBUG",
         *xpm_args,
     ]
 

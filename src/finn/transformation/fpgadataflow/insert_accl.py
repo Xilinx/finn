@@ -54,6 +54,11 @@ class InsertACCL(Transformation):
             for x in all_nodes
         )
 
+        has_accl_input = self.send_to is not None
+        model.set_metadata_prop("has_accl_input", str(has_accl_input))
+        has_accl_output = self.send_to is not None
+        model.set_metadata_prop("has_accl_output", str(has_accl_output))
+
         if self.recv_from is not None:
             graph_in_names = [x.name for x in model.graph.input]
             for graph_in_name in graph_in_names:
@@ -91,6 +96,7 @@ class InsertACCL(Transformation):
                     )
                     model.graph.node.insert(0, accl_node)
                     modified = True
+
         if self.send_to is not None:
             graph_out_names = [x.name for x in model.graph.output]
             for graph_out_name in graph_out_names:

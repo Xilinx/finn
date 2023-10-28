@@ -84,12 +84,13 @@ from finn.transformation.fpgadataflow.derive_characteristic import (
     DeriveCharacteristic,
     DeriveFIFOSizes,
 )
+from finn.transformation.fpgadataflow.distribute_dataflow import DistributeDataflow
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
 from finn.transformation.fpgadataflow.insert_accl import InsertACCL
 from finn.transformation.fpgadataflow.insert_dwc import InsertDWC
 from finn.transformation.fpgadataflow.insert_fifo import InsertFIFO
-from finn.transformation.fpgadataflow.distribute_dataflow import DistributeDataflow
 from finn.transformation.fpgadataflow.make_pynq_driver import MakePYNQDriver
+from finn.transformation.fpgadataflow.setup_accl_interface import SetupACCLInterface
 from finn.transformation.fpgadataflow.make_zynq_proj import ZynqBuild
 from finn.transformation.fpgadataflow.minimize_accumulator_width import (
     MinimizeAccumulatorWidth,
@@ -170,8 +171,6 @@ def verify_model(
             )
             print("Attempting to force model shape on verification output")
             out_npy = out_npy.reshape(exp_oshape)
-
-        print(out_npy, exp_out_npy)
 
         res = np.isclose(exp_out_npy, out_npy, atol=1e-3).all()
         all_res = all_res and res
@@ -732,6 +731,10 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
         os.environ["LIVENESS_THRESHOLD"] = str(prev_liveness)
     return model
 
+@map_over_sdps
+def step_setup_accl_interface(model: ModelWrapper, cfg: DataflowBuildConfig):
+    return model.transform(SetupACCLInterface())
+
 
 def step_measure_rtlsim_performance(model: ModelWrapper, cfg: DataflowBuildConfig):
     """Measure performance + latency of stitched-IP model in rtlsim (pyverilator).
@@ -929,6 +932,7 @@ build_dataflow_step_lookup = {
     "step_hls_ipgen": step_hls_ipgen,
     "step_set_fifo_depths": step_set_fifo_depths,
     "step_create_stitched_ip": step_create_stitched_ip,
+    "step_setup_accl_interface": step_setup_accl_interface,
     "step_measure_rtlsim_performance": step_measure_rtlsim_performance,
     "step_make_pynq_driver": step_make_pynq_driver,
     "step_out_of_context_synthesis": step_out_of_context_synthesis,

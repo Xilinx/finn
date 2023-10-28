@@ -610,6 +610,7 @@ class InferBinaryMatrixVectorActivation(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
+
         for n in graph.node:
             node_ind += 1
             if n.op_type == "XnorPopcountMatMul":
@@ -744,7 +745,9 @@ class InferQuantizedMatrixVectorActivation(Transformation):
         graph = model.graph
         node_ind = 0
         graph_modified = False
+
         for n in graph.node:
+
             node_ind += 1
             if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is None:
                 mm_input = n.input[0]

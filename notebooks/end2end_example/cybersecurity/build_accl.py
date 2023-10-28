@@ -25,11 +25,6 @@ model_file = model_dir + "/cybsec-mlp-ready.onnx"
 
 estimates_output_dir = "output_estimates_only"
 
-#Delete previous run results if exist
-if os.path.exists(estimates_output_dir):
-    shutil.rmtree(estimates_output_dir)
-    print("Previous run results deleted!")
-
 os.environ["RTLSIM_TRACE_DEPTH"] = "3"
 
 steps = [
@@ -49,13 +44,14 @@ steps = [
     "step_hls_ipgen",
     "step_set_fifo_depths",
     "step_create_stitched_ip",
+    "step_setup_accl_interface",
 ]
 
 cfg_estimates = build.DataflowBuildConfig(
     verbose             = True,
     output_dir          = estimates_output_dir,
     steps               = steps,
-    mvau_wwidth_max     = 80,
+    mvau_wwidth_max     = 1000,
     target_fps          = 1000000,
     synth_clk_period_ns = 10.0,
     fpga_part           = "xc7z020clg400-1",
@@ -63,10 +59,11 @@ cfg_estimates = build.DataflowBuildConfig(
         build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
         build_cfg.DataflowOutputType.STITCHED_IP,
     ],
-    verify_steps        = [build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM],
+    # verify_steps        = [build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM],
     board               = 'U250',
-    num_boards          = 2,
+    num_boards          = 3,
     save_intermediate_models = True,
+    # start_step          = 'step_setup_accl_interface',
 )
 
 build.build_dataflow_cfg(model_file, cfg_estimates)

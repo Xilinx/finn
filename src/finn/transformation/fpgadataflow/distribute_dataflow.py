@@ -37,7 +37,7 @@ class DistributeDataflow(Transformation):
             self.target_platform,
             self.ndevices,
             # TODO: Remove this after testing
-            abs_anchors=[(0, [3]), (1, [7])]
+            abs_anchors=[(0, [3]), (1, [7]), (2, [11])]
         )
 
         if floorplans is None:
@@ -59,6 +59,8 @@ class DistributeDataflow(Transformation):
 
         p_nodes = distr_model.get_nodes_by_op_type("GenericPartition")
 
+        world_size = len(p_nodes)
+
         for partition_ind, p_node in enumerate(p_nodes):
             # done, change node type and add info in parent graph
             p_node.op_type = "StreamingDataflowPartition"
@@ -69,7 +71,7 @@ class DistributeDataflow(Transformation):
         child_node.op_type = "DistributedDataflow"
         new_child_node_inst = getCustomOp(child_node)
 
-        distr_model.set_metadata_prop("world_size", str(len(p_nodes)))
+        distr_model.set_metadata_prop("world_size", str(world_size))
 
         distr_model_file = self.partition_model_dir + "/distributed_dataflow.onnx"
         distr_model.save(distr_model_file)

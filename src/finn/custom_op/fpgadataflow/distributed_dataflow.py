@@ -158,27 +158,7 @@ class DistributedDataflow(CustomOp):
                 inp_ctx[new_iname] = inp_ctx[old_iname]
                 del inp_ctx[old_iname]
 
-        emulator_dir = f"{os.environ['FINN_ROOT']}/ACCL/test/model/emulator"
-
-        subprocess.run(["/usr/bin/cmake", "."],
-                       cwd=emulator_dir, stdout=subprocess.PIPE)
-
-        world_size = int(model.get_metadata_prop("world_size"))
-
-        emulator = subprocess.Popen([
-            "python3",
-            "run.py",
-            f"-n {world_size}",
-            "--no-kernel-loopback"
-        ], cwd=emulator_dir)
-
-        try:
-            ret = execute_distributed_onnx(model, inp_ctx, return_full_exec_context)
-        finally:
-            parent_proc = psutil.Process(emulator.pid)
-            for child in parent_proc.children(recursive=True):
-                child.kill()
-            emulator.kill()
+        ret = execute_distributed_onnx(model, inp_ctx, return_full_exec_context)
 
         for i, node_oname in enumerate(node.output):
             model_oname = model.graph.output[i].name

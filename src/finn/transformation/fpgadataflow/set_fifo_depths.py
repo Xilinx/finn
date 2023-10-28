@@ -377,7 +377,7 @@ class InsertAndSetFIFODepths(Transformation):
             if len(swg_nodes) == 0:
                 # MLP, no layer overlap
                 # assuming half the nodes are now FIFOs, use half the # of
-                # nodes as # inputs to drive the imulation
+                # nodes as # inputs to drive the 2mulation
                 n_inputs = int(len(model.graph.node) / 2)
             else:
                 # convnet, two inputs are typically enough to fill entire
