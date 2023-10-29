@@ -29,7 +29,9 @@
 
 module tb #(
 	// sampling period (in cycles) for reading instrumentation wrapper registers
-	int unsigned  INSTR_READ_PERIOD = 100
+	int unsigned  INSTR_READ_PERIOD = 100,
+    // 16-bit LFSR seed for generating fixed random data
+    int unsigned LFSR_SEED = 1
 )();
 
 
@@ -92,10 +94,10 @@ initial begin
 	ap_rst_n <= 1;
 	$display("Reset complete");
     // instrumentation wrapper configuration:
-    // set up LFSR seed + start data generation
+    // set up LFSR seed + start data generation + output sink
     axilite_ctrl_awaddr  <= 'h10;
     axilite_ctrl_awvalid <= 1;
-    axilite_ctrl_wdata   <= 'h10003;
+    axilite_ctrl_wdata   <= (LFSR_SEED << 16) | 'b11;
     axilite_ctrl_wvalid  <= 1;
     repeat(8) begin
         @(posedge ap_clk);
