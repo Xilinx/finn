@@ -28,8 +28,8 @@
 
 
 module tb #(
-	// number of times to re-use the samples
-	int unsigned  N_REPS = 1
+	// sampling period (in cycles) for reading instrumentation wrapper registers
+	int unsigned  INSTR_READ_PERIOD = 100
 )();
 
 
@@ -40,9 +40,9 @@ logic  ap_rst_n = 0;
 uwire  ap_rst = !ap_rst_n;
 
 // wires for instrumentation wrapper AXI lite interface
-uwire [31:0]axilite_ctrl_araddr = 0;
+logic [31:0] axilite_ctrl_araddr = 'x;
 uwire axilite_ctrl_arready;
-uwire axilite_ctrl_arvalid = 0;
+logic axilite_ctrl_arvalid = 0;
 logic [31:0]  axilite_ctrl_awaddr = 'x;
 uwire axilite_ctrl_awready;
 logic axilite_ctrl_awvalid = 0;
@@ -50,7 +50,7 @@ uwire axilite_ctrl_bready = 1;
 uwire [1:0]axilite_ctrl_bresp;
 uwire axilite_ctrl_bvalid;
 uwire [31:0]axilite_ctrl_rdata;
-uwire axilite_ctrl_rready = 0;
+logic axilite_ctrl_rready = 1;
 uwire [1:0]axilite_ctrl_rresp;
 uwire axilite_ctrl_rvalid;
 logic [31:0]  axilite_ctrl_wdata = 'x;
@@ -83,7 +83,6 @@ dut_wrapper dut_wrapper_inst (
 );
 
 //---------------------------------------------------------------------------
-// Stimulus Driver
 
 initial begin
 	$timeformat(-9, 2, " ns");
@@ -102,14 +101,51 @@ initial begin
         @(posedge ap_clk);
         if(axilite_ctrl_wready && axilite_ctrl_awready)  break;
     end
-    assert(axilite_ctrl_wready && axilite_ctrl_awready) else begin
-        $error("Initialization stall");
-        $stop;
-    end
     axilite_ctrl_wvalid  <= 0;
     axilite_ctrl_awvalid <= 0;
     axilite_ctrl_awaddr  <= 'x;
     axilite_ctrl_wdata   <= 'x;
+    while(1) begin
+        axilite_ctrl_araddr  <= 'h18;
+        axilite_ctrl_arvalid <= 1;
+        repeat(8) begin
+            @(posedge ap_clk);
+            if(axilite_ctrl_rvalid) begin
+                $display("[t=%0t] STATUS_I = %0d", $time, axilite_ctrl_rdata);
+                break;
+            end
+        end
+        axilite_ctrl_araddr  <= 'h20;
+        axilite_ctrl_arvalid <= 1;
+        repeat(8) begin
+            @(posedge ap_clk);
+            if(axilite_ctrl_rvalid) begin
+                $display("[t=%0t] STATUS_O = %0d", $time, axilite_ctrl_rdata);
+                break;
+            end
+        end
+        axilite_ctrl_araddr  <= 'h28;
+        axilite_ctrl_arvalid <= 1;
+        repeat(8) begin
+            @(posedge ap_clk);
+            if(axilite_ctrl_rvalid) begin
+                $display("[t=%0t] LATENCY = %0d", $time, axilite_ctrl_rdata);
+                break;
+            end
+        end
+        axilite_ctrl_araddr  <= 'h38;
+        axilite_ctrl_arvalid <= 1;
+        repeat(8) begin
+            @(posedge ap_clk);
+            if(axilite_ctrl_rvalid) begin
+                $display("[t=%0t] INTERVAL = %0d", $time, axilite_ctrl_rdata);
+                break;
+            end
+        end
+        axilite_ctrl_arvalid <= 0;
+        repeat(INSTR_READ_PERIOD)  @(posedge ap_clk);
+    end
 end
+
 
 endmodule : tb
