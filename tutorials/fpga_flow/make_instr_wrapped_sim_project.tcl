@@ -53,4 +53,5 @@ set_property SOURCE_SET sources_1 [get_filesets sim_1]
 add_files -fileset sim_1 ./instr_wrapped_testbench.sv
 update_compile_order -fileset sim_1
 
+set_property synth_checkpoint_mode None [get_files instr_sim_proj/instr_sim_proj.srcs/sources_1/bd/dut/dut.bd]
 generate_target Simulation [get_files instr_sim_proj/instr_sim_proj.srcs/sources_1/bd/dut/dut.bd]
