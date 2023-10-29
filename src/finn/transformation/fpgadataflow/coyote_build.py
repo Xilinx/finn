@@ -26,12 +26,16 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+
 import os
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
+from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
-from typing import Dict, Optional
+from typing import List, Optional
+from typing_extensions import TypeAlias
 
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -41,6 +45,101 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
 from finn.util.basic import alveo_part_map, make_build_dir
+
+# IP definition
+
+# Interfaces
+
+
+class Interface:
+    Signal: TypeAlias = str
+    name: Signal
+    _sub_signals: "list[Signal]"
+
+    def test(self):
+        if isinstance(self, AXI4Stream):
+            return "stream"
+        elif isinstance(self, AXI4Lite):
+            return "lite"
+
+
+@dataclass
+class AXI4Stream(Interface):
+    width: int
+    tlast: bool
+    master: bool
+
+    def __post_init__(self):
+        # TODO: Check what is on AXI converter + FINN side
+        self.sub_signals = ["tvalid", "tdata", "tlast"]
+
+
+@dataclass
+class AXI4Lite(Interface):
+    def __post_init__(self):
+        self.sub_signals = ["d", "e", "f"]
+
+
+@dataclass
+class SimpleWire(Interface):
+    width: int
+
+    def __post_init__(self):
+        self.sub_signals = [self.name]
+
+
+class IP:
+    IPConfig: TypeAlias = "dict[str, str]"
+
+    def __init__(
+        self,
+        vlnv: str,
+        interfaces: List[Interface],
+        ip_repo_path: Optional[str] = None,
+        config: Optional[IPConfig] = None,
+        run_needed=False,
+    ):
+        self.vlnv = vlnv
+        self.ip_repo_path = ip_repo_path
+        self.config = config
+        self.run_needed = run_needed
+        self.interfaces = {}
+        for interface in interfaces:
+            self.interfaces[interface.name] = interface
+
+    @staticmethod
+    def build_vlnv(vendor: str, library: str, name: str, version: str):
+        return "%s:%s:%s:%s" % (vendor, library, name, version)
+
+
+class Instantiations:
+    def __init__(self, instantiation_name: str, ip: IP):
+        self.instantiation_name = instantiation_name
+        self.ip = ip
+        self.connections = {}
+
+
+@dataclass
+class ExternalInterface:
+    interfaces: List[Interface]
+
+
+class Design:
+    def __init__(
+        self,
+        instantiations: List[Instantiations],
+        external_interface: ExternalInterface,
+        wires: List[SimpleWire],
+    ):
+        self.instantiations = instantiations
+        self.external_interface = external_interface
+        self.wires = wires
+        self.ips = set()
+        self.ip_repo_paths = set()
+        # Sets of unique IPs and unique repo paths
+        for instantiation in instantiations:
+            self.ips.add(instantiation.ip)
+            self.ip_repo_paths.add(instantiation.ip.ip_repo_path)
 
 
 class CreateStitchedIPForCoyote(Transformation):
@@ -61,7 +160,8 @@ class CreateStitchedIPForCoyote(Transformation):
         # We want dynamic True so we leave default arguments
         # Also, we only want it at the output since the Coyote interface already provides tlast to
         # the input width converter
-        model = model.transform(InsertTLastMarker())
+        if model.get_metadata_prop("accl_mode"):
+            model = model.transform(InsertTLastMarker())
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareIP(self.fpga_part, self.period_ns))
         model = model.transform(HLSSynthIP())
@@ -88,35 +188,25 @@ class GenerateCoyoteProject(Transformation):
         self.coyote_hw_dir = self.coyote_repo_dir / "hw"
         self.coyote_hw_build_dir = self.coyote_hw_dir / "build"
 
-    def generate_config(self, config: Dict[str, str]):
+    def generate_config(self, config: IP.IPConfig):
         config_tcl = []
         for key, value in config.items():
             config_tcl.append("CONFIG.%s {%s}" % (key, value))
         return " ".join(config_tcl)
 
+    @staticmethod
+    def build_vlnv(vendor: str, library: str, name: str, version: str):
+        return "%s:%s:%s:%s" % (vendor, library, name, version)
+
     def create_ip(
         self,
         module_name: str,
-        vlnv: Optional[str] = None,
-        config: Optional[Dict[str, str]] = None,
-        run_needed=False,
-        name: Optional[str] = None,
-        vendor: Optional[str] = None,
-        version: Optional[str] = None,
-        library: Optional[str] = None,
+        vlnv: str,
+        config: Optional[IP.IPConfig] = None,
+        run_needed: bool = False,
     ):
-        assert vlnv is not None or (
-            name is not None and vendor is not None and library is not None and version is not None
-        )
-
         tcl = []
-        if vlnv is not None:
-            tcl.append("create_ip -vlnv %s -module_name %s" % (vlnv, module_name))
-        else:
-            tcl.append(
-                "create_ip -name %s -vendor %s -library %s -version %s -module_name %s"
-                % (name, vendor, library, version, module_name)
-            )
+        tcl.append("create_ip -vlnv %s -module_name %s" % (vlnv, module_name))
         if config is not None:
             tcl.append(
                 "set_property -dict [list %s] [get_ips %s]"
@@ -178,16 +268,14 @@ class GenerateCoyoteProject(Transformation):
 
         return tcl
 
-    def create_width_converter(self, module_name: str, config: Optional[Dict[str, str]]):
+    def create_width_converter(self, module_name: str, config: Optional[IP.IPConfig]):
         return self.create_ip(
             module_name=module_name,
-            vlnv=None,
+            vlnv=GenerateCoyoteProject.build_vlnv(
+                vendor="xilinx.com", library="ip", name="axis_dwidth_converter", version="1.1"
+            ),
             config=config,
             run_needed=True,
-            name="axis_dwidth_converter",
-            vendor="xilinx.com",
-            version="1.1",
-            library="ip",
         )
 
     def create_finn_kernel(self, vlnv: str):
@@ -236,26 +324,32 @@ class GenerateCoyoteProject(Transformation):
         # Generate IPs and their products
         vlnv = model.get_metadata_prop("vivado_stitch_vlnv")
         tcl.extend(self.create_finn_kernel(vlnv))
-        tcl.extend(
-            self.create_width_converter(
-                module_name="axis_dwidth_converter_host_to_finn",
-                config={
-                    "HAS_TLAST": "1",
-                    "M_TDATA_NUM_BYTES": "1",
-                    "S_TDATA_NUM_BYTES": "64",
-                },
+
+        if model.get_metadata_prop("accl_mode"):
+            # TODO: Add ACCL ip repo
+            # TODO: Instantiate ACCL IP
+            raise NotImplementedError("ACCL mode not supported yet")
+        else:
+            tcl.extend(
+                self.create_width_converter(
+                    module_name="axis_dwidth_converter_host_to_finn",
+                    config={
+                        "HAS_TLAST": "1",
+                        "M_TDATA_NUM_BYTES": "1",
+                        "S_TDATA_NUM_BYTES": "64",
+                    },
+                )
             )
-        )
-        tcl.extend(
-            self.create_width_converter(
-                module_name="axis_dwidth_converter_finn_to_host",
-                config={
-                    "HAS_TLAST": "1",
-                    "M_TDATA_NUM_BYTES": "64",
-                    "S_TDATA_NUM_BYTES": "1",
-                },
+            tcl.extend(
+                self.create_width_converter(
+                    module_name="axis_dwidth_converter_finn_to_host",
+                    config={
+                        "HAS_TLAST": "1",
+                        "M_TDATA_NUM_BYTES": "64",
+                        "S_TDATA_NUM_BYTES": "1",
+                    },
+                )
             )
-        )
 
         tcl_string = "\n".join(tcl) + "\n"
         with open(self.coyote_hw_build_dir / "automate.tcl", "w") as f:
@@ -273,11 +367,11 @@ class GenerateCoyoteProject(Transformation):
 
 
 class CoyoteUserLogic(Transformation):
-    def __init__(self):
+    def __init__(self, intf_names):
         super().__init__()
+        self.intf_names = intf_names
 
     def apply(self, model):
-        # model.set_metadata_prop("vivado_stitch_ifnames", json.dumps(self.intf_names))
         return (model, False)
 
 
@@ -288,19 +382,34 @@ class CoyoteBuild(Transformation):
         self.period_ns = period_ns
         self.signature = signature
 
+    @staticmethod
+    def __is_accl_mode(model: ModelWrapper) -> bool:
+        # TODO: Maybe find something a bit cleaner
+        for node in model.graph.node:
+            if "ACCL" in node.name or "cclo" in node.name:
+                return True
+
+        return False
+
     def apply(self, model):
         # We want dynamic True so we leave default arguments
         # Also, we only want it at the output since the Coyote interface already provides tlast to
         # the input width converter
-        model = model.transform(
-            CreateStitchedIPForCoyote(
-                fpga_part=self.fpga_part,
-                period_ns=self.period_ns,
-                signature=self.signature,
-            )
-        )
 
-        model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part))
-        model = model.transform(CoyoteUserLogic())
+        # model.set_metadata_prop("accl_mode", CoyoteBuild.__is_accl_mode(model))
 
+        # model = model.transform(
+        #     CreateStitchedIPForCoyote(
+        #         fpga_part=self.fpga_part,
+        #         period_ns=self.period_ns,
+        #         signature=self.signature,
+        #     )
+        # )
+        # intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))
+        # model = model.transform(
+        #     GenerateCoyoteProject(fpga_part=self.fpga_part, intf_names=intf_names)
+        # )
+        # model = model.transform(CoyoteUserLogic())
+        intf_test = Interface()
+        intf_test.test()
         return (model, False)
