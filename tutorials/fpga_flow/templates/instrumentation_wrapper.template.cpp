@@ -168,9 +168,9 @@ void instrument(
 				clock_t  ts0;
 				if(!timestamps.read_nb(ts0))  timestamp_unf = true;
 				else {
-					last_latency  = cnt_clk - ts0;
-					last_interval = cnt_clk - ts1;
-					ts1 = ts0;
+					last_latency  = cnt_clk - ts0;	// completion - start
+					last_interval = cnt_clk - ts1;	// completion - previous completion
+					ts1 = cnt_clk;	// mark completion ^
 				}
 				ocnt = 0;
 			}
