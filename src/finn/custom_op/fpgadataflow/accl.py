@@ -1,31 +1,3 @@
-# Copyright (c) 2020, Xilinx
-# All rights reserved.
-#
-# Redistribution and use in source and binary forms, with or without
-# modification, are permitted provided that the following conditions are met:
-#
-# * Redistributions of source code must retain the above copyright notice, this
-#   list of conditions and the following disclaimer.
-#
-# * Redistributions in binary form must reproduce the above copyright notice,
-#   this list of conditions and the following disclaimer in the documentation
-#   and/or other materials provided with the distribution.
-#
-# * Neither the name of FINN nor the names of its
-#   contributors may be used to endorse or promote products derived from
-#   this software without specific prior written permission.
-#
-# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
-# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
-# DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-# FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
-# DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
-# SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-# CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
-# OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-# OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
 import math
 import numpy as np
 import warnings
@@ -95,7 +67,7 @@ class ACCLOp(HLSCustomOp):
 
         self.set_nodeattr("executable_path", code_gen_dir + "/node_model")
 
-    def execute_kernel(self, edge_name):
+    def execute_op(self, edge_name):
         idx = ACCLOp.barriers[edge_name].wait()
         emulator = None
         try:
@@ -332,8 +304,10 @@ class ACCLOut(ACCLOp):
             reshaped_input,
         )
 
+        # Execute node in a new thread so execution can continue to the receiving ACCLIn
+        # node.
         self.thread = threading.Thread(
-            target=self.execute_kernel,
+            target=self.execute_op,
             args=(self.onnx_node.output[0],)
         )
         self.thread.start()
@@ -475,7 +449,7 @@ class ACCLIn(ACCLOp):
 
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
 
-        self.execute_kernel(self.onnx_node.input[0])
+        self.execute_op(self.onnx_node.input[0])
 
         super().npy_to_dynamic_output(context)
 

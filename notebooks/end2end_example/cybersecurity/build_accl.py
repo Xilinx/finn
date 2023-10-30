@@ -35,20 +35,29 @@ steps = [
     "step_create_dataflow_partition",
     "step_target_fps_parallelization",
     "step_apply_folding_config",
+    "step_minimize_bit_width",
     "step_assign_partition_ids",
     "step_insert_accl",
     "step_split_dataflow",
+    "step_generate_estimate_reports",
+    "step_hls_codegen",
+    "step_hls_ipgen",
+    "step_set_fifo_depths",
+    "step_create_stitched_ip",
+    "step_setup_accl_interface",
 ]
 
 cfg_splits = build.DataflowBuildConfig(
     verbose             = True,
     output_dir          = estimates_output_dir,
     steps               = steps,
-    mvau_wwidth_max     = 1000,
+    mvau_wwidth_max     = 80,
     target_fps          = 1000000,
     synth_clk_period_ns = 10.0,
     fpga_part           = "xc7z020clg400-1",
     generate_outputs    = [
+        build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
+        build_cfg.DataflowOutputType.STITCHED_IP,
     ],
     # verify_steps        = [build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM],
     board               = 'U250',
@@ -57,5 +66,5 @@ cfg_splits = build.DataflowBuildConfig(
     # start_step          = 'step_setup_accl_interface',
 )
 
-build.build_dataflow_cfg(model_file, cfg_splits)
+build.build_distributed_dataflow_cfg(model_file, cfg_splits)
 

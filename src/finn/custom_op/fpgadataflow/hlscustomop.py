@@ -344,14 +344,12 @@ class HLSCustomOp(CustomOp):
     def ipgen_singlenode_code(self):
         """Builds the bash script for IP generation using the CallHLS utility."""
         node = self.onnx_node
-
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
         builder = CallHLS()
         builder.append_tcl(code_gen_dir + "/hls_syn_{}.tcl".format(node.name))
         builder.set_ipgen_path(code_gen_dir + "/project_{}".format(node.name))
         builder.build(code_gen_dir)
         ipgen_path = builder.ipgen_path
-
         assert os.path.isdir(ipgen_path), "IPGen failed: %s not found" % (ipgen_path)
         self.set_nodeattr("ipgen_path", ipgen_path)
         ip_path = ipgen_path + "/sol1/impl/ip"

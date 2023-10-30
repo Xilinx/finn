@@ -338,7 +338,6 @@ class InsertAndSetFIFODepths(Transformation):
             # set sufficiently large threshold for 1 image to  fully execute and exit
             ncycles = int(latency + max_cycles)
 
-
             # prepare pyverilator model
             sim = pyverilate_stitched_ip(model)
 
@@ -377,13 +376,13 @@ class InsertAndSetFIFODepths(Transformation):
             if len(swg_nodes) == 0:
                 # MLP, no layer overlap
                 # assuming half the nodes are now FIFOs, use half the # of
-                # nodes as # inputs to drive the 2mulation
+                # nodes as # inputs to drive the imulation
                 n_inputs = int(len(model.graph.node) / 2)
             else:
                 # convnet, two inputs are typically enough to fill entire
                 # layer pipeline due to overlaps
                 n_inputs = 2
-            sim = verilator_fifosim(model, n_inputs, max_iters=10000)
+            sim = verilator_fifosim(model, n_inputs)
 
         for ind, node in enumerate(fifo_nodes):
             maxcount_name = "maxcount_%d" % ind

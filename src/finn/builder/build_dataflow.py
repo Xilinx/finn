@@ -34,7 +34,9 @@ import pdb  # NOQA
 import sys
 import time
 import traceback
+from copy import deepcopy
 from qonnx.core.modelwrapper import ModelWrapper
+from qonnx.custom_op.registry import getCustomOp
 
 from finn.builder.build_dataflow_config import (
     DataflowBuildConfig,
@@ -193,7 +195,11 @@ def build_distributed_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     steps = resolve_build_steps(cfg)
     step_names = list(map(lambda x: x.__name__, steps))
 
-    split_step = "step_split_dataflow" 
+    # TODO: Not sure if splitting up the config implicitly up is the best way to do this.
+    # Maybe it would be better for the user to explicitly provide global and local build
+    # configs.
+
+    split_step = "step_split_dataflow"
     if split_step not in step_names:
         print("Dataflow should be split up as part of distributed build")
         return -1
@@ -201,7 +207,7 @@ def build_distributed_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     global_cfg = deepcopy(cfg)
     global_cfg.steps = steps[:step_names.index(split_step) + 1]
 
-    if not cfg.save_intermediate_models: 
+    if not cfg.save_intermediate_models:
         print("save_intermediate_models must be enabled for distributed build")
         return -1
 
@@ -210,7 +216,7 @@ def build_distributed_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
         return -1
 
     intermediate_models_dir = cfg.output_dir + "/intermediate_models"
-    parent_model = ModelWrapper(intermediate_model_dir)
+    parent_model = ModelWrapper(f"{intermediate_models_dir}/{split_step}.onnx")
 
     local_cfg = deepcopy(cfg)
     local_cfg.steps = steps[step_names.index(split_step) + 1:]
@@ -224,6 +230,7 @@ def build_distributed_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
 
         print(f"Launching build for partition {i}")
         build_dataflow_cfg(child_model_filename, local_cfg)
+
 
 def build_dataflow_directory(path_to_cfg_dir: str):
     """Best-effort build a dataflow accelerator from the specified directory.

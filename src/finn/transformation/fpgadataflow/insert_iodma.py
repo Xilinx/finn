@@ -106,7 +106,7 @@ class InsertIODMA(Transformation):
             graph_in_names = [x.name for x in model.graph.input]
             for graph_in_name in graph_in_names:
                 first_node = model.find_consumer(graph_in_name)
-                if first_node.p_type in ["IODMA", "Accl"]:
+                if first_node.op_type == "IODMA":
                     # IODMA already inserted for this input
                     continue
                 else:
@@ -153,7 +153,7 @@ class InsertIODMA(Transformation):
             graph_out_names = [x.name for x in model.graph.output]
             for graph_out_name in graph_out_names:
                 final_node = model.find_producer(graph_out_name)
-                if final_node.p_type in ["IODMA", "Accl"]:
+                if final_node.op_type == "IODMA":
                     continue
                 else:
                     out_shape = model.get_tensor_shape(graph_out_name)

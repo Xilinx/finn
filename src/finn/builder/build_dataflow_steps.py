@@ -380,7 +380,7 @@ def step_create_dataflow_partition(model: ModelWrapper, cfg: DataflowBuildConfig
 
     parent_model = model.transform(
         CreateDataflowPartition(
-            partition_model_dir=cfg.output_dir + "/intermediate_models/supported_op_partitions",
+            partition_model_dir=cfg.output_dir + "/intermediate_models/supported_op_partitions"
         )
     )
     sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
