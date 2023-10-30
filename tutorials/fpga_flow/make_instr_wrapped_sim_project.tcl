@@ -26,10 +26,15 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-create_project -force instr_sim_proj instr_sim_proj/ -part "xcve2802-vsvh1760-2MP-e-S"
+set fpga_part "xcve2802-vsvh1760-2MP-e-S"
+set output_root "output_tfc_w1a1_VEK280"
+set instrwrp_ip_dir "$output_root/instrumentation_wrapper/project_instrwrap/sol1/impl/ip"
+set finn_ip_dir "$output_root/stitched_ip/ip"
+
+create_project -force instr_sim_proj instr_sim_proj/ -part $fpga_part
 create_bd_design "dut"
 update_compile_order -fileset sources_1
-set_property  ip_repo_paths  {output_tfc_w1a1_fpga/instrumentation_wrapper/project_instrwrap/sol1/impl/ip output_tfc_w1a1_fpga/stitched_ip/ip} [current_project]
+set_property  ip_repo_paths  [list $instrwrp_ip_dir $finn_ip_dir] [current_project]
 update_ip_catalog
 
 
