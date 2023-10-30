@@ -101,9 +101,8 @@ def custom_step_gen_instrumentation_wrapper(model, cfg):
     ipgentcl = ipgentcl_template
     ipgentcl = ipgentcl.replace("$PROJECTNAME$", prjname)
     ipgentcl = ipgentcl.replace("$HWSRCDIR$", wrapper_output_dir)
-    ipgentcl = ipgentcl.replace("$FPGAPART$", cfg.fpga_part)
     ipgentcl = ipgentcl.replace("$TOPFXN$", "instrumentation_wrapper")
-    ipgentcl = ipgentcl.replace("$FPGAPART$", cfg.fpga_part)
+    ipgentcl = ipgentcl.replace("$FPGAPART$", cfg._resolve_fpga_part())
     ipgentcl = ipgentcl.replace("$CLKPERIOD$", str(cfg.synth_clk_period_ns))
     ipgentcl = ipgentcl.replace("$DEFAULT_DIRECTIVES$", "")
     ipgentcl = ipgentcl.replace("$EXTRA_DIRECTIVES$", "config_export -format xo")
@@ -219,7 +218,7 @@ cfg = build.DataflowBuildConfig(
     synth_clk_period_ns=3.3,
     folding_config_file="folding_config.json",
     shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
-    stitched_ip_gen_dcp=True,
+    stitched_ip_gen_dcp=False,
     generate_outputs=[
         build_cfg.DataflowOutputType.STITCHED_IP,
     ],
