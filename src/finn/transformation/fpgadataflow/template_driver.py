@@ -88,8 +88,9 @@ io_shape_dict = {
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Execute FINN-generated accelerator on numpy inputs, or run throughput test')
     parser.add_argument('--exec_mode', help='Please select functional verification ("execute") or throughput test ("throughput_test")', default="execute")
-    parser.add_argument('--platform', help='Target platform: zynq-iodma alveo', default="$PLATFORM$")
+    parser.add_argument('--platform', help='Target platform: zynq-iodma alveo', default="alveo")
     parser.add_argument('--batchsize', help='number of samples for inference', type=int, default=1)
+    parser.add_argument('--device', help='FPGA device to be used', type=int, default=0)
     parser.add_argument('--bitfile', help='name of bitfile (i.e. "resizer.bit")', default="resizer.bit")
     parser.add_argument('--inputfile', help='name(s) of input npy file(s) (i.e. "input.npy")', nargs="*", type=str, default=["input.npy"])
     parser.add_argument('--outputfile', help='name(s) of output npy file(s) (i.e. "output.npy")', nargs="*", type=str, default=["output.npy"])
@@ -103,12 +104,14 @@ if __name__ == "__main__":
     inputfile = args.inputfile
     outputfile = args.outputfile
     runtime_weight_dir = args.runtime_weight_dir
+    devID = args.device
+    device = Device.devices[devID]
 
     # instantiate FINN accelerator driver and pass batchsize and bitfile
     accel = FINNExampleOverlay(
         bitfile_name = bitfile, platform = platform,
         io_shape_dict = io_shape_dict, batch_size = batch_size,
-        runtime_weight_dir = runtime_weight_dir
+        runtime_weight_dir = runtime_weight_dir, device=device
     )
 
     # for the remote execution the data from the input npy file has to be loaded,
