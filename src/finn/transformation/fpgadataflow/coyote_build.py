@@ -36,7 +36,7 @@ from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from typing_extensions import TypeAlias
 
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
@@ -47,10 +47,6 @@ from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
     ReplaceVerilogRelPaths,
 )
 from finn.util.basic import alveo_part_map, make_build_dir
-
-# IP definition
-
-# Interfaces
 
 
 class Interface(ABC):
@@ -65,6 +61,7 @@ class Interface(ABC):
         self.width = width
         self._sub_signals = []
         self.connected = False
+        self.owner = None
 
     @abstractmethod
     def connect(self, design: "Design", interface: "Interface", is_external=False):
@@ -72,8 +69,11 @@ class Interface(ABC):
 
 
 class Delimiter(Enum):
-    UNDERSCORE = 1
-    POINT = 2
+    UNDERSCORE = "_"
+    POINT = "."
+
+    def __str__(self):
+        return str(self.value)
 
 
 class AXIInterface(Interface):
@@ -85,11 +85,11 @@ class AXIInterface(Interface):
         assert not interface.connected
         assert not self.connected
         if len(self._sub_signals) != len(interface._sub_signals):
-            assert isinstance(self, "AXI4Stream") and isinstance(
-                interface, "AXI4Stream"
+            assert isinstance(self, AXI4Stream) and isinstance(
+                interface, AXI4Stream
             ), "This should not happen"
 
-        # NOTE: This holds if the the potential additional signals are at the end of the list
+        # NOTE: This holds only if the potential additional signals are at the end of the list
         # NOTE: This is currently the case for AXI4Stream
         max_range = min(len(self._sub_signals), len(interface._sub_signals))
         for i in range(max_range):
@@ -104,7 +104,14 @@ class AXIInterface(Interface):
             else:
                 assert interface.owner is not None
                 wire = SimpleWire(
-                    name="%s_wire_%s" % (our_interface, other_interface),
+                    name="%s_%s_wire_%s_%s_%s"
+                    % (
+                        self.owner.ip.module_name,
+                        self.name,
+                        interface.owner.ip.module_name,
+                        interface.name,
+                        sub_signal,
+                    ),
                     width=width,
                 )
                 wire.connected = True
@@ -116,15 +123,18 @@ class AXIInterface(Interface):
 
 
 class AXI4Stream(AXIInterface):
+    @staticmethod
+    def next_multiple_of_8(width: int):
+        return ((width + 7) >> 3) << 3
+
     def __init__(self, name: str, width: int, tlast: bool, delimiter: Delimiter):
-        super().__init__(name, width, delimiter)
+        super().__init__(name, AXI4Stream.next_multiple_of_8(width), delimiter)
         self.tlast = tlast
-        self._sub_signals = [("tdata", width), ("tvalid", 1), ("tready", 1)]
+        self._sub_signals = [("tdata", self.width), ("tvalid", 1), ("tready", 1)]
         if tlast:
-            # TODO: Check if these can be larger than one depending on the number of bytes
             # TLAST is always one bit and TKEEP is WIDTH(in bits)/8
             self._sub_signals.append(("tlast", 1))
-            self._sub_signals.append(("tkeep", width >> 3))
+            self._sub_signals.append(("tkeep", self.width >> 3))
 
 
 class AXI4Lite(AXIInterface):
@@ -149,6 +159,8 @@ class AXI4Lite(AXIInterface):
             ("arready", 1),
             ("rdata", width),
             ("rresp", 2),
+            ("rready", 1),
+            ("rvalid", 1),
         ]
 
 
@@ -169,6 +181,7 @@ class SimpleWire(Interface):
 
 class IP:
     IPConfig: TypeAlias = "dict[str, str]"
+    interfaces: Dict[str, Interface]
 
     def __init__(
         self,
@@ -212,16 +225,16 @@ class ExternalInterface:
 class Design:
     def __init__(
         self,
-        instantiations: List[Instantiation],
+        instantiations: Dict[str, Instantiation],
         external_interface: ExternalInterface,
     ):
         self.instantiations = instantiations
         self.external_interface = external_interface
-        self.wires = []
+        self.wires: List[SimpleWire] = []
         self.ips = set()
         self.ip_repo_paths = set()
         # Sets of unique IPs and unique repo paths
-        for instantiation in instantiations:
+        for name, instantiation in instantiations.items():
             self.ips.add(instantiation.ip)
             if instantiation.ip.ip_repo_path is not None:
                 self.ip_repo_paths.add(instantiation.ip.ip_repo_path)
@@ -353,6 +366,7 @@ class GenerateCoyoteProject(Transformation):
         return tcl
 
     def apply(self, model):
+        model.set_metadata_prop("coyote_hw_build", self.coyote_hw_build_dir.__str__())
         # Clone Coyote git repo
         COYOTE_REPOSITORY = "https://github.com/fpgasystems/Coyote.git"
 
@@ -393,36 +407,6 @@ class GenerateCoyoteProject(Transformation):
         for ip in self.design.ips:
             tcl.extend(self.create_ip(ip))
 
-        # Generate IPs and their products
-        # vlnv = model.get_metadata_prop("vivado_stitch_vlnv")
-        # tcl.extend(self.create_finn_kernel(vlnv))
-        """
-        if model.get_metadata_prop("accl_mode"):
-            # TODO: Add ACCL ip repo
-            # TODO: Instantiate ACCL IP
-            raise NotImplementedError("ACCL mode not supported yet")
-        else:
-            tcl.extend(
-                self.create_width_converter(
-                    module_name="axis_dwidth_converter_host_to_finn",
-                    config={
-                        "HAS_TLAST": "1",
-                        "M_TDATA_NUM_BYTES": "1",
-                        "S_TDATA_NUM_BYTES": "64",
-                    },
-                )
-            )
-            tcl.extend(
-                self.create_width_converter(
-                    module_name="axis_dwidth_converter_finn_to_host",
-                    config={
-                        "HAS_TLAST": "1",
-                        "M_TDATA_NUM_BYTES": "64",
-                        "S_TDATA_NUM_BYTES": "1",
-                    },
-                )
-            )
-        """
         tcl_string = "\n".join(tcl) + "\n"
         with open(self.coyote_hw_build_dir / "automate.tcl", "w") as f:
             f.write(tcl_string)
@@ -437,11 +421,71 @@ class GenerateCoyoteProject(Transformation):
 
 
 class CoyoteUserLogic(Transformation):
-    def __init__(self, intf_names):
+    def __init__(self, design: Design):
         super().__init__()
-        self.intf_names = intf_names
+        self.design = design
 
     def apply(self, model):
+        coyote_hw_build_dir = Path(model.get_metadata_prop("coyote_hw_build"))
+        finn_cwd = os.getcwd()
+        os.chdir(coyote_hw_build_dir)
+
+        user_logic_file = coyote_hw_build_dir / "lynx" / "hdl" / "config_0" / "user_logic_c0_0.sv"
+
+        lines = None
+        with open(user_logic_file) as f:
+            lines = f.read().splitlines()
+
+        assert lines is not None
+
+        user_logic_idx = None
+        for i, line in enumerate(lines):
+            if "USER LOGIC" in line:
+                user_logic_idx = i
+
+        assert user_logic_idx is not None
+
+        before_user_logic = lines[: user_logic_idx + 1]
+        after_user_logic = lines[user_logic_idx + 1 :]
+
+        verilog = []
+        for wire in self.design.wires:
+            verilog.append("wire [%d:0] %s;" % (wire.width - 1, wire.name))
+
+        verilog.append("")
+
+        for instantiation_name, instantiation in self.design.instantiations.items():
+            verilog.append("%s %s (" % (instantiation.ip.module_name, instantiation_name))
+            for port, external_wire in instantiation.connections.items():
+                verilog.append("\t.%s(%s)," % (port, external_wire))
+
+            verilog[len(verilog) - 1] = verilog[len(verilog) - 1][:-1]
+            verilog.append(");\n")
+
+        before_user_logic.extend(verilog)
+        before_user_logic.extend(after_user_logic)
+
+        with open(user_logic_file, "w") as f:
+            f.write("\n".join(before_user_logic) + "\n")
+
+        os.chdir(finn_cwd)
+        return (model, False)
+
+
+class CoyoteCompile(Transformation):
+    def __init__(self):
+        super().__init__()
+
+    def apply(self, model):
+        coyote_hw_build_dir = Path(model.get_metadata_prop("coyote_hw_build"))
+        finn_cwd = os.getcwd()
+        os.chdir(coyote_hw_build_dir)
+
+        make_shell_command = ["make", "compile"]
+        process_compile = subprocess.Popen(make_shell_command, stdout=subprocess.PIPE)
+        process_compile.communicate()
+
+        os.chdir(finn_cwd)
         return (model, False)
 
 
@@ -469,18 +513,13 @@ class CoyoteBuild(Transformation):
         model.set_metadata_prop("accl_mode", json.dumps(CoyoteBuild.__is_accl_mode(model)))
         is_accl_mode = json.loads(model.get_metadata_prop("accl_mode"))
 
-        model = ModelWrapper(
-            "/home/antoine/Documents/coyote_finn/cybersecurity/outputs_u250_automate/"
-            "intermediate_models/step_create_stitched_ip.onnx"
+        model = model.transform(
+            CreateStitchedIPForCoyote(
+                fpga_part=self.fpga_part,
+                period_ns=self.period_ns,
+                signature=self.signature,
+            )
         )
-
-        # model = model.transform(
-        #     CreateStitchedIPForCoyote(
-        #         fpga_part=self.fpga_part,
-        #         period_ns=self.period_ns,
-        #         signature=self.signature,
-        #     )
-        # )
 
         intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))  # type: ignore
 
@@ -536,6 +575,7 @@ class CoyoteBuild(Transformation):
             ip_repo_path=None,
             config={
                 "HAS_TLAST": "1",
+                "HAS_TKEEP": "1",
                 "M_TDATA_NUM_BYTES": "1",
                 "S_TDATA_NUM_BYTES": "64",
             },
@@ -556,6 +596,7 @@ class CoyoteBuild(Transformation):
             ip_repo_path=None,
             config={
                 "HAS_TLAST": "1",
+                "HAS_TKEEP": "1",
                 "M_TDATA_NUM_BYTES": "64",
                 "S_TDATA_NUM_BYTES": "1",
             },
@@ -576,25 +617,70 @@ class CoyoteBuild(Transformation):
             ]
         )
 
-        instantiations = []
-        instantiations.append(
-            Instantiation(instantiation_name="finn_kernel_inst", ip=finn_kernel_ip)
+        instantiations = {}
+        instantiations["finn_kernel_inst"] = Instantiation(
+            instantiation_name="finn_kernel_inst", ip=finn_kernel_ip
         )
-        instantiations.append(
-            Instantiation(
-                instantiation_name="axis_dwidth_convert_host_to_finn_inst",
-                ip=axis_dwidth_convert_host_to_finn,
-            )
+        instantiations["axis_dwidth_convert_host_to_finn_inst"] = Instantiation(
+            instantiation_name="axis_dwidth_convert_host_to_finn_inst",
+            ip=axis_dwidth_convert_host_to_finn,
         )
-        instantiations.append(
-            Instantiation(
-                instantiation_name="axis_dwidth_convert_finn_to_host_inst",
-                ip=axis_dwidth_convert_finn_to_host,
-            )
+
+        instantiations["axis_dwidth_convert_finn_to_host_inst"] = Instantiation(
+            instantiation_name="axis_dwidth_convert_finn_to_host_inst",
+            ip=axis_dwidth_convert_finn_to_host,
         )
 
         design = Design(instantiations, coyote_interface)
-        # intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))
+
+        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["m_axis"][0][0]].connect(
+            design, instantiations["axis_dwidth_convert_finn_to_host_inst"].ip.interfaces["s_axis"]
+        )
+
+        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["s_axis"][0][0]].connect(
+            design,
+            instantiations["axis_dwidth_convert_host_to_finn_inst"].ip.interfaces["m_axis"],
+        )
+
+        # TODO: external should be part of the Interface class
+        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["axilite"][0]].connect(
+            design, coyote_interface.interfaces["axi_ctrl"], is_external=True
+        )
+
+        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["clk"][0]].connect(
+            design, coyote_interface.interfaces["aclk"], is_external=True
+        )
+
+        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["rst"][0]].connect(
+            design, coyote_interface.interfaces["aresetn"], is_external=True
+        )
+
+        instantiations["axis_dwidth_convert_finn_to_host_inst"].ip.interfaces["aclk"].connect(
+            design, coyote_interface.interfaces["aclk"], is_external=True
+        )
+
+        instantiations["axis_dwidth_convert_finn_to_host_inst"].ip.interfaces["aresetn"].connect(
+            design, coyote_interface.interfaces["aresetn"], is_external=True
+        )
+
+        instantiations["axis_dwidth_convert_finn_to_host_inst"].ip.interfaces["m_axis"].connect(
+            design, coyote_interface.interfaces["axis_host_0_src"], is_external=True
+        )
+
+        instantiations["axis_dwidth_convert_host_to_finn_inst"].ip.interfaces["aclk"].connect(
+            design, coyote_interface.interfaces["aclk"], is_external=True
+        )
+
+        instantiations["axis_dwidth_convert_host_to_finn_inst"].ip.interfaces["aresetn"].connect(
+            design, coyote_interface.interfaces["aresetn"], is_external=True
+        )
+
+        instantiations["axis_dwidth_convert_host_to_finn_inst"].ip.interfaces["s_axis"].connect(
+            design, coyote_interface.interfaces["axis_host_0_sink"], is_external=True
+        )
+
         model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part, design=design))
-        # model = model.transform(CoyoteUserLogic())
+        model = model.transform(CoyoteUserLogic(design=design))
+        model = model.transform(CoyoteCompile())
+
         return (model, False)
