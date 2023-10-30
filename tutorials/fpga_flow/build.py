@@ -34,19 +34,21 @@
 
 import numpy as np
 import os
+import shutil
 from qonnx.custom_op.registry import getCustomOp
 
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 import finn.util.data_packing as dpk
-from finn.transformation.fpgadataflow.vitis_build import CreateVitisXO
 from finn.custom_op.fpgadataflow.templates import ipgentcl_template
+from finn.transformation.fpgadataflow.vitis_build import CreateVitisXO
 from finn.util.hls import CallHLS
-import shutil
-
 
 model_name = "tfc_w1a1"
-platform_name = "fpga"
+platform_name = "VCK190"
+# if fpga_part=None, FINN will try to infer this from the platform_name
+fpga_part = None
+
 
 def custom_step_gen_vitis_xo(model, cfg):
     xo_dir = cfg.output_dir + "/xo"
@@ -56,6 +58,7 @@ def custom_step_gen_vitis_xo(model, cfg):
     xo_path = model.get_metadata_prop("vitis_xo")
     shutil.copy(xo_path, xo_dir)
     return model
+
 
 def custom_step_gen_instrumentation_wrapper(model, cfg):
     xo_dir = cfg.output_dir + "/xo"
@@ -125,6 +128,7 @@ def custom_step_gen_instrumentation_wrapper(model, cfg):
     xo_instr_path = xo_dir + "/instrumentation_wrapper.xo"
     shutil.copy(xo_path, xo_instr_path)
     return model
+
 
 def custom_step_gen_tb_and_io(model, cfg):
     sim_output_dir = cfg.output_dir + "/sim"
@@ -201,17 +205,19 @@ def custom_step_gen_tb_and_io(model, cfg):
 
 
 build_steps = build_cfg.default_build_dataflow_steps + [
-    custom_step_gen_vitis_xo, custom_step_gen_instrumentation_wrapper, custom_step_gen_tb_and_io
+    custom_step_gen_vitis_xo,
+    custom_step_gen_instrumentation_wrapper,
+    custom_step_gen_tb_and_io,
 ]
 
 
 cfg = build.DataflowBuildConfig(
     steps=build_steps,
     board=platform_name,
+    fpga_part=fpga_part,
     output_dir="output_%s_%s" % (model_name, platform_name),
     synth_clk_period_ns=3.3,
     folding_config_file="folding_config.json",
-    fpga_part="xcve2802-vsvh1760-2MP-e-S",
     shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
     stitched_ip_gen_dcp=True,
     generate_outputs=[
