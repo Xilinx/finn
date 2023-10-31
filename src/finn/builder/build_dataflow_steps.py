@@ -496,6 +496,13 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)
     with open(report_dir + "/estimate_layer_resources_hls.json", "w") as f:
         json.dump(estimate_layer_resources_hls, f, indent=2)
+
+    if VerificationStepType.NODE_BY_NODE_RTLSIM in cfg._resolve_verification_steps():
+        # prepare node-by-node rtlsim
+        verify_model = model.transform(GiveUniqueNodeNames())
+        verify_model = verify_model.transform(PrepareRTLSim())
+        verify_model = verify_model.transform(SetExecMode("rtlsim"))
+        verify_step(verify_model, cfg, "node_by_node_rtlsim", need_parent=True)
     return model
 
 
