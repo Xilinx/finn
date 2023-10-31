@@ -89,13 +89,15 @@ class CreateVitisXO(Transformation):
         _check_vitis_envvars()
         vivado_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
         stitched_ip_dir = vivado_proj_dir + "/ip"
-        interfaces = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))
+        interfaces = json.loads(
+            model.get_metadata_prop("vivado_stitch_ifnames"))
         args_string = []
         arg_id = 0
         # NOTE: this assumes the graph is Vitis-compatible: max one axi lite interface
         # developed from instructions in UG1393 (v2019.2) and package_xo documentation
         # package_xo is responsible for generating the kernel xml
-        assert len(interfaces["axilite"]) <= 1, "CreateVitisXO supports max 1 AXI lite interface"
+        assert len(
+            interfaces["axilite"]) <= 1, "CreateVitisXO supports max 1 AXI lite interface"
         axilite_intf_name = None
         if len(interfaces["axilite"]) == 1:
             axilite_intf_name = interfaces["axilite"][0]
@@ -110,12 +112,14 @@ class CreateVitisXO(Transformation):
                 )
                 arg_id += 1
                 args_string.append(
-                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}" % (str(arg_id), axilite_intf_name)
+                    "{numReps:0:%s:%s:0x4:0x1C:uint:0}" % (
+                        str(arg_id), axilite_intf_name)
                 )
                 arg_id += 1
             else:
                 args_string.append(
-                    "{numReps:0:%s:%s:0x4:0x10:uint:0}" % (str(arg_id), axilite_intf_name)
+                    "{numReps:0:%s:%s:0x4:0x10:uint:0}" % (
+                        str(arg_id), axilite_intf_name)
                 )
                 arg_id += 1
         for intf in interfaces["s_axis"] + interfaces["m_axis"]:
@@ -152,7 +156,8 @@ class CreateVitisXO(Transformation):
             f.write("vivado -mode batch -source gen_xo.tcl\n")
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", package_xo_sh]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile = subprocess.Popen(
+            bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         assert os.path.isfile(xo_path), (
             "Vitis .xo file not created, check logs under %s" % vivado_proj_dir
@@ -212,26 +217,30 @@ class VitisLink(Transformation):
             # check top-level in/out list instead
             if producer is None:
                 instance_names[node.name] = "idma" + str(idma_idx)
-                config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
+                config.append("nk=%s:1:%s" %
+                              (node.name, instance_names[node.name]))
                 idma_idx += 1
             elif consumer == []:
                 instance_names[node.name] = "odma" + str(odma_idx)
-                config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
+                config.append("nk=%s:1:%s" %
+                              (node.name, instance_names[node.name]))
                 odma_idx += 1
             else:
                 instance_names[node.name] = node.name
-                config.append("nk=%s:1:%s" % (node.name, instance_names[node.name]))
+                config.append("nk=%s:1:%s" %
+                              (node.name, instance_names[node.name]))
             sdp_node.set_nodeattr("instance_name", instance_names[node.name])
             # explicitly assign SLRs if the slr attribute is not -1
             node_slr = sdp_node.get_nodeattr("slr")
             if node_slr != -1:
-                config.append("slr=%s:SLR%d" % (instance_names[node.name], node_slr))
+                config.append("slr=%s:SLR%d" %
+                              (instance_names[node.name], node_slr))
             # assign memory banks
             if producer is None or consumer is None:
                 node_mem_port = sdp_node.get_nodeattr("mem_port")
                 if node_mem_port == "":
                     # configure good defaults based on board
-                    if "u50" in self.platform or "u280" in self.platform:
+                    if "u50" in self.platform or "u280" in self.platform or "u55c" in self.platform:
                         # Use HBM where available (also U50 does not have DDR)
                         mem_type = "HBM"
                         mem_idx = 0
@@ -250,7 +259,8 @@ class VitisLink(Transformation):
                         mem_type = "DDR"
                         mem_idx = 1
                     node_mem_port = "%s[%d]" % (mem_type, mem_idx)
-                config.append("sp=%s.m_axi_gmem0:%s" % (instance_names[node.name], node_mem_port))
+                config.append("sp=%s.m_axi_gmem0:%s" %
+                              (instance_names[node.name], node_mem_port))
             # connect streams
             if producer is not None:
                 for i in range(len(node.input)):
@@ -274,11 +284,16 @@ class VitisLink(Transformation):
         # add Vivado physopt directives if desired
         if self.strategy == VitisOptStrategy.PERFORMANCE_BEST:
             config.append("[vivado]")
-            config.append("prop=run.impl_1.STEPS.OPT_DESIGN.ARGS.DIRECTIVE=ExploreWithRemap")
-            config.append("prop=run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=Explore")
-            config.append("prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.IS_ENABLED=true")
-            config.append("prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE=Explore")
-            config.append("prop=run.impl_1.STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE=Explore")
+            config.append(
+                "prop=run.impl_1.STEPS.OPT_DESIGN.ARGS.DIRECTIVE=ExploreWithRemap")
+            config.append(
+                "prop=run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=Explore")
+            config.append(
+                "prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.IS_ENABLED=true")
+            config.append(
+                "prop=run.impl_1.STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE=Explore")
+            config.append(
+                "prop=run.impl_1.STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE=Explore")
 
         config = "\n".join(config) + "\n"
         with open(link_dir + "/config.txt", "w") as f:
@@ -315,7 +330,8 @@ class VitisLink(Transformation):
             )
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", script]
-        process_compile = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
+        process_compile = subprocess.Popen(
+            bash_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         # TODO rename xclbin appropriately here?
         xclbin = link_dir + "/a.xclbin"
@@ -330,7 +346,8 @@ class VitisLink(Transformation):
         with open(gen_rep_xml_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(link_dir))
-            f.write("vivado -mode batch -source %s\n" % (link_dir + "/gen_report_xml.tcl"))
+            f.write("vivado -mode batch -source %s\n" %
+                    (link_dir + "/gen_report_xml.tcl"))
             f.write("cd {}\n".format(working_dir))
         bash_command = ["bash", gen_rep_xml_sh]
         process_genxml = subprocess.Popen(bash_command, stdout=subprocess.PIPE)
@@ -390,7 +407,8 @@ class VitisBuild(Transformation):
         model = model.transform(Floorplan(floorplan=self.floorplan_file))
 
         model = model.transform(
-            CreateDataflowPartition(partition_model_dir=self.partition_model_dir)
+            CreateDataflowPartition(
+                partition_model_dir=self.partition_model_dir)
         )
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(GiveReadableTensorNames())
@@ -406,12 +424,15 @@ class VitisBuild(Transformation):
             kernel_model = kernel_model.transform(RemoveUnusedTensors())
             kernel_model = kernel_model.transform(GiveUniqueNodeNames(prefix))
             kernel_model.save(dataflow_model_filename)
-            kernel_model = kernel_model.transform(PrepareIP(self.fpga_part, self.period_ns))
+            kernel_model = kernel_model.transform(
+                PrepareIP(self.fpga_part, self.period_ns))
             kernel_model = kernel_model.transform(HLSSynthIP())
             kernel_model = kernel_model.transform(
-                CreateStitchedIP(self.fpga_part, self.period_ns, sdp_node.onnx_node.name, True)
+                CreateStitchedIP(self.fpga_part, self.period_ns,
+                                 sdp_node.onnx_node.name, True)
             )
-            kernel_model = kernel_model.transform(CreateVitisXO(sdp_node.onnx_node.name))
+            kernel_model = kernel_model.transform(
+                CreateVitisXO(sdp_node.onnx_node.name))
             kernel_model.set_metadata_prop("platform", "alveo")
             kernel_model.save(dataflow_model_filename)
         # Assemble design from kernels
