@@ -197,14 +197,13 @@ class HLSCustomOp(CustomOp):
 
         verilog_files = self.get_all_verilog_filenames(abspath=True)
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
-        tmp_build_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
         target_file = single_src_dir + "/" + self.get_verilog_top_module_name() + ".v"
         make_single_source_file(verilog_files, target_file)
 
         # build the Verilator emu library
         sim = PyVerilator.build(
             self.get_verilog_top_module_name() + ".v",
-            build_dir=tmp_build_dir,
+            build_dir=single_src_dir,
             verilog_path=[single_src_dir],
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_verilog_top_module_name(),
