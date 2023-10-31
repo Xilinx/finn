@@ -98,9 +98,6 @@ from finn.transformation.fpgadataflow.minimize_weight_bit_width import (
 from finn.transformation.fpgadataflow.prepare_cppsim import PrepareCppSim
 from finn.transformation.fpgadataflow.prepare_ip import PrepareIP
 from finn.transformation.fpgadataflow.prepare_rtlsim import PrepareRTLSim
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 from finn.transformation.fpgadataflow.set_fifo_depths import (
     InsertAndSetFIFODepths,
@@ -494,7 +491,6 @@ def step_hls_ipgen(model: ModelWrapper, cfg: DataflowBuildConfig):
     in order to generate IP blocks."""
 
     model = model.transform(HLSSynthIP())
-    model = model.transform(ReplaceVerilogRelPaths())
     report_dir = cfg.output_dir + "/report"
     os.makedirs(report_dir, exist_ok=True)
     estimate_layer_resources_hls = model.analysis(hls_synth_res_estimation)

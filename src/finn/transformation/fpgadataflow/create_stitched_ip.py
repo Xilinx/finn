@@ -38,9 +38,6 @@ from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_num_default_workers
 from shutil import copytree
 
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
@@ -279,8 +276,6 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("assign_bd_address")
 
     def apply(self, model):
-        # ensure non-relative readmemh .dat files
-        model = model.transform(ReplaceVerilogRelPaths())
         ip_dirs = ["list"]
         # add RTL streamer IP
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
