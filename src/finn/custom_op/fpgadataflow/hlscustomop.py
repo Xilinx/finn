@@ -29,6 +29,7 @@
 import numpy as np
 import os
 import re
+import shutil
 import subprocess
 import warnings
 from abc import abstractmethod
@@ -244,12 +245,13 @@ class HLSCustomOp(CustomOp):
 
         if PyVerilator is None:
             raise ImportError("Installation of PyVerilator is required.")
-
         verilog_files = self.get_all_verilog_filenames(abspath=True)
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
         target_file = single_src_dir + "/" + self.get_verilog_top_module_name() + ".v"
         make_single_source_file(verilog_files, target_file)
-
+        dat_files = self.get_all_meminit_filenames(abspath=True)
+        for dat_file in dat_files:
+            shutil.copy(dat_file, single_src_dir)
         # build the Verilator emu library
         sim = PyVerilator.build(
             self.get_verilog_top_module_name() + ".v",
