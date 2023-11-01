@@ -116,8 +116,8 @@ def prepare_inputs(input_tensor):
 @pytest.mark.parametrize("wdt", [DataType["INT6"]])
 @pytest.mark.parametrize("part", ["xcvm1802-vsvd1760-2MP-e-S"])
 @pytest.mark.parametrize("segmentlen", [1])
-@pytest.mark.parametrize("pe", [4])
-@pytest.mark.parametrize("simd", [3])
+@pytest.mark.parametrize("pe", [1, 2, 4])
+@pytest.mark.parametrize("simd", [1, 3, 9])
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
@@ -149,7 +149,7 @@ def test_fpgadataflow_vvau_rtl(kernel_size, in_feature_dim, in_chn, idt, wdt, pa
     folding_config = {
         "Defaults": {},
         "ConvolutionInputGenerator_rtl_0": {
-            "SIMD" : pe,
+            "SIMD" : 4,
             "parallel_window" : 1
         },
         "VectorVectorActivation_0": {
@@ -172,7 +172,6 @@ def test_fpgadataflow_vvau_rtl(kernel_size, in_feature_dim, in_chn, idt, wdt, pa
     conv_hls_out = oxe.execute_onnx(model, input_dict, return_full_exec_context=True)
     with open(build_dir+"/hls_vvau_folded_output.pkl", "wb") as f:
         pickle.dump(conv_hls_out, f)
-    #assert (golden_out["global_out"] == conv_hls_out["global_out"]).all()
 
     # Stitched-IP RTLsim
     model = model.transform(CreateDataflowPartition(partition_model_dir=build_dir))
@@ -211,4 +210,6 @@ def test_fpgadataflow_vvau_rtl(kernel_size, in_feature_dim, in_chn, idt, wdt, pa
     vvu_rtl_out = oxe.execute_onnx(partitioned_model, input_dict, return_full_exec_context=True)
     with open(build_dir+"/rtl_vvau_output.pkl", "wb") as f:
         pickle.dump(vvu_rtl_out, f)
-    # assert (conv_hls_out["global_out"] == vvu_rtl_out["global_out"]).all(), "Mismatch"
+    
+    assert (vvu_rtl_out["global_out"] == golden_out["global_out"]).all(), "Output of ONNX model not matching output of stitched-IP RTL model!"
+    assert (vvu_rtl_out["global_out"] == stitched_ip_out["global_out"]).all(), "Output of stitched-IP HLS model not matching output of stitched-IP RTL model!"
