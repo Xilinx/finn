@@ -153,6 +153,27 @@ class HLSCustomOp(CustomOp):
         intf_names["ap_none"] = []
         return intf_names
 
+    def get_decoupled_weight_filename(self, abspath):
+        """Return the path to decoupled-weight memory init .dat file, if relevant
+        for this node, either with absolute path or with relative path depending
+        on the abspath parameter. For nonrelevant nodes, returns None."""
+        # note that we don't guarantee the existence of the weights file here
+        # this is only a utility for returning its path
+        # only defined for mem_mode=decoupled
+        attr_exists = "mem_mode" in self.get_nodeattr_types()
+        if not attr_exists:
+            return None
+        attr_ok = self.get_nodeattr("mem_mode") == "decoupled"
+        if not attr_ok:
+            return None
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        weight_filename_rtl = "memblock_{}.dat".format(self.onnx_node.name)
+        if abspath:
+            weight_filename_rtl = "{}/memblock_{}.dat".format(code_gen_dir, self.onnx_node.name)
+        else:
+            weight_filename_rtl = "./memblock_{}.dat".format(self.onnx_node.name)
+        return weight_filename_rtl
+
     def get_all_meminit_filenames(self, abspath=False):
         "Return a list of all .dat memory initializer files used for this node"
         # generic implementation:
@@ -173,6 +194,11 @@ class HLSCustomOp(CustomOp):
                         if abspath and dat_filename.startswith("./"):
                             dat_filename = dat_filename.replace("./", vfile_parent + "/")
                         dat_files.append(dat_filename)
+
+        # add decoupled-mode weight memory .dat file separately
+        decoupled_w_fn = self.get_decoupled_weight_filename(abspath=abspath)
+        if decoupled_w_fn is not None:
+            dat_files.append(decoupled_w_fn)
         return dat_files
 
     def get_verilog_top_filename(self):
