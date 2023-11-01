@@ -28,9 +28,11 @@
 
 import numpy as np
 import os
+import re
 import subprocess
 import warnings
 from abc import abstractmethod
+from pathlib import Path
 from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.base import CustomOp
@@ -150,6 +152,28 @@ class HLSCustomOp(CustomOp):
         intf_names["axilite"] = []
         intf_names["ap_none"] = []
         return intf_names
+
+    def get_all_meminit_filenames(self, abspath=False):
+        "Return a list of all .dat memory initializer files used for this node"
+        # generic implementation:
+        # walk the generated verilog and look for references to £readmemh
+        verilog_files = self.get_all_verilog_filenames(abspath=True)
+        dat_files = []
+        # regex to match the filenames from lines containing readmem
+        pattern = r'\s*\$readmemh\("([^"]+)",'
+
+        for verilog_file in verilog_files:
+            with open(verilog_file) as rf:
+                vfile_parent = str(Path(verilog_file).parent.absolute())
+                lines = rf.read()
+                for line in lines.split("\n"):
+                    match = re.search(pattern, line)
+                    if match:
+                        dat_filename = match.group(1)
+                        if abspath and dat_filename.startswith("./"):
+                            dat_filename = dat_filename.replace("./", vfile_parent + "/")
+                        dat_files.append(dat_filename)
+        return dat_files
 
     def get_verilog_top_filename(self):
         "Return the Verilog top module filename for this node."
