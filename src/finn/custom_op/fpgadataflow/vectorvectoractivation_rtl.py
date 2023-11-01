@@ -467,6 +467,8 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             weight_tensor_simd_flipped = np.flip(weight_tensor_unflipped, axis=-1)
             # PE flip for saving weights in .dat
             weight_tensor_pe_flipped = np.flip(weight_tensor_unflipped, axis=-2)
+            # SIMD & PE flip
+            weight_tensor_pe_simd_flipped = np.flip(weight_tensor_pe_flipped, axis=-1)
             # reshape weight tensor (simd_flipped and pe_flipped) to desired shape
             pe = self.get_nodeattr("PE")
             simd = self.get_nodeattr("SIMD")
@@ -476,6 +478,9 @@ class VectorVectorActivation_rtl(HLSCustomOp):
             # flipped
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.reshape(1, -1, pe * simd)
             weight_tensor_pe_flipped = weight_tensor_pe_flipped.copy()
+            # SIMD & PE flipped
+            weight_tensor_pe_simd_flipped = weight_tensor_pe_simd_flipped.reshape(1, -1, pe * simd)
+            weight_tensor_pe_simd_flipped = weight_tensor_pe_simd_flipped.copy()
             if weight_file_mode == "decoupled_npy":
                 # save weight stream into npy for cppsim
                 np.save(weight_file_name, weight_tensor_simd_flipped)
@@ -484,11 +489,11 @@ class VectorVectorActivation_rtl(HLSCustomOp):
                 weight_width = self.get_weightstream_width()
                 # pad to nearest 4 bits to get hex strings
                 weight_width_padded = roundup_to_integer_multiple(weight_width, 4)
-                weight_tensor_pe_flipped = pack_innermost_dim_as_hex_string(
-                    weight_tensor_pe_flipped, export_wdt, weight_width_padded, prefix=""
+                weight_tensor_pe_simd_flipped = pack_innermost_dim_as_hex_string(
+                    weight_tensor_pe_simd_flipped, export_wdt, weight_width_padded, prefix=""
                 )
                 # add zeroes to pad out file to 1024 entries
-                weight_stream = weight_tensor_pe_flipped.flatten()
+                weight_stream = weight_tensor_pe_simd_flipped.flatten()
                 weight_stream = weight_stream.copy()
                 with open(weight_file_name, "w") as f:
                     for val in weight_stream:
@@ -1180,9 +1185,9 @@ class VectorVectorActivation_rtl(HLSCustomOp):
         code_gen_dict = {}
         code_gen_dict["$IS_MVU$"] = [str(0)]
         code_gen_dict["$COMPUTE_CORE$"] = [self._resolve_impl_style(fpgapart)]
-        mw = int(np.prod(self.get_nodeattr("Kernel")) * self.get_nodeattr("Channels"))
+        mw = int(np.prod(self.get_nodeattr("Kernel")))
         code_gen_dict["$MW$"] = [str(mw)]
-        code_gen_dict["$MH$"] = [str(1)]
+        code_gen_dict["$MH$"] = [str(self.get_nodeattr("Channels"))]
         code_gen_dict["$PE$"] = [str(self.get_nodeattr("PE"))]
         code_gen_dict["$SIMD$"] = [str(self.get_nodeattr("SIMD"))]
         code_gen_dict["$ACTIVATION_WIDTH$"] = [
