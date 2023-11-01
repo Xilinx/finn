@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+
 import pkg_resources as pk
 
 import json
@@ -33,10 +34,11 @@ import multiprocessing as mp
 import os
 import subprocess
 import warnings
+from pathlib import Path
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
 from qonnx.util.basic import get_num_default_workers
-from shutil import copytree
+from shutil import copy, copytree
 
 from finn.util.basic import make_build_dir
 from finn.util.fpgadataflow import is_fpgadataflow_node
@@ -277,6 +279,7 @@ class CreateStitchedIP(Transformation):
 
     def apply(self, model):
         ip_dirs = ["list"]
+        meminit_files = []
         # add RTL streamer IP
         ip_dirs.append("$::env(FINN_ROOT)/finn-rtllib/memstream")
         if self.signature:
@@ -300,6 +303,7 @@ class CreateStitchedIP(Transformation):
             # ensure that all nodes are fpgadataflow, and that IPs are generated
             assert is_fpgadataflow_node(node), "All nodes must be FINN fpgadataflow nodes."
             node_inst = getCustomOp(node)
+            meminit_files.extend(node_inst.get_all_meminit_filenames(abspath=True))
             ip_dir_value = node_inst.get_nodeattr("ip_path")
             assert os.path.isdir(ip_dir_value), "IP generation directory doesn't exist."
             ip_dirs += [ip_dir_value]
@@ -352,6 +356,17 @@ class CreateStitchedIP(Transformation):
         prjname = "finn_vivado_stitch_proj"
         vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
         model.set_metadata_prop("vivado_stitch_proj", vivado_stitch_proj_dir)
+
+        # create subdir and copy meminit files
+        meminit_subdir = vivado_stitch_proj_dir + "/meminit"
+        os.makedirs(meminit_subdir, exist_ok=True)
+        meminit_basenames = []
+        for meminit_file in meminit_files:
+            copy(meminit_file, meminit_subdir)
+            meminit_basenames.append(str(Path(meminit_file).name))
+        with open("all_meminit_srcs.txt", "w") as f:
+            f.write("\n".join(meminit_basenames))
+
         # start building the tcl script
         tcl = []
         # create vivado project
