@@ -448,7 +448,6 @@ class CreateStitchedIP(Transformation):
             "[ipx::get_address_spaces m_axi_gmem0 -of_objects [ipx::current_core]]"
         )
         tcl.append("set_property core_revision 2 [ipx::find_open_core %s]" % block_vlnv)
-        tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
         # mark bus interface params as user-resolvable to avoid FREQ_MHZ mismatches
         tcl.append(
             "set_property value_resolve_type user [ipx::get_bus_parameters "
@@ -460,22 +459,27 @@ class CreateStitchedIP(Transformation):
         )
         # clean up existing source references
         tcl.append(
-            "ipx::remove_all_file " "[ipx::get_file_groups xilinx_anylanguagebehavioralsimulation]"
+            "ipx::remove_all_file_group [ipx::find_open_core xilinx_finn:finn:finn_design:1.0]"
         )
-        tcl.append("ipx::remove_all_file " "[ipx::get_file_groups xilinx_anylanguagesynthesis]")
-        tcl.append(
-            "ipx::remove_file_group " "xilinx_anylanguagebehavioralsimulation [ipx::current_core]"
-        )
-        tcl.append("ipx::remove_file_group " "xilinx_anylanguagesynthesis [ipx::current_core]")
+        tcl.append("ipx::create_xgui_files [ipx::find_open_core %s]" % block_vlnv)
         # remove sim and src folders
         tcl.append("file delete -force %s/ip/sim" % vivado_stitch_proj_dir)
         tcl.append("file delete -force %s/ip/src" % vivado_stitch_proj_dir)
-        # manually add file group for Verilog sim
+        # manually add file group for Verilog sim and synth
         tcl.append("ipx::add_file_group xilinx_verilogbehavioralsimulation [ipx::current_core]")
         tcl.append(
             "set_property model_name %s_wrapper [ipx::get_file_groups "
             "xilinx_verilogbehavioralsimulation -of_objects [ipx::current_core]]" % block_name
         )
+        tcl.append("ipx::add_file_group xilinx_verilogsynthesis [ipx::current_core]")
+        tcl.append(
+            "set_property model_name %s_wrapper [ipx::get_file_groups "
+            "xilinx_verilogsynthesis -of_objects [ipx::current_core]]" % block_name
+        )
+        # create new dirs under ip/ and copy Verilog & meminit sources
+        tcl.append("file mkdir ./ip/verilog")
+        tcl.append("file copy ./finn_vivado_stitch_proj.gen/sources_1/bd/finn_design ./ip/verilog")
+        tcl.append("file copy ./meminit ./ip")
         # build a list of all Verilog source files and generate all_verilog_srcs.txt
         tcl.append(
             "set all_v_files [get_files -filter {USED_IN_SYNTHESIS == 1 && "
@@ -484,10 +488,31 @@ class CreateStitchedIP(Transformation):
         tcl.append("set fp [open %s/all_verilog_srcs.txt w]" % vivado_stitch_proj_dir)
         tcl.append("foreach vf $all_v_files {puts $fp $vf}")
         tcl.append("close $fp")
-        # add flattened list of Verilog source files
+
+        # open list of all dat files provided by FINN compiler
+        # add to both synth and sim filesets
         tcl.append(
-            "foreach vf $all_v_files {ipx::add_file $vf [ipx::get_file_groups "
-            "xilinx_verilogbehavioralsimulation]}"
+            """set fp [open all_meminit_srcs.txt r]
+set fset_sim [ipx::get_file_groups xilinx_verilogbehavioralsimulation]
+set fset_synth [ipx::get_file_groups xilinx_verilogsynthesis]
+while {[gets $fp line]>=0} {
+    set current_file [ipx::add_file meminit/$line $fset_sim]
+    set_property type "mif" $current_file
+    set current_file [ipx::add_file meminit/$line $fset_synth]
+    set_property type "mif" $current_file
+}
+close $fp"""
+        )
+
+        # walk list of all Verilog files
+        # replace path prefix, then add to both synth and sim filesets
+        tcl.append(
+            """foreach vf $all_v_files {
+    set updated_path [string map {%s/finn_vivado_stitch_proj.gen/sources_1/bd verilog} $vf]
+    ipx::add_file $updated_path [ipx::get_file_groups xilinx_verilogbehavioralsimulation]
+    ipx::add_file $updated_path [ipx::get_file_groups xilinx_verilogsynthesis]
+}"""
+            % vivado_stitch_proj_dir
         )
         # if targeting Vitis, add some properties to the IP
         if self.vitis:
@@ -523,13 +548,6 @@ class CreateStitchedIP(Transformation):
             tcl.append(
                 "ipx::add_file dcp/%s.dcp "
                 "[ipx::get_file_groups xilinx_simulationcheckpoint]" % block_name
-            )
-        else:
-            # add flattened list of Verilog sources for synthesis
-            tcl.append("ipx::add_file_group xilinx_verilogsynthesis [ipx::current_core]")
-            tcl.append(
-                "foreach vf $all_v_files {ipx::add_file $vf [ipx::get_file_groups "
-                "xilinx_verilogsynthesis]}"
             )
         # add a rudimentary driver mdd to get correct ranges in xparameters.h later on
         example_data_dir = pk.resource_filename("finn.qnn-data", "mdd-data/")
@@ -609,6 +627,9 @@ while { [eof $ifile] != 1 } {
 }
 close $ifile
 close $ofile
+
+ipx::check_integrity -quiet -xrt [ipx::find_open_core xilinx_finn:finn:finn_design:1.0]
+ipx::archive_core finn_ip.zip [ipx::find_open_core xilinx_finn:finn:finn_design:1.0]
 """
         )
 
