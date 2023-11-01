@@ -364,7 +364,7 @@ class CreateStitchedIP(Transformation):
         for meminit_file in meminit_files:
             copy(meminit_file, meminit_subdir)
             meminit_basenames.append(str(Path(meminit_file).name))
-        with open("all_meminit_srcs.txt", "w") as f:
+        with open(vivado_stitch_proj_dir + "/all_meminit_srcs.txt", "w") as f:
             f.write("\n".join(meminit_basenames))
 
         # start building the tcl script
