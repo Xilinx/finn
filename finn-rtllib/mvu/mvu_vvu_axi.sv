@@ -64,7 +64,7 @@ module mvu_vvu_axi #(
 	localparam int unsigned INPUT_STREAM_WIDTH_BA = ((IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH + 7) / 8 * 8,
 	localparam int unsigned WEIGHT_STREAM_WIDTH = PE*SIMD*WEIGHT_WIDTH,
 	localparam int unsigned INPUT_STREAM_WIDTH =  (IS_MVU ? 1 : PE) * SIMD * ACTIVATION_WIDTH,
-	localparam int unsigned SF = IS_MVU ? MW/SIMD : MW/(SIMD*PE),
+	localparam int unsigned SF = MW/SIMD,
 	localparam int unsigned NF = IS_MVU ? MH/PE : 1,
 	localparam int unsigned OUTPUT_STREAM_WIDTH_BA = (PE*ACCU_WIDTH + 7)/8 * 8
 )
@@ -91,11 +91,11 @@ module mvu_vvu_axi #(
 
 //-------------------- Parameter sanity checks --------------------\\
 	initial begin
-		if ((MW % SIMD != 0 && IS_MVU) || (MW % (SIMD*PE) != 0 && !IS_MVU)) begin
+		if (MW % SIMD != 0) begin
 			$error("Matrix width (%0d) is not a multiple of SIMD (%0d).", MW, SIMD);
 			$finish;
 		end
-		if (MH % PE != 0 && IS_MVU) begin
+		if (MH % PE != 0) begin
 			$error("Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
 			$finish;
 		end
@@ -152,13 +152,10 @@ module mvu_vvu_axi #(
 //-------------------- Core MVU/VVU --------------------\\
 	uwire ovld;
 	uwire [PE-1:0][ACCU_WIDTH-1:0] odat;
-	typedef logic [WEIGHT_STREAM_WIDTH-1 : 0] mvauin_weight_t;
 	uwire mvauin_t amvau_i;
-	uwire mvauin_weight_t wmvau_i;
 
 	if (IS_MVU) begin : genMVUInput
 		assign  amvau_i = amvau;
-		assign  wmvau_i = s_axis_weights_tdata;
 	end : genMVUInput
 	else begin : genVVUInput
 		// The input stream will have the channels interleaved for VVU when PE>1
@@ -169,11 +166,8 @@ module mvu_vvu_axi #(
 		localparam int num_of_elements = PE*SIMD;
 		for (genvar i=0; i<num_of_elements; i++) begin : genRewire
 			assign  amvau_i[i*ACTIVATION_WIDTH +: ACTIVATION_WIDTH] = (PE > 1) ?
-									amvau[(i/SIMD + (i*PE % num_of_elements) + 1) * ACTIVATION_WIDTH : (i/SIMD + (i*PE % num_of_elements)) * ACTIVATION_WIDTH]
+									amvau[(i/SIMD + (i*PE % num_of_elements) + 1) * ACTIVATION_WIDTH -1: (i/SIMD + (i*PE % num_of_elements)) * ACTIVATION_WIDTH]
 									: amvau[i*ACTIVATION_WIDTH +: ACTIVATION_WIDTH];
-			assign  wmvau_i[i*WEIGHT_WIDTH +: WEIGHT_WIDTH] = (PE > 1) ? 
-									s_axis_weights_tdata[( ((SIMD-1-i) + int'(i/SIMD)*SIMD) + int'(i/SIMD) * SIMD + 1) * WEIGHT_WIDTH : ( ((SIMD-1-i) + int'(i/SIMD)*SIMD) + int'(i/SIMD) * SIMD ) * WEIGHT_WIDTH]
-									: s_axis_weights_tdata[i*WEIGHT_WIDTH +: WEIGHT_WIDTH];
 		end : genRewire
 	end : genVVUInput
 
@@ -183,7 +177,7 @@ module mvu_vvu_axi #(
 		.ACCU_WIDTH(ACCU_WIDTH), .SIGNED_ACTIVATIONS(SIGNED_ACTIVATIONS), .SEGMENTLEN(SEGMENTLEN),
 		.FORCE_BEHAVIORAL(FORCE_BEHAVIORAL)) core (
 			.clk, .rst, .en,
-			.last(alast && avld), .zero(!istb), .w(wmvau_i), .a(amvau_i),
+			.last(alast && avld), .zero(!istb), .w(s_axis_weights_tdata), .a(amvau_i),
 			.vld(ovld), .p(odat)
 		);
 	"mvu_4sx4u":
