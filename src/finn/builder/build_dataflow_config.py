@@ -34,7 +34,7 @@ from enum import Enum
 from typing import Any, List, Optional
 
 from finn.transformation.fpgadataflow.vitis_build import VitisOptStrategy
-from finn.util.basic import alveo_default_platform, alveo_part_map, pynq_part_map
+from finn.util.basic import alveo_default_platform, part_map
 
 
 class AutoFIFOSizingMethod(str, Enum):
@@ -104,6 +104,8 @@ class VerificationStepType(str, Enum):
     STREAMLINED_PYTHON = "streamlined_python"
     #: verify after step_apply_folding_config, using C++ for each HLS node
     FOLDED_HLS_CPPSIM = "folded_hls_cppsim"
+    #: verify after step_hls_ipgen, using RTL for each node
+    NODE_BY_NODE_RTLSIM = "node_by_node_rtlsim"
     #: verify after step_create_stitched_ip, using stitched-ip Verilog
     STITCHED_IP_RTLSIM = "stitched_ip_rtlsim"
 
@@ -369,12 +371,7 @@ class DataflowBuildConfig:
     def _resolve_fpga_part(self):
         if self.fpga_part is None:
             # lookup from part map if not specified
-            if self.shell_flow_type == ShellFlowType.VIVADO_ZYNQ:
-                return pynq_part_map[self.board]
-            elif self.shell_flow_type == ShellFlowType.VITIS_ALVEO:
-                return alveo_part_map[self.board]
-            else:
-                raise Exception("Couldn't resolve fpga_part for " + self.board)
+            return part_map[self.board]
         else:
             # return as-is when explicitly specified
             return self.fpga_part

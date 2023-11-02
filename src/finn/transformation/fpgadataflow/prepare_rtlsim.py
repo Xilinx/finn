@@ -29,9 +29,6 @@
 import qonnx.custom_op.registry as registry
 from qonnx.transformation.base import NodeLocalTransformation
 
-from finn.transformation.fpgadataflow.replace_verilog_relpaths import (
-    ReplaceVerilogRelPaths,
-)
 from finn.util.fpgadataflow import is_fpgadataflow_node
 
 try:
@@ -56,10 +53,6 @@ class PrepareRTLSim(NodeLocalTransformation):
 
     def __init__(self, num_workers=None):
         super().__init__(num_workers=num_workers)
-
-    def apply(self, model):
-        model = model.transform(ReplaceVerilogRelPaths())
-        return super().apply(model)
 
     def applyNodeLocal(self, node):
         op_type = node.op_type

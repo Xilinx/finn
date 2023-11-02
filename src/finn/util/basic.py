@@ -67,6 +67,11 @@ alveo_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
 alveo_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_4_1_202210_1"
 alveo_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
 
+# Create a joint part map, encompassing other boards too
+part_map = {**pynq_part_map, **alveo_part_map}
+part_map["VEK280"] = "xcve2802-vsvh1760-2MP-e-S"
+part_map["VCK190"] = "xcvc1902-vsva2197-2MP-e-S"
+
 
 def get_rtlsim_trace_depth():
     """Return the trace depth for rtlsim via PyVerilator. Controllable

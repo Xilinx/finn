@@ -57,7 +57,7 @@ def make_single_source_file(filtered_verilog_files, target_file):
                     wf.write("\n" + line)
 
 
-def prepare_stitched_ip_for_verilator(model):
+def prepare_stitched_ip_for_verilator(model, sim_dir):
     """Prepare sources from given stitched IP for verilator simulation, including
     generating a single source file and replacing certain Vivado infrastructure
     headers with Verilator-compatible ones"""
@@ -65,6 +65,9 @@ def prepare_stitched_ip_for_verilator(model):
     vivado_stitch_proj_dir = model.get_metadata_prop("vivado_stitch_proj")
     with open(vivado_stitch_proj_dir + "/all_verilog_srcs.txt", "r") as f:
         all_verilog_srcs = f.read().split()
+
+    meminit_subdir = vivado_stitch_proj_dir + "/meminit"
+    shutil.copytree(meminit_subdir, sim_dir, dirs_exist_ok=True)
 
     def file_to_dir(x):
         return os.path.dirname(os.path.realpath(x))
@@ -87,7 +90,7 @@ def prepare_stitched_ip_for_verilator(model):
         set(filter(lambda x: any(map(lambda y: x.endswith(y), src_exts)), all_verilog_srcs))
     )
 
-    verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
+    verilog_header_dir = sim_dir + "/pyverilator_vh"
     os.makedirs(verilog_header_dir, exist_ok=True)
 
     # use custom version of axis infrastructure vh
@@ -115,10 +118,8 @@ def prepare_stitched_ip_for_verilator(model):
         else:
             filtered_verilog_files.append(vfile)
 
-    target_file = vivado_stitch_proj_dir + "/" + top_module_file_name
+    target_file = sim_dir + "/" + top_module_file_name
     make_single_source_file(filtered_verilog_files, target_file)
-
-    return vivado_stitch_proj_dir
 
 
 def verilator_fifosim(model, n_inputs, max_iters=100000000):
@@ -126,9 +127,10 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
     driver to drive the input stream. Useful for FIFO sizing, latency
     and throughput measurement."""
 
-    vivado_stitch_proj_dir = prepare_stitched_ip_for_verilator(model)
-    verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
     build_dir = make_build_dir("verilator_fifosim_")
+    prepare_stitched_ip_for_verilator(model, build_dir)
+    verilog_header_dir = build_dir + "/pyverilator_vh"
+
     fifosim_cpp_fname = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/cpp/verilator_fifosim.cpp"
     with open(fifosim_cpp_fname, "r") as f:
         fifosim_cpp_template = f.read()
@@ -196,7 +198,7 @@ def verilator_fifosim(model, n_inputs, max_iters=100000000):
         "-Mdir",
         build_dir,
         "-y",
-        vivado_stitch_proj_dir,
+        build_dir,
         "-y",
         verilog_header_dir,
         "--CFLAGS",
@@ -273,15 +275,15 @@ def pyverilate_stitched_ip(
     if PyVerilator is None:
         raise ImportError("Installation of PyVerilator is required.")
 
-    vivado_stitch_proj_dir = prepare_stitched_ip_for_verilator(model)
-    verilog_header_dir = vivado_stitch_proj_dir + "/pyverilator_vh"
+    sim_dir = make_build_dir("pyverilator_ipstitched_")
+    prepare_stitched_ip_for_verilator(model, sim_dir)
+    verilog_header_dir = sim_dir + "/pyverilator_vh"
 
     def file_to_basename(x):
         return os.path.basename(os.path.realpath(x))
 
     top_module_file_name = file_to_basename(model.get_metadata_prop("wrapper_filename"))
     top_module_name = top_module_file_name.strip(".v")
-    build_dir = make_build_dir("pyverilator_ipstitched_")
 
     verilator_args = []
     # disable common verilator warnings that should be harmless but commonly occur
@@ -310,8 +312,8 @@ def pyverilate_stitched_ip(
 
     sim = PyVerilator.build(
         [swg_pkg, top_module_file_name, xpm_fifo, xpm_memory, xpm_cdc],
-        verilog_path=[vivado_stitch_proj_dir, verilog_header_dir],
-        build_dir=build_dir,
+        verilog_path=[sim_dir, verilog_header_dir],
+        build_dir=sim_dir,
         trace_depth=get_rtlsim_trace_depth(),
         top_module_name=top_module_name,
         auto_eval=False,

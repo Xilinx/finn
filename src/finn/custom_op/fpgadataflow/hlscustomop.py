@@ -28,9 +28,12 @@
 
 import numpy as np
 import os
+import re
+import shutil
 import subprocess
 import warnings
 from abc import abstractmethod
+from pathlib import Path
 from pyverilator.util.axi_utils import _read_signal, reset_rtlsim, rtlsim_multi_io
 from qonnx.core.datatype import DataType
 from qonnx.custom_op.base import CustomOp
@@ -151,6 +154,54 @@ class HLSCustomOp(CustomOp):
         intf_names["ap_none"] = []
         return intf_names
 
+    def get_decoupled_weight_filename(self, abspath):
+        """Return the path to decoupled-weight memory init .dat file, if relevant
+        for this node, either with absolute path or with relative path depending
+        on the abspath parameter. For nonrelevant nodes, returns None."""
+        # note that we don't guarantee the existence of the weights file here
+        # this is only a utility for returning its path
+        # only defined for mem_mode=decoupled
+        attr_exists = "mem_mode" in self.get_nodeattr_types()
+        if not attr_exists:
+            return None
+        attr_ok = self.get_nodeattr("mem_mode") == "decoupled"
+        if not attr_ok:
+            return None
+        code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        weight_filename_rtl = "memblock_{}.dat".format(self.onnx_node.name)
+        if abspath:
+            weight_filename_rtl = "{}/memblock_{}.dat".format(code_gen_dir, self.onnx_node.name)
+        else:
+            weight_filename_rtl = "./memblock_{}.dat".format(self.onnx_node.name)
+        return weight_filename_rtl
+
+    def get_all_meminit_filenames(self, abspath=False):
+        "Return a list of all .dat memory initializer files used for this node"
+        # generic implementation:
+        # walk the generated verilog and look for references to £readmemh
+        verilog_files = self.get_all_verilog_filenames(abspath=True)
+        dat_files = []
+        # regex to match the filenames from lines containing readmem
+        pattern = r'\s*\$readmemh\("([^"]+)",'
+
+        for verilog_file in verilog_files:
+            with open(verilog_file) as rf:
+                vfile_parent = str(Path(verilog_file).parent.absolute())
+                lines = rf.read()
+                for line in lines.split("\n"):
+                    match = re.search(pattern, line)
+                    if match:
+                        dat_filename = match.group(1)
+                        if abspath and dat_filename.startswith("./"):
+                            dat_filename = dat_filename.replace("./", vfile_parent + "/")
+                        dat_files.append(dat_filename)
+
+        # add decoupled-mode weight memory .dat file separately
+        decoupled_w_fn = self.get_decoupled_weight_filename(abspath=abspath)
+        if decoupled_w_fn is not None:
+            dat_files.append(decoupled_w_fn)
+        return dat_files
+
     def get_verilog_top_filename(self):
         "Return the Verilog top module filename for this node."
 
@@ -194,17 +245,17 @@ class HLSCustomOp(CustomOp):
 
         if PyVerilator is None:
             raise ImportError("Installation of PyVerilator is required.")
-
         verilog_files = self.get_all_verilog_filenames(abspath=True)
         single_src_dir = make_build_dir("rtlsim_" + self.onnx_node.name + "_")
-        tmp_build_dir = make_build_dir("pyverilator_" + self.onnx_node.name + "_")
         target_file = single_src_dir + "/" + self.get_verilog_top_module_name() + ".v"
         make_single_source_file(verilog_files, target_file)
-
+        dat_files = self.get_all_meminit_filenames(abspath=True)
+        for dat_file in dat_files:
+            shutil.copy(dat_file, single_src_dir)
         # build the Verilator emu library
         sim = PyVerilator.build(
             self.get_verilog_top_module_name() + ".v",
-            build_dir=tmp_build_dir,
+            build_dir=single_src_dir,
             verilog_path=[single_src_dir],
             trace_depth=get_rtlsim_trace_depth(),
             top_module_name=self.get_verilog_top_module_name(),

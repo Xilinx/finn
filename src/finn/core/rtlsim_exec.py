@@ -27,6 +27,7 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import os
+from pathlib import Path
 from pyverilator.util.axi_utils import reset_rtlsim, rtlsim_multi_io
 from qonnx.custom_op.registry import getCustomOp
 
@@ -128,9 +129,15 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
     rtlsim_so = model.get_metadata_prop("rtlsim_so")
     if (rtlsim_so is None) or (not os.path.isfile(rtlsim_so)):
         sim = pyverilate_stitched_ip(model, extra_verilator_args=extra_verilator_args)
-        model.set_metadata_prop("rtlsim_so", sim.lib._name)
+        rtlsim_so = sim.lib._name
+        model.set_metadata_prop("rtlsim_so", rtlsim_so)
     else:
         sim = PyVerilator(rtlsim_so, auto_eval=False)
+
+    rtlsim_dir = str(Path(rtlsim_so).parent.absolute())
+    # cd into dir containing pyverilator .so to find meminit files there
+    oldcwd = os.getcwd()
+    os.chdir(rtlsim_dir)
 
     # reset and call rtlsim, including any pre/post hooks
     reset_rtlsim(sim)
@@ -159,3 +166,4 @@ def rtlsim_exec(model, execution_context, pre_hook=None, post_hook=None):
         execution_context[o_name] = o_folded_tensor.reshape(o_shape)
 
     model.set_metadata_prop("cycles_rtlsim", str(n_cycles))
+    os.chdir(oldcwd)
