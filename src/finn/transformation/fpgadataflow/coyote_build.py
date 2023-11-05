@@ -399,9 +399,17 @@ class GenerateCoyoteProject(Transformation):
         tcl.append("open_project lynx/lynx.xpr")
         tcl.append("update_compile_order -fileset sources_1")
 
+        tcl.append("catch {get_property ip_repo_paths [current_project]}")
+
+        ip_repo_paths = []
         for ip_repo_path in self.design.ip_repo_paths:
-            # Add IP paths to Coyote
-            tcl.append("set_property  ip_repo_paths  {%s} [current_project]" % ip_repo_path)
+            ip_repo_paths.append(ip_repo_path)
+
+        # Add IP paths to Coyote
+        tcl.append(
+            "set_property  ip_repo_paths  {${*} %s} [current_project]" % " ".join(ip_repo_paths)
+        )
+
         tcl.append("update_ip_catalog")
 
         for ip in self.design.ips:
