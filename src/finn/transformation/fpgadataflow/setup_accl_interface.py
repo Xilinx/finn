@@ -48,7 +48,7 @@ class SetupACCLInterface(Transformation):
                     accl_out_node.name,
                     pin_name
                 )
-                for pin_name in ["cmd_to_cclo", "sts_from_cclo"]
+                for pin_name in ["cmd_to_cclo", "sts_from_cclo", "s_axi_control"]
             ]
 
             tcl.append("create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 xlconstant_0")

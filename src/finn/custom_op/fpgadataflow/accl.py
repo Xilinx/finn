@@ -32,7 +32,7 @@ class ACCLOp(HLSCustomOp):
             "dataType": ("s", True, ""),
             # shape describing input vecs per execution
             "numInputVectors": ("ints", False, [1]),
-            # accl specific attrs
+            # ACCL specific attrs
             "startPort": ("i", False, 5500),
             "worldSize": ("i", True, 0),
             "otherRank": ("i", True, 0),
@@ -221,6 +221,8 @@ class ACCLOut(ACCLOp):
             '#pragma HLS INTERFACE axis port=sts_from_cclo',
             '#pragma HLS INTERFACE axis port=data_to_cclo',
             '#pragma HLS INTERFACE axis port=in0_{}'.format(self.hls_sname()),
+            "#pragma HLS INTERFACE s_axilite port=dpcfg_adr bundle=control",
+            "#pragma HLS INTERFACE s_axilite port=comm_adr bundle=control",
         ]
 
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
@@ -358,6 +360,7 @@ class ACCLOut(ACCLOp):
 
         intf_names["m_axis"] = [("data_to_cclo", accl_word_size), ("cmd_to_cclo", 32)]
         intf_names["s_axis"].append(("sts_from_cclo", 32))
+        intf_names["axilite"] = ["s_axi_control"]
 
         return intf_names
 

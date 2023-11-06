@@ -59,7 +59,7 @@ cfg_splits = build.DataflowBuildConfig(
         build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
         build_cfg.DataflowOutputType.STITCHED_IP,
     ],
-    # verify_steps        = [build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM],
+    verify_steps        = [build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM],
     board               = 'U250',
     num_boards          = 3,
     save_intermediate_models = True,
