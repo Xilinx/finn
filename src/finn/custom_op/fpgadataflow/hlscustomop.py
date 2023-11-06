@@ -185,6 +185,10 @@ class HLSCustomOp(CustomOp):
         pattern = r'\s*\$readmemh\("([^"]+)",'
 
         for verilog_file in verilog_files:
+            # skip over any non-existing files (even though they shouldn't be in the
+            # list, better to handle this gracefully here instead of crashing)
+            if not os.path.isfile(verilog_file):
+                continue
             with open(verilog_file) as rf:
                 vfile_parent = str(Path(verilog_file).parent.absolute())
                 lines = rf.read()
@@ -222,7 +226,10 @@ class HLSCustomOp(CustomOp):
         not set. Please run HLSSynthIP first."""
         verilog_path = "{}/project_{}/sol1/impl/verilog/".format(code_gen_dir, self.onnx_node.name)
         # default impl only returns the HLS verilog codegen dir
-        return [verilog_path]
+        if os.path.isdir(verilog_path):
+            return [verilog_path]
+        else:
+            return []
 
     def get_all_verilog_filenames(self, abspath=False):
         "Return list of all Verilog files used for this node."
