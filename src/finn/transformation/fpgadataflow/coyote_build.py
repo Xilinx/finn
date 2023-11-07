@@ -70,6 +70,10 @@ class Interface(ABC):
     def connect(self, design: "Design", other: "Interface"):
         pass
 
+    @abstractmethod
+    def connect_multiple(self, design: "Design", others: List["AXIInterface"]):
+        pass
+
 
 class Delimiter(Enum):
     UNDERSCORE = "_"
@@ -104,7 +108,7 @@ class AXIInterface(Interface):
             if other.external:
                 assert other.owner is None
                 self.owner.connections[our_interface] = other_interface
-                self.connected = True
+
             else:
                 assert other.owner is not None
                 wire = SimpleWire(
@@ -121,13 +125,18 @@ class AXIInterface(Interface):
                 wire.connected = True
                 design.wires.append(wire)
                 self.owner.connections[our_interface] = wire.name
-                self.connected = True
                 other.owner.connections[other_interface] = wire.name
-                other.connected = True
+
+        print("Connected %s" % other.name)
+        other.connected = True
+        self.connected = True
+        print("Connected %s" % self.name)
 
     def connect_multiple(self, design: "Design", others: List["AXIInterface"]):
         assert isinstance(self, AXI4Lite)
         for other in others:
+            if other.connected:
+                print("Failed is %s" % other.name)
             assert not other.connected
             assert isinstance(
                 other, AXI4Stream
@@ -152,27 +161,30 @@ class AXIInterface(Interface):
             our_interface = "%s%s%s" % (self.name, self.delimiter, sub_signal)
             self.owner.connections[our_interface] = wire.name
 
-        for other in others:
-            for j, (other_sub_signal, other_sub_signal_width) in enumerate(other._sub_signals):
-                assert other_sub_signal_width * len(others) == wires[j].width
-
         for i, other in enumerate(others):
             assert not other.external
             assert other.owner is not None
             for j, (other_sub_signal, other_sub_signal_width) in enumerate(other._sub_signals):
-                (sub_signal, width) = self._sub_signals[i]
+                (sub_signal, width) = self._sub_signals[j]
 
-                other_interface = "%s%s%s" % (other.name, other.delimiter, sub_signal)
+                # NOTE: Guaranteed to give an integer by construction, see scale in AXI4Lite
+                width_to_use = width / len(others)
+
+                other_interface = "%s%s%s" % (other.name, other.delimiter, other_sub_signal)
 
                 wire = wires[j]
                 wire.connected = True
-                self.connected = True
+                print("Connected multiple %s" % self.name)
                 other.owner.connections[other_interface] = "%s[%d:%d]" % (
                     wire.name,
-                    (i + 1) * other_sub_signal_width,
-                    i * other_sub_signal_width,
+                    i * width_to_use + other_sub_signal_width - 1,
+                    i * width_to_use,
                 )
-                other.connected = True
+            other.connected = True
+            print("Connected multiple  %s" % other.name)
+
+        self.connected = True
+        print("Connected multiple %s" % self.name)
 
 
 class AXI4Stream(AXIInterface):
@@ -191,29 +203,31 @@ class AXI4Stream(AXIInterface):
 
 
 class AXI4Lite(AXIInterface):
-    def __init__(self, name: str, width: int, delimiter: Delimiter, external: bool):
+    def __init__(
+        self, name: str, width: int, delimiter: Delimiter, external: bool, addr_width=0, scale=1
+    ):
         super().__init__(name, width, delimiter, external)
         # Infer address width from data width
         # bresp, rresp always two bits
         # One wstrb bit per byte on the data bus data width (in bits) / 2^3 (=8 bits)
         self._sub_signals = [
-            ("awaddr", width.bit_length() - 1),
-            ("awvalid", 1),
-            ("awready", 1),
-            ("wdata", width),
-            ("wstrb", width >> 3),
-            ("wvalid", 1),
-            ("wready", 1),
-            ("bresp", 2),
-            ("bvalid", 1),
-            ("bready", 1),
-            ("araddr", width.bit_length() - 1),
-            ("arvalid", 1),
-            ("arready", 1),
-            ("rdata", width),
-            ("rresp", 2),
-            ("rready", 1),
-            ("rvalid", 1),
+            ("awaddr", (width.bit_length() - 1 if addr_width == 0 else addr_width) * scale),
+            ("awvalid", 1 * scale),
+            ("awready", 1 * scale),
+            ("wdata", width * scale),
+            ("wstrb", (width >> 3) * scale),
+            ("wvalid", 1 * scale),
+            ("wready", 1 * scale),
+            ("bresp", 2 * scale),
+            ("bvalid", 1 * scale),
+            ("bready", 1 * scale),
+            ("araddr", (width.bit_length() - 1 if addr_width == 0 else addr_width) * scale),
+            ("arvalid", 1 * scale),
+            ("arready", 1 * scale),
+            ("rdata", width * scale),
+            ("rresp", 2 * scale),
+            ("rready", 1 * scale),
+            ("rvalid", 1 * scale),
         ]
 
 
@@ -229,6 +243,9 @@ class SimpleWire(Interface):
         assert self.owner is not None
 
         self.owner.connections[self.name] = interface.name
+
+    def connect_multiple(self, design: "Design", others: List["AXIInterface"]):
+        assert False, "Operation not supported for SimpleWire"
 
 
 class IP:
@@ -608,22 +625,81 @@ class CoyoteBuild(Transformation):
     """
 
     @staticmethod
-    def create_interconnect(vivado_stitch_proj: str, axilites: List[str]):
+    def create_interconnect(
+        vivado_stitch_proj: str, axilites: List[str]
+    ) -> Tuple[IP, List[Tuple[str, int]]]:
         design_file = Path(vivado_stitch_proj) / "finn_design.v"
 
         contents = None
-        with open(design_file) as f:
+        with open(design_file, "r") as f:
             contents = f.read()
 
         assert contents is not None
 
+        axilites_with_addr_width: List[Tuple[str, int]] = []
+
         for axilite in axilites:
-            # TODO: s_axi_control_%d in axilites does not match what is in the finn design file.
-            # The index is 0 again and not 3.
-            print(axilite)
             match = re.search(r"input \[(\d+)\:0\]%s_awaddr" % axilite, contents)
             assert match
-            print("%s has width %s" % (axilite, match.group(1)))
+            addr_width = int(match.group(1))
+            assert addr_width <= 32
+            axilites_with_addr_width.append((axilite, addr_width))
+
+        axilites_with_addr_width = sorted(
+            axilites_with_addr_width, key=lambda tup: tup[1], reverse=True
+        )
+
+        addr_width_and_base: Dict[str, Tuple[int, int]] = {}
+        prev_width = 0
+        prev_base = 0
+        for signal_name, addr_width in axilites_with_addr_width:
+            assert addr_width <= 32
+            addr_width_and_base[signal_name] = (
+                addr_width,
+                prev_base + (1 << prev_width) if prev_width > 0 else 0,
+            )
+            prev_width = addr_width_and_base[signal_name][0]
+            prev_base = addr_width_and_base[signal_name][1]
+
+            assert (prev_base + (1 << prev_width)) <= (1 << 17)
+
+        config: Dict[str, str] = {}
+        config["ADDR_WIDTH"] = "32"
+        config["NUM_MI"] = str(len(axilites))
+        config["PROTOCOL"] = "AXI4LITE"
+        for i, axilite in enumerate(axilites):
+            config["M%0.2d_A00_ADDR_WIDTH" % i] = str(addr_width_and_base[axilite][0])
+            if addr_width_and_base[axilite][1] != 0:
+                config["M%0.2d_A00_BASE_ADDR" % i] = "0x%0.16x" % addr_width_and_base[axilite][1]
+
+        print(config)
+
+        return (
+            IP(
+                vlnv=IP.build_vlnv(
+                    vendor="xilinx.com", library="ip", name="axi_crossbar", version="2.1"
+                ),
+                module_name="axi_crossbar_0",
+                interfaces=[
+                    AXI4Lite(
+                        name="s_axi_crossbar",
+                        width=32,
+                        delimiter=Delimiter.UNDERSCORE,
+                        external=False,
+                        addr_width=32,
+                    ),
+                    AXI4Lite(
+                        name="m_axi_crossbar",
+                        width=32,
+                        delimiter=Delimiter.UNDERSCORE,
+                        external=False,
+                        addr_width=32,
+                        scale=len(axilites),
+                    ),
+                ],
+            ),
+            axilites_with_addr_width,
+        )
 
     @staticmethod
     def __is_accl_mode(model: ModelWrapper) -> bool:
@@ -656,27 +732,37 @@ class CoyoteBuild(Transformation):
 
         intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))  # type: ignore
 
+        # NOTE: s_axi_control_%d in intf_names["axilite"] does not match what is in the finn
+        # design file. The index is 0 and not 3.
+        for i, axilite in enumerate(intf_names["axilite"]):
+            if "control" in axilite:
+                intf_names["axilite"][i] = "s_axi_control_0"
+                break
+
         # Only one main output and one main input
         # NOTE: This will probably stay like this
         assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
         assert len(intf_names["m_axis"]) == 1, "Only support one toplevel output"
 
-        # TODO: Support multiple AXI lites using interconnect
-        # TODO: Get address widths from finn_design.v (root of stitched project: input [width:0]
-        # intf_names["axilite"]_awaddr;)
-        # NOTE: s_axilite for weigths s_axi_control for tlastmarker
-        # NOTE: We also need to handle the AXILite from
-        # assert len(intf_names["axilite"]) == 1, "Only support one AXI lite for now"
-
-        CoyoteBuild.create_interconnect(
+        (interconnect, axilites) = CoyoteBuild.create_interconnect(
             model.get_metadata_prop("vivado_stitch_proj"), intf_names["axilite"]
         )
 
-        # TODO: Create helpers to build IP
-        finn_kernel_ip = IP(
-            vlnv=model.get_metadata_prop("vivado_stitch_vlnv"),  # type: ignore
-            module_name="finn_kernel_0",
-            interfaces=[
+        interfaces: List[Interface] = []
+
+        for axilite, width in axilites:
+            interfaces.append(
+                AXI4Lite(
+                    name=axilite,
+                    width=32,
+                    delimiter=Delimiter.UNDERSCORE,
+                    external=False,
+                    addr_width=width,
+                )
+            )
+
+        interfaces.extend(
+            [
                 SimpleWire(intf_names["clk"][0], 1),
                 SimpleWire(intf_names["rst"][0], 1),
                 # NOTE: Input of FINN does not have TLast
@@ -694,14 +780,13 @@ class CoyoteBuild(Transformation):
                     Delimiter.UNDERSCORE,
                     False,
                 ),
-                AXI4Lite(
-                    intf_names["axilite"][0],
-                    # TODO: Figure out if this can be dynamic
-                    32,
-                    Delimiter.UNDERSCORE,
-                    False,
-                ),
-            ],
+            ]
+        )
+
+        finn_kernel_ip = IP(
+            vlnv=model.get_metadata_prop("vivado_stitch_vlnv"),  # type: ignore
+            module_name="finn_kernel_0",
+            interfaces=interfaces,
             ip_repo_path=model.get_metadata_prop("vivado_stitch_proj") + "/ip",  # type: ignore
         )
 
@@ -755,6 +840,10 @@ class CoyoteBuild(Transformation):
             ip=axis_dwidth_convert_finn_to_host,
         )
 
+        instantiations["axi_crossbar_0_inst"] = Instantiation(
+            instantiation_name="axi_crossbar_0_inst", ip=interconnect
+        )
+
         design = Design(instantiations, coyote_interface)
 
         instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
@@ -766,9 +855,9 @@ class CoyoteBuild(Transformation):
             instantiations["axis_dwidth_convert_host_to_finn_inst"]["m_axis"],
         )
 
-        instantiations["finn_kernel_inst"][intf_names["axilite"][0]].connect(
-            design, coyote_interface["axi_ctrl"]
-        )
+        # instantiations["finn_kernel_inst"][intf_names["axilite"][0]].connect(
+        #     design, coyote_interface["axi_ctrl"]
+        # )
 
         instantiations["finn_kernel_inst"][intf_names["clk"][0]].connect(
             design, coyote_interface["aclk"]
@@ -800,6 +889,13 @@ class CoyoteBuild(Transformation):
 
         instantiations["axis_dwidth_convert_host_to_finn_inst"]["s_axis"].connect(
             design, coyote_interface["axis_host_0_sink"]
+        )
+
+        instantiations["axi_crossbar_0_inst"]["m_axi_crossbar"].connect_multiple(
+            design,
+            [
+                instantiations["finn_kernel_inst"][key] for key in intf_names["axilite"]
+            ],  # type: ignore
         )
 
         model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part, design=design))
