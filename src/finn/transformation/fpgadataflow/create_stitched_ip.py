@@ -370,6 +370,9 @@ class CreateStitchedIP(Transformation):
         tcl.append(
             "create_project %s %s -part %s" % (prjname, vivado_stitch_proj_dir, self.fpgapart)
         )
+        # create dir for copying RTL module op sources into
+        tcl.append("file mkdir ./ip/verilog")
+        tcl.append("file mkdir ./ip/verilog/rtl_ops")
         # no warnings on long module names
         tcl.append("set_msg_config -id {[BD 41-1753]} -suppress")
         # add all the generated IP dirs to ip_repo_paths
@@ -473,8 +476,7 @@ class CreateStitchedIP(Transformation):
             "set_property model_name %s_wrapper [ipx::get_file_groups "
             "xilinx_verilogsynthesis -of_objects [ipx::current_core]]" % block_name
         )
-        # create new dirs under ip/ and copy Verilog & meminit sources
-        tcl.append("file mkdir ./ip/verilog")
+        # copy Verilog & meminit sources
         tcl.append("file copy ./finn_vivado_stitch_proj.gen/sources_1/bd/finn_design ./ip/verilog")
         tcl.append("file copy ./meminit ./ip")
         # build a list of all Verilog source files and generate all_verilog_srcs.txt
