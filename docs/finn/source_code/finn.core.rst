@@ -37,18 +37,19 @@ qonnx.core.modelwrapper
    :undoc-members:
    :show-inheritance:
 
-finn.core.onnx\_exec
+qonnx.core.onnx\_exec
 ---------------------------
 
-.. automodule:: finn.core.onnx_exec
+.. automodule:: qonnx.core.onnx_exec
    :members:
    :undoc-members:
    :show-inheritance:
 
-finn.core.remote\_exec
------------------------------
 
-.. automodule:: finn.core.remote_exec
+finn.core.onnx\_exec
+---------------------------
+
+.. automodule:: finn.core.onnx_exec
    :members:
    :undoc-members:
    :show-inheritance:

@@ -20,7 +20,7 @@ How do I use FINN?
 ==================
 
 We strongly recommend that you first watch one of the pre-recorded `FINN tutorial <https://www.youtube.com/watch?v=zw2aG4PhzmA&amp%3Bindex=2>`_
-videos, then follow the Jupyter notebook tutorials for `training and deploying an MLP for network intrusion detection <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/cybersecurity>`_ .
+videos, then follow the Jupyter notebook tutorials for `training and deploying an MLP for network intrusion detection <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example/cybersecurity>`_ .
 You may also want to check out the other :ref:`tutorials`, and the `FINN examples repository <https://github.com/Xilinx/finn-examples>`_ .
 
 Our aim in FINN is *not* to accelerate common off-the-shelf neural networks, but instead provide you with a set of tools
@@ -28,19 +28,19 @@ to train *customized* networks and create highly-efficient FPGA implementations 
 In general, the approach for using the FINN framework is as follows:
 
 1. Train your own quantized neural network (QNN) in `Brevitas <https://github.com/Xilinx/brevitas>`_. We have some `guidelines <https://bit.ly/finn-hls4ml-qat-guidelines>`_ on quantization-aware training (QAT).
-2. Export to FINN-ONNX by following `this tutorial <https://github.com/Xilinx/finn/blob/master/notebooks/basics/1_brevitas_network_import.ipynb>`_ .
-3. Use FINN's ``build_dataflow`` system on the exported model by following this `tutorial <https://github.com/Xilinx/finn/blob/master/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_
+2. Export to FINN-ONNX by following `this tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/basics/1_brevitas_network_import.ipynb>`_ .
+3. Use FINN's ``build_dataflow`` system on the exported model by following this `tutorial <https://github.com/Xilinx/finn/blob/main/notebooks/end2end_example/cybersecurity/3-build-accelerator-with-finn.ipynb>`_
 4. Adjust your QNN topology, quantization settings and ``build_dataflow`` configuration to get the desired results.
 
 Please note that the framework is still under development, and how well this works will depend on how similar your custom network is to the examples we provide.
 If there are substantial differences, you will most likely have to write your own
 Python scripts that call the appropriate FINN compiler
 functions that process your design correctly, or adding new functions (including
-Vivado HLS layers)
+Vitis HLS layers)
 as required.
-The `advanced FINN tutorials <https://github.com/Xilinx/finn/tree/master/notebooks/advanced>`_ can be useful here.
+The `advanced FINN tutorials <https://github.com/Xilinx/finn/tree/main/notebooks/advanced>`_ can be useful here.
 For custom networks, we recommend making a copy of the `BNN-PYNQ end-to-end
-Jupyter notebook tutorials <https://github.com/Xilinx/finn/tree/master/notebooks/end2end_example/bnn-pynq>`_ as a starting point, visualizing the model at intermediate
+Jupyter notebook tutorials <https://github.com/Xilinx/finn/tree/main/notebooks/end2end_example/bnn-pynq>`_ as a starting point, visualizing the model at intermediate
 steps and adding calls to new transformations as needed.
 Once you have a working flow, you can implement a command line entry for this
 by using the "advanced mode" described in the :ref:`command_line` section.
@@ -50,7 +50,8 @@ Running FINN in Docker
 FINN runs inside a Docker container, it comes with a script to easily build and launch the container. If you are not familiar with Docker, there are many excellent `online resources <https://docker-curriculum.com/>`_ to get started.
 You may want to review the :ref:`General FINN Docker tips` and :ref:`Environment variables` as well.
 If you want to use prebuilt images, read :ref:`Using a prebuilt image`.
-The ``run-docker.sh`` script that can be launched in the following modes:
+
+The above mentioned script to build and launch the FINN docker container is called `run-docker.sh <https://github.com/Xilinx/finn/blob/main/run-docker.sh>`_ . It can be launched in the following modes:
 
 Launch interactive shell
 ************************
@@ -106,9 +107,6 @@ These are summarized below:
 * (optional) ``LOCALHOST_URL`` (default localhost) sets the base URL for accessing e.g. Netron from inside the container. Useful when running FINN remotely.
 * (optional) ``NETRON_PORT`` (default 8081) changes the port for Netron inside Docker
 * (optional) ``PYNQ_BOARD`` or ``ALVEO_BOARD`` specifies the type of PYNQ/Alveo board used (see "supported hardware" below) for the test suite
-* (optional) ``PYNQ_IP`` and ``PYNQ_PORT`` (or ``ALVEO_IP`` and ``ALVEO_PORT``) specify ip address and port number to access the PYNQ board / Alveo target
-* (optional) ``PYNQ_USERNAME`` and ``PYNQ_PASSWORD`` (or ``ALVEO_USERNAME`` and ``ALVEO_PASSWORD``) specify the PYNQ board / Alveo host access credentials for the test suite. For PYNQ, password is always needed to run as sudo. For Alveo, you can leave the password empty and place your ssh private key in the ``finn/ssh_keys`` folder to use keypair authentication.
-* (optional) ``PYNQ_TARGET_DIR`` (or ``ALVEO_TARGET_DIR``) specifies the target dir on the PYNQ board / Alveo host for the test suite
 * (optional) ``IMAGENET_VAL_PATH`` specifies the path to the ImageNet validation directory for tests.
 * (optional) ``FINN_DOCKER_PREBUILT`` (default 0) if set to 1 then skip Docker image building and use the image tagged with ``FINN_DOCKER_TAG``.
 * (optional) ``FINN_DOCKER_TAG`` (autogenerated) specifies the Docker image tag to use.
@@ -140,10 +138,7 @@ If you are having trouble building the Docker image or need offline access, you 
 
 Supported FPGA Hardware
 =======================
-**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards.
-
-.. warning::
-  In previous FINN versions (v0.4b - v0.7) we had support for `Xilinx Alveo boards <https://www.xilinx.com/products/boards-and-kits/alveo.html>`_ using PYNQ and Vitis 2020.1, see instructions below for Alveo setup that works with older versions. Please note that with the new release with Vitis 2022.1, we do only have experimental support to automatically deployment for Alveo cards.
+**Shell-integrated accelerator + driver:** For quick deployment, we target boards supported by  `PYNQ <http://www.pynq.io/>`_ . For these platforms, we can build a full bitfile including DMAs to move data into and out of the FINN-generated accelerator, as well as a Python driver to launch the accelerator. We support the Pynq-Z1, Pynq-Z2, Ultra96, ZCU102 and ZCU104 boards, as well as Alveo cards.
 
 **Vivado IPI support for any Xilinx FPGA:** FINN generates a Vivado IP Integrator (IPI) design from the neural network with AXI stream (FIFO) in-out interfaces, which can be integrated onto any Xilinx FPGA as part of a larger system. It's up to you to take the FINN-generated accelerator (what we call "stitched IP" in the tutorials), wire it up to your FPGA design and send/receive neural network data to/from the accelerator.
 
@@ -181,12 +176,12 @@ On the target side:
 
 On the host side:
 
-1. Install Vitis 2020.1 and set up the ``VITIS_PATH`` environment variable to point to your installation.
+1. Install Vitis 2022.1 and set up the ``VITIS_PATH`` environment variable to point to your installation.
 2. Install Xilinx XRT. Ensure that the ``XRT_DEB_VERSION`` environment variable reflects which version of XRT you have installed.
 3. Install the Vitis platform files for Alveo and set up the ``PLATFORM_REPO_PATHS`` environment variable to point to your installation. *This must be the same path as the target's platform files (target step 2)*
 4. Set up the ``ALVEO_*`` environment variables accordingly for your target, see description of environment variables above.
 5. `Set up public key authentication <https://www.digitalocean.com/community/tutorials/how-to-configure-ssh-key-based-authentication-on-a-linux-server>`_. Copy your private key to the ``finn/ssh_keys`` folder on the host to get password-less deployment and remote execution.
-6. Done! You can try the ``test_end2end_vitis`` tests in the FINN Docker to verify your setup, although this will take some time.
+6. Done!
 
 Vivado/Vitis license
 *********************
@@ -214,7 +209,7 @@ We also recommend running the FINN compiler on a system with sufficiently
 strong hardware:
 
 * **RAM.** Depending on your target FPGA platform, your system must have sufficient RAM to be
-  able to run Vivado/Vitis synthesis for that part. See `this page <https://www.xilinx.com/products/design-tools/vivado/memory.html>`_
+  able to run Vivado/Vitis synthesis for that part. See `this page <https://www.xilinx.com/products/design-tools/vivado/vivado-ml.html#memory>`_
   for more information. For targeting Zynq and Zynq UltraScale+ parts, at least 8 GB is recommended. Larger parts may require up to 16 GB.
   For targeting Alveo parts with Vitis, at least 64 GB RAM is recommended.
 

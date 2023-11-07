@@ -42,12 +42,13 @@ class Pool_Batch(HLSCustomOp):
     Output shape (BatchSize,OutImgDim,OutImgDim,Channels)
 
     Notes:
-    # The input shape was chosen to be compatible with im2col (only true when there
-    is not folding).
 
-    # The actual data layout produced by the hlslib kernels is different
-    for depthwise ops.
-     * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/PE, K, K, PE)
+    * The input shape was chosen to be compatible with im2col (only true when there
+      is not folding).
+    * The actual data layout produced by the hlslib kernels is different
+      for depthwise ops.
+
+        * depthwise SWG: (1, OFMDim, OFMDim, IFMChannels/PE, K, K, PE)
 
     Channels can be folded using PE (SIMD from the input perspective)
     """
@@ -74,11 +75,11 @@ class Pool_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("InputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         fxn = self.get_nodeattr("Function")
         odt = DataType[self.get_nodeattr("OutputDataType")]
@@ -98,7 +99,7 @@ class Pool_Batch(HLSCustomOp):
 
         return odt
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ifm_ch = self.get_nodeattr("Channels")
         odims = self.get_nodeattr("OutImgDims")
         batch_size = self.get_nodeattr("BatchSize")
@@ -107,7 +108,7 @@ class Pool_Batch(HLSCustomOp):
         ishape = (batch_size, *odims, k_prod * ifm_ch)
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         normal_ishape = list(self.get_normal_input_shape())
         ifm_ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
@@ -116,14 +117,14 @@ class Pool_Batch(HLSCustomOp):
         folded_ishape = normal_ishape[:-1] + [fold, pe]
         return tuple(folded_ishape)
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         ofm_ch = self.get_nodeattr("Channels")
         odims = self.get_nodeattr("OutImgDims")
         batch_size = self.get_nodeattr("BatchSize")
         oshape = (batch_size, *odims, ofm_ch)
         return oshape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         normal_oshape = list(self.get_normal_output_shape())
         ifm_ch = self.get_nodeattr("Channels")
         pe = self.get_nodeattr("PE")
@@ -147,13 +148,13 @@ class Pool_Batch(HLSCustomOp):
         exp_cycles = ((ifm_ch * k_prod) / pe) * np.prod(odims) * batch_size
         return int(exp_cycles)
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         dt_bits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = int(dt_bits * pe)
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         dt_bits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         out_width = int(dt_bits * pe)
@@ -190,13 +191,9 @@ class Pool_Batch(HLSCustomOp):
         # check supported function
         fnx = self.get_nodeattr("Function")
         if fnx in ["MaxPool", "QuantAvgPool"]:
-            info_messages.append(
-                "Attribute Function contains a supported pool function"
-            )
+            info_messages.append("Attribute Function contains a supported pool function")
         else:
-            info_messages.append(
-                "Attribute Function contains an unsupported pool function"
-            )
+            info_messages.append("Attribute Function contains an unsupported pool function")
         return info_messages
 
     def global_includes(self):
@@ -238,17 +235,28 @@ class Pool_Batch(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0,false);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
@@ -271,17 +279,15 @@ class Pool_Batch(HLSCustomOp):
             else:
                 act_hls_dt = "ap_uint<{}>".format(accum_bits)
             self.code_gen_dict["$DOCOMPUTE$"] += [
-                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(
-                    act_hls_dt, o_hls_dt, size
-                )
+                "QuantAvgPoolFunction<{},{},{}> pool_fxn;".format(act_hls_dt, o_hls_dt, size)
             ]
         else:
             raise Exception("Pool_Batch doesn't currently support " + fxn)
 
         self.code_gen_dict["$DOCOMPUTE$"] += [
             """Pool_batch<Channels, PE, KernelSize,Slice<{} >, Slice< {} > >
-        (in0,out, pool_fxn, OFMDimTotal*numReps);""".format(
-                i_hls_dt, o_hls_dt
+        (in0_{}, out_{}, pool_fxn, OFMDimTotal*numReps);""".format(
+                i_hls_dt, o_hls_dt, self.hls_sname(), self.hls_sname()
             )
         ]
 
@@ -301,12 +307,13 @@ class Pool_Batch(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s",false);'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -322,20 +329,24 @@ class Pool_Batch(HLSCustomOp):
         packed_obits = self.get_outstream_width()
         packed_out_hls_type = "ap_uint<%d>" % packed_obits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, packed_in_hls_type, packed_out_hls_type)
+            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            % (
+                self.onnx_node.name,
+                packed_in_hls_type,
+                self.hls_sname(),
+                packed_out_hls_type,
+                self.hls_sname(),
+            )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

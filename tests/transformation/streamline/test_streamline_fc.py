@@ -28,22 +28,26 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
+import torch
+from brevitas.export import export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.fold_constants import FoldConstants
 from qonnx.transformation.general import (
     GiveReadableTensorNames,
     GiveUniqueNodeNames,
+    GiveUniqueParameterTensors,
     RemoveStaticGraphInputs,
     RemoveUnusedTensors,
 )
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
+from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.transformation.streamline import Streamline
 from finn.util.basic import make_build_dir
 from finn.util.test import get_test_model_trained
@@ -66,11 +70,14 @@ def test_streamline_fc(size, wbits, abits):
     nname = "%s_%dW%dA" % (size, wbits, abits)
     finn_onnx = export_onnx_path + "/%s.onnx" % nname
     fc = get_test_model_trained(size, wbits, abits)
-    bo.export_finn_onnx(fc, (1, 1, 28, 28), finn_onnx)
+    export_qonnx(fc, torch.randn(1, 1, 28, 28), finn_onnx)
+    qonnx_cleanup(finn_onnx, out_file=finn_onnx)
     model = ModelWrapper(finn_onnx)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     model = model.transform(FoldConstants())
     model = model.transform(GiveUniqueNodeNames())
+    model = model.transform(GiveUniqueParameterTensors())
     model = model.transform(GiveReadableTensorNames())
     model = model.transform(RemoveStaticGraphInputs())
     # load one of the test vectors

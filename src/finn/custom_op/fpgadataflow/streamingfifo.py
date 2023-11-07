@@ -41,37 +41,60 @@ from . import templates
 
 
 class StreamingFIFO(HLSCustomOp):
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
         self.strm_fifo_wrapper = templates.strm_fifo_wrapper
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            # FIFO depth
-            "depth": ("i", True, 0),
-            # folded shape of input/output
-            "folded_shape": ("ints", True, []),
-            # FINN DataTypes for inputs/outputs
-            "dataType": ("s", True, ""),
-            # Toggle between hls or IPI implementation
-            # rtl - use the hls generated IP during stitching
-            # vivado - use the AXI Infrastructure FIFO
-            "impl_style": ("s", False, "rtl", {"rtl", "vivado"}),
-            # FPGA resource type for FIFOs when impl_style is vivado
-            # auto -- let Vivado decide
-            # block -- use BRAM
-            # distributed -- use LUTRAM
-            # ultra -- use URAM (on UltraScale+)
-            "ram_style": (
-                "s",
-                False,
-                "auto",
-                {"auto", "block", "distributed", "ultra"},
-            ),
-        }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs = super().get_nodeattr_types()
+        my_attrs.update(
+            {
+                # FIFO depth
+                "depth": ("i", True, 0),
+                # folded shape of input/output
+                "folded_shape": ("ints", True, []),
+                # FINN DataTypes for inputs/outputs
+                "dataType": ("s", True, ""),
+                # Toggle between hls or IPI implementation
+                # rtl - use the hls generated IP during stitching
+                # vivado - use the AXI Infrastructure FIFO
+                "impl_style": ("s", False, "rtl", {"rtl", "vivado"}),
+                # FPGA resource type for FIFOs when impl_style is vivado
+                # auto -- let Vivado decide
+                # block -- use BRAM
+                # distributed -- use LUTRAM
+                # ultra -- use URAM (on UltraScale+)
+                "ram_style": (
+                    "s",
+                    False,
+                    "auto",
+                    {"auto", "block", "distributed", "ultra"},
+                ),
+                # whether depth monitoring is enabled (impl_style=rtl only)
+                "depth_monitor": ("i", False, 0),
+                # the FIFO does not need its own FIFOs
+                "inFIFODepths": ("ints", False, [0]),
+                "outFIFODepths": ("ints", False, [0]),
+            }
+        )
 
         return my_attrs
+
+    def get_adjusted_depth(self):
+        impl = self.get_nodeattr("impl_style")
+        depth = self.get_nodeattr("depth")
+        if impl == "vivado":
+            old_depth = depth
+            # round up depth to nearest power-of-2
+            # Vivado FIFO impl may fail otherwise
+            depth = (1 << (depth - 1).bit_length()) if impl == "vivado" else depth
+            if old_depth != depth:
+                warnings.warn(
+                    "%s: rounding-up FIFO depth from %d to %d for impl_style=vivado"
+                    % (self.onnx_node.name, old_depth, depth)
+                )
+
+        return depth
 
     def make_shape_compatible_op(self, model):
         exp_ishape = self.get_normal_input_shape()
@@ -97,6 +120,14 @@ class StreamingFIFO(HLSCustomOp):
     def verify_node(self):
         pass
 
+    def get_verilog_top_module_intf_names(self):
+        ret = super().get_verilog_top_module_intf_names()
+        is_rtl = self.get_nodeattr("impl_style") == "rtl"
+        is_depth_monitor = self.get_nodeattr("depth_monitor") == 1
+        if is_rtl and is_depth_monitor:
+            ret["ap_none"] = ["maxcount"]
+        return ret
+
     def get_verilog_top_module_name(self):
         "Return the Verilog top module name for this node."
 
@@ -106,9 +137,7 @@ class StreamingFIFO(HLSCustomOp):
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(
-            code_gen_dir, self.onnx_node.name
-        )
+        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(code_gen_dir, self.onnx_node.name)
         os.makedirs(verilog_dir)
         # copy Q_srl.v from finn-rtllib to verilog directory
         memstream_dir = get_finn_root() + "/finn-rtllib/memstream/hdl/"
@@ -144,9 +173,7 @@ class StreamingFIFO(HLSCustomOp):
 
     def ipgen_singlenode_code(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(
-            code_gen_dir, self.onnx_node.name
-        )
+        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(code_gen_dir, self.onnx_node.name)
         # prepare the IP packaging tcl template
         template = templates.ip_package_tcl
         self.code_gen_dict.clear()
@@ -180,15 +207,11 @@ class StreamingFIFO(HLSCustomOp):
         self.set_nodeattr("ip_vlnv", vlnv)
         self.code_gen_dict.clear()
 
-    def get_normal_input_shape(self):
-        depth = self.get_nodeattr("depth")
-        # depth has to be between 2 and 256 with the current
-        # StreamingFIFO implementation
+    def get_normal_input_shape(self, ind=0):
+        depth = self.get_adjusted_depth()
         assert depth >= 2, """Depth is too low"""
         if depth > 256 and self.get_nodeattr("impl_style") == "rtl":
-            warnings.warn(
-                "Depth is high, set between 2 and 256 for efficient SRL implementation"
-            )
+            warnings.warn("Depth is high, set between 2 and 256 for efficient SRL implementation")
         # derive normal shape from folded shape
         # StreamingFIFOs are inserted in between fpgadataflow nodes
         # the folded shape could be for example (1, nf, pe)
@@ -211,26 +234,32 @@ class StreamingFIFO(HLSCustomOp):
 
         return normal_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_nodeattr("folded_shape")
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         dtype = DataType[self.get_nodeattr("dataType")]
         folded_shape = self.get_nodeattr("folded_shape")
         in_width = folded_shape[-1] * dtype.bitwidth()
         return in_width
+
+    def get_input_datatype(self, ind=0):
+        return DataType[self.get_nodeattr("dataType")]
+
+    def get_output_datatype(self, ind=0):
+        return DataType[self.get_nodeattr("dataType")]
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -262,9 +291,7 @@ class StreamingFIFO(HLSCustomOp):
             np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
             output = self.rtlsim(sim, inp)
@@ -273,9 +300,7 @@ class StreamingFIFO(HLSCustomOp):
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
             # load and reshape output
             output = np.load(out_npy_path)
             oshape = self.get_normal_output_shape()
@@ -328,7 +353,7 @@ class StreamingFIFO(HLSCustomOp):
         elif impl_style == "vivado":
             cmd = []
             node_name = self.onnx_node.name
-            depth = self.get_nodeattr("depth")
+            depth = self.get_adjusted_depth()
             ram_style = self.get_nodeattr("ram_style")
             # create a hierarchy for this layer, with the same port names
             clk_name = self.get_verilog_top_module_intf_names()["clk"][0]
@@ -340,8 +365,7 @@ class StreamingFIFO(HLSCustomOp):
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
-                % (node_name, dout_name)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
             )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
@@ -362,8 +386,7 @@ class StreamingFIFO(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict [list CONFIG.TDATA_NUM_BYTES {%d}] "
-                "[get_bd_cells /%s/fifo]"
-                % (np.ceil(self.get_outstream_width() / 8), node_name)
+                "[get_bd_cells /%s/fifo]" % (np.ceil(self.get_outstream_width() / 8), node_name)
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/fifo/M_AXIS] "
@@ -375,8 +398,7 @@ class StreamingFIFO(HLSCustomOp):
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] "
-                "[get_bd_pins %s/fifo/s_axis_aresetn]"
-                % (node_name, rst_name, node_name)
+                "[get_bd_pins %s/fifo/s_axis_aresetn]" % (node_name, rst_name, node_name)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] "
@@ -385,15 +407,14 @@ class StreamingFIFO(HLSCustomOp):
             return cmd
         else:
             raise Exception(
-                "FIFO implementation style %s not supported, please use rtl or vivado"
-                % impl_style
+                "FIFO implementation style %s not supported, please use rtl or vivado" % impl_style
             )
 
     def bram_estimation(self):
         """Calculates resource estimation for BRAM"""
         impl = self.get_nodeattr("impl_style")
         ram_type = self.get_nodeattr("ram_style")
-        depth = self.get_nodeattr("depth")
+        depth = self.get_adjusted_depth()
         W = self.get_instream_width()
 
         if impl == "rtl" or (impl == "vivado" and ram_type != "block"):
@@ -418,7 +439,7 @@ class StreamingFIFO(HLSCustomOp):
 
         impl = self.get_nodeattr("impl_style")
         ram_type = self.get_nodeattr("ram_style")
-        depth = self.get_nodeattr("depth")
+        depth = self.get_adjusted_depth()
         W = self.get_instream_width()
 
         if impl == "rtl" or (impl == "vivado" and ram_type != "ultra"):
@@ -428,7 +449,7 @@ class StreamingFIFO(HLSCustomOp):
             return (math.ceil(depth / 4096)) * (math.ceil(W / 72))
 
     def bram_efficiency_estimation(self):
-        depth = self.get_nodeattr("depth")
+        depth = self.get_adjusted_depth()
         W = self.get_instream_width()
         bram16_est = self.bram_estimation()
         if bram16_est == 0:
@@ -441,7 +462,7 @@ class StreamingFIFO(HLSCustomOp):
         """Calculates resource estimations for LUTs"""
         impl = self.get_nodeattr("impl_style")
         ram_type = self.get_nodeattr("ram_style")
-        depth = self.get_nodeattr("depth")
+        depth = self.get_adjusted_depth()
         W = self.get_instream_width()
 
         address_luts = 2 * math.ceil(math.log(depth, 2))

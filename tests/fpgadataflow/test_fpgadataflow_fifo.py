@@ -33,7 +33,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.hlssynth_ip import HLSSynthIP
@@ -47,7 +47,6 @@ target_clk_ns = 10
 
 
 def make_single_fifo_modelwrapper(Shape, Depth, fld_shape, finn_dtype):
-
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, Shape)
     outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, Shape)
 
@@ -62,11 +61,9 @@ def make_single_fifo_modelwrapper(Shape, Depth, fld_shape, finn_dtype):
         dataType=str(finn_dtype.name),
     )
 
-    graph = helper.make_graph(
-        nodes=[FIFO_node], name="fifo_graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=[FIFO_node], name="fifo_graph", inputs=[inp], outputs=[outp])
 
-    model = helper.make_model(graph, producer_name="fifo-model")
+    model = qonnx_make_model(graph, producer_name="fifo-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", finn_dtype)
@@ -91,7 +88,6 @@ def prepare_inputs(input_tensor, dt):
 @pytest.mark.slow
 @pytest.mark.vivado
 def test_fpgadataflow_fifo_rtlsim(Shape, folded_shape, depth, finn_dtype):
-
     # generate input data
     x = gen_finn_dt_tensor(finn_dtype, Shape)
     input_dict = prepare_inputs(x, finn_dtype)

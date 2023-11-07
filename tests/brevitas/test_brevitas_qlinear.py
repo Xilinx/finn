@@ -28,12 +28,11 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import os
 import torch
 from brevitas.core.quant import QuantType
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_qonnx
 from brevitas.nn import QuantLinear
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
@@ -53,10 +52,7 @@ export_onnx_path = "test_brevitas_qlinear.onnx"
 @pytest.mark.parametrize("in_features", [3])
 @pytest.mark.parametrize("w_bits", [4])
 @pytest.mark.parametrize("i_dtype", [DataType["UINT4"]])
-@pytest.mark.parametrize("QONNX_export", [False, True])
-def test_brevitas_qlinear(
-    bias, out_features, in_features, w_bits, i_dtype, QONNX_export
-):
+def test_brevitas_qlinear(bias, out_features, in_features, w_bits, i_dtype):
     i_shape = (1, in_features)
     w_shape = (out_features, in_features)
     b_linear = QuantLinear(
@@ -68,21 +64,14 @@ def test_brevitas_qlinear(
         weight_quant_type=QuantType.INT,
         weight_scaling_per_output_channel=True,
     )
-    weight_tensor_fp = np.random.uniform(low=-1.0, high=1.0, size=w_shape).astype(
-        np.float32
-    )
+    weight_tensor_fp = np.random.uniform(low=-1.0, high=1.0, size=w_shape).astype(np.float32)
     b_linear.weight.data = torch.from_numpy(weight_tensor_fp)
     b_linear.eval()
-    if QONNX_export:
-        m_path = export_onnx_path
-        BrevitasONNXManager.export(b_linear, i_shape, m_path)
-        qonnx_cleanup(m_path, out_file=m_path)
-        model = ModelWrapper(m_path)
-        model = model.transform(ConvertQONNXtoFINN())
-        model.save(m_path)
-    else:
-        bo.export_finn_onnx(b_linear, i_shape, export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
+    m_path = export_onnx_path
+    export_qonnx(b_linear, torch.randn(i_shape), m_path)
+    qonnx_cleanup(m_path, out_file=m_path)
+    model = ModelWrapper(m_path)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = gen_finn_dt_tensor(i_dtype, i_shape)
     idict = {model.graph.input[0].name: inp_tensor}

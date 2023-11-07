@@ -32,6 +32,7 @@ import onnx.helper as oh
 from onnx import TensorProto
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as ox
 from finn.transformation.streamline import MoveAddPastConv, MoveScalarMulPastConv
@@ -79,7 +80,7 @@ def test_move_scalar_past_conv(test_args, padding):
     value_info += [oh.make_tensor_value_info("p2", TensorProto.FLOAT, conv_param_shape)]
     value_info += [oh.make_tensor_value_info("p3", TensorProto.FLOAT, conv_param_shape)]
 
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],
@@ -158,7 +159,7 @@ def test_move_scalar_past_conv_only_if_linear(test_args):
     value_info += [oh.make_tensor_value_info("p4", TensorProto.FLOAT, conv_param_shape)]
     value_info += [oh.make_tensor_value_info("p5", TensorProto.FLOAT, conv_param_shape)]
 
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],

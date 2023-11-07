@@ -96,9 +96,7 @@ def test_runtime_weights_single_layer():
     def read_weights(sim):
         addr = 0
         for i in range(len(old_weight_stream)):
-            extracted_weight_stream.append(
-                axilite_read(sim, addr, basename="s_axilite_0_")
-            )
+            extracted_weight_stream.append(axilite_read(sim, addr, basename="s_axilite_0_"))
             addr += 4
 
     rtlsim_exec(model, exec_ctx, pre_hook=read_weights)

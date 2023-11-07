@@ -7,7 +7,7 @@ Internals
 Intermediate Representation: QONNX and FINN-ONNX
 ================================================
 
-FINN uses `ONNX <https://github.com/onnx/onnx>`_ as an intermediate representation (IR) for neural networks. As such, almost every component inside FINN uses ONNX and its `Python API <https://github.com/onnx/onnx/blob/master/docs/PythonAPIOverview.md>`_, so you may want to familiarize yourself with how ONNX represents DNNs. Specifically, the `ONNX protobuf description <https://github.com/onnx/onnx/blob/master/onnx/onnx.proto>`_ (or its `human-readable documentation <https://github.com/onnx/onnx/blob/master/docs/IR.md>`_ and the `operator schemas <https://github.com/onnx/onnx/blob/master/docs/Operators.md>`_ are useful as reference documents. We also provide a Jupyter notebook that can help to get familiar with ONNX by showing how to work with a simple ONNX model in FINN, see chapter :ref:`tutorials` for details.
+FINN uses `ONNX <https://github.com/onnx/onnx>`_ as an intermediate representation (IR) for neural networks. As such, almost every component inside FINN uses ONNX and its `Python API <https://github.com/onnx/onnx/blob/main/docs/PythonAPIOverview.md>`_, so you may want to familiarize yourself with how ONNX represents DNNs. Specifically, the `ONNX protobuf description <https://github.com/onnx/onnx/blob/main/onnx/onnx.proto>`_ (or its `human-readable documentation <https://github.com/onnx/onnx/blob/main/docs/IR.md>`_ and the `operator schemas <https://github.com/onnx/onnx/blob/main/docs/Operators.md>`_ are useful as reference documents. We also provide a Jupyter notebook that can help to get familiar with ONNX by showing how to work with a simple ONNX model in FINN, see chapter :ref:`tutorials` for details.
 
 .. note:: FINN supports two specialized variants of ONNX called QONNX and FINN-ONNX, and not all ONNX graphs are supported by FINN (and vice versa).
 
@@ -137,14 +137,14 @@ ModelWrapper contains more useful functions, if you are interested please have a
 Analysis Pass
 =============
 
-An analysis pass traverses the graph structure and produces information about certain properties. It gets the model in the ModelWrapper as input and returns a dictionary of the properties the analysis extracts. If you are interested in how to write an analysis pass for FINN, please take a look at the Jupyter notebook about how to write an analysis pass, see chapter :ref:`tutorials` for details. For more information about existing analysis passes in FINN, see module :py:mod:`finn.analysis`.
+An analysis pass traverses the graph structure and produces information about certain properties. It gets the model in the ModelWrapper as input and returns a dictionary of the properties the analysis extracts. If you are interested in how to write an analysis pass for FINN, please take a look at the Jupyter notebook about how to write an analysis pass, see chapter :ref:`tutorials` for details. For more information about existing analysis passes in FINN, see module :py:mod:`finn.analysis` .
 
 .. _transformation_pass:
 
 Transformation Pass
 ===================
 
-A transformation passes changes (transforms) the given model, it gets the model in the ModelWrapper as input and returns the changed model (ModelWrapper) to the FINN flow. Additional the flag *model_was_changed* which indicates if a transformation has to be performed more than once, is returned. If you are interested in how to write a transformation pass for FINN, please take a look at the Jupyter notebook about how to write a transformation pass, see chapter :ref:`tutorials` for details. For more information about existing transformation passes in FINN, see module :py:mod:`finn.transformation`.
+A transformation passes changes (transforms) the given model, it gets the model in the ModelWrapper as input and returns the changed model (ModelWrapper) to the FINN flow. Additional the flag *model_was_changed* which indicates if a transformation has to be performed more than once, is returned. If you are interested in how to write a transformation pass for FINN, please take a look at the Jupyter notebook about how to write a transformation pass, see chapter :ref:`tutorials` for details. For more information about existing transformation passes in FINN, see module :py:mod:`finn.transformation` .
 
 .. _mem_mode:
 
@@ -167,7 +167,7 @@ The following picture shows the idea behind the "const" and "decoupled" mode.
 
 Const mode
 ----------
-In *const* mode the weights are "baked in" into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *const* mode IP block generation the `Matrix_Vector_Activate_Batch function <https://github.com/Xilinx/finn-hlslib/blob/19fa1197c09bca24a0f77a7fa04b8d7cb5cc1c1d/mvau.hpp#L93>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
+In *const* mode the weights are "baked in" into the Matrix-Vector-Activate-Unit (MVAU), which means they are part of the HLS code. During the IP block generation the weight values are integrated as *params.h* file in the HLS code and synthesized together with it. For the *const* mode IP block generation the `Matrix_Vector_Activate_Batch function <https://github.com/Xilinx/finn-hlslib/blob/master/mvau.hpp#L92>`_ from the finn-hls library is used, which implements a standard MVAU. The resulting IP block has an input and an output stream, as shown in the above picture on the left. FIFOs in the form of verilog components are connected to these.
 
 Advantages:
 
@@ -185,7 +185,7 @@ Disadvantages:
 
 Decoupled mode
 --------------
-In *decoupled* mode a different variant of the MVAU with three ports is used. Besides the input and output streams, which are fed into the circuit via Verilog FIFOs, there is another input, which is used to stream the weights. For this the `streaming MVAU <https://github.com/Xilinx/finn-hlslib/blob/07a8353f6cdfd8bcdd81e309a5581044c2a93d3b/mvau.hpp#L213>`_ from the finn-hls library is used. To make the streaming possible a Verilog weight streamer component accesses the weight memory and sends the values via another FIFO to the MVAU. This component can be found in the `finn-rtllib <https://github.com/Xilinx/finn/tree/dev/finn-rtllib>`_ under the name *memstream.v*. For the IP block generation this component, the IP block resulting from the synthesis of the HLS code of the streaming MVAU and a FIFO for the weight stream are combined in a verilog wrapper. The weight values are saved in .dat files and stored in the weight memory from which the weight streamer reads. The resulting verilog component, which is named after the name of the node and has the suffix "_memstream.v", exposes only two ports to the outside, the data input and output. It therefore behaves externally in the same way as the MVAU in *const* mode.
+In *decoupled* mode a different variant of the MVAU with three ports is used. Besides the input and output streams, which are fed into the circuit via Verilog FIFOs, there is another input, which is used to stream the weights. For this the `streaming MVAU <https://github.com/Xilinx/finn-hlslib/blob/master/mvau.hpp#L214>`_ from the finn-hls library is used. To make the streaming possible a Verilog weight streamer component accesses the weight memory and sends the values via another FIFO to the MVAU. This component can be found in the `finn-rtllib <https://github.com/Xilinx/finn/tree/dev/finn-rtllib>`_ under the name *memstream.v*. For the IP block generation this component, the IP block resulting from the synthesis of the HLS code of the streaming MVAU and a FIFO for the weight stream are combined in a verilog wrapper. The weight values are saved in .dat files and stored in the weight memory from which the weight streamer reads. The resulting verilog component, which is named after the name of the node and has the suffix "_memstream.v", exposes only two ports to the outside, the data input and output. It therefore behaves externally in the same way as the MVAU in *const* mode.
 
 Advantages:
 
@@ -205,3 +205,142 @@ Disadvantages:
 How to set *mem_mode*
 ---------------------
 When the nodes in the network are converted to HLS layers, the *mem_mode* can be passed. More detailed information about the transformations that prepare the network and the transformation that performs the conversion to HLS layers can be found in chapter :ref:`nw_prep`. The *mem_mode* is passed as argument. Note that if no argument is passed, the default is *const*.
+
+
+.. _folding_factors:
+
+Constraints to folding factors per layer
+=========================================
+
+.. list-table:: Folding factor constraints
+
+   * - **Layers**
+     - **Parameters**
+     - **Constraints**
+   * - Addstreams_Batch
+     - PE
+     - inp_channels % PE == 0
+   * - ChannelwiseOp_Batch
+     - PE
+     - channels % PE == 0
+   * - ConvolutionInputGenerator
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - ConvolutionInputGenerator1d
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - Downsampler
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - DuplicateStreams_Batch
+     - PE
+     - channels % PE == 0
+   * - Eltwise
+     - PE
+     - inp_channels % PE == 0
+   * - FMPadding_batch
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - FMPadding_rtl
+     - SIMD
+     - inp_channels % SIMD == 0
+   * - Globalaccpool_Batch
+     - PE
+     - channels % PE == 0
+   * - Labelselect_Batch
+     - PE
+     - num_labels % PE == 0
+   * - MatrixVectorActivation
+     - PE & SIMD
+     - MH % PE == 0 & MW % SIMD == 0
+   * - Pool_Batch
+     - PE
+     - inp_channels % PE == 0
+   * - Thresholding_Batch
+     - PE
+     - MH % PE == 0
+   * - VectorVectorActivation
+     - PE & SIMD
+     - k_h * k_w % SIMD == 0 & channels % PE == 0
+
+
+RTL ConvolutionInputGenerator
+=============================
+
+FINN implements convolution operations by pairing a ConvolutionInputGenerator (or "sliding window generator (SWG)") with an MVAU or VVAU (for depthwise convolution).
+This RTL version is an alternative to the original `HLS implementation <https://github.com/Xilinx/finn-hlslib/blob/master/slidingwindow.h>`_ and aims to improve on it in the following ways:
+
+* Support a wider range of hyperparameters without the fragmentation into 16+ separate HLS functions
+
+* Support additional degrees of parallelism (i.e., across the output window or multiple input samples) that are difficult to implement in HLS
+
+* Support additional features, such as dynamic feature map sizing
+
+* Improve resource efficiency
+
+
+The component is implemented by generating (System-)Verilog code for each individual instance, realized via the template + replacement dictionary mechanism found in other FINN components.
+Despite the HDL implementation, the component is managed by its own HLSCustomOp (!) named "ConvolutionInputGenerator_rtl". Naturally, HLS simulation & synthesis are not supported.
+
+The RTL SWG is currently disabled by default and can be enabled either in the corresponding HLS conversion transformation (:py:mod:`finn.transformation.fpgadataflow.convert_to_hls_layers.InferConvInpGen`) with `use_rtl_variant=True` or in the build configuration (:py:mod:`finn.builder.build_dataflow_config.DataflowBuildConfig.force_rtl_conv_inp_gen` set to True).
+
+Implementation styles
+---------------------
+Depending on the amount of parallelism requested, one of two implementation styles is selected. The following table defines folding parameters (marked in bold text) and supported configurations.
+
+.. list-table:: Parallelism configurations
+
+   * - **SIMD**
+     - **parallel_window**
+     - **M**
+     - MMV_in
+     - MMV_out
+     - Style
+     - Notes
+   * - < C
+     - 0
+     - 1
+     - 1
+     - 1
+     - default
+     - depthwise-aware
+   * - C
+     - 0
+     - 1
+     - 1
+     - 1
+     - default
+     - depthwise-agnostic
+   * - C
+     - 1
+     - 1
+     - 1
+     - K
+     - parallel
+     - depthwise-agnostic
+   * - C
+     - 1
+     - M
+     - M
+     - M*K
+     - parallel
+     - Currently unsupported
+
+(With C = #Channels, MMV_in = input samples (or "pixels") per cycle, MMV_out = output samples (or "pixels") per cycle, K = kernel_width * kernel_height.)
+
+The following diagram shows the operating principle of both styles, the "parallel" variant is pictured for a 2x2 kernel without dilation.
+
+.. image:: img/rtl_swg_impl_styles.png
+   :align: center
+
+The main difference lies in the buffer structure. If the output width is equal to the input width ("default mode"), an addressable circular buffer is used, which can be implemented either in LUTRAM, BRAM, or URAM resources. If parallel access to multiple window elements is required ("parallel mode"), the SWG generates a fixed structure of registers and line buffers to avoid memory port limitations and exploding multiplexing logic, while still featuring LUT-saving BRAM/URAM implementation for the line buffers.
+
+The "default" style also supports a dynamic mode, which provides an interface to change feature map dimensions, stride, or dilation at run-time. See `this pull request <https://github.com/Xilinx/finn/pull/688>`_ description for more information.
+
+Folding
+-------
+The RTL SWG is supported by the basic automatic folding algorithm in FINN (:py:mod:`finn.transformation.fpgadataflow.set_folding.SetFolding`). Consider the following implications:
+
+**MVAU:** Although it is recommended to unfold SIMD first, SIMD and PE can be set independently. Full (and balanced) parallelism is achieved by using the SWG in parallel window mode and setting MVAU SIMD and PE to their maximum values (SIMD = MW = C_in * K, PE = MH = C_out).
+
+**VVAU:** While the VVAU HLS component supports SIMD unfolding independently from PE, the RTL SWG requires full unfolding across the channel dimension (SIMD of the SWG = PE of the VVAU) before enabling window-parallelism. Unlike the MVAU, the VVAU can't accept datawidth-converted input from a fully-parallel SWG in this case due to the depthwise data layout. As a result, the VVAU should be unfolded by PE first (up to PE = C), followed by SIMD (up to SIMD = K).

@@ -48,8 +48,7 @@ class InsertDWC(Transformation):
                     if consumers == []:
                         continue
                     assert len(consumers) == 1, (
-                        n.name
-                        + ": HLS node with fan-out higher than 1 cannot be stitched"
+                        n.name + ": HLS node with fan-out higher than 1 cannot be stitched"
                     )
                     consumer = consumers[0]
                     if _suitable_node(consumer) is True:
@@ -81,6 +80,11 @@ class InsertDWC(Transformation):
                             dwc_in_width = n0.get_outstream_width()
                             # determine dwc outwidth
                             dwc_out_width = n1.get_instream_width()
+                            # use hls mode by default since it supports more configs
+                            # vivado mode can be manually enabled by user, but does not
+                            # support e.g. node-by-node rtlsim neded for
+                            # characterization-based FIFO sizing
+                            impl_style = "hls"
 
                             # determine shape for dwc
                             dwc_shape = n0.get_normal_output_shape()
@@ -105,6 +109,7 @@ class InsertDWC(Transformation):
                                 inWidth=dwc_in_width,
                                 outWidth=dwc_out_width,
                                 dataType=str(dtype.name),
+                                impl_style=impl_style,
                             )
                             # insert dwc
                             graph.node.insert(node_ind + 1, dwc_node)

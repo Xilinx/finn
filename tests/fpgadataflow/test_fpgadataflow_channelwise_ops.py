@@ -34,7 +34,7 @@ from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -51,9 +51,7 @@ def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
     NumChannels = C.shape[0]
 
     inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, vecs + [NumChannels])
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, vecs + [NumChannels]
-    )
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, vecs + [NumChannels])
 
     node_inp_list = ["inp", "const"]
 
@@ -73,7 +71,7 @@ def make_modelwrapper(C, pe, idt, odt, pdt, func, vecs):
     )
     graph = helper.make_graph(nodes=[node], name="graph", inputs=[inp], outputs=[outp])
 
-    model = helper.make_model(graph, producer_name="model")
+    model = qonnx_make_model(graph, producer_name="model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)

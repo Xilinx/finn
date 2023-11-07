@@ -43,7 +43,7 @@ from qonnx.transformation.infer_data_layouts import InferDataLayouts
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.transformation.insert_topk import InsertTopK
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 import finn.transformation.fpgadataflow.convert_to_hls_layers as to_hls
@@ -91,21 +91,11 @@ def make_model(ch, ifmdim):
     add0_node = helper.make_node("Add", [inp.name, inp1_add0_ct.name], ["out_add0"])
     add1_node = helper.make_node("Add", ["out_add0", inp1_add_ct.name], [inp1_add.name])
     add2_node = helper.make_node("Add", ["out_add0", inp2_add_ct.name], [inp2_add.name])
-    mul1_node = helper.make_node(
-        "Mul", [inp1_add.name, inp1_mul_ct.name], [inp1_mul.name]
-    )
-    mul2_node = helper.make_node(
-        "Mul", [inp2_add.name, inp2_mul_ct.name], [inp2_mul.name]
-    )
-    eltwise_add_node = helper.make_node(
-        "Add", [inp1_mul.name, inp2_mul.name], [eltwise_add.name]
-    )
-    globalavgpool_node = helper.make_node(
-        "GlobalAveragePool", [eltwise_add.name], [pool.name]
-    )
-    reshape_node = helper.make_node(
-        "Reshape", [pool.name, reshape_ct.name], [outp.name]
-    )
+    mul1_node = helper.make_node("Mul", [inp1_add.name, inp1_mul_ct.name], [inp1_mul.name])
+    mul2_node = helper.make_node("Mul", [inp2_add.name, inp2_mul_ct.name], [inp2_mul.name])
+    eltwise_add_node = helper.make_node("Add", [inp1_mul.name, inp2_mul.name], [eltwise_add.name])
+    globalavgpool_node = helper.make_node("GlobalAveragePool", [eltwise_add.name], [pool.name])
+    reshape_node = helper.make_node("Reshape", [pool.name, reshape_ct.name], [outp.name])
 
     graph = helper.make_graph(
         nodes=[
@@ -123,7 +113,7 @@ def make_model(ch, ifmdim):
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="add-model")
+    model = qonnx_make_model(graph, producer_name="add-model")
     model = ModelWrapper(model)
 
     # set initializers for scalar add/mul nodes

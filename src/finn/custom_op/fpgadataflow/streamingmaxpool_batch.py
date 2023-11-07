@@ -57,11 +57,11 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("dataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("dataType")]
 
@@ -82,13 +82,13 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         ifm_dim, k, ifm_ch = self.get_1d_attrs_normalized()
         return (ifm_dim[0] == 1) and (k[0] == 1)
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
         ifm_ch = self.get_nodeattr("NumChannels")
         ishape = (1, ifm_dim_h, ifm_dim_w, ifm_ch)
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
         ifm_ch = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
@@ -99,24 +99,20 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             folded_ishape = (1, ifm_dim_h, ifm_dim_w, 1, ifm_ch)
         return folded_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("ImgDim")
         k_h, k_w = tuple(self.get_nodeattr("PoolDim"))
         ifm_ch = self.get_nodeattr("NumChannels")
         ceil_mode = self.get_nodeattr("CeilMode")
         if not self.is_1d():
-            assert (
-                ifm_dim_h % k_h == 0
-            ), "StreamingMaxPool needs ImgDim_h % PoolDim_h == 0"
-            assert (
-                ifm_dim_w % k_w == 0
-            ), "StreamingMaxPool needs ImgDim_w % PoolDim_w == 0"
+            assert ifm_dim_h % k_h == 0, "StreamingMaxPool needs ImgDim_h % PoolDim_h == 0"
+            assert ifm_dim_w % k_w == 0, "StreamingMaxPool needs ImgDim_w % PoolDim_w == 0"
         ofm_dim_h = compute_pool_output_dim(ifm_dim_h, k_h, k_h, 0, ceil_mode)
         ofm_dim_w = compute_pool_output_dim(ifm_dim_w, k_w, k_w, 0, ceil_mode)
         oshape = (1, ofm_dim_h, ofm_dim_w, ifm_ch)
         return oshape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         # even though there is no folding in the current hlslib op,
         # insert a time multiplexing axis to remain compatible with the
         # shapes produced by the rest of the dataflow pipeline
@@ -155,7 +151,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             # TODO: adjust inaccurate formula
             return int(ifm_dim[1] * ifm_dim[1] * (1 + 1 / (k[1] * k[1])))
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         dt_bits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         ifm_ch = self.get_nodeattr("NumChannels")
@@ -165,7 +161,7 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             in_width = int(dt_bits * ifm_ch)
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """For streaming maxpool out stream width is the same as in stream width"""
         return self.get_instream_width()
 
@@ -254,17 +250,28 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
@@ -275,7 +282,8 @@ class StreamingMaxPool_Batch(HLSCustomOp):
             else:
                 op = "StreamingMaxPool"
             self.code_gen_dict["$DOCOMPUTE$"] = [
-                "%s<ImgDim, PoolDim, NumChannels>(in0, out);" % (op)
+                "%s<ImgDim, PoolDim, NumChannels>(in0_%s, out_%s);"
+                % (op, self.hls_sname(), self.hls_sname())
             ]
         else:
             dtype = self.get_input_datatype()
@@ -285,14 +293,14 @@ class StreamingMaxPool_Batch(HLSCustomOp):
                 op = "StreamingMaxPool_Precision_1d"
                 self.code_gen_dict["$DOCOMPUTE$"] = [
                     """%s<ImgDim, PoolDim, NumChannels, PE,
-                     OutputSize, %s, %s>(in0, out);"""
-                    % (op, dtype_hls, minval_str)
+                     OutputSize, %s, %s>(in0_%s, out_%s);"""
+                    % (op, dtype_hls, minval_str, self.hls_sname(), self.hls_sname())
                 ]
             else:
                 op = "StreamingMaxPool_Precision"
                 self.code_gen_dict["$DOCOMPUTE$"] = [
-                    "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0, out);"
-                    % (op, dtype_hls, minval_str)
+                    "%s<ImgDim, PoolDim, NumChannels, %s, %s>(in0_%s, out_%s);"
+                    % (op, dtype_hls, minval_str, self.hls_sname(), self.hls_sname())
                 ]
 
     def dataoutstrm(self):
@@ -311,12 +319,13 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -329,20 +338,24 @@ class StreamingMaxPool_Batch(HLSCustomOp):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            % (
+                self.onnx_node.name,
+                packed_hls_type,
+                self.hls_sname(),
+                packed_hls_type,
+                self.hls_sname(),
+            )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

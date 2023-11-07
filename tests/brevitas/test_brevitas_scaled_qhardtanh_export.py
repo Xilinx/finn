@@ -28,7 +28,6 @@
 
 import pytest
 
-import brevitas.onnx as bo
 import numpy as np
 import onnx  # noqa
 import os
@@ -36,7 +35,7 @@ import torch
 from brevitas.core.quant import QuantType
 from brevitas.core.restrict_val import RestrictValueType
 from brevitas.core.scaling import ScalingImplType
-from brevitas.export.onnx.generic.manager import BrevitasONNXManager
+from brevitas.export import export_qonnx
 from brevitas.nn import QuantHardTanh
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
@@ -53,12 +52,9 @@ export_onnx_path = "test_brevitas_scaled_QHardTanh_export.onnx"
 @pytest.mark.parametrize("narrow_range", [False, True])
 @pytest.mark.parametrize("min_val", [-1.0, -(1 - 2 ** (-7)), -2])
 @pytest.mark.parametrize("max_val", [1.0, 1 - 2 ** (-7), 2])
-@pytest.mark.parametrize(
-    "scaling_impl_type", [ScalingImplType.CONST, ScalingImplType.PARAMETER]
-)
-@pytest.mark.parametrize("QONNX_export", [False, True])
+@pytest.mark.parametrize("scaling_impl_type", [ScalingImplType.CONST, ScalingImplType.PARAMETER])
 def test_brevitas_act_export_qhardtanh_scaled(
-    abits, narrow_range, min_val, max_val, scaling_impl_type, QONNX_export
+    abits, narrow_range, min_val, max_val, scaling_impl_type
 ):
     def get_quant_type(bit_width):
         if bit_width is None:
@@ -89,20 +85,13 @@ tensor_quant.scaling_impl.learned_value": torch.tensor(
             )
         }
         b_act.load_state_dict(checkpoint)
-    if QONNX_export:
-        m_path = export_onnx_path
-        BrevitasONNXManager.export(b_act, ishape, m_path)
-        qonnx_cleanup(m_path, out_file=m_path)
-        model = ModelWrapper(m_path)
-        model = model.transform(ConvertQONNXtoFINN())
-        model.save(m_path)
-    else:
-        bo.export_finn_onnx(b_act, ishape, export_onnx_path)
-    model = ModelWrapper(export_onnx_path)
+    m_path = export_onnx_path
+    export_qonnx(b_act, torch.randn(ishape), m_path)
+    qonnx_cleanup(m_path, out_file=m_path)
+    model = ModelWrapper(m_path)
+    model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
-    inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(
-        np.float32
-    )
+    inp_tensor = np.random.uniform(low=min_val, high=max_val, size=ishape).astype(np.float32)
     idict = {model.graph.input[0].name: inp_tensor}
     odict = oxe.execute_onnx(model, idict, True)
     produced = odict[model.graph.output[0].name]

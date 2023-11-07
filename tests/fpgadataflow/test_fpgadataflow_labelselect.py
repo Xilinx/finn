@@ -33,7 +33,7 @@ from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.fpgadataflow.compile_cppsim import CompileCppSim
@@ -67,7 +67,7 @@ def make_labelselect_modelwrapper(labels, pe, k, idt):
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="thresholding-model")
+    model = qonnx_make_model(graph, producer_name="thresholding-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -81,9 +81,7 @@ def prepare_inputs(input_tensor, idt):
     return {"inp": input_tensor}
 
 
-@pytest.mark.parametrize(
-    "idt", [DataType["UINT8"], DataType["UINT16"], DataType["INT16"]]
-)
+@pytest.mark.parametrize("idt", [DataType["UINT8"], DataType["UINT16"], DataType["INT16"]])
 # labels
 @pytest.mark.parametrize("labels", [10, 100])
 # folding

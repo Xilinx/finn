@@ -36,11 +36,11 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 
 
 class DownSampler(HLSCustomOp):
-    """Corresponds to finn-hlslib ConvolutionInputGenerator_kernel1 function.
+    """Corresponds to finn-hlslib ConvolutionInputGenerator_*_kernel1 function.
     Basically performs a down sampling of the image removing rows and columns."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -55,6 +55,10 @@ class DownSampler(HLSCustomOp):
             "inputDataType": ("s", True, ""),
             # Batch size
             "numInputVectors": ("i", False, 1),
+            # 1D (True) or 2D (False) spatial data
+            "is1D": ("i", False, 0),
+            # for 1D only: (D, 1) (True) or (1, D) dims
+            "is1D_unitx": ("i", False, 1),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -66,28 +70,46 @@ class DownSampler(HLSCustomOp):
         return int(np.floor((idim - 1) / stride) + 1)
 
     def get_exp_cycles(self):
+        is_1D = self.get_nodeattr("is1D")
         idim = self.get_nodeattr("ImgDim")
+        idim_total = idim if is_1D else idim * idim
         channels = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
         batch_size = self.get_nodeattr("numInputVectors")
-        exp_cycles = channels / simd * batch_size * idim * idim
+        exp_cycles = channels / simd * batch_size * idim_total
         return int(exp_cycles)
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
+        is_1D = self.get_nodeattr("is1D")
+        is_1D_unitx = self.get_nodeattr("is1D_unitx")
         idim = self.get_nodeattr("ImgDim")
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
-        ishape = (batch, idim, idim, num_ch)
+        if is_1D:
+            if is_1D_unitx:
+                ishape = (batch, idim, 1, num_ch)
+            else:
+                ishape = (batch, 1, idim, num_ch)
+        else:
+            ishape = (batch, idim, idim, num_ch)
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
+        is_1D = self.get_nodeattr("is1D")
+        is_1D_unitx = self.get_nodeattr("is1D_unitx")
         odim = self.get_downsampled_odim()
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
-        oshape = (batch, odim, odim, num_ch)
+        if is_1D:
+            if is_1D_unitx:
+                oshape = (batch, odim, 1, num_ch)
+            else:
+                oshape = (batch, 1, odim, num_ch)
+        else:
+            oshape = (batch, odim, odim, num_ch)
         return oshape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         normal_ishape = list(self.get_normal_input_shape())
         ifm_ch = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
@@ -96,7 +118,7 @@ class DownSampler(HLSCustomOp):
         folded_ishape = normal_ishape[:-1] + [fold, simd]
         return tuple(folded_ishape)
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         normal_oshape = list(self.get_normal_output_shape())
         ifm_ch = self.get_nodeattr("NumChannels")
         simd = self.get_nodeattr("SIMD")
@@ -129,21 +151,21 @@ class DownSampler(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]
         return ret
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output. (Same as input datatype)"""
         return self.get_input_datatype()
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
         return ibits * simd
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         obits = self.get_output_datatype().bitwidth()
         simd = self.get_nodeattr("SIMD")
         return obits * simd
@@ -190,23 +212,36 @@ class DownSampler(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
+        dim_var = "1D" if (self.get_nodeattr("is1D") == 1) else "2D"
+        sname = self.hls_sname()
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """ConvolutionInputGenerator_kernel1<IFMChannels, Input_precision,
-            IFMDim, SIMD,Stride> (in0, out, numReps);"""
+            f"""ConvolutionInputGenerator_{dim_var}_kernel1<IFMChannels, Input_precision,
+            IFMDim, SIMD,Stride> (in0_{sname}, out_{sname}, numReps);"""
         ]
 
     def dataoutstrm(self):
@@ -225,12 +260,13 @@ class DownSampler(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -243,20 +279,24 @@ class DownSampler(HLSCustomOp):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            % (
+                self.onnx_node.name,
+                packed_hls_type,
+                self.hls_sname(),
+                packed_hls_type,
+                self.hls_sname(),
+            )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

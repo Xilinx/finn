@@ -60,44 +60,53 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("dataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("dataType")]
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ishape = self.get_nodeattr("shape")
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         oshape = self.get_nodeattr("shape")
         return oshape
 
     def check_divisible_iowidths(self):
         impl_style = self.get_nodeattr("impl_style")
-        if impl_style == "hls":
-            # when using impl_style = hls must have the following
-            # if inWidth > outWidth: inWidth % outWidth = 0
-            # if inWidth < outWidth: outWidth % inWidth = 0
-            iwidth = self.get_nodeattr("inWidth")
-            owidth = self.get_nodeattr("outWidth")
-            if iwidth > owidth:
-                assert (
-                    iwidth % owidth == 0
-                ), """DWC InWidth is bigger than OutWidth and is not divisible by it.
-                Please adjust PE and SIMD values so that InWidth % OutWidth = 0
-                or alternatively use impl_style = vivado"""
-            else:
-                assert (
-                    owidth % iwidth == 0
-                ), """DWC OutWidth is bigger than InWidth and is not divisible by it.
-                Please adjust PE and SIMD values so that OutWidth % InWidth = 0
-                or alternatively use impl_style = vivado"""
+        iwidth = self.get_nodeattr("inWidth")
+        owidth = self.get_nodeattr("outWidth")
+        if impl_style == "vivado":
+            # the AXIS IP we use in vivado mode only supports
+            # stream widths that are divisible by 8
+            iwidth_d8 = iwidth % 8 == 0
+            owidth_d8 = owidth % 8 == 0
+            assert (
+                iwidth_d8 and owidth_d8
+            ), """DWC impl_style=vivado requires
+            stream widths that are divisible by 8: (%d, %d)""" % (
+                iwidth,
+                owidth,
+            )
 
-    def get_folded_input_shape(self):
+    def get_iowidth_lcm(self):
+        iwidth = self.get_nodeattr("inWidth")
+        owidth = self.get_nodeattr("outWidth")
+        return int(np.lcm(iwidth, owidth))
+
+    def needs_lcm(self):
+        iwidth = self.get_nodeattr("inWidth")
+        owidth = self.get_nodeattr("outWidth")
+        maxwidth = max(iwidth, owidth)
+        minwidth = min(iwidth, owidth)
+        impl_style = self.get_nodeattr("impl_style")
+        return (impl_style == "hls") and (maxwidth % minwidth != 0)
+
+    def get_folded_input_shape(self, ind=0):
         self.check_divisible_iowidths()
         iwidth = self.get_nodeattr("inWidth")
         ishape = self.get_normal_input_shape()
@@ -117,7 +126,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         dummy_t = dummy_t.reshape(new_shape)
         return dummy_t.shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         self.check_divisible_iowidths()
         owidth = self.get_nodeattr("outWidth")
         oshape = self.get_normal_output_shape()
@@ -142,11 +151,11 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         folded_oshape = self.get_folded_output_shape()
         return np.prod(folded_oshape[:-1])
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         in_width = self.get_nodeattr("inWidth")
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         out_width = self.get_nodeattr("outWidth")
         return out_width
 
@@ -202,6 +211,12 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             "#define NumInWords %d " % numInWords,
             "#define numReps %d" % numReps,
         ]
+        if self.needs_lcm():
+            lcmWidth = self.get_iowidth_lcm()
+            assert numInWords % (lcmWidth / inWidth) == 0, "Error in DWC LCM calculation"
+            numLCMToOut = numInWords // (lcmWidth / inWidth)
+            self.code_gen_dict["$DEFINES$"].append("#define LCMWidth %d" % lcmWidth)
+            self.code_gen_dict["$DEFINES$"].append("#define NumLCMToOut %d" % (numLCMToOut))
 
     def read_npy_data(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -217,25 +232,54 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
+        if self.needs_lcm():
+            self.code_gen_dict["$STREAMDECLARATIONS$"].append(
+                'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
+                    self.get_iowidth_lcm()
+                )
+            )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
         # TODO continue with fxns below, they are copy-pasted
         op = "StreamingDataWidthConverter_Batch"
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            "%s<InWidth, OutWidth, NumInWords>(in0, out, numReps);" % (op)
-        ]
+        if self.needs_lcm():
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                'hls::stream<ap_uint<{}>> intermediate ("intermediate");'.format(
+                    self.get_iowidth_lcm()
+                ),
+                "%s<InWidth, LCMWidth, NumInWords>(in0_%s, intermediate, numReps);"
+                % (op, self.hls_sname()),
+                "%s<LCMWidth, OutWidth, NumLCMToOut>(intermediate, out_%s, numReps);"
+                % (op, self.hls_sname()),
+            ]
+        else:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                "%s<InWidth, OutWidth, NumInWords>(in0_%s, out_%s, numReps);"
+                % (op, self.hls_sname(), self.hls_sname())
+            ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -253,12 +297,13 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -273,20 +318,26 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
         out_packed_bits = self.get_outstream_width()
         out_packed_hls_type = "ap_uint<%d>" % out_packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, in_packed_hls_type, out_packed_hls_type)
+            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            % (
+                self.onnx_node.name,
+                in_packed_hls_type,
+                self.hls_sname(),
+                out_packed_hls_type,
+                self.hls_sname(),
+            )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
+        if self.needs_lcm():
+            self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS DATAFLOW disable_start_propagation")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
@@ -312,9 +363,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert inp.shape == tuple(
-            exp_shape
-        ), "Input shape does not match expected shape."
+        assert inp.shape == tuple(exp_shape), "Input shape does not match expected shape."
 
         if self.get_input_datatype() == DataType["BIPOLAR"]:
             # store bipolar activations as binary
@@ -388,8 +437,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
-                % (node_name, dout_name)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
             )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
@@ -434,8 +482,7 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             return cmd
         else:
             raise Exception(
-                "DWC implementation style %s not supported, please use hls or vivado"
-                % impl_style
+                "DWC implementation style %s not supported, please use hls or vivado" % impl_style
             )
 
     def lut_estimation(self):
@@ -466,3 +513,28 @@ class StreamingDataWidthConverter_Batch(HLSCustomOp):
             cset_luts += outw
 
         return int(cnt_luts + cset_luts)
+
+    def prepare_rtlsim(self):
+        assert self.get_nodeattr("impl_style") != "vivado", (
+            "StreamingDataWidthConverter impl_style "
+            "cannot be vivado for rtlsim. Only impl_style=rtl supported."
+        )
+        super().prepare_rtlsim()
+
+    def code_generation_ipgen(self, model, fpgapart, clk):
+        # no codegen required for impl_style=vivado since
+        # that uses premade, configurable AXIS IP
+        if self.get_nodeattr("impl_style") == "hls":
+            super().code_generation_ipgen(model, fpgapart, clk)
+
+    def ipgen_singlenode_code(self):
+        # no IP generation required for impl_style=vivado since
+        # that uses premade, configurable AXIS IP
+        if self.get_nodeattr("impl_style") == "hls":
+            super().ipgen_singlenode_code()
+        else:
+            code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+            # set ipgen_path and ip_path so that HLSSynthIP
+            # and CreatedStitchedIP transformations do not complain
+            self.set_nodeattr("ipgen_path", code_gen_dir)
+            self.set_nodeattr("ip_path", code_gen_dir)

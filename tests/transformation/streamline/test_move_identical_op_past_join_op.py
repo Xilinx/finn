@@ -30,7 +30,7 @@ import pytest
 from onnx import TensorProto
 from onnx import helper as oh
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveTransposePastJoinAdd
@@ -56,18 +56,10 @@ def create_model(perm):
         "Add", inputs=["out_transpose1", "out_transpose2"], outputs=["out_join1"]
     )
 
-    in_transpose1 = oh.make_tensor_value_info(
-        "in_transpose1", TensorProto.FLOAT, in_shape
-    )
-    in_transpose2 = oh.make_tensor_value_info(
-        "in_transpose2", TensorProto.FLOAT, in_shape
-    )
-    out_transpose1 = oh.make_tensor_value_info(
-        "out_transpose1", TensorProto.FLOAT, out_shape
-    )
-    out_transpose2 = oh.make_tensor_value_info(
-        "out_transpose2", TensorProto.FLOAT, out_shape
-    )
+    in_transpose1 = oh.make_tensor_value_info("in_transpose1", TensorProto.FLOAT, in_shape)
+    in_transpose2 = oh.make_tensor_value_info("in_transpose2", TensorProto.FLOAT, in_shape)
+    out_transpose1 = oh.make_tensor_value_info("out_transpose1", TensorProto.FLOAT, out_shape)
+    out_transpose2 = oh.make_tensor_value_info("out_transpose2", TensorProto.FLOAT, out_shape)
     out_join1 = oh.make_tensor_value_info("out_join1", TensorProto.FLOAT, out_shape)
 
     graph = oh.make_graph(
@@ -81,7 +73,7 @@ def create_model(perm):
         ],
     )
 
-    onnx_model = oh.make_model(graph, producer_name="test_model")
+    onnx_model = qonnx_make_model(graph, producer_name="test_model")
     model = ModelWrapper(onnx_model)
 
     return model

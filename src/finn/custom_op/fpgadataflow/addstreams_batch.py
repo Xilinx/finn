@@ -38,22 +38,25 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 class AddStreams_Batch(HLSCustomOp):
     """Class that corresponds to finn-hlslib AddStreams_Batch function."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
-        my_attrs = {
-            "NumChannels": ("i", True, ""),
-            "PE": ("i", True, ""),
-            # FINN DataTypes for inputs; output datatype inferred from input
-            "inputDataType": ("s", True, ""),
-            # number of input vectors, examples:
-            # [1] is a single vector (like a FC layer with batch=1)
-            # [4] is four vectors (like a FC layer with batch=4)
-            # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
-            "numInputVectors": ("ints", False, [1]),
-        }
-        my_attrs.update(super().get_nodeattr_types())
+        my_attrs = super().get_nodeattr_types()
+        my_attrs.update(
+            {
+                "NumChannels": ("i", True, ""),
+                "PE": ("i", True, ""),
+                # FINN DataTypes for inputs; output datatype inferred from input
+                "inputDataType": ("s", True, ""),
+                # number of input vectors, examples:
+                # [1] is a single vector (like a FC layer with batch=1)
+                # [4] is four vectors (like a FC layer with batch=4)
+                # [1, 4, 4] is four * four vectors (like a conv layer with batch=1)
+                "numInputVectors": ("ints", False, [1]),
+                "inFIFODepths": ("ints", False, [2, 2]),
+            }
+        )
         return my_attrs
 
     def get_normal_input_shape(self, ind=0):
@@ -70,10 +73,10 @@ class AddStreams_Batch(HLSCustomOp):
         ishape = tuple(vecs + [ich // pe, pe])
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         return self.get_normal_input_shape()
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
     def make_shape_compatible_op(self, model):
@@ -118,17 +121,15 @@ class AddStreams_Batch(HLSCustomOp):
             self.get_nodeattr("inputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required LabelSelect_Batch attributes do not exist."""
-            )
+            info_messages.append("""The required LabelSelect_Batch attributes do not exist.""")
 
         return info_messages
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         # we need to set output datatype to the next larger int or uint
         # enhancement: consider specifying w/ explicit outputDataType attribute
@@ -139,14 +140,14 @@ class AddStreams_Batch(HLSCustomOp):
         else:
             return DataType.get_smallest_possible(2 * idt.max())
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         """Returns input stream width."""
         ibits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns output stream width."""
         obits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
@@ -181,9 +182,7 @@ class AddStreams_Batch(HLSCustomOp):
 
         inp = context[node.input[0]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input0 shape doesn't match expected shape ."""
+        assert inp.shape == exp_ishape, """Input0 shape doesn't match expected shape ."""
         export_idt = self.get_input_datatype()
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
@@ -194,9 +193,7 @@ class AddStreams_Batch(HLSCustomOp):
         # exact same thing for input1
         inp = context[node.input[1]]
         assert str(inp.dtype) == "float32", "Input datatype is not float32"
-        assert (
-            inp.shape == exp_ishape
-        ), """Input1 shape doesn't match expected shape ."""
+        assert inp.shape == exp_ishape, """Input1 shape doesn't match expected shape ."""
         export_idt = self.get_input_datatype()
         # reshape input into folded form
         inp = inp.reshape(folded_ishape)
@@ -265,37 +262,60 @@ class AddStreams_Batch(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"] = []
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
         npy_in = "%s/input_1.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in1);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in1_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in1 ("in1");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in1_{} ("in1_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
         node = self.onnx_node
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """{}<{}, {}, {}, {}, {}> (in0, in1, out, 1);""".format(
+            """{}<{}, {}, {}, {}, {}> (in0_{}, in1_{}, out_{}, 1);""".format(
                 node.op_type,
                 self.get_nodeattr("PE"),
                 self.get_input_datatype().get_hls_datatype_str(),
                 self.get_input_datatype().get_hls_datatype_str(),
                 self.get_output_datatype().get_hls_datatype_str(),
                 self.get_number_output_values(),
+                self.hls_sname(),
+                self.hls_sname(),
+                self.hls_sname(),
             )
         ]
 
@@ -312,12 +332,13 @@ class AddStreams_Batch(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -328,28 +349,29 @@ class AddStreams_Batch(HLSCustomOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0, hls::stream<ap_uint<{}>> &in1,
-                hls::stream<ap_uint<{}>> &out)""".format(
+            """void {}(hls::stream<ap_uint<{}>> &in0_{}, hls::stream<ap_uint<{}>> &in1_{},
+                hls::stream<ap_uint<{}>> &out_{})""".format(
                 self.onnx_node.name,
                 self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
+                self.hls_sname(),
                 self.get_nodeattr("PE") * self.get_input_datatype().bitwidth(),
+                self.hls_sname(),
                 self.get_nodeattr("PE") * self.get_output_datatype().bitwidth(),
+                self.hls_sname(),
             )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=in1 name=in1_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in1_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
@@ -357,3 +379,14 @@ class AddStreams_Batch(HLSCustomOp):
         swidth = self.get_instream_width_padded()
         intf_names["s_axis"] = [(x + "_" + sname, swidth) for x in ["in0", "in1"]]
         return intf_names
+
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+                "in1": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out": []},
+        }
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

@@ -40,13 +40,13 @@ from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.basic import get_by_name
 from qonnx.util.onnx import nchw_to_nhwc
 
-from finn.transformation.fpgadataflow.minimize_accumulator_width import (
-    MinimizeAccumulatorWidth,
-)
-
 
 class InferConvInpGen(Transformation):
     """Convert Im2Col layers to ConvolutionInputGenerator layers."""
+
+    def __init__(self, use_rtl_variant=False):
+        super().__init__()
+        self.use_rtl_variant = use_rtl_variant
 
     def apply(self, model):
         graph = model.graph
@@ -61,9 +61,7 @@ class InferConvInpGen(Transformation):
                 i2c_out_shape = model.get_tensor_shape(i2c_output)
                 dt = model.get_tensor_datatype(i2c_input)
                 if not dt.is_integer():
-                    warnings.warn(
-                        "%s : Input is not int. Can't infer ConvInpGen." % n.name
-                    )
+                    warnings.warn("%s : Input is not int. Can't infer ConvInpGen." % n.name)
                     continue
                 i2c_inst = getCustomOp(n)
                 stride_h, stride_w = i2c_inst.get_nodeattr("stride")
@@ -92,8 +90,7 @@ class InferConvInpGen(Transformation):
                     # assert dt.allowed(pad_val),"""FMPadding_Batch DataType
                     # must support pad_val"""
                     assert pad_val == 0, (
-                        "%s : FMPadding_Batch doesn't currently support pad_val!= 0"
-                        % n.name
+                        "%s : FMPadding_Batch doesn't currently support pad_val!= 0" % n.name
                     )
 
                     odim_padding_h = ifm_dim_h + pad_h
@@ -113,8 +110,10 @@ class InferConvInpGen(Transformation):
                     ConvInpGen_idim_h = odim_padding_h
                     ConvInpGen_idim_w = odim_padding_w
 
+                    padding_optype = "FMPadding_rtl" if self.use_rtl_variant else "FMPadding_Batch"
+
                     padding_node = helper.make_node(
-                        "FMPadding_Batch",
+                        padding_optype,
                         [i2c_input],
                         [padding_out],
                         domain="finn.custom_op.fpgadataflow",
@@ -128,105 +127,126 @@ class InferConvInpGen(Transformation):
                     )
                     graph.node.insert(node_ind, padding_node)
 
-                # Ensure that only supported HLS nodes are inserted
+                is_kernel_pointwise = k_h == 1 and k_w == 1
                 is_square_image = ConvInpGen_idim_h == ConvInpGen_idim_w
                 is_square_kernel = k_h == k_w
-                is_kernel_pointwise = k_h == 1 and k_w == 1
                 is_equal_stride = stride_h == stride_w
                 is_1d_convolution = (k_h == 1 and k_w > 1 and ifm_dim_h == 1) or (
                     k_h > 1 and k_w == 1 and ifm_dim_w == 1
                 )
 
-                if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
-                    assert is_square_image, (
-                        "%s : DownSampler currently only supports square input images."
-                        % n.name
-                    )
-                    assert is_equal_stride, (
-                        """%s : DownSampler currently only supports equal stride value
-                        along different axes."""
-                        % n.name
-                    )
-                    ConvInpGen_idim = ConvInpGen_idim_h
-                    stride = stride_h
-                    # create DownSampler node
+                if self.use_rtl_variant:
                     ConvInpGen_node = helper.make_node(
-                        "DownSampler",
+                        "ConvolutionInputGenerator_rtl",
                         [ConvInpGen_input],
                         [i2c_output],
                         domain="finn.custom_op.fpgadataflow",
                         backend="fpgadataflow",
-                        ImgDim=ConvInpGen_idim,
-                        NumChannels=ifm_ch,
+                        ConvKernelDim=[k_h, k_w],
+                        IFMChannels=ifm_ch,
+                        IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                        OFMDim=[ofm_dim_h, ofm_dim_w],
                         SIMD=ifm_ch,
-                        Stride=stride,
+                        M=1,
+                        parallel_window=0,
+                        Stride=[stride_h, stride_w],
+                        Dilation=[dilation_h, dilation_w],
                         inputDataType=dt.name,
-                        name="DownSampler_" + n.name,
+                        outputDataType=dt.name,
+                        depthwise=depthwise,
+                        name="ConvolutionInputGenerator_rtl_" + n.name,
                     )
                     graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 else:
-                    # create equivalent ConvolutionInputGenerator node
-                    if (
-                        is_square_image and is_square_kernel
-                    ):  # square images and square kernels
-                        assert is_equal_stride, (
-                            """%s: Non-equal strides along different axes is not supported
-                            for (non-)square convolutions"""
-                            % n.name
-                        )
-                        assert dilation_h == 1 and dilation_w == 1, (
-                            """%s: Dilation value != 1 is not supported
-                            for square convolutions"""
-                            % n.name
-                        )
+                    # Ensure that only supported HLS nodes are inserted
+                    if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
+                        downsample_1D = (ifm_dim_h == 1) or (ifm_dim_w == 1)
+                        is1D_unitx = ifm_dim_w == 1
+                        downsample_2D = (not downsample_1D) and is_square_image and is_equal_stride
+                        if not (downsample_1D or downsample_2D):
+                            warnings.warn(f"Couldn't infer Downsample from {n.name},check config.")
+                            continue
+                        ConvInpGen_idim = max(ConvInpGen_idim_h, ConvInpGen_idim_w)
+                        stride = max(stride_h, stride_w)
+                        # create DownSampler node
                         ConvInpGen_node = helper.make_node(
-                            "ConvolutionInputGenerator",
+                            "DownSampler",
                             [ConvInpGen_input],
                             [i2c_output],
                             domain="finn.custom_op.fpgadataflow",
                             backend="fpgadataflow",
-                            ConvKernelDim=[k_h, k_w],
-                            IFMChannels=ifm_ch,
-                            IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
-                            OFMDim=[ofm_dim_h, ofm_dim_w],
+                            ImgDim=ConvInpGen_idim,
+                            NumChannels=ifm_ch,
                             SIMD=ifm_ch,
-                            Stride=[stride_h, stride_w],
-                            Dilation=[dilation_h, dilation_w],
+                            Stride=stride,
                             inputDataType=dt.name,
-                            outputDataType=dt.name,
-                            depthwise=depthwise,
-                            name="ConvolutionInputGenerator_" + n.name,
+                            name="DownSampler_" + n.name,
+                            is1D=downsample_1D,
+                            is1D_unitx=is1D_unitx,
                         )
-                    else:  # 1D images and/or kernels
-                        assert is_1d_convolution, (
-                            "%s: ConvolutionInputGenerator1D works only for 1D convs"
-                            % n.name
-                        )
-                        if dilation_h > 1 or dilation_w > 1:
-                            assert depthwise == 1, (
-                                """%s: Dilation value > 1 is only supported for
-                                1D depthwise separable convolutions"""
+                        graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
+                    else:
+                        # create equivalent ConvolutionInputGenerator node
+                        if is_square_image and is_square_kernel:  # square images and square kernels
+                            assert is_equal_stride, (
+                                """%s: Non-equal strides along different axes is not supported
+                                for (non-)square convolutions"""
                                 % n.name
                             )
-                        ConvInpGen_node = helper.make_node(
-                            "ConvolutionInputGenerator1D",
-                            [ConvInpGen_input],
-                            [i2c_output],
-                            domain="finn.custom_op.fpgadataflow",
-                            backend="fpgadataflow",
-                            ConvKernelDim=[k_h, k_w],
-                            IFMChannels=ifm_ch,
-                            IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
-                            OFMDim=[ofm_dim_h, ofm_dim_w],
-                            SIMD=ifm_ch,
-                            Stride=[stride_h, stride_w],
-                            Dilation=[dilation_h, dilation_w],
-                            inputDataType=dt.name,
-                            outputDataType=dt.name,
-                            depthwise=depthwise,
-                            name="ConvolutionInputGenerator1D_" + n.name,
-                        )
-                    graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
+                            assert dilation_h == 1 and dilation_w == 1, (
+                                """%s: Dilation value != 1 is not supported
+                                for square convolutions"""
+                                % n.name
+                            )
+                            ConvInpGen_node = helper.make_node(
+                                "ConvolutionInputGenerator",
+                                [ConvInpGen_input],
+                                [i2c_output],
+                                domain="finn.custom_op.fpgadataflow",
+                                backend="fpgadataflow",
+                                ConvKernelDim=[k_h, k_w],
+                                IFMChannels=ifm_ch,
+                                IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                                OFMDim=[ofm_dim_h, ofm_dim_w],
+                                SIMD=ifm_ch,
+                                Stride=[stride_h, stride_w],
+                                Dilation=[dilation_h, dilation_w],
+                                inputDataType=dt.name,
+                                outputDataType=dt.name,
+                                depthwise=depthwise,
+                                name="ConvolutionInputGenerator_" + n.name,
+                            )
+                        else:  # 1D images and/or kernels
+                            assert is_1d_convolution, (
+                                """%s: ConvolutionInputGenerator1D works only
+                                for 1D convs"""
+                                % n.name
+                            )
+                            if dilation_h > 1 or dilation_w > 1:
+                                assert depthwise == 1, (
+                                    """%s: Dilation value > 1 is only supported for
+                                    1D depthwise separable convolutions"""
+                                    % n.name
+                                )
+                            ConvInpGen_node = helper.make_node(
+                                "ConvolutionInputGenerator1D",
+                                [ConvInpGen_input],
+                                [i2c_output],
+                                domain="finn.custom_op.fpgadataflow",
+                                backend="fpgadataflow",
+                                ConvKernelDim=[k_h, k_w],
+                                IFMChannels=ifm_ch,
+                                IFMDim=[ConvInpGen_idim_h, ConvInpGen_idim_w],
+                                OFMDim=[ofm_dim_h, ofm_dim_w],
+                                SIMD=ifm_ch,
+                                Stride=[stride_h, stride_w],
+                                Dilation=[dilation_h, dilation_w],
+                                inputDataType=dt.name,
+                                outputDataType=dt.name,
+                                depthwise=depthwise,
+                                name="ConvolutionInputGenerator1D_" + n.name,
+                            )
+                        graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                 # remove old nodes
                 graph.node.remove(n)
                 graph_modified = True
@@ -259,15 +279,13 @@ class InferUpsample(Transformation):
                 dt = model.get_tensor_datatype(n.input[0])
                 if not dt.is_integer():
                     warnings.warn(
-                        "%s: Input not int. Can't infer UpsampleNearestNeighbour."
-                        % n.name
+                        "%s: Input not int. Can't infer UpsampleNearestNeighbour." % n.name
                     )
                     continue
 
                 if model.get_tensor_layout(n.input[0]) != DataLayout.NHWC:
                     warnings.warn(
-                        "%s: Input not NHWC. Can't infer UpsampleNearestNeighbour."
-                        % n.name
+                        "%s: Input not NHWC. Can't infer UpsampleNearestNeighbour." % n.name
                     )
                     continue
 
@@ -285,21 +303,24 @@ class InferUpsample(Transformation):
                 )
 
                 # Assumes nhwc layout for scales and input
-                assert scales[1] == scales[2], (
-                    "%s: Upsampling is only supported for quadratic scales." % n.name
+                is_scale_square_2d = scales[1] == scales[2]
+                is_scale_1d = scales[1] > 1 and scales[2] == 1
+                assert is_scale_square_2d or is_scale_1d, (
+                    "%s: Upsampling only supported for 1D H, or 2D square scaling" % n.name
                 )
                 assert scales[0] == scales[3] == 1, (
                     n.name + ": Upsampling is only supported for scales with "
-                    "the first and last dimensions being 1."
+                    "the first and last dimensions being 1 in NHWC."
                 )
                 spatial_scale = scales[1]
                 assert spatial_scale == int(spatial_scale), (
                     "%s: Upsampling is only supported for integer scales." % n.name
                 )
+                is_shape_square_2d = in_shape[1] == in_shape[2]
+                is_shape_1d = in_shape[1] > 1 and in_shape[2] == 1
 
-                assert in_shape[1] == in_shape[2], (
-                    "%s: Upsampling is only supported for quadratic input shapes."
-                    % n.name
+                assert is_shape_square_2d or is_shape_1d, (
+                    "%s: Upsampling is only supported for 1D H or 2D square inputs." % n.name
                 )
 
                 # Extract information for HLS node
@@ -308,6 +329,7 @@ class InferUpsample(Transformation):
                 NumChannels = in_shape[-1]
                 numInputVectors = in_shape[0]
                 inputDataType = dt.name
+                dim_mode = 0 if is_shape_square_2d else 1
 
                 # Insert the HLSCustomOp node
                 Upsample_HLS_node = helper.make_node(
@@ -321,6 +343,7 @@ class InferUpsample(Transformation):
                     NumChannels=NumChannels,
                     inputDataType=inputDataType,
                     numInputVectors=numInputVectors,
+                    DimMode=dim_mode,
                     name="UpsampleNearestNeighbour_Batch_" + n.name,
                 )
 
@@ -500,9 +523,7 @@ class InferPool_Batch(Transformation):
                 elif node.op_type == "QuantAvgPool2d":
                     assert odt.is_integer(), """Output data type for QuantAvgPool2d
                     needs to be integer"""
-                    assert all(
-                        x == 0 for x in pad
-                    ), "Padding is not supported for QuantAvgPool2d"
+                    assert all(x == 0 for x in pad), "Padding is not supported for QuantAvgPool2d"
                     inst = getCustomOp(node)
                     pool_fxn = "QuantAvgPool"
                     pool_size_param = inst.get_shifts()
@@ -510,9 +531,7 @@ class InferPool_Batch(Transformation):
 
                 else:
                     raise Exception(
-                        "pad_value and pool_fxn not configured for {}".format(
-                            node.op_type
-                        )
+                        "pad_value and pool_fxn not configured for {}".format(node.op_type)
                     )
 
                 # format input tensor
@@ -707,7 +726,6 @@ class InferBinaryMatrixVectorActivation(Transformation):
                     graph.node.remove(n)
                     graph_modified = True
         if graph_modified:
-            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -772,17 +790,13 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name
-                            + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HLS conversion."
                         )
                         actval = int(actval)
                         odt_is_bipolar = odt == DataType["BIPOLAR"]
-                        bipolar_ok = (
-                            odt_is_bipolar and (scale == 2.0) and (actval == -1)
-                        )
+                        bipolar_ok = odt_is_bipolar and (scale == 2.0) and (actval == -1)
                         assert scale == 1.0 or bipolar_ok, (
-                            consumer.name
-                            + ": out_scale=1 or bipolar output needed for conversion."
+                            consumer.name + ": out_scale=1 or bipolar output needed for conversion."
                         )
                         assert (not odt.signed()) or (actval < 0), (
                             consumer.name + ": Signed output requres actval < 0"
@@ -850,7 +864,6 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         graph.node.remove(n)
                         graph_modified = True
         if graph_modified:
-            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -863,16 +876,17 @@ class InferVectorVectorActivation(Transformation):
     a depthwise convolution. Any immediately following MultiThreshold
     layers will also be absorbed into the VVAU."""
 
+    def __init__(self, mem_mode="const"):
+        super().__init__()
+        self.mem_mode = mem_mode
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if (
-                n.op_type == "MatMul"
-                and model.get_tensor_sparsity(n.input[1]) is not None
-            ):
+            if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is not None:
                 sparsity = model.get_tensor_sparsity(n.input[1])
                 try:
                     k_h, k_w = sparsity["dw"]["kernel_shape"]
@@ -931,13 +945,11 @@ class InferVectorVectorActivation(Transformation):
                         odt = model.get_tensor_datatype(mt_output)
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
                         assert scale == 1.0, (
-                            consumer.name
-                            + ": out_scale must be equal to 1.0 for HLS conversion."
+                            consumer.name + ": out_scale must be equal to 1.0 for HLS conversion."
                         )
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name
-                            + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HLS conversion."
                         )
                         actval = int(actval)
                         assert (not odt.signed()) or (actval < 0), (
@@ -963,6 +975,7 @@ class InferVectorVectorActivation(Transformation):
                             ActVal=actval,
                             noActivation=0,
                             name="VectorVectorActivation_" + n.name,
+                            mem_mode=self.mem_mode,
                         )
                         graph.node.insert(node_ind, new_node)
                         # remove old nodes
@@ -998,7 +1011,6 @@ class InferVectorVectorActivation(Transformation):
                         graph.node.remove(n)
                         graph_modified = True
         if graph_modified:
-            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -1053,13 +1065,11 @@ class InferThresholdingLayer(Transformation):
                 odt = model.get_tensor_datatype(thl_output)
                 scale = getCustomOp(node).get_nodeattr("out_scale")
                 assert scale == 1.0, (
-                    node.name
-                    + ": MultiThreshold out_scale must be 1 for HLS conversion."
+                    node.name + ": MultiThreshold out_scale must be 1 for HLS conversion."
                 )
                 actval = getCustomOp(node).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
-                    node.name
-                    + ": MultiThreshold out_bias must be integer for HLS conversion."
+                    node.name + ": MultiThreshold out_bias must be integer for HLS conversion."
                 )
                 actval = int(actval)
                 assert (not odt.signed()) or (actval < 0), (
@@ -1076,7 +1086,8 @@ class InferThresholdingLayer(Transformation):
                     PE=pe,
                     numSteps=thl_thres_shape[1],
                     inputDataType=idt.name,
-                    weightDataType=idt.name,  # will be set by MinimizeAccumulatorWidth
+                    # weightDataType can be tightened by MinimizeAccumulatorWidth
+                    weightDataType=idt.name,
                     outputDataType=odt.name,
                     numInputVectors=list(thl_in_shape[:-1]),
                     ActVal=actval,
@@ -1089,7 +1100,6 @@ class InferThresholdingLayer(Transformation):
                 graph_modified = True
 
         if graph_modified:
-            model = model.transform(MinimizeAccumulatorWidth())
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
         return (model, graph_modified)
@@ -1110,9 +1120,15 @@ class InferAddStreamsLayer(Transformation):
                 result = node.output[0]
                 in0_shape = model.get_tensor_shape(in0)
                 in1_shape = model.get_tensor_shape(in1)
+                in0_static = not (model.get_initializer(in0) is None)
+                in1_static = not (model.get_initializer(in1) is None)
 
                 # skip if different shapes on inputs
                 if in0_shape != in1_shape:
+                    continue
+                # skip if any of inputs have initializers
+                # (this node is meant for adding two dynamic streams)
+                if in0_static or in1_static:
                     continue
 
                 idt0 = model.get_tensor_datatype(in0)
@@ -1227,6 +1243,7 @@ class InferDuplicateStreamsLayer(Transformation):
                     inputDataType=dt.name,
                     numInputVectors=vecs,
                     NumOutputStreams=n_outputs,
+                    outFIFODepths=[2] * n_outputs,
                     name="DuplicateStreams_Batch_" + node.name,
                 )
 
@@ -1322,9 +1339,7 @@ class InferChannelwiseLinearLayer(Transformation):
                 # check if the shape of initializer is compatible
                 ll_cinit_shape = list(ll_cinit.shape)
                 if np.prod(ll_cinit_shape) == 1:
-                    warnings.warn(
-                        "Broadcasting " + str(node.op_type) + "(" + node.name + ")"
-                    )
+                    warnings.warn("Broadcasting " + str(node.op_type) + "(" + node.name + ")")
                     ll_cinit = np.full((ch), ll_cinit.flatten()[0])
                 elif np.prod(ll_cinit_shape) != ch or ll_cinit_shape[ch_index] != ch:
                     # parameter shape not compatible with Channelwise_batch
@@ -1633,10 +1648,12 @@ class InferConcatLayer(Transformation):
                 dt0 = model.get_tensor_datatype(node.input[0])
                 if dt0 is None:
                     continue
-                dt_coherent = all(
-                    [model.get_tensor_datatype(x) == dt0 for x in node.input]
-                )
+                dt_coherent = all([model.get_tensor_datatype(x) == dt0 for x in node.input])
                 if not dt_coherent:
+                    continue
+                # skip conversion if any inputs are static
+                all_static = all([model.get_initializer(x) is None for x in node.input])
+                if not all_static:
                     continue
                 # skip conversion if inputs are not integers
                 if not dt0.is_integer():
@@ -1654,6 +1671,7 @@ class InferConcatLayer(Transformation):
                     ElemsPerStream=elems_per_stream,
                     inputDataType=dt0.name,
                     numInputVectors=inp_vec,
+                    inFIFODepths=[2] * len(node.input),
                 )
                 graph.node.insert(node_ind, new_node)
                 # remove old node
@@ -1663,4 +1681,102 @@ class InferConcatLayer(Transformation):
         if graph_modified:
             model = model.transform(InferShapes())
             model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class InferStreamingEltwise(Transformation):
+    """Convert eltwise Sub or Sub -> Abs to StreamingEltwise layer
+    with SubEltwise or AbsDiffEltwise op."""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "Sub":
+                in0 = node.input[0]
+                in1 = node.input[1]
+                result = node.output[0]
+                in0_shape = model.get_tensor_shape(in0)
+                in1_shape = model.get_tensor_shape(in1)
+                in0_static = not (model.get_initializer(in0) is None)
+                in1_static = not (model.get_initializer(in1) is None)
+
+                # skip if different shapes on inputs
+                if in0_shape != in1_shape:
+                    continue
+                # skip if any of inputs have initializers
+                # (this node is meant for two dynamic streams)
+                if in0_static or in1_static:
+                    continue
+
+                idt0 = model.get_tensor_datatype(in0)
+                idt1 = model.get_tensor_datatype(in1)
+
+                # skip conversion for layers with float input
+                if not (idt0.is_integer() and idt1.is_integer()):
+                    continue
+
+                eltwiseOp = "Sub"
+                nodes_to_remove = [node]
+                # look for a downstream Abs node
+                res_consumer = model.find_consumer(result)
+                if (res_consumer is not None) and (res_consumer.op_type == "Abs"):
+                    eltwiseOp = "AbsDiff"
+                    result = res_consumer.output[0]
+                    nodes_to_remove.append(res_consumer)
+
+                # check layout and convert if necessary
+                in0_layout = model.get_tensor_layout(in0)
+                in1_layout = model.get_tensor_layout(in1)
+                result_layout = model.get_tensor_layout(result)
+
+                if in0_layout == DataLayout.NCHW:
+                    in0 = nchw_to_nhwc(in0, model, node_ind)
+                    node_ind += 1
+                    in0_shape = model.get_tensor_shape(in0)
+
+                if in1_layout == DataLayout.NCHW:
+                    in1 = nchw_to_nhwc(in1, model, node_ind)
+                    node_ind += 1
+                    in1_shape = model.get_tensor_shape(in1)
+
+                # keep track of where we need to insert the HLS Op
+                # it has to be ahead of the output transform
+                insert_point = node_ind
+
+                if result_layout == DataLayout.NCHW:
+                    result = nchw_to_nhwc(result, model, node_ind, reverse=True)
+                    node_ind += 1
+
+                # now safe to assume num_channels is size of last dimension
+                num_channels = int(in0_shape[-1])
+                # create node with no parallelization first
+                pe = 1
+
+                # create and insert new Eltwise node
+                new_node = helper.make_node(
+                    "StreamingEltwise",
+                    [in0, in1],
+                    [result],
+                    domain="finn.custom_op.fpgadataflow",
+                    backend="fpgadataflow",
+                    NumChannels=num_channels,
+                    PE=pe,
+                    inputDataType0=idt0.name,
+                    inputDataType1=idt1.name,
+                    eltwiseOp=eltwiseOp,
+                    numInputVectors=in0_shape[:-1],
+                    name="StreamingEltwise_" + node.name,
+                )
+                graph.node.insert(insert_point, new_node)
+                # remove old nodes
+                for nd in nodes_to_remove:
+                    graph.node.remove(nd)
+                graph_modified = True
+
+        # if graph_modified:
+        # model = model.transform(InferShapes())
+        # model = model.transform(InferDataTypes())
         return (model, graph_modified)

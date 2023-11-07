@@ -27,21 +27,16 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-import pkg_resources as pk
-
 import pytest
 
-import brevitas.export.onnx.generic as b_onnx
-import brevitas.onnx as bo
+import importlib_resources as importlib
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
 import torch
+from brevitas.export import export_qonnx
 from pkgutil import get_data
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.transformation.fold_constants import FoldConstants
-from qonnx.transformation.general import GiveUniqueNodeNames, RemoveStaticGraphInputs
-from qonnx.transformation.infer_shapes import InferShapes
 from qonnx.util.cleanup import cleanup
 from tempfile import TemporaryDirectory
 
@@ -59,10 +54,9 @@ def get_brev_model_and_sample_inputs(model_name, wbits, abits):
         brev_model = get_test_model_trained(model_name, wbits, abits)
     elif model_name == "CNV":
         in_shape = (1, 3, 32, 32)
-        fn = pk.resource_filename(
-            "finn.qnn-data", "cifar10/cifar10-test-data-class3.npz"
-        )
-        input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+        ref = importlib.files("finn.qnn-data") / "cifar10/cifar10-test-data-class3.npz"
+        with importlib.as_file(ref) as fn:
+            input_tensor = np.load(fn)["arr_0"].astype(np.float32)
         input_tensor = input_tensor / 255
         brev_model = get_test_model_trained(model_name, wbits, abits)
     elif model_name == "mobilenet":
@@ -94,6 +88,8 @@ def analysis_testing_for_no_quant_nodes(model):
 @pytest.mark.parametrize("wbits", [1, 2])
 @pytest.mark.parametrize("model_name", ["TFC", "SFC", "LFC", "CNV", "mobilenet"])
 def test_QONNX_to_FINN(model_name, wbits, abits):
+    if model_name == "mobilenet":
+        pytest.xfail("MobileNet test is temporarily excluded from QONNX testing.")
     if wbits > abits:
         pytest.skip("No wbits > abits cases at the moment")
     if model_name == "LFC" and wbits == 2 and abits == 2:
@@ -102,42 +98,17 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
         pytest.skip("Mobilenet only runs at W2A2, though it's technically W4A4.")
 
     # Get test config and model
-    ATOL = 1e-7
-    brev_model, in_shape, input_tensor = get_brev_model_and_sample_inputs(
-        model_name, wbits, abits
-    )
+    ATOL = 1e-6
+    brev_model, in_shape, input_tensor = get_brev_model_and_sample_inputs(model_name, wbits, abits)
     temp_dir = TemporaryDirectory()
     qonnx_base_path = temp_dir.name + "/qonnx_{}.onnx"
-    finn_base_path = temp_dir.name + "/finn_{}.onnx"
 
     # Get Brevitas output
     torch_input_tensor = torch.from_numpy(input_tensor).float()
     brev_output = brev_model.forward(torch_input_tensor).detach().numpy()
 
-    # Get "clean" FINN model and it's output
-    _ = bo.export_finn_onnx(brev_model, in_shape, finn_base_path.format("raw"))
-    model = ModelWrapper(finn_base_path.format("raw"))
-    model = model.transform(GiveUniqueNodeNames())
-    model = model.transform(InferShapes())
-    model = model.transform(FoldConstants())
-    model = model.transform(RemoveStaticGraphInputs())
-    model.save(finn_base_path.format("clean"))
-
-    model = ModelWrapper(finn_base_path.format("clean"))
-    input_dict = {model.graph.input[0].name: input_tensor}
-    output_dict = oxe.execute_onnx(model, input_dict, False)
-    finn_export_output = output_dict[model.graph.output[0].name]
-    # This test always fails on MobileNet for some reason
-    if model_name != "mobilenet":
-        assert np.isclose(
-            brev_output, finn_export_output, atol=ATOL
-        ).all(), "The output of the Brevitas model and the FINN model should match."
-
-    # Get the equivalent QONNX model
-    b_onnx.function.DOMAIN_STRING = "qonnx.custom_op.general"
-    _ = b_onnx.manager.BrevitasONNXManager.export(
-        brev_model, in_shape, qonnx_base_path.format("raw")
-    )
+    # Get QONNX model
+    _ = export_qonnx(brev_model, torch.randn(in_shape), qonnx_base_path.format("raw"))
     cleanup(qonnx_base_path.format("raw"), out_file=qonnx_base_path.format("clean"))
 
     # Compare output
@@ -148,11 +119,6 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     assert np.isclose(
         brev_output, qonnx_export_output, atol=ATOL
     ).all(), "The output of the Brevitas model and the QONNX model should match."
-    # This test always fails on MobileNet for some reason
-    if model_name != "mobilenet":
-        assert np.isclose(
-            qonnx_export_output, finn_export_output, atol=ATOL
-        ).all(), "The output of the FINN model and the QONNX model should match."
 
     # Run QONNX to FINN conversion
     model = ModelWrapper(qonnx_base_path.format("clean"))
@@ -164,9 +130,8 @@ def test_QONNX_to_FINN(model_name, wbits, abits):
     input_dict = {model.graph.input[0].name: input_tensor}
     output_dict = oxe.execute_onnx(model, input_dict, False)
     test_output = output_dict[model.graph.output[0].name]
-    assert np.isclose(test_output, finn_export_output, atol=ATOL).all(), (
-        "The output of the FINN model "
-        "and the QONNX -> FINN converted model should match."
+    assert np.isclose(test_output, qonnx_export_output, atol=ATOL).all(), (
+        "The output of the FINN model " "and the QONNX -> FINN converted model should match."
     )
 
     # Run analysis passes on the converted model

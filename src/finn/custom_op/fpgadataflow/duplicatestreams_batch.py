@@ -38,8 +38,8 @@ from finn.util.data_packing import npy_to_rtlsim_input, rtlsim_output_to_npy
 class DuplicateStreams_Batch(HLSCustomOp):
     """Class that corresponds to finn-hlslib function of the same name."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -61,13 +61,13 @@ class DuplicateStreams_Batch(HLSCustomOp):
     def get_num_output_streams(self):
         return self.get_nodeattr("NumOutputStreams")
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ch = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         ishape = tuple(vecs + [ch])
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ch = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         vecs = list(self.get_nodeattr("numInputVectors"))
@@ -132,28 +132,26 @@ class DuplicateStreams_Batch(HLSCustomOp):
             self.get_nodeattr("inputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required GlobalAccPool_Batch attributes do not exist."""
-            )
+            info_messages.append("""The required GlobalAccPool_Batch attributes do not exist.""")
 
         return info_messages
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         """Returns input stream width."""
         ibits = self.get_input_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
         in_width = pe * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns output stream width."""
         obits = self.get_output_datatype().bitwidth()
         pe = self.get_nodeattr("PE")
@@ -161,9 +159,7 @@ class DuplicateStreams_Batch(HLSCustomOp):
         return out_width
 
     def get_number_output_values(self):
-        return self.get_num_output_streams() * np.prod(
-            self.get_folded_output_shape()[1:-1]
-        )
+        return self.get_num_output_streams() * np.prod(self.get_folded_output_shape()[1:-1])
 
     def get_exp_cycles(self):
         # Channels/PE * batch size * fmdim * fmdim
@@ -235,9 +231,7 @@ class DuplicateStreams_Batch(HLSCustomOp):
             # execute the precompiled model
             super().exec_precompiled_singlenode_model()
             # load output npy file
-            super().npy_to_dynamic_outputs(
-                context, ["output%d.npy" % i for i in range(n_outputs)]
-            )
+            super().npy_to_dynamic_outputs(context, ["output%d.npy" % i for i in range(n_outputs)])
             for i in range(n_outputs):
                 assert (
                     context[node.output[i]].shape == exp_oshape
@@ -309,18 +303,27 @@ class DuplicateStreams_Batch(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         n_outputs = self.get_num_output_streams()
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         for i in range(n_outputs):
-            out_name = "out%d" % i
+            out_name = "out%d_%s" % (i, self.hls_sname())
             self.code_gen_dict["$STREAMDECLARATIONS$"].append(
                 'hls::stream<ap_uint<%d>> %s ("%s");'
                 % (self.get_outstream_width(), out_name, out_name)
@@ -328,8 +331,13 @@ class DuplicateStreams_Batch(HLSCustomOp):
 
     def docompute(self):
         n_outputs = self.get_num_output_streams()
-        ostreams = ["out%d" % x for x in range(n_outputs)]
-        dc = "DuplicateStreamsCustom(in0, %s);" % (",".join(ostreams))
+        ostreams = []
+        for i in range(n_outputs):
+            ostreams.append("out%d_%s" % (i, self.hls_sname()))
+        dc = "DuplicateStreamsCustom(in0_%s, %s);" % (
+            self.hls_sname(),
+            ",".join(ostreams),
+        )
         self.code_gen_dict["$DOCOMPUTE$"] = [dc]
 
     def dataoutstrm(self):
@@ -346,7 +354,7 @@ class DuplicateStreams_Batch(HLSCustomOp):
         outstrm_code = []
 
         for i in range(n_outputs):
-            out_name = "out%d" % i
+            out_name = "out%d_%s" % (i, self.hls_sname())
             npy_out = "%s/output%d.npy" % (code_gen_dir, i)
             outstrm_code.append(
                 'apintstream2npy<%s, %s, %d, %s>(%s, %s, "%s");'
@@ -371,10 +379,14 @@ class DuplicateStreams_Batch(HLSCustomOp):
         inp_streams = []
         o_stream_w = self.get_outstream_width()
         i_stream_w = self.get_instream_width()
-        in_stream = "hls::stream<ap_uint<%d> > &in0" % (i_stream_w)
+        in_stream = "hls::stream<ap_uint<%d> > &in0_%s" % (i_stream_w, self.hls_sname())
         inp_streams.append(in_stream)
         for i in range(n_outputs):
-            out_stream = "hls::stream<ap_uint<%d> > &out%d" % (o_stream_w, i)
+            out_stream = "hls::stream<ap_uint<%d> > &out%d_%s" % (
+                o_stream_w,
+                i,
+                self.hls_sname(),
+            )
             inp_streams.append(out_stream)
 
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
@@ -387,16 +399,13 @@ class DuplicateStreams_Batch(HLSCustomOp):
     def pragmas(self):
         n_outputs = self.get_num_output_streams()
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         for i in range(n_outputs):
             self.code_gen_dict["$PRAGMAS$"].append(
-                "#pragma HLS INTERFACE axis port=out%d name=out%d_%s"
-                % (i, i, self.hls_sname())
+                "#pragma HLS INTERFACE axis port=out%d_%s" % (i, self.hls_sname())
             )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()
@@ -408,3 +417,13 @@ class DuplicateStreams_Batch(HLSCustomOp):
                 ("out%d_%s" % (i, sname), self.get_outstream_width_padded())
             )
         return intf_names
+
+    def derive_characteristic_fxns(self, period):
+        n_inps = np.prod(self.get_folded_input_shape()[:-1])
+        io_dict = {
+            "inputs": {
+                "in0": [0 for i in range(n_inps)],
+            },
+            "outputs": {"out0": [], "out1": []},
+        }
+        super().derive_characteristic_fxns(period, override_rtlsim_dict=io_dict)

@@ -37,8 +37,8 @@ class TLastMarker(HLSCustomOp):
     (needed by the FINN PYNQ shell) or at the beginning to remove the end-of-burst
     from DMA read."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -130,9 +130,9 @@ class TLastMarker(HLSCustomOp):
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 "for(unsigned int i=0; i<NumItersPerImg; i++) {",
                 "#pragma HLS PIPELINE II=1",
-                "out.write(in0.read().get_data());"
+                "out_%s.write(in0_%s.read().get_data());" % (self.hls_sname(), self.hls_sname())
                 if use_qdma_axis
-                else "out.write(in0.read().data);",
+                else "out_%s.write(in0_%s.read().data);" % (self.hls_sname(), self.hls_sname()),
                 "}",
             ]
 
@@ -146,17 +146,21 @@ class TLastMarker(HLSCustomOp):
                 "#pragma HLS protocol fixed",
                 "// do a first read from stream before we decide on numIters",
                 "// giving software a chance to set up the numIters prior to startup",
-                "t.set_data(in0.read());" if use_qdma_axis else "t.data = in0.read();",
+                "t.set_data(in0_%s.read());" % self.hls_sname()
+                if use_qdma_axis
+                else "t.data = in0_%s.read();" % self.hls_sname(),
                 "n = (numIters == 0 ? NumItersPerImg : numIters);",
                 "t.set_last(n==1);" if use_qdma_axis else "t.last = (n==1);",
-                "out.write(t);",
+                "out_%s.write(t);" % self.hls_sname(),
                 "} // end of cycle accurate region",
                 "// do one less iteration than spec since we already did one",
                 "for(unsigned int i=1; i<n; i++) {",
                 "#pragma HLS PIPELINE II=1",
-                "t.set_data(in0.read());" if use_qdma_axis else "t.data = in0.read();",
+                "t.set_data(in0_%s.read());" % self.hls_sname()
+                if use_qdma_axis
+                else "t.data = in0_%s.read();" % self.hls_sname(),
                 "t.set_last(i==(n-1));" if use_qdma_axis else "t.last = (i==(n-1));",
-                "out.write(t);",
+                "out_%s.write(t);" % self.hls_sname(),
                 "}",
             ]
 
@@ -168,11 +172,13 @@ class TLastMarker(HLSCustomOp):
                 "t.set_keep(-1);" if use_qdma_axis else "t.keep = -1;",
                 "for(unsigned int i=0; i<NumItersPerImg; i++) {",
                 "#pragma HLS PIPELINE II=1",
-                "t.set_data(in0.read());" if use_qdma_axis else "t.data = in0.read();",
+                "t.set_data(in0_%s.read());" % self.hls_sname()
+                if use_qdma_axis
+                else "t.data = in0_%s.read();" % self.hls_sname(),
                 "t.set_last(i==(NumItersPerImg-1));"
                 if use_qdma_axis
                 else "t.last = (i==(NumItersPerImg-1));",
-                "out.write(t);",
+                "out_%s.write(t);" % self.hls_sname(),
                 "}",
             ]
 
@@ -187,22 +193,23 @@ class TLastMarker(HLSCustomOp):
 
         if dyn_iters == 1:
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void %s(hls::stream<InDType> &in0,
-                    hls::stream<OutDType> &out, unsigned int numIters)"""
-                % self.onnx_node.name
+                """void %s(hls::stream<InDType> &in0_%s,
+                    hls::stream<OutDType> &out_%s, unsigned int numIters)"""
+                % (self.onnx_node.name, self.hls_sname(), self.hls_sname())
             ]
         else:
             self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-                """void %s(hls::stream<InDType> &in0, hls::stream<OutDType> &out)"""
-                % self.onnx_node.name
+                """void %s(hls::stream<InDType> &in0_%s,
+                hls::stream<OutDType> &out_%s)"""
+                % (self.onnx_node.name, self.hls_sname(), self.hls_sname())
             ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
 
         dyn_iters = self.get_nodeattr("DynIters")
@@ -211,38 +218,36 @@ class TLastMarker(HLSCustomOp):
                 "#pragma HLS INTERFACE s_axilite port=numIters bundle=control"
             )
 
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def get_number_output_values(self):
         return self.get_nodeattr("NumIters")
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         stream_width = self.get_nodeattr("StreamWidth")
         elem_width = self.get_nodeattr("ElemWidth")
         n_packed_elems = stream_width // elem_width
         n_iters = self.get_nodeattr("NumIters")
         return (1, n_iters, n_packed_elems)
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         return self.get_folded_input_shape()
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         stream_width = self.get_nodeattr("StreamWidth")
         return stream_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         stream_width = self.get_nodeattr("StreamWidth")
         return stream_width
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<InDType> in0 ("in0");'
+            'hls::stream<InDType> in0_%s ("in0_%s");' % (self.hls_sname(), self.hls_sname())
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<OutDType> out ("out");'
+            'hls::stream<OutDType> out_%s ("out_%s");' % (self.hls_sname(), self.hls_sname())
         )
 
     def get_verilog_top_module_intf_names(self):

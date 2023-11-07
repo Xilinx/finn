@@ -35,7 +35,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.general import GiveUniqueNodeNames
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.analysis.fpgadataflow.exp_cycles_per_layer import exp_cycles_per_layer
@@ -49,9 +49,7 @@ from finn.transformation.fpgadataflow.set_exec_mode import SetExecMode
 fpga_part = "xczu3eg-sbva484-1-e"
 
 
-def make_single_im2col_modelwrapper(
-    k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt
-):
+def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, simd, stride, dilation, idt):
     k_h, k_w = k
     ifm_dim_h, ifm_dim_w = ifm_dim
     stride_h, stride_w = stride
@@ -59,9 +57,7 @@ def make_single_im2col_modelwrapper(
     ofm_dim_h, ofm_dim_w = ofm_dim
 
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch]
     )
@@ -82,7 +78,7 @@ def make_single_im2col_modelwrapper(
         nodes=[im2col_node], name="im2col_graph", inputs=[inp], outputs=[outp]
     )
 
-    model = helper.make_model(graph, producer_name="im2col-model")
+    model = qonnx_make_model(graph, producer_name="im2col-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -101,9 +97,7 @@ def make_single_slidingwindow_modelwrapper(
     ofm_dim_h, ofm_dim_w = ofm_dim
 
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch]
     )
@@ -133,7 +127,7 @@ def make_single_slidingwindow_modelwrapper(
         outputs=[outp],
     )
 
-    model = helper.make_model(graph, producer_name="slidingwindow-model")
+    model = qonnx_make_model(graph, producer_name="slidingwindow-model")
     model = ModelWrapper(model)
 
     model.set_tensor_datatype("inp", idt)
@@ -259,9 +253,7 @@ def test_fpgadataflow_slidingwindow_1d(
     if dw == 0:
         assert (y_produced == y_expected).all()
     else:
-        y_expected = y_expected.reshape(
-            1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd
-        )
+        y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd)
         y_expected = y_expected.transpose(0, 1, 2, 4, 3, 5)
         y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, ifm_ch * k_h * k_w)
         assert (y_produced == y_expected).all()

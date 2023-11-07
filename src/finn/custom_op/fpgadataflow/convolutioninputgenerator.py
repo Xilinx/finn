@@ -54,8 +54,8 @@ class ConvolutionInputGenerator(HLSCustomOp):
     attributes (e.g. depthwise or not, whether k % stride is 0) a different
     variant will be picked for the actual HLS implementation."""
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -99,13 +99,13 @@ class ConvolutionInputGenerator(HLSCustomOp):
             assert ret[0] == ret[1] == 1, "Only dilation=1 supported"
         return ret
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         ishape = (1, ifm_dim_h, ifm_dim_w, ifm_ch)
         return ishape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
         simd = self.get_nodeattr("SIMD")
@@ -114,7 +114,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         folded_ishape = (1, ifm_dim_h, ifm_dim_w, wf, simd)
         return folded_ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         k_h, k_w = self.get_nodeattr("ConvKernelDim")
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -126,7 +126,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         oshape = (1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch)
         return oshape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         k_h, k_w = self.get_nodeattr("ConvKernelDim")
         ifm_dim_h, ifm_dim_w = self.get_nodeattr("IFMDim")
         ifm_ch = self.get_nodeattr("IFMChannels")
@@ -158,15 +158,15 @@ class ConvolutionInputGenerator(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         """Returns stream width, input and output stream width are equal for
         the sliding window function"""
         ibits = self.get_input_datatype().bitwidth()
@@ -176,7 +176,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         in_width = simd * ibits
         return in_width
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         """Returns stream width, input and output stream width are equal for
         the sliding window function, so the function to determine the input
         stream width can be reused."""
@@ -202,9 +202,7 @@ class ConvolutionInputGenerator(HLSCustomOp):
         cycles_write_block = (ofm_dim_w * k_w * k_h * (ifm_ch / simd)) / mmv
         cycles_read_block = stride_w * ifm_dim_w * (ifm_ch / simd)
         max_cycles = max(cycles_write_block, cycles_read_block)
-        exp_cycles = (
-            ifm_dim_w * k_h * dilation_h * (ifm_ch / simd) + ofm_dim_h * max_cycles
-        )
+        exp_cycles = ifm_dim_w * k_h * dilation_h * (ifm_ch / simd) + ofm_dim_h * max_cycles
 
         return int(exp_cycles)
 
@@ -401,17 +399,28 @@ class ConvolutionInputGenerator(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
@@ -436,15 +445,15 @@ class ConvolutionInputGenerator(HLSCustomOp):
         if self.get_nodeattr("depthwise") == 1:
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}_dws<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
-                    OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
-                    hls_call, hls_ram_style
+                    OFMDim1, SIMD1, Stride1> (in0_{}, out_{}, numReps, {});""".format(
+                    hls_call, self.hls_sname(), self.hls_sname(), hls_ram_style
                 )
             ]
         else:
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """{}<ConvKernelDim1, IFMChannels1, Input_precision1, IFMDim1,
-                    OFMDim1, SIMD1, Stride1> (in0, out, numReps, {});""".format(
-                    hls_call, hls_ram_style
+                    OFMDim1, SIMD1, Stride1> (in0_{}, out_{}, numReps, {});""".format(
+                    hls_call, self.hls_sname(), self.hls_sname(), hls_ram_style
                 )
             ]
 
@@ -464,12 +473,13 @@ class ConvolutionInputGenerator(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -480,19 +490,17 @@ class ConvolutionInputGenerator(HLSCustomOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0,
-                hls::stream<ap_uint<SIMD1*Input_precision1>> &out)""".format(
-                self.onnx_node.name
+            """void {}(hls::stream<ap_uint<SIMD1*Input_precision1>> &in0_{},
+                hls::stream<ap_uint<SIMD1*Input_precision1>> &out_{})""".format(
+                self.onnx_node.name, self.hls_sname(), self.hls_sname()
             )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")

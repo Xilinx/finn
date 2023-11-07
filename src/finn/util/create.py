@@ -30,7 +30,11 @@ import numpy as np
 from onnx import TensorProto, helper
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
-from qonnx.util.basic import calculate_signed_dot_prod_range, gen_finn_dt_tensor
+from qonnx.util.basic import (
+    calculate_signed_dot_prod_range,
+    gen_finn_dt_tensor,
+    qonnx_make_model,
+)
 
 
 def hls_random_mlp_maker(layer_spec):
@@ -84,7 +88,7 @@ def hls_mlp_maker(layer_spec):
 
     graph = helper.make_graph(nodes=[], name="mlp", inputs=[], outputs=[])
 
-    model = helper.make_model(graph, producer_name="finn")
+    model = qonnx_make_model(graph, producer_name="finn")
     model = ModelWrapper(model)
 
     for lyr in layer_spec:
@@ -104,15 +108,11 @@ def hls_mlp_maker(layer_spec):
         odt = lyr["odt"]
 
         if i == 0:
-            global_in = helper.make_tensor_value_info(
-                current_in_name, TensorProto.FLOAT, [1, mw]
-            )
+            global_in = helper.make_tensor_value_info(current_in_name, TensorProto.FLOAT, [1, mw])
             model.graph.input.append(global_in)
 
         if i == len(layer_spec) - 1:
-            global_out = helper.make_tensor_value_info(
-                current_out_name, TensorProto.FLOAT, [1, mh]
-            )
+            global_out = helper.make_tensor_value_info(current_out_name, TensorProto.FLOAT, [1, mh])
             model.graph.output.append(global_out)
 
         # there are two ways to implement bipolar weights and inputs for

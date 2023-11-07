@@ -33,6 +33,7 @@ import onnx.helper as oh
 from onnx import TensorProto
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as ox
 from finn.transformation.streamline import (
@@ -47,7 +48,7 @@ def test_move_scalar_mul_past_matmul():
     mul_param = oh.make_tensor_value_info("mul_param", TensorProto.FLOAT, [1, 1])
     matmul_param = oh.make_tensor_value_info("matmul_param", TensorProto.FLOAT, [2, 2])
     top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, [1, 2])
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],
@@ -62,9 +63,7 @@ def test_move_scalar_mul_past_matmul():
     model = ModelWrapper(modelproto)
     model = model.transform(InferShapes())
     model.set_initializer("mul_param", np.asarray([[3]], dtype=np.float32))
-    model.set_initializer(
-        "matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32)
-    )
+    model.set_initializer("matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32))
     new_model = model.transform(MoveScalarMulPastMatMul())
     inp_dict = {"top_in": np.asarray([[-1.0, 1.0]], dtype=np.float32)}
     assert ox.compare_execution(model, new_model, inp_dict)
@@ -79,7 +78,7 @@ def test_move_scalar_add_past_matmul():
     add_param = oh.make_tensor_value_info("add_param", TensorProto.FLOAT, [1, 1])
     matmul_param = oh.make_tensor_value_info("matmul_param", TensorProto.FLOAT, [2, 2])
     top_out = oh.make_tensor_value_info("top_out", TensorProto.FLOAT, [1, 2])
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],
@@ -94,9 +93,7 @@ def test_move_scalar_add_past_matmul():
     model = ModelWrapper(modelproto)
     model = model.transform(InferShapes())
     model.set_initializer("add_param", np.asarray([[3]], dtype=np.float32))
-    model.set_initializer(
-        "matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32)
-    )
+    model.set_initializer("matmul_param", np.asarray([[2, 4], [-1, 1]], dtype=np.float32))
     new_model = model.transform(MoveScalarAddPastMatMul())
     inp_dict = {"top_in": np.asarray([[-1.0, 1.0]], dtype=np.float32)}
     assert ox.compare_execution(model, new_model, inp_dict)
@@ -122,7 +119,7 @@ def test_move_scalar_past_matmul_only_if_linear(test_args):
     p2 = oh.make_tensor_value_info("p2", TensorProto.FLOAT, matmul_shape)
     p3 = oh.make_tensor_value_info("p3", TensorProto.FLOAT, matmul_shape)
     p4 = oh.make_tensor_value_info("p4", TensorProto.FLOAT, matmul_shape)
-    modelproto = oh.make_model(
+    modelproto = qonnx_make_model(
         oh.make_graph(
             name="test",
             inputs=[top_in],

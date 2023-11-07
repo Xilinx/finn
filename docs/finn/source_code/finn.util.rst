@@ -14,6 +14,15 @@ qonnx.util.basic
    :show-inheritance:
 
 
+qonnx.util.cleanup
+----------------------
+
+.. automodule:: qonnx.util.cleanup
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
 qonnx.util.config
 --------------------
 
@@ -21,6 +30,40 @@ qonnx.util.config
   :members:
   :undoc-members:
   :show-inheritance:
+
+qonnx.util.exec\_qonnx
+----------------------
+
+.. automodule:: qonnx.util.exec_qonnx
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+qonnx.util.inference\_cost
+--------------------------
+
+.. automodule:: qonnx.util.inference_cost
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+qonnx.util.onnx
+-------------------
+
+.. automodule:: qonnx.util.onnx
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+
+qonnx.util.to\_channels\_last
+------------------------------
+
+.. automodule:: qonnx.util.to_channels_last
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
 
 finn.util.basic
 ----------------------
@@ -56,13 +99,14 @@ finn.util.fpgadataflow
    :undoc-members:
    :show-inheritance:
 
-finn.util.gdrive
------------------------------
+finn.util.hls
+---------------
 
-.. automodule:: finn.util.gdrive
+.. automodule:: finn.util.hls
   :members:
   :undoc-members:
   :show-inheritance:
+
 
 finn.util.imagenet
 -----------------------------
@@ -71,14 +115,6 @@ finn.util.imagenet
   :members:
   :undoc-members:
   :show-inheritance:
-
-qonnx.util.onnx
----------------------
-
-.. automodule:: qonnx.util.onnx
-   :members:
-   :undoc-members:
-   :show-inheritance:
 
 finn.util.platforms
 --------------------

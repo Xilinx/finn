@@ -33,6 +33,7 @@ from onnx import TensorProto, helper
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.im2col import compute_conv_output_dim
 from qonnx.transformation.infer_shapes import InferShapes
+from qonnx.util.basic import qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveAddPastConv
@@ -72,7 +73,7 @@ def test_move_chw_add_past_conv(idim, k, s, ich, och):
     add_node = helper.make_node("Add", ["inp", "a0"], ["add_out"])
     conv_node = helper.make_node("Conv", ["add_out", "a1"], ["outp"], **conv_config)
 
-    model = helper.make_model(
+    model = qonnx_make_model(
         helper.make_graph(
             nodes=[add_node, conv_node],
             name="move-add-graph",
@@ -84,13 +85,9 @@ def test_move_chw_add_past_conv(idim, k, s, ich, och):
 
     model = ModelWrapper(model)
     # initialize model
-    a0_values = np.random.uniform(low=0, high=1, size=tuple(add_param_shape)).astype(
-        np.float32
-    )
+    a0_values = np.random.uniform(low=0, high=1, size=tuple(add_param_shape)).astype(np.float32)
     model.set_initializer("a0", a0_values)
-    a1_values = np.random.uniform(low=0, high=1, size=tuple(conv_param_shape)).astype(
-        np.float32
-    )
+    a1_values = np.random.uniform(low=0, high=1, size=tuple(conv_param_shape)).astype(np.float32)
     model.set_initializer("a1", a1_values)
 
     model = model.transform(InferShapes())

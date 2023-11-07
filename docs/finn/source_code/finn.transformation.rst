@@ -20,7 +20,7 @@ Transformation Passes
 Base Class
 ----------
 
-.. automodule:: finn.transformation
+.. automodule:: qonnx.transformation.base
    :members:
    :undoc-members:
    :show-inheritance:
@@ -42,7 +42,7 @@ qonnx.transformation.bipolar\_to\_xnor
    :show-inheritance:
 
 qonnx.transformation.change\_3d\_tensors\_to\_4d
-------------------------------------------------
+-------------------------------------------------
 
 .. automodule:: qonnx.transformation.change_3d_tensors_to_4d
   :members:
@@ -57,8 +57,18 @@ qonnx.transformation.change\_datalayout
   :undoc-members:
   :show-inheritance:
 
+
+qonnx.transformation.channels\_last
+--------------------------------------------
+
+.. automodule:: qonnx.transformation.channels_last
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
 qonnx.transformation.create\_generic\_partitions
-------------------------------------------------
+-------------------------------------------------
 
 .. automodule:: qonnx.transformation.create_generic_partitions
   :members:
@@ -171,13 +181,22 @@ qonnx.transformation.merge\_onnx\_models
   :show-inheritance:
 
 
-finn.transformation.move\_reshape
+qonnx.transformation.quant\_constant\_folding
+----------------------------------------------
+
+.. automodule:: qonnx.transformation.quant_constant_folding
+  :members:
+  :undoc-members:
+  :show-inheritance:
+
+
+qonnx.transformation.rebalance\_conv
 ----------------------------------------
 
-.. automodule:: finn.transformation.move_reshape
-   :members:
-   :undoc-members:
-   :show-inheritance:
+.. automodule:: qonnx.transformation.rebalance_conv
+  :members:
+  :undoc-members:
+  :show-inheritance:
 
 qonnx.transformation.remove
 -------------------------------------
@@ -186,3 +205,12 @@ qonnx.transformation.remove
   :members:
   :undoc-members:
   :show-inheritance:
+
+
+finn.transformation.move\_reshape
+----------------------------------------
+
+.. automodule:: finn.transformation.move_reshape
+   :members:
+   :undoc-members:
+   :show-inheritance:

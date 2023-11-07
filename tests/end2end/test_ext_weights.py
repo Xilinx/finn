@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
 import os
@@ -38,10 +36,9 @@ import wget
 import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.util.basic import make_build_dir
-from finn.util.test import get_build_env, load_test_checkpoint_or_skip
+from finn.util.test import load_test_checkpoint_or_skip
 
 target_clk_ns = 10
-build_kind = "zynq"
 build_dir = os.environ["FINN_BUILD_DIR"]
 onnx_zip_url = "https://github.com/Xilinx/finn-examples"
 onnx_zip_url += "/releases/download/v0.0.1a/onnx-models-bnn-pynq.zip"
@@ -83,16 +80,15 @@ def test_end2end_ext_weights_download():
 def test_end2end_ext_weights_build():
     model_file = get_checkpoint_name("download")
     load_test_checkpoint_or_skip(model_file)
-    build_env = get_build_env(build_kind, target_clk_ns)
-    folding_config_file = pk.resource_filename(
-        "finn.qnn-data", "test_ext_weights/tfc-w1a1-extw.json"
-    )
+    test_data = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/test_ext_weights"
+    folding_config_file = test_data + "/tfc-w1a1-extw.json"
     output_dir = make_build_dir("test_end2end_ext_weights_build")
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
+        verbose=True,
         folding_config_file=folding_config_file,
         synth_clk_period_ns=target_clk_ns,
-        board=build_env["board"],
+        board="Pynq-Z1",
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
@@ -109,67 +105,3 @@ def test_end2end_ext_weights_build():
     if os.path.isdir(get_checkpoint_name("build")):
         shutil.rmtree(get_checkpoint_name("build"))
     shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build"))
-
-
-@pytest.mark.board
-@pytest.mark.end2end
-def test_end2end_ext_weights_dataset():
-    # make sure we have local copies of mnist dataset files
-    subprocess.check_output(["mkdir", "-p", mnist_local])
-    for f in mnist_files:
-        if not os.path.isfile(mnist_local + "/" + f):
-            wget.download(mnist_url + "/" + f, out=mnist_local + "/" + f)
-        assert os.path.isfile(mnist_local + "/" + f)
-    # rsync to board
-    build_env = get_build_env(build_kind, target_clk_ns)
-    mnist_target = "%s@%s:%s" % (build_env["username"], build_env["ip"], "/tmp/")
-
-    rsync_dataset_cmd = ["rsync", "-rv", mnist_local + "/", mnist_target]
-    subprocess.check_output(rsync_dataset_cmd)
-
-
-@pytest.mark.end2end
-def test_end2end_ext_weights_run_on_hw():
-    build_env = get_build_env(build_kind, target_clk_ns)
-    deploy_dir = get_checkpoint_name("build")
-    if not os.path.isdir(deploy_dir):
-        pytest.skip(deploy_dir + " not found from previous test step, skipping")
-    driver_dir = deploy_dir + "/driver"
-    assert os.path.isdir(driver_dir)
-    # create a shell script for running validation: 10 batches x 10 imgs
-    with open(driver_dir + "/validate.sh", "w") as f:
-        f.write(
-            """#!/bin/bash
-cd %s/driver
-echo %s | sudo -S python3.6 validate.py --dataset mnist --bitfile %s
-        """
-            % (
-                build_env["target_dir"] + "/end2end_ext_weights_build",
-                build_env["password"],
-                "../bitfile/finn-accel.bit",
-            )
-        )
-    # set up rsync command
-    remote_target = "%s@%s:%s" % (
-        build_env["username"],
-        build_env["ip"],
-        build_env["target_dir"],
-    )
-    rsync_res = subprocess.run(["rsync", "-avz", deploy_dir, remote_target])
-    assert rsync_res.returncode == 0
-    remote_verif_cmd = [
-        "ssh",
-        "%s@%s" % (build_env["username"], build_env["ip"]),
-        "sh",
-        build_env["target_dir"] + "/end2end_ext_weights_build/driver/validate.sh",
-    ]
-    verif_res = subprocess.run(
-        remote_verif_cmd,
-        stdout=subprocess.PIPE,
-        universal_newlines=True,
-        input=build_env["password"],
-    )
-    assert verif_res.returncode == 0
-    log_output = verif_res.stdout.split("\n")
-    assert log_output[-3] == "batch 100 / 100 : total OK 9296 NOK 704"
-    assert log_output[-2] == "Final accuracy: 92.960000"

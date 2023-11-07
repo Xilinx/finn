@@ -72,6 +72,7 @@ def make_concat_model(i_shapes, idt):
 
 @pytest.mark.parametrize("exec_mode", ["cppsim", "rtlsim"])
 @pytest.mark.parametrize("idt", [DataType["INT4"]])
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_concat(exec_mode, idt):
@@ -94,6 +95,7 @@ def test_fpgadataflow_concat(exec_mode, idt):
     assert model.graph.node[0].op_type == "StreamingConcat"
     assert model.graph.node[0].domain == "finn.custom_op.fpgadataflow"
     if exec_mode == "cppsim":
+        model = model.transform(GiveUniqueNodeNames())
         model = model.transform(PrepareCppSim())
         model = model.transform(CompileCppSim())
         model = model.transform(SetExecMode("cppsim"))
@@ -107,6 +109,7 @@ def test_fpgadataflow_concat(exec_mode, idt):
     assert (exp_out == ret_sim[oname]).all()
 
 
+@pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow
 def test_fpgadataflow_concat_stitchedip():
@@ -144,6 +147,5 @@ def test_fpgadataflow_concat_stitchedip():
     )
     model.set_metadata_prop("exec_mode", "rtlsim")
     model.set_metadata_prop("rtlsim_trace", "trace.vcd")
-    model.save("dbg.onnx")
     ret_sim = execute_onnx(model, inp_dict)
     assert (exp_out == ret_sim[oname]).all()

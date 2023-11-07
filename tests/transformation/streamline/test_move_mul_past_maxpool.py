@@ -34,7 +34,7 @@ from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.custom_op.general.maxpoolnhwc import compute_pool_output_dim
 from qonnx.transformation.infer_datatypes import InferDataTypes
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.basic import gen_finn_dt_tensor
+from qonnx.util.basic import gen_finn_dt_tensor, qonnx_make_model
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.streamline.reorder import MoveMulPastMaxPool
@@ -65,13 +65,9 @@ def test_move_mul_past_maxpool(ifm_dim, ifm_ch, k, stride, pad, cw, negative):
     ofm_dim = compute_pool_output_dim(ifm_dim, k, stride, pad)
 
     # set up onnx model
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_ch, ifm_dim, ifm_dim])
     mul = helper.make_tensor_value_info("mul", TensorProto.FLOAT, mul_shape)
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, ofm_ch, ofm_dim, ofm_dim]
-    )
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, ofm_ch, ofm_dim, ofm_dim])
 
     Mul_node = helper.make_node("Mul", ["inp", "mul"], ["mul_out"])
 
@@ -92,7 +88,7 @@ def test_move_mul_past_maxpool(ifm_dim, ifm_ch, k, stride, pad, cw, negative):
         value_info=[mul],
     )
 
-    model = helper.make_model(graph, producer_name="mulpastmaxpool-model")
+    model = qonnx_make_model(graph, producer_name="mulpastmaxpool-model")
     model = ModelWrapper(model)
     inp_values = gen_finn_dt_tensor(DataType["INT2"], [1, ifm_ch, ifm_dim, ifm_dim])
     mul_values = np.random.random_sample(mul_shape).astype(np.float32)

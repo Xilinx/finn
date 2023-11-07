@@ -27,7 +27,6 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 import numpy as np
-import os
 import warnings
 from qonnx.core.datatype import DataType
 
@@ -42,8 +41,8 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
     The layer expects square feature maps for the in and output.
     """
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -57,6 +56,8 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
             "inputDataType": ("s", True, ""),
             # Batch size
             "numInputVectors": ("i", False, 1),
+            # Dimensionality mode: 0 = 2D square, 1 = 1D in H dim
+            "DimMode": ("i", False, 0),
         }
         my_attrs.update(super().get_nodeattr_types())
         return my_attrs
@@ -64,28 +65,41 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
     def get_exp_cycles(self):
         OFMDim = self.get_nodeattr("OFMDim")
         batch_size = self.get_nodeattr("numInputVectors")
-        exp_cycles = OFMDim * OFMDim * batch_size
+        is_2d = self.get_nodeattr("DimMode") == 0
+        reps = 1
+        if is_2d:
+            OFMDim = OFMDim * OFMDim
+            reps = batch_size
+        exp_cycles = OFMDim * reps
         return int(exp_cycles)
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         IFMDim = self.get_nodeattr("IFMDim")
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
-        ishape = (batch, IFMDim, IFMDim, num_ch)
+        is_2d = self.get_nodeattr("DimMode") == 0
+        if is_2d:
+            ishape = (batch, IFMDim, IFMDim, num_ch)
+        else:
+            ishape = (batch, IFMDim, 1, num_ch)
         return ishape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         OFMDim = self.get_nodeattr("OFMDim")
         num_ch = self.get_nodeattr("NumChannels")
         batch = self.get_nodeattr("numInputVectors")
-        oshape = (batch, OFMDim, OFMDim, num_ch)
+        is_2d = self.get_nodeattr("DimMode") == 0
+        if is_2d:
+            oshape = (batch, OFMDim, OFMDim, num_ch)
+        else:
+            oshape = (batch, OFMDim, 1, num_ch)
         return oshape
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         normal_ishape = list(self.get_normal_input_shape())
         return tuple(normal_ishape)
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         normal_oshape = list(self.get_normal_output_shape())
         return tuple(normal_oshape)
 
@@ -93,9 +107,7 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert (
-            ishape == exp_ishape
-        ), "Unexpect input shape for UpsampleNearestNeighbour_Batch."
+        assert ishape == exp_ishape, "Unexpect input shape for UpsampleNearestNeighbour_Batch."
         return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
@@ -115,21 +127,21 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
     def verify_node(self):
         pass
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         ret = DataType[self.get_nodeattr("inputDataType")]
         return ret
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output. (Same as input datatype)"""
         return self.get_input_datatype()
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         ibits = self.get_input_datatype().bitwidth()
         ifm_ch = self.get_nodeattr("NumChannels")
         return ibits * ifm_ch
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         obits = self.get_output_datatype().bitwidth()
         ifm_ch = self.get_nodeattr("NumChannels")
         return obits * ifm_ch
@@ -173,24 +185,46 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
-        self.code_gen_dict["$DOCOMPUTE$"] = [
-            """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
-            ap_uint<Input_precision> > (in0, out, numReps);"""
-        ]
+        is_2d = self.get_nodeattr("DimMode") == 0
+        batch = self.get_nodeattr("numInputVectors")
+        if is_2d:
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
+                ap_uint<Input_precision> > (in0_%s, out_%s, numReps);"""
+                % (self.hls_sname(), self.hls_sname())
+            ]
+        else:
+            assert batch == 1, "1D upsampler currently needs numReps=1"
+            self.code_gen_dict["$DOCOMPUTE$"] = [
+                """UpsampleNearestNeighbour_1D<OFMDim, IFMDim, IFMChannels,
+                ap_uint<Input_precision> > (in0_%s, out_%s);"""
+                % (self.hls_sname(), self.hls_sname())
+            ]
 
     def dataoutstrm(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_cppsim")
@@ -208,12 +242,13 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -226,27 +261,30 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            % (
+                self.onnx_node.name,
+                packed_hls_type,
+                self.hls_sname(),
+                packed_hls_type,
+                self.hls_sname(),
+            )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")
         node = self.onnx_node
         exp_ishape = self.get_normal_input_shape()
         exp_oshape = self.get_normal_output_shape()
-        folded_ishape = self.get_folded_input_shape()
         folded_oshape = self.get_folded_output_shape()
 
         if mode == "cppsim":
@@ -268,9 +306,7 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         ), """Input shape doesn't
         match expected shape (numInputVectors, ImgDim, ImgDim, NumChannels)."""
         export_idt = self.get_input_datatype()
-
-        reshaped_input = inp.reshape(folded_ishape)
-        np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
+        self.dynamic_input_to_npy(context, 1, target_dir=code_gen_dir)
 
         if mode == "cppsim":
             # execute the precompiled model

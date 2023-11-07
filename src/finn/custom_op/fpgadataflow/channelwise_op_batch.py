@@ -39,8 +39,6 @@ from finn.util.data_packing import (
     rtlsim_output_to_npy,
 )
 
-from . import templates
-
 # ONNX i/o tensor shape assumptions for channelwise ops:
 # input 0 is the input tensor, shape (..., NumChannels)
 # input 1 is the channelwise parameter tensor, shape (NumChannels, params_per_channel)
@@ -85,9 +83,8 @@ class ChannelwiseOp_Batch(HLSCustomOp):
     including Add, Mul and multi-thresholding.
     """
 
-    def __init__(self, onnx_node):
-        super().__init__(onnx_node)
-        self.decoupled_wrapper = templates.decoupled_wrapper
+    def __init__(self, onnx_node, **kwargs):
+        super().__init__(onnx_node, **kwargs)
 
     def get_nodeattr_types(self):
         my_attrs = {
@@ -102,9 +99,6 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             "inputDataType": ("s", True, ""),
             "paramDataType": ("s", True, ""),
             "outputDataType": ("s", True, ""),
-            # input and output FIFO depths
-            "inFIFODepth": ("i", False, 0),
-            "outFIFODepth": ("i", False, 0),
             # number of input vectors, examples:
             # [1] is a single vector (like a FC layer with batch=1)
             # [4] is four vectors (like a FC layer with batch=4)
@@ -184,9 +178,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             self.get_nodeattr("outputDataType")
             info_messages.append("All necessary attributes exist")
         except Exception:
-            info_messages.append(
-                """The required Threshold_Batch attributes do not exist."""
-            )
+            info_messages.append("""The required Threshold_Batch attributes do not exist.""")
 
         return info_messages
 
@@ -221,23 +213,23 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         # total cost
         return comparator_cost + lutram_cost
 
-    def get_input_datatype(self):
+    def get_input_datatype(self, ind=0):
         """Returns FINN DataType of input."""
         return DataType[self.get_nodeattr("inputDataType")]
 
-    def get_output_datatype(self):
+    def get_output_datatype(self, ind=0):
         """Returns FINN DataType of output."""
         return DataType[self.get_nodeattr("outputDataType")]
 
-    def get_instream_width(self):
+    def get_instream_width(self, ind=0):
         i_bits = self.get_input_datatype().bitwidth()
         return i_bits * self.get_nodeattr("PE")
 
-    def get_outstream_width(self):
+    def get_outstream_width(self, ind=0):
         o_bits = self.get_output_datatype().bitwidth()
         return o_bits * self.get_nodeattr("PE")
 
-    def get_folded_input_shape(self):
+    def get_folded_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
         pe = self.get_nodeattr("PE")
         fold = ich // pe
@@ -245,17 +237,17 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         folded_input_shape = tuple(vecs + [fold, pe])
         return folded_input_shape
 
-    def get_folded_output_shape(self):
+    def get_folded_output_shape(self, ind=0):
         # same shape as input
         return self.get_folded_input_shape()
 
-    def get_normal_input_shape(self):
+    def get_normal_input_shape(self, ind=0):
         ich = self.get_nodeattr("NumChannels")
         vecs = list(self.get_nodeattr("numInputVectors"))
         normal_input_shape = tuple(vecs + [ich])
         return normal_input_shape
 
-    def get_normal_output_shape(self):
+    def get_normal_output_shape(self, ind=0):
         # same shape as input
         return self.get_normal_input_shape()
 
@@ -306,9 +298,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         assert (orig_param_vector.astype(np.int32) == orig_param_vector).all()
         ret = orig_param_vector
 
-        assert (
-            ret.shape[0] == chn
-        ), "Cardinality of parameter vector is not as expected (chn)"
+        assert ret.shape[0] == chn, "Cardinality of parameter vector is not as expected (chn)"
 
         # distribute rows between PEs
         ret = ret.reshape(tmem, pe).transpose()
@@ -330,9 +320,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         parameter_tensor = self.get_hls_compatible_parameter_tensor(parameters)
         pdt = DataType[self.get_nodeattr("paramDataType")]
 
-        parameters_hls_code = numpy_to_hls_code(
-            parameter_tensor, pdt, "parameters", False, True
-        )
+        parameters_hls_code = numpy_to_hls_code(parameter_tensor, pdt, "parameters", False, True)
         # get input data type
         export_idt = self.get_input_datatype()
         if self.get_input_datatype() == DataType["BIPOLAR"]:
@@ -436,9 +424,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         elif mode == "rtlsim":
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
             output = self.rtlsim(sim, inp)
@@ -447,9 +433,7 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
             # load and reshape output
             output = np.load(out_npy_path)
@@ -492,17 +476,28 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
@@ -518,10 +513,12 @@ class ChannelwiseOp_Batch(HLSCustomOp):
             raise Exception("""Unexpeted input shape""")
         self.code_gen_dict["$DOCOMPUTE$"] = [
             """Thresholding_Batch<{}, NumChannels1, PE1, {}, {}>
-            (in0, out, threshs, numReps);""".format(
+            (in0_{}, out_{}, threshs, numReps);""".format(
                 spatial_dim,
                 tmpl_args["TSrcI"],
                 tmpl_args["TDstI"],
+                self.hls_sname(),
+                self.hls_sname(),
             )
         ]
 
@@ -542,12 +539,13 @@ class ChannelwiseOp_Batch(HLSCustomOp):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             )
@@ -558,34 +556,31 @@ class ChannelwiseOp_Batch(HLSCustomOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """void {}(hls::stream<ap_uint<{}>> &in0,
-                hls::stream<ap_uint<{}>> &out
+            """void {}(hls::stream<ap_uint<{}>> &in0_{},
+                hls::stream<ap_uint<{}>> &out_{}
                 )""".format(
                 self.onnx_node.name,
                 self.get_instream_width(),
+                self.hls_sname(),
                 self.get_outstream_width(),
+                self.hls_sname(),
             )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
         # the channelwise parameter tensor is acc_type [PE][TMEM][N_PARAMS_PER_CHANNEL]
         # partition for parallel access along PE and N_PARAMS_PER_CHANNEL
         # dimensions (dims 1 and 3)
         self.code_gen_dict["$PRAGMAS$"].append(
-            (
-                "#pragma HLS ARRAY_PARTITION variable=threshs.parameters "
-                "complete dim=1"
-            )
+            ("#pragma HLS ARRAY_PARTITION variable=threshs.parameters " "complete dim=1")
         )
         # self.code_gen_dict["$PRAGMAS$"].append(
         #     (
@@ -603,17 +598,11 @@ class ChannelwiseOp_Batch(HLSCustomOp):
         if pe < ich:
             if ram_style == "distributed":
                 self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.parameters "
-                        "core=ROM_2P_LUTRAM"
-                    )
+                    ("#pragma HLS RESOURCE variable=threshs.parameters " "core=ROM_2P_LUTRAM")
                 )
             elif ram_style == "block":
                 self.code_gen_dict["$PRAGMAS$"].append(
-                    (
-                        "#pragma HLS RESOURCE variable=threshs.parameters "
-                        "core=ROM_2P_BRAM"
-                    )
+                    ("#pragma HLS RESOURCE variable=threshs.parameters " "core=ROM_2P_BRAM")
                 )
             else:
                 raise Exception(
