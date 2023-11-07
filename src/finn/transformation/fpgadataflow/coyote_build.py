@@ -29,6 +29,7 @@
 
 import json
 import os
+import re
 import subprocess
 from abc import ABC, abstractmethod
 from enum import Enum
@@ -55,16 +56,18 @@ class Interface(ABC):
     _sub_signals: List[Tuple[Signal, int]]
     width: int
     owner: Optional["Instantiation"]
+    external: bool
 
-    def __init__(self, name: str, width: int):
+    def __init__(self, name: str, width: int, external: bool):
         self.name = name
         self.width = width
         self._sub_signals = []
         self.connected = False
         self.owner = None
+        self.external = external
 
     @abstractmethod
-    def connect(self, design: "Design", interface: "Interface", is_external=False):
+    def connect(self, design: "Design", other: "Interface"):
         pass
 
 
@@ -77,39 +80,40 @@ class Delimiter(Enum):
 
 
 class AXIInterface(Interface):
-    def __init__(self, name: str, width: int, delimiter: Delimiter):
-        super().__init__(name=name, width=width)
+    def __init__(self, name: str, width: int, delimiter: Delimiter, external: bool):
+        super().__init__(name=name, width=width, external=external)
         self.delimiter = delimiter
 
-    def connect(self, design: "Design", interface: "AXIInterface", is_external=False):
-        assert not interface.connected
+    def connect(self, design: "Design", other: "AXIInterface"):
+        assert not other.connected
         assert not self.connected
-        if len(self._sub_signals) != len(interface._sub_signals):
+        assert not self.external
+        if len(self._sub_signals) != len(other._sub_signals):
             assert isinstance(self, AXI4Stream) and isinstance(
-                interface, AXI4Stream
+                other, AXI4Stream
             ), "This should not happen"
 
         # NOTE: This holds only if the potential additional signals are at the end of the list
         # NOTE: This is currently the case for AXI4Stream
-        max_range = min(len(self._sub_signals), len(interface._sub_signals))
+        max_range = min(len(self._sub_signals), len(other._sub_signals))
         for i in range(max_range):
             (sub_signal, width) = self._sub_signals[i]
             our_interface = "%s%s%s" % (self.name, self.delimiter, sub_signal)
-            other_interface = "%s%s%s" % (interface.name, interface.delimiter, sub_signal)
+            other_interface = "%s%s%s" % (other.name, other.delimiter, sub_signal)
             assert self.owner is not None
-            if is_external:
-                assert interface.owner is None
+            if other.external:
+                assert other.owner is None
                 self.owner.connections[our_interface] = other_interface
                 self.connected = True
             else:
-                assert interface.owner is not None
+                assert other.owner is not None
                 wire = SimpleWire(
                     name="%s_%s_wire_%s_%s_%s"
                     % (
                         self.owner.ip.module_name,
                         self.name,
-                        interface.owner.ip.module_name,
-                        interface.name,
+                        other.owner.ip.module_name,
+                        other.name,
                         sub_signal,
                     ),
                     width=width,
@@ -118,8 +122,57 @@ class AXIInterface(Interface):
                 design.wires.append(wire)
                 self.owner.connections[our_interface] = wire.name
                 self.connected = True
-                interface.owner.connections[other_interface] = wire.name
-                interface.connected = True
+                other.owner.connections[other_interface] = wire.name
+                other.connected = True
+
+    def connect_multiple(self, design: "Design", others: List["AXIInterface"]):
+        assert isinstance(self, AXI4Lite)
+        for other in others:
+            assert not other.connected
+            assert isinstance(
+                other, AXI4Stream
+            ), "AXI4Stream not supported for multiple connections"
+        assert not self.connected
+        assert not self.external
+        assert self.owner is not None
+
+        wires: List[SimpleWire] = []
+        for sub_signal, width in self._sub_signals:
+            wire = SimpleWire(
+                name="%s_%s_wire_%s"
+                % (
+                    self.owner.ip.module_name,
+                    self.name,
+                    sub_signal,
+                ),
+                width=width,
+            )
+            design.wires.append(wire)
+            wires.append(wire)
+            our_interface = "%s%s%s" % (self.name, self.delimiter, sub_signal)
+            self.owner.connections[our_interface] = wire.name
+
+        for other in others:
+            for j, (other_sub_signal, other_sub_signal_width) in enumerate(other._sub_signals):
+                assert other_sub_signal_width * len(others) == wires[j].width
+
+        for i, other in enumerate(others):
+            assert not other.external
+            assert other.owner is not None
+            for j, (other_sub_signal, other_sub_signal_width) in enumerate(other._sub_signals):
+                (sub_signal, width) = self._sub_signals[i]
+
+                other_interface = "%s%s%s" % (other.name, other.delimiter, sub_signal)
+
+                wire = wires[j]
+                wire.connected = True
+                self.connected = True
+                other.owner.connections[other_interface] = "%s[%d:%d]" % (
+                    wire.name,
+                    (i + 1) * other_sub_signal_width,
+                    i * other_sub_signal_width,
+                )
+                other.connected = True
 
 
 class AXI4Stream(AXIInterface):
@@ -127,8 +180,8 @@ class AXI4Stream(AXIInterface):
     def next_multiple_of_8(width: int):
         return ((width + 7) >> 3) << 3
 
-    def __init__(self, name: str, width: int, tlast: bool, delimiter: Delimiter):
-        super().__init__(name, AXI4Stream.next_multiple_of_8(width), delimiter)
+    def __init__(self, name: str, width: int, tlast: bool, delimiter: Delimiter, external: bool):
+        super().__init__(name, AXI4Stream.next_multiple_of_8(width), delimiter, external)
         self.tlast = tlast
         self._sub_signals = [("tdata", self.width), ("tvalid", 1), ("tready", 1)]
         if tlast:
@@ -138,8 +191,8 @@ class AXI4Stream(AXIInterface):
 
 
 class AXI4Lite(AXIInterface):
-    def __init__(self, name: str, width: int, delimiter: Delimiter):
-        super().__init__(name, width, delimiter)
+    def __init__(self, name: str, width: int, delimiter: Delimiter, external: bool):
+        super().__init__(name, width, delimiter, external)
         # Infer address width from data width
         # bresp, rresp always two bits
         # One wstrb bit per byte on the data bus data width (in bits) / 2^3 (=8 bits)
@@ -165,15 +218,14 @@ class AXI4Lite(AXIInterface):
 
 
 class SimpleWire(Interface):
-    def __init__(self, name: str, width: int, generated=False):
-        super().__init__(name, width)
+    def __init__(self, name: str, width: int):
+        super().__init__(name, width, True)
 
-    def connect(self, design: "Design", interface: "SimpleWire", is_external=False):
+    def connect(self, design: "Design", interface: "SimpleWire"):
         assert not self.connected
 
         # NOTE: A wire is either generated and thus already connected, or belongs to the external
         # interface
-        assert is_external
         assert self.owner is not None
 
         self.owner.connections[self.name] = interface.name
@@ -201,6 +253,9 @@ class IP:
         for interface in interfaces:
             self.interfaces[interface.name] = interface
 
+    def __getitem__(self, key):
+        return self.interfaces[key]
+
     @staticmethod
     def build_vlnv(vendor: str, library: str, name: str, version: str):
         return "%s:%s:%s:%s" % (vendor, library, name, version)
@@ -214,12 +269,18 @@ class Instantiation:
         for interface in ip.interfaces.values():
             interface.owner = self
 
+    def __getitem__(self, key):
+        return self.ip[key]
+
 
 class ExternalInterface:
     def __init__(self, interfaces: List[Interface]):
         self.interfaces = {}
         for interface in interfaces:
             self.interfaces[interface.name] = interface
+
+    def __getitem__(self, key):
+        return self.interfaces[key]
 
 
 class Design:
@@ -399,16 +460,14 @@ class GenerateCoyoteProject(Transformation):
         tcl.append("open_project lynx/lynx.xpr")
         tcl.append("update_compile_order -fileset sources_1")
 
-        tcl.append("catch {get_property ip_repo_paths [current_project]}")
+        tcl.append("set paths [get_property ip_repo_paths [current_project]];")
 
         ip_repo_paths = []
         for ip_repo_path in self.design.ip_repo_paths:
             ip_repo_paths.append(ip_repo_path)
 
         # Add IP paths to Coyote
-        tcl.append(
-            "set_property  ip_repo_paths  {${*} %s} [current_project]" % " ".join(ip_repo_paths)
-        )
+        tcl.append("set_property  ip_repo_paths  {%s} [current_project]" % " ".join(ip_repo_paths))
 
         tcl.append("update_ip_catalog")
 
@@ -505,6 +564,68 @@ class CoyoteBuild(Transformation):
         self.signature = signature
 
     @staticmethod
+    def create_converter(
+        suffix: str, tlast: bool, input_width_bits: int, output_width_bits: int
+    ) -> IP:
+        return IP(
+            vlnv=IP.build_vlnv(
+                vendor="xilinx.com", library="ip", name="axis_dwidth_converter", version="1.1"
+            ),
+            module_name="axis_dwidth_converter_%s" % suffix,
+            interfaces=[
+                SimpleWire("aclk", 1),
+                SimpleWire("aresetn", 1),
+                # NOTE: Coyote interface is 512 bits wide
+                AXI4Stream("s_axis", input_width_bits, tlast, Delimiter.UNDERSCORE, False),
+                AXI4Stream("m_axis", output_width_bits, tlast, Delimiter.UNDERSCORE, False),
+            ],
+            ip_repo_path=None,
+            config={
+                "HAS_TLAST": "1",
+                "HAS_TKEEP": "1",
+                "M_TDATA_NUM_BYTES": "%d" % (input_width_bits >> 3),
+                "S_TDATA_NUM_BYTES": "%d" % (output_width_bits >> 3),
+            },
+            run_needed=True,
+        )
+
+    """
+    create_ip -name axi_crossbar -vendor xilinx.com -library ip -version 2.1
+    -module_name axi_crossbar_1
+    set_property -dict [list \
+    CONFIG.ADDR_WIDTH {24} \
+    CONFIG.M00_A00_ADDR_WIDTH {8} \
+    CONFIG.M01_A00_ADDR_WIDTH {8} \
+    CONFIG.M01_A00_BASE_ADDR {0x0000000000000100} \
+    CONFIG.M02_A00_ADDR_WIDTH {8} \
+    CONFIG.M02_A00_BASE_ADDR {0x0000000000000200} \
+    CONFIG.M03_A00_ADDR_WIDTH {8} \
+    CONFIG.M03_A00_BASE_ADDR {0x0000000000000300} \
+    CONFIG.NUM_MI {4} \
+    CONFIG.PROTOCOL {AXI4LITE} \
+    ] [get_ips axi_crossbar_1]
+
+    """
+
+    @staticmethod
+    def create_interconnect(vivado_stitch_proj: str, axilites: List[str]):
+        design_file = Path(vivado_stitch_proj) / "finn_design.v"
+
+        contents = None
+        with open(design_file) as f:
+            contents = f.read()
+
+        assert contents is not None
+
+        for axilite in axilites:
+            # TODO: s_axi_control_%d in axilites does not match what is in the finn design file.
+            # The index is 0 again and not 3.
+            print(axilite)
+            match = re.search(r"input \[(\d+)\:0\]%s_awaddr" % axilite, contents)
+            assert match
+            print("%s has width %s" % (axilite, match.group(1)))
+
+    @staticmethod
     def __is_accl_mode(model: ModelWrapper) -> bool:
         # TODO: Maybe find something a bit cleaner
         for node in model.graph.node:
@@ -518,8 +639,12 @@ class CoyoteBuild(Transformation):
         # Also, we only want it at the output since the Coyote interface already provides tlast to
         # the input width converter
 
+        # model = ModelWrapper(
+        #     "/home/antoine/Documents/coyote_finn/cybersecurity/outputs_u250_automate/"
+        #     "intermediate_models/step_create_stitched_ip.onnx"
+        # )
         model.set_metadata_prop("accl_mode", json.dumps(CoyoteBuild.__is_accl_mode(model)))
-        is_accl_mode = json.loads(model.get_metadata_prop("accl_mode"))
+        is_accl_mode = json.loads(model.get_metadata_prop("accl_mode"))  # type: ignore
 
         model = model.transform(
             CreateStitchedIPForCoyote(
@@ -537,7 +662,15 @@ class CoyoteBuild(Transformation):
         assert len(intf_names["m_axis"]) == 1, "Only support one toplevel output"
 
         # TODO: Support multiple AXI lites using interconnect
-        assert len(intf_names["axilite"]) == 1, "Only support one AXI lite for now"
+        # TODO: Get address widths from finn_design.v (root of stitched project: input [width:0]
+        # intf_names["axilite"]_awaddr;)
+        # NOTE: s_axilite for weigths s_axi_control for tlastmarker
+        # NOTE: We also need to handle the AXILite from
+        # assert len(intf_names["axilite"]) == 1, "Only support one AXI lite for now"
+
+        CoyoteBuild.create_interconnect(
+            model.get_metadata_prop("vivado_stitch_proj"), intf_names["axilite"]
+        )
 
         # TODO: Create helpers to build IP
         finn_kernel_ip = IP(
@@ -552,75 +685,58 @@ class CoyoteBuild(Transformation):
                     intf_names["s_axis"][0][1],
                     False,
                     Delimiter.UNDERSCORE,
+                    False,
                 ),
                 AXI4Stream(
                     intf_names["m_axis"][0][0],
                     intf_names["m_axis"][0][1],
                     not is_accl_mode,
                     Delimiter.UNDERSCORE,
+                    False,
                 ),
                 AXI4Lite(
                     intf_names["axilite"][0],
                     # TODO: Figure out if this can be dynamic
                     32,
                     Delimiter.UNDERSCORE,
+                    False,
                 ),
             ],
             ip_repo_path=model.get_metadata_prop("vivado_stitch_proj") + "/ip",  # type: ignore
         )
 
-        axis_dwidth_convert_host_to_finn = IP(
-            vlnv=IP.build_vlnv(
-                vendor="xilinx.com", library="ip", name="axis_dwidth_converter", version="1.1"
-            ),
-            module_name="axis_dwidth_converter_host_to_finn",
-            interfaces=[
-                SimpleWire("aclk", 1),
-                SimpleWire("aresetn", 1),
-                AXI4Stream("s_axis", 512, not is_accl_mode, Delimiter.UNDERSCORE),
-                AXI4Stream("m_axis", 8, not is_accl_mode, Delimiter.UNDERSCORE),
-            ],
-            ip_repo_path=None,
-            config={
-                "HAS_TLAST": "1",
-                "HAS_TKEEP": "1",
-                "M_TDATA_NUM_BYTES": "1",
-                "S_TDATA_NUM_BYTES": "64",
-            },
-            run_needed=True,
+        axis_dwidth_convert_host_to_finn = CoyoteBuild.create_converter(
+            "host_to_finn",
+            not is_accl_mode,
+            512,
+            finn_kernel_ip[intf_names["s_axis"][0][0]].width,
         )
 
-        axis_dwidth_convert_finn_to_host = IP(
-            vlnv=IP.build_vlnv(
-                vendor="xilinx.com", library="ip", name="axis_dwidth_converter", version="1.1"
-            ),
-            module_name="axis_dwidth_convert_finn_to_host",
-            interfaces=[
-                SimpleWire("aclk", 1),
-                SimpleWire("aresetn", 1),
-                AXI4Stream("s_axis", 8, not is_accl_mode, Delimiter.UNDERSCORE),
-                AXI4Stream("m_axis", 512, not is_accl_mode, Delimiter.UNDERSCORE),
-            ],
-            ip_repo_path=None,
-            config={
-                "HAS_TLAST": "1",
-                "HAS_TKEEP": "1",
-                "M_TDATA_NUM_BYTES": "64",
-                "S_TDATA_NUM_BYTES": "1",
-            },
-            run_needed=True,
+        axis_dwidth_convert_finn_to_host = CoyoteBuild.create_converter(
+            "finn_to_host",
+            not is_accl_mode,
+            finn_kernel_ip[intf_names["m_axis"][0][0]].width,
+            512,
         )
 
         coyote_interface = ExternalInterface(
             interfaces=[
-                AXI4Lite(name="axi_ctrl", width=64, delimiter=Delimiter.POINT),
+                AXI4Lite(name="axi_ctrl", width=64, delimiter=Delimiter.POINT, external=True),
                 SimpleWire(name="aclk", width=1),
                 SimpleWire(name="aresetn", width=1),
                 AXI4Stream(
-                    name="axis_host_0_sink", width=512, tlast=True, delimiter=Delimiter.POINT
+                    name="axis_host_0_sink",
+                    width=512,
+                    tlast=True,
+                    delimiter=Delimiter.POINT,
+                    external=True,
                 ),
                 AXI4Stream(
-                    name="axis_host_0_src", width=512, tlast=True, delimiter=Delimiter.POINT
+                    name="axis_host_0_src",
+                    width=512,
+                    tlast=True,
+                    delimiter=Delimiter.POINT,
+                    external=True,
                 ),
             ]
         )
@@ -641,54 +757,53 @@ class CoyoteBuild(Transformation):
 
         design = Design(instantiations, coyote_interface)
 
-        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["m_axis"][0][0]].connect(
-            design, instantiations["axis_dwidth_convert_finn_to_host_inst"].ip.interfaces["s_axis"]
+        instantiations["finn_kernel_inst"][intf_names["m_axis"][0][0]].connect(
+            design, instantiations["axis_dwidth_convert_finn_to_host_inst"]["s_axis"]
         )
 
-        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["s_axis"][0][0]].connect(
+        instantiations["finn_kernel_inst"][intf_names["s_axis"][0][0]].connect(
             design,
-            instantiations["axis_dwidth_convert_host_to_finn_inst"].ip.interfaces["m_axis"],
+            instantiations["axis_dwidth_convert_host_to_finn_inst"]["m_axis"],
         )
 
-        # TODO: external should be part of the Interface class
-        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["axilite"][0]].connect(
-            design, coyote_interface.interfaces["axi_ctrl"], is_external=True
+        instantiations["finn_kernel_inst"][intf_names["axilite"][0]].connect(
+            design, coyote_interface["axi_ctrl"]
         )
 
-        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["clk"][0]].connect(
-            design, coyote_interface.interfaces["aclk"], is_external=True
+        instantiations["finn_kernel_inst"][intf_names["clk"][0]].connect(
+            design, coyote_interface["aclk"]
         )
 
-        instantiations["finn_kernel_inst"].ip.interfaces[intf_names["rst"][0]].connect(
-            design, coyote_interface.interfaces["aresetn"], is_external=True
+        instantiations["finn_kernel_inst"][intf_names["rst"][0]].connect(
+            design, coyote_interface["aresetn"]
         )
 
-        instantiations["axis_dwidth_convert_finn_to_host_inst"].ip.interfaces["aclk"].connect(
-            design, coyote_interface.interfaces["aclk"], is_external=True
+        instantiations["axis_dwidth_convert_finn_to_host_inst"]["aclk"].connect(
+            design, coyote_interface["aclk"]
         )
 
-        instantiations["axis_dwidth_convert_finn_to_host_inst"].ip.interfaces["aresetn"].connect(
-            design, coyote_interface.interfaces["aresetn"], is_external=True
+        instantiations["axis_dwidth_convert_finn_to_host_inst"]["aresetn"].connect(
+            design, coyote_interface["aresetn"]
         )
 
-        instantiations["axis_dwidth_convert_finn_to_host_inst"].ip.interfaces["m_axis"].connect(
-            design, coyote_interface.interfaces["axis_host_0_src"], is_external=True
+        instantiations["axis_dwidth_convert_finn_to_host_inst"]["m_axis"].connect(
+            design, coyote_interface["axis_host_0_src"]
         )
 
-        instantiations["axis_dwidth_convert_host_to_finn_inst"].ip.interfaces["aclk"].connect(
-            design, coyote_interface.interfaces["aclk"], is_external=True
+        instantiations["axis_dwidth_convert_host_to_finn_inst"]["aclk"].connect(
+            design, coyote_interface["aclk"]
         )
 
-        instantiations["axis_dwidth_convert_host_to_finn_inst"].ip.interfaces["aresetn"].connect(
-            design, coyote_interface.interfaces["aresetn"], is_external=True
+        instantiations["axis_dwidth_convert_host_to_finn_inst"]["aresetn"].connect(
+            design, coyote_interface["aresetn"]
         )
 
-        instantiations["axis_dwidth_convert_host_to_finn_inst"].ip.interfaces["s_axis"].connect(
-            design, coyote_interface.interfaces["axis_host_0_sink"], is_external=True
+        instantiations["axis_dwidth_convert_host_to_finn_inst"]["s_axis"].connect(
+            design, coyote_interface["axis_host_0_sink"]
         )
 
         model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part, design=design))
         model = model.transform(CoyoteUserLogic(design=design))
-        model = model.transform(CoyoteCompile())
+        # model = model.transform(CoyoteCompile())
 
         return (model, False)
