@@ -728,19 +728,6 @@ class TestEnd2End:
         build_data = get_build_env(board, target_clk_ns)
         if build_data["kind"] == "alveo" and ("VITIS_PATH" not in os.environ):
             pytest.skip("VITIS_PATH not set")
-        if board == "U250" and wbits == 1 and abits == 1:
-            if topology == "lfc" or topology == "tfc":
-                pytest.xfail(
-                    "bnn_w"
-                    + str(wbits)
-                    + "_a"
-                    + str(abits)
-                    + "_"
-                    + topology
-                    + "_"
-                    + board
-                    + " test_build currently disabled, see CR-1171874"
-                )
         prev_chkpt_name = get_checkpoint_name(topology, wbits, abits, "fifodepth_" + board)
         model = load_test_checkpoint_or_skip(prev_chkpt_name)
         model = model.transform(build_data["build_fxn"])
