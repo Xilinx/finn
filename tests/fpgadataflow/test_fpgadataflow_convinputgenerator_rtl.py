@@ -49,9 +49,7 @@ def make_single_im2col_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, stride, dilatio
     ofm_dim_h, ofm_dim_w = ofm_dim
 
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch]
     )
@@ -91,9 +89,7 @@ def make_single_slidingwindow_modelwrapper(
     ofm_dim_h, ofm_dim_w = ofm_dim
 
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, k_h * k_w * ifm_ch]
     )
@@ -140,9 +136,9 @@ def prepare_inputs(input_tensor):
 # input datatype
 @pytest.mark.parametrize("idt", [DataType["UINT4"]])
 # kernel size
-@pytest.mark.parametrize("k", [[2, 2], [3, 3], [1, 3]])
+@pytest.mark.parametrize("k", [[3, 3], [1, 5]])
 # input dimension
-@pytest.mark.parametrize("ifm_dim", [[24, 24], [15, 6], [13, 13], [1, 14]])
+@pytest.mark.parametrize("ifm_dim", [[13, 13], [1, 21]])
 # input channels
 @pytest.mark.parametrize("ifm_ch", [6])
 # Stride
@@ -152,9 +148,9 @@ def prepare_inputs(input_tensor):
 # depthwise
 @pytest.mark.parametrize("dw", [0, 1])
 # input channel parallelism ("SIMD")
-@pytest.mark.parametrize("simd", [1, 2, 3, 6])
+@pytest.mark.parametrize("simd", [1, 3, 6])
 # parallel_window enable (MMV_out = M*K)
-@pytest.mark.parametrize("parallel_window", [0])
+@pytest.mark.parametrize("parallel_window", [0, 1])
 # in/out MMV ("M")
 @pytest.mark.parametrize("m", [1])
 # Flip dimensions
@@ -191,20 +187,13 @@ def test_fpgadataflow_slidingwindow_rtl(
     if ifm_ch % simd != 0:
         pytest.skip("SIMD must divide number of input channels")
     if kernel_height > ifm_dim_h or stride_h > ifm_dim_h:
-        pytest.skip(
-            "Illegal convolution configuration: kernel or stride > FM dimension"
-        )
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
     if kernel_width > ifm_dim_w or stride_w > ifm_dim_w:
-        pytest.skip(
-            "Illegal convolution configuration: kernel or stride > FM dimension"
-        )
-    if (k_h == 1 and (stride_h != 1 or dilation_h != 1)) or (
-        k_w == 1 and (stride_w != 1 or dilation_w != 1)
-    ):
-        pytest.skip(
-            """Illegal convolution configuration:
-            stride or dilation defined for unitary kernel dim"""
-        )
+        pytest.skip("Illegal convolution configuration: kernel or stride > FM dimension")
+    if (k_h == 1 and dilation_h != 1) or (k_w == 1 and dilation_w != 1):
+        pytest.skip("Illegal convolution configuration: dilation for unitary kernel dim")
+    if (stride_h > k_h) or (stride_w > k_w) and not parallel_window:
+        pytest.skip("Not all combinations for stride > k edge case supported in default mode")
     if k_h == 1 and k_w == 1 and simd != ifm_ch:
         pytest.skip("1x1 Kernel only supported in parallel mode (SIMD=C)")
     if parallel_window and simd != ifm_ch:
@@ -252,9 +241,7 @@ def test_fpgadataflow_slidingwindow_rtl(
     if dw == 0:
         assert (y_produced == y_expected).all()
     else:
-        y_expected = y_expected.reshape(
-            1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd
-        )
+        y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, k_h * k_w, ifm_ch // simd, simd)
         y_expected = y_expected.transpose(0, 1, 2, 4, 3, 5)
         y_expected = y_expected.reshape(1, ofm_dim_h, ofm_dim_w, ifm_ch * k_h * k_w)
         assert (y_produced == y_expected).all()

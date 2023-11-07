@@ -57,13 +57,9 @@ class FoldQuantWeights(Transformation):
                 is_const_shape = (n.op_type == "Shape") and (ishape is not None)
                 if is_all_constant_inputs or is_const_shape:
                     # Check node validity
-                    if (
-                        n.op_type == "Quant"
-                        and not model.get_initializer(n.input[2]) == 0
-                    ):
+                    if n.op_type == "Quant" and not model.get_initializer(n.input[2]) == 0:
                         raise ValueError(
-                            "Only Quant nodes with zero-point == 0 "
-                            "are currently supported."
+                            "Only Quant nodes with zero-point == 0 " "are currently supported."
                         )
                     if model.is_fork_node(n):
                         raise ValueError(
@@ -73,8 +69,7 @@ class FoldQuantWeights(Transformation):
                     target_node = model.find_direct_successors(n)
                     if target_node is None:
                         raise RuntimeError(
-                            "Weights quantized with the Quant node must have "
-                            "a successor node."
+                            "Weights quantized with the Quant node must have " "a successor node."
                         )
                     else:
                         target_node = target_node[0]
@@ -126,9 +121,7 @@ class FoldQuantWeights(Transformation):
                         model.set_tensor_datatype(node_out, new_dtype)
 
                         # Reshape scale for Conv if required
-                        target_output_shape = model.get_tensor_shape(
-                            target_node.output[0]
-                        )
+                        target_output_shape = model.get_tensor_shape(target_node.output[0])
                         if target_node.op_type == "Conv" and len(scale.shape) > 0:
                             conv_out_shape = [1] * len(target_output_shape)
                             # only support per-output channel scaling
@@ -160,9 +153,7 @@ class FoldQuantWeights(Transformation):
                                 "Can only constant fold scaled Quant weights "
                                 "if a successor exists."
                             )
-                        assert (
-                            len(successor) == 1
-                        ), "Only implemented for a single consumer"
+                        assert len(successor) == 1, "Only implemented for a single consumer"
                         successor = successor[0]
                         succ_output_name = successor.output[0]
 

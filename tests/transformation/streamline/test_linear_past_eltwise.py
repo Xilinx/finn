@@ -63,15 +63,9 @@ def make_model(shape):
 
     add1_node = helper.make_node("Add", [inp1.name, inp1_add_ct.name], [inp1_add.name])
     add2_node = helper.make_node("Add", [inp2.name, inp2_add_ct.name], [inp2_add.name])
-    mul1_node = helper.make_node(
-        "Mul", [inp1_add.name, inp1_mul_ct.name], [inp1_mul.name]
-    )
-    mul2_node = helper.make_node(
-        "Mul", [inp2_add.name, inp2_mul_ct.name], [inp2_mul.name]
-    )
-    eltwise_add_node = helper.make_node(
-        "Add", [inp1_mul.name, inp2_mul.name], [outp.name]
-    )
+    mul1_node = helper.make_node("Mul", [inp1_add.name, inp1_mul_ct.name], [inp1_mul.name])
+    mul2_node = helper.make_node("Mul", [inp2_add.name, inp2_mul_ct.name], [inp2_mul.name])
+    eltwise_add_node = helper.make_node("Add", [inp1_mul.name, inp2_mul.name], [outp.name])
     graph = helper.make_graph(
         nodes=[add1_node, add2_node, mul1_node, mul2_node, eltwise_add_node],
         name="graph",
@@ -153,9 +147,7 @@ def test_linear_past_eltwise_add_multiple_forks(ch, ifmdim):
     num_of_params = 6
     value_info = []
     for i in range(num_of_params):
-        value_info += [
-            helper.make_tensor_value_info("p" + str(i), TensorProto.FLOAT, input_shape)
-        ]
+        value_info += [helper.make_tensor_value_info("p" + str(i), TensorProto.FLOAT, input_shape)]
 
     modelproto = qonnx_make_model(
         helper.make_graph(
@@ -180,9 +172,7 @@ def test_linear_past_eltwise_add_multiple_forks(ch, ifmdim):
 
     np.random.seed(0)
     for i in range(num_of_params):
-        model.set_initializer(
-            "p" + str(i), np.random.rand(*input_shape).astype(np.float32)
-        )
+        model.set_initializer("p" + str(i), np.random.rand(*input_shape).astype(np.float32))
 
     # need equal mults:
     model.set_initializer("p2", model.get_initializer("p1"))

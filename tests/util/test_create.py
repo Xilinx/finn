@@ -34,9 +34,7 @@ import finn.util.create as create
 
 
 @pytest.mark.util
-@pytest.mark.parametrize(
-    "bitwidth", [DataType["BIPOLAR"], DataType["INT2"], DataType["INT4"]]
-)
+@pytest.mark.parametrize("bitwidth", [DataType["BIPOLAR"], DataType["INT2"], DataType["INT4"]])
 def test_hls_random_mlp_maker(bitwidth):
     w = bitwidth
     a = bitwidth

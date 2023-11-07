@@ -31,13 +31,10 @@ import numpy as np
 import qonnx.analysis.topology as ta
 from qonnx.core.onnx_exec import execute_onnx as execute_onnx_base
 
-from finn.core.remote_exec import remote_exec
 from finn.core.rtlsim_exec import rtlsim_exec
 
 
-def execute_onnx(
-    model, input_dict, return_full_exec_context=False, start_node=None, end_node=None
-):
+def execute_onnx(model, input_dict, return_full_exec_context=False, start_node=None, end_node=None):
     """Executes given ONNX ModelWrapper with given named inputs.
     If return_full_exec_context is False, a dict of named outputs is returned
     as indicated by the model.graph.output.
@@ -51,13 +48,10 @@ def execute_onnx(
 
     # check if model has an execution mode set
     # if None, execute model node using the QONNX-provided execute_onnx impl
-    # if set to "remote_pynq" execute model on PYNQ board
     # if set to "rtlsim" execute model using pyverilator
     model_exec_mode = model.get_metadata_prop("exec_mode")
     if (model_exec_mode is None) or (model_exec_mode == ""):
-        return execute_onnx_base(
-            model, input_dict, return_full_exec_context, start_node, end_node
-        )
+        return execute_onnx_base(model, input_dict, return_full_exec_context, start_node, end_node)
 
     if not model.check_all_tensor_shapes_specified():
         raise Exception("Found unspecified tensor shapes, try infer_shapes")
@@ -91,22 +85,17 @@ def execute_onnx(
 
     # check if model has an execution mode set
     # if None, execute model node by node using execute_node()
-    # if set to "remote_pynq" execute model on PYNQ board
     # if set to "rtlsim" execute model using pyverilator
     model_exec_mode = model.get_metadata_prop("exec_mode")
     if (model_exec_mode is None) or (model_exec_mode == ""):
         return execute_onnx_base()
-    elif model_exec_mode == "remote_pynq":
-        # use remote exec metadata built into model to execute on a remote PYNQ
-        remote_exec(model, execution_context)
     elif model_exec_mode == "rtlsim":
         # use stitched IP for rtlsim
         rtlsim_exec(model, execution_context)
     else:
         raise Exception(
-            """Metadata property "exec_mode" is set to an unknown value.
-        Can be left unset or has to be set to "remote_pynq" for remote execution
-        on PYNQ board or "rtlsim" for execution using pyverilator!"""
+            """Metadata property "exec_mode" is set to an unknown value. Can be left
+            unset or has to be set to "rtlsim" for execution using pyverilator!"""
         )
 
     if return_full_exec_context:

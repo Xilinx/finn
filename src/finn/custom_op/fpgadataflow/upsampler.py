@@ -107,9 +107,7 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         exp_ishape = self.get_normal_input_shape()
         oshape = self.get_normal_output_shape()
         ishape = tuple(model.get_tensor_shape(self.onnx_node.input[0]))
-        assert (
-            ishape == exp_ishape
-        ), "Unexpect input shape for UpsampleNearestNeighbour_Batch."
+        assert ishape == exp_ishape, "Unexpect input shape for UpsampleNearestNeighbour_Batch."
         return super().make_const_shape_op(oshape)
 
     def infer_node_datatype(self, model):
@@ -187,17 +185,28 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         npy_in = "%s/input_0.npy" % code_gen_dir
         self.code_gen_dict["$READNPYDATA$"] = []
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
 
     def docompute(self):
@@ -206,13 +215,15 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         if is_2d:
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """UpsampleNearestNeighbour_Batch<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0, out, numReps);"""
+                ap_uint<Input_precision> > (in0_%s, out_%s, numReps);"""
+                % (self.hls_sname(), self.hls_sname())
             ]
         else:
             assert batch == 1, "1D upsampler currently needs numReps=1"
             self.code_gen_dict["$DOCOMPUTE$"] = [
                 """UpsampleNearestNeighbour_1D<OFMDim, IFMDim, IFMChannels,
-                ap_uint<Input_precision> > (in0, out);"""
+                ap_uint<Input_precision> > (in0_%s, out_%s);"""
+                % (self.hls_sname(), self.hls_sname())
             ]
 
     def dataoutstrm(self):
@@ -231,12 +242,13 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         oshape_cpp_str = str(oshape).replace("(", "{").replace(")", "}")
 
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s");'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s");'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 oshape_cpp_str,
                 npy_out,
             )
@@ -249,20 +261,24 @@ class UpsampleNearestNeighbour_Batch(HLSCustomOp):
         packed_bits = self.get_instream_width()
         packed_hls_type = "ap_uint<%d>" % packed_bits
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            "void %s(hls::stream<%s > &in0, hls::stream<%s > &out)"
-            % (self.onnx_node.name, packed_hls_type, packed_hls_type)
+            "void %s(hls::stream<%s > &in0_%s, hls::stream<%s > &out_%s)"
+            % (
+                self.onnx_node.name,
+                packed_hls_type,
+                self.hls_sname(),
+                packed_hls_type,
+                self.hls_sname(),
+            )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS INTERFACE axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS INTERFACE axis port=out_" + self.hls_sname()
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS INTERFACE ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
 
     def execute_node(self, context, graph):
         mode = self.get_nodeattr("exec_mode")

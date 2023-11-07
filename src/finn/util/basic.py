@@ -31,6 +31,9 @@ import subprocess
 import sys
 import tempfile
 
+# test boards
+test_board_map = ["Pynq-Z1", "KV260_SOM", "ZCU104", "U250"]
+
 # mapping from PYNQ board names to FPGA part names
 pynq_part_map = dict()
 pynq_part_map["Ultra96"] = "xczu3eg-sbva484-1-e"
@@ -64,10 +67,10 @@ alveo_part_map["U250"] = "xcu250-figd2104-2L-e"
 alveo_part_map["U280"] = "xcu280-fsvh2892-2L-e"
 
 alveo_default_platform = dict()
-alveo_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_201920_3"
-alveo_default_platform["U200"] = "xilinx_u200_xdma_201830_2"
-alveo_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_2_1_202010_1"
-alveo_default_platform["U280"] = "xilinx_u280_xdma_201920_3"
+alveo_default_platform["U50"] = "xilinx_u50_gen3x16_xdma_5_202210_1"
+alveo_default_platform["U200"] = "xilinx_u200_gen3x16_xdma_2_202110_1"
+alveo_default_platform["U250"] = "xilinx_u250_gen3x16_xdma_4_1_202210_1"
+alveo_default_platform["U280"] = "xilinx_u280_gen3x16_xdma_1_202211_1"
 
 
 def get_rtlsim_trace_depth():

@@ -53,9 +53,7 @@ def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_
     ifm_dim_h, ifm_dim_w = ifm_dim
     ofm_dim_h, ofm_dim_w = ofm_dim
     odt = idt
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, ifm_dim_h, ifm_dim_w, ifm_ch])
     outp = helper.make_tensor_value_info(
         "outp", TensorProto.FLOAT, [1, ofm_dim_h, ofm_dim_w, ifm_ch]
     )
@@ -70,9 +68,7 @@ def make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_
         ceil_mode=ceil_mode,
         pads=[0, 0, 0, 0],
     )
-    graph = helper.make_graph(
-        nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=[mp_node], name="mp_graph", inputs=[inp], outputs=[outp])
 
     model = qonnx_make_model(graph, producer_name="mp-model")
     model = ModelWrapper(model)
@@ -106,9 +102,7 @@ def prepare_inputs(input_tensor):
 @pytest.mark.fpgadataflow
 @pytest.mark.slow
 @pytest.mark.vivado
-def test_fpgadataflow_streamingmaxpool(
-    idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode, exec_mode
-):
+def test_fpgadataflow_streamingmaxpool(idt, dim_1d, k, ifm_dim, ifm_ch, pe, ceil_mode, exec_mode):
     ifm_dim_h = ifm_dim
     k_h = k
     if dim_1d:
@@ -138,9 +132,7 @@ def test_fpgadataflow_streamingmaxpool(
     # prepare input data
     input_dict = prepare_inputs(x)
 
-    golden = make_single_maxpoolnhwc_modelwrapper(
-        k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode
-    )
+    golden = make_single_maxpoolnhwc_modelwrapper(k, ifm_ch, ifm_dim, ofm_dim, idt, ceil_mode)
     y_expected = oxe.execute_onnx(golden, input_dict)["outp"]
 
     model = golden.transform(InferStreamingMaxPool())

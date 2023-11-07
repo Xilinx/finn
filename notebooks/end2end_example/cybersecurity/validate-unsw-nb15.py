@@ -57,9 +57,7 @@ if __name__ == "__main__":
         help='name of bitfile (i.e. "resizer.bit")',
         default="../bitfile/finn-accel.bit",
     )
-    parser.add_argument(
-        "--dataset_root", help="dataset root dir for download/reuse", default="."
-    )
+    parser.add_argument("--dataset_root", help="dataset root dir for download/reuse", default=".")
     # parse arguments
     args = parser.parse_args()
     bsize = args.batchsize

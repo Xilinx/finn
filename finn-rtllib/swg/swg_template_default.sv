@@ -28,141 +28,6 @@
  * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
-module $TOP_MODULE_NAME$_controller #(
-    int unsigned  LOOP_H_ITERATIONS    = $LOOP_H_ITERATIONS$,
-    int unsigned  LOOP_W_ITERATIONS    = $LOOP_W_ITERATIONS$,
-    int unsigned  LOOP_KH_ITERATIONS   = $LOOP_KH_ITERATIONS$,
-    int unsigned  LOOP_KW_ITERATIONS   = $LOOP_KW_ITERATIONS$,
-    int unsigned  LOOP_SIMD_ITERATIONS = $LOOP_SIMD_ITERATIONS$,
-
-    int unsigned  INCR_BITWIDTH = $INCR_BITWIDTH$,
-
-    bit IS_DEPTHWISE = $IS_DEPTHWISE$
-)(
-    input   logic  clk,
-    input   logic  rst_n,
-
-    input   logic  advance,
-    output  logic [INCR_BITWIDTH-1:0]  addr_incr,
-    output  logic [INCR_BITWIDTH-1:0]  tail_incr
-);
-
-    // state and counters
-    typedef enum logic [2:0] {
-        STATE_START,
-        STATE_LOOP_SIMD,
-        STATE_LOOP_KW,
-        STATE_LOOP_KH,
-        STATE_LOOP_W,
-        STATE_LOOP_H
-    }  state_e;
-    state_e  State = $INNERMOST_STATE$;
-    state_e  state_next;
-
-    logic signed [$clog2(LOOP_H_ITERATIONS   +2)+1-1:0]  Counter_loop_h    = LOOP_H_ITERATIONS;
-    logic signed [$clog2(LOOP_W_ITERATIONS   +2)+1-1:0]  Counter_loop_w    = LOOP_W_ITERATIONS;
-    logic signed [$clog2(LOOP_KH_ITERATIONS  +2)+1-1:0]  Counter_loop_kh   = LOOP_KH_ITERATIONS;
-    logic signed [$clog2(LOOP_KW_ITERATIONS  +2)+1-1:0]  Counter_loop_kw   = LOOP_KW_ITERATIONS;
-    logic signed [$clog2(LOOP_SIMD_ITERATIONS+2)+1-1:0]  Counter_loop_simd = LOOP_SIMD_ITERATIONS;
-
-    // combinational logic for addr_incr generation
-    always_comb begin : blkHead
-        unique case (State)
-            0 : addr_incr = 0;
-            1 : addr_incr = $HEAD_INCR_SIMD$;
-            2 : addr_incr = $HEAD_INCR_KW$;
-            3 : addr_incr = $HEAD_INCR_KH$;
-            4 : addr_incr = $HEAD_INCR_W$;
-            5 : addr_incr = $HEAD_INCR_H$;
-        endcase
-    end
-
-    // combinational logic for tail_incr generation
-    uwire  tail_incr_inner_condition = IS_DEPTHWISE? (Counter_loop_kh >= 0) : 0;
-    assign tail_incr =
-        tail_incr_inner_condition? 1 :
-        Counter_loop_w >= 0?       $TAIL_INCR_W$ :
-        Counter_loop_h >= 0?       $TAIL_INCR_H$ :
-        /* else */                 $TAIL_INCR_LAST$;
-
-    // combinational next state logic
-    always_comb begin : blkState
-        state_next = State;
-        if(State != $INNERMOST_STATE$)  state_next = $INNERMOST_STATE$;
-        else begin
-            if(Counter_loop_simd < 0) begin
-                state_next =
-                    (Counter_loop_kw >= 0)? STATE_LOOP_KW :
-                    (Counter_loop_kh >= 0)? STATE_LOOP_KH :
-                    (Counter_loop_w  >= 0)? STATE_LOOP_W :
-                    (Counter_loop_h  >= 0)? STATE_LOOP_H :
-                    /* else */              STATE_START;
-            end
-        end
-    end : blkState
-
-    // sequential logic
-    always_ff @ (posedge clk) begin
-        if(!rst_n) begin
-            State <= $INNERMOST_STATE$;
-            Counter_loop_h    <= LOOP_H_ITERATIONS;
-            Counter_loop_w    <= LOOP_W_ITERATIONS;
-            Counter_loop_kh   <= LOOP_KH_ITERATIONS;
-            Counter_loop_kw   <= LOOP_KW_ITERATIONS;
-            Counter_loop_simd <= LOOP_SIMD_ITERATIONS;
-        end
-        else if(advance) begin
-            State <= state_next;
-            if (State == $INNERMOST_STATE$) begin
-                if(Counter_loop_simd >= 0)  Counter_loop_simd <= Counter_loop_simd-1;
-                else begin
-                    Counter_loop_simd <= LOOP_SIMD_ITERATIONS;
-                    if(Counter_loop_kw >= 0)  Counter_loop_kw <= Counter_loop_kw-1;
-                    else begin
-                        Counter_loop_kw <= LOOP_KW_ITERATIONS;
-                        if(Counter_loop_kh >= 0)  Counter_loop_kh <= Counter_loop_kh-1;
-                        else begin
-                            Counter_loop_kh <= LOOP_KH_ITERATIONS;
-                            if(Counter_loop_w >= 0)  Counter_loop_w <= Counter_loop_w-1;
-                            else begin
-                                Counter_loop_w <= LOOP_W_ITERATIONS;
-                                if(Counter_loop_h >= 0)  Counter_loop_h <= Counter_loop_h-1;
-                                else  Counter_loop_h <= LOOP_H_ITERATIONS;
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-endmodule :  $TOP_MODULE_NAME$_controller
-
-module $TOP_MODULE_NAME$_cyclic_buffer_addressable #(
-    int unsigned  WIDTH,
-    int unsigned  DEPTH
-)(
-    input   logic  clk,
-
-    input   logic  write_enable,
-    input   logic [$clog2(DEPTH)-1:0] write_addr,
-    input   logic [WIDTH-1:0]  data_in,
-
-    input   logic  read_enable,
-    input   logic [$clog2(DEPTH)-1:0]  read_addr, // absolute (!) read address of cyclic buffer
-    output  logic [WIDTH-1:0]  data_out
-);
-
-    $RAM_STYLE$ logic [WIDTH-1:0] Ram[DEPTH];
-    logic [WIDTH-1:0]  Out = 'x;
-    always_ff @(posedge clk) begin
-        if (read_enable)  Out <= Ram[read_addr];
-        if (write_enable) Ram[write_addr] <= data_in;
-    end
-    assign  data_out = Out;
-
-endmodule : $TOP_MODULE_NAME$_cyclic_buffer_addressable
-
 module $TOP_MODULE_NAME$_impl #(
     int  BIT_WIDTH,
     int  SIMD,
@@ -197,9 +62,10 @@ module $TOP_MODULE_NAME$_impl #(
     uwire  window_buffer_read_enable;
     uwire [$clog2(BUF_ELEM_TOTAL)-1:0]  window_buffer_write_addr;
     uwire [$clog2(BUF_ELEM_TOTAL)-1:0]  window_buffer_read_addr;
-    $TOP_MODULE_NAME$_cyclic_buffer_addressable #(
+    swg_cyclic_buffer_addressable #(
         .WIDTH(BUF_IN_WIDTH),
-        .DEPTH(BUF_ELEM_TOTAL)
+        .DEPTH(BUF_ELEM_TOTAL),
+        .RAM_STYLE($RAM_STYLE$)
     ) window_buffer_inst (
         .clk(ap_clk),
 
@@ -216,7 +82,25 @@ module $TOP_MODULE_NAME$_impl #(
     uwire  advance_controller;
     uwire signed [INCR_BITWIDTH-1:0]  addr_incr;
     uwire        [INCR_BITWIDTH-1:0]  tail_incr;
-    $TOP_MODULE_NAME$_controller controller_inst (
+    swg_controller #(
+        .LOOP_H_ITERATIONS($LOOP_H_ITERATIONS$),
+        .LOOP_W_ITERATIONS($LOOP_W_ITERATIONS$),
+        .LOOP_KH_ITERATIONS($LOOP_KH_ITERATIONS$),
+        .LOOP_KW_ITERATIONS($LOOP_KW_ITERATIONS$),
+        .LOOP_SIMD_ITERATIONS($LOOP_SIMD_ITERATIONS$),
+        .HEAD_INCR_SIMD($HEAD_INCR_SIMD$),
+        .HEAD_INCR_KW($HEAD_INCR_KW$),
+        .HEAD_INCR_KH($HEAD_INCR_KH$),
+        .HEAD_INCR_W($HEAD_INCR_W$),
+        .HEAD_INCR_H($HEAD_INCR_H$),
+        .TAIL_INCR_W($TAIL_INCR_W$),
+        .TAIL_INCR_H($TAIL_INCR_H$),
+        .TAIL_INCR_LAST($TAIL_INCR_LAST$),
+        .INCR_BITWIDTH($INCR_BITWIDTH$),
+        .IS_DEPTHWISE($IS_DEPTHWISE$),
+        .INNERMOST_STATE(swg::$INNERMOST_STATE$)
+    )
+    controller_inst (
         .clk(ap_clk),
         .rst_n(ap_rst_n),
         .advance(advance_controller),
