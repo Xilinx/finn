@@ -199,19 +199,28 @@ class SetFolding(Transformation):
                     depthwise = node_inst.get_nodeattr("depthwise")
                     if depthwise == 0:
                         max_simd = node_inst.get_nodeattr("IFMChannels")
-                        # init/reset parallel_window mode of RTL SWG
-                        if op_type == "ConvolutionInputGenerator_rtl":
-                            node_inst.set_nodeattr("parallel_window", 0)
-                        self.optimize_attribute_val(node_inst, max_simd, "SIMD")
-                        # enable parallel_window mode of RTL SWG if needed
-                        simd = node_inst.get_nodeattr("SIMD")
-                        cyc = node_inst.get_exp_cycles()
-                        if (
-                            op_type == "ConvolutionInputGenerator_rtl"
-                            and simd == max_simd
-                            and cyc > self.target_cycles_per_frame
-                        ):
+                        ksize = np.prod(node_inst.get_nodeattr("ConvKernelDim"))
+                        # workaround for 1x1 convs with RTL SWG
+                        # (1x1 mode MUST be implemented with parallel_window
+                        # and maximum SIMD)
+                        if op_type == "ConvolutionInputGenerator_rtl" and ksize == 1:
                             node_inst.set_nodeattr("parallel_window", 1)
+                            node_inst.set_nodeattr("SIMD", max_simd)
+                        else:
+                            # init/reset parallel_window mode of RTL SWG
+                            if op_type == "ConvolutionInputGenerator_rtl":
+                                node_inst.set_nodeattr("parallel_window", 0)
+                            self.optimize_attribute_val(node_inst, max_simd, "SIMD")
+                            # enable parallel_window mode of RTL SWG if needed
+                            simd = node_inst.get_nodeattr("SIMD")
+                            cyc = node_inst.get_exp_cycles()
+                            if (
+                                op_type == "ConvolutionInputGenerator_rtl"
+                                and simd == max_simd
+                                and cyc > self.target_cycles_per_frame
+                            ):
+                                node_inst.set_nodeattr("parallel_window", 1)
+
                     else:
                         # depthwise SWGs are handled separately
                         continue
