@@ -34,7 +34,7 @@ import torch
 from brevitas.export import export_qonnx
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_shapes import InferShapes
-from qonnx.util.cleanup import cleanup_model as qonnx_cleanup
+from qonnx.util.cleanup import cleanup as qonnx_cleanup
 
 import finn.core.onnx_exec as oxe
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
@@ -66,9 +66,9 @@ def test_brevitas_QTransposeConv(ifm_ch, ofm_ch, mh, mw, padding, stride, kw, bi
         bias=bias,
     )
     # outp = el(inp) # expects NCHW data format
-    export_qonnx(b_deconv.cpu(), input_t=inp.cpu(), export_path=export_path, opset_version=11)
+    export_qonnx(b_deconv, input_t=inp, export_path=export_path, opset_version=11)
+    qonnx_cleanup(export_path, out_file=export_path)
     model = ModelWrapper(export_path)
-    qonnx_cleanup(model)
     model = model.transform(ConvertQONNXtoFINN())
     model = model.transform(InferShapes())
     inp_tensor = np.random.uniform(low=-1.0, high=1.0, size=ishape).astype(np.float32)
