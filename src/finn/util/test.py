@@ -105,26 +105,26 @@ def load_test_checkpoint_or_skip(filename):
         pytest.skip(filename + " not found from previous test step, skipping")
 
 
-def get_build_env(kind, target_clk_ns):
+def get_build_env(board, target_clk_ns):
     """Get board-related build environment for testing.
-    - kind = either zynq or alveo.
+    - board = any from pynq_part_map or alveo_part_map
     """
     ret = {}
-    if kind == "zynq":
-        ret["board"] = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
-        ret["part"] = pynq_part_map[ret["board"]]
-        ret["build_fxn"] = ZynqBuild(ret["board"], target_clk_ns)
-    elif kind == "alveo":
-        ret["board"] = os.getenv("ALVEO_BOARD", default="U250")
-        ret["part"] = alveo_part_map[ret["board"]]
+    if board in pynq_part_map:
+        ret["kind"] = "zynq"
+        ret["part"] = pynq_part_map[board]
+        ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
+    elif board in alveo_part_map:
+        ret["kind"] = "alveo"
+        ret["part"] = alveo_part_map[board]
         ret["build_fxn"] = VitisBuild(
             ret["part"],
             target_clk_ns,
-            alveo_default_platform[ret["board"]],
+            alveo_default_platform[board],
             strategy=VitisOptStrategy.BUILD_SPEED,
         )
     else:
-        raise Exception("Unknown test build environment spec")
+        raise Exception("Unknown board specified")
     return ret
 
 
