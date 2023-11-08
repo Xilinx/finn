@@ -197,8 +197,7 @@ class FINNExampleOverlay(Overlay):
                         # Pynq for Alveo uses tinynumpy under the hood. There is a bug when going
                         # from a tinynumpy.ndarray to numpy.ndarray. To work around this, we first
                         # convert the tinynumpy.ndarray to a list and then copy the list to a
-                        # numpy.ndarray. This shouldn't affect the non-alveo platforms so no need to
-                        # check platform.
+                        # numpy.ndarray.
                         new_w = np.copy(
                             list(layer_mmio.array[: layer_w.shape[0]]), dtype=layer_w.dtype
                         )
