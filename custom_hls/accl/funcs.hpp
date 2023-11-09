@@ -1,8 +1,10 @@
-const size_t accl_width = 512;
+#pragma once
 
 #ifdef CPPSIM
 #include <iostream>
 #endif
+
+const size_t accl_width = 512;
 
 template<unsigned int stream_width, unsigned int num_bits, unsigned int step>
 void accl_out(
@@ -30,10 +32,10 @@ void accl_out(
     bool leftover = num_bits % accl_width != 0;
     int num_transfer_bits = ((num_bits + accl_width - 1) / accl_width) * accl_width;
 
-    accl.stream_put(num_transfer_bits / 32, 9, destination, 0, true);
+    accl.stream_put(num_transfer_bits / 32, 9, destination, 0, false);
 
     // TODO: Doing it like this is probably not optimal. It seems like we're reinventing a
-    // dwc here somehow.
+    // DWC here.
     send: for (int i = 0; i < num_bits - step + 1; i += step) {
         if (i % stream_width == 0) {
             stream_word = in.read();

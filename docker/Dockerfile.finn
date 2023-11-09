@@ -33,6 +33,11 @@ ARG XRT_DEB_VERSION="xrt_202220.2.14.354_22.04-amd64-xrt"
 
 WORKDIR /workspace
 
+ENV http_proxy http://proxy.ethz.ch:3128
+ENV https_proxy http://proxy.ethz.ch:3128
+ENV HTTPS_PROXY http://proxy.ethz.ch:3128
+ENV HTTP_PROXY http://proxy.ethz.ch:3128
+
 # some Vitis deps require a timezone to be specified, which hangs in Docker
 # use workaround from https://grigorkh.medium.com/fix-tzdata-hangs-docker-image-build-cdb52cc3360d
 ENV TZ="Europe/Dublin"
@@ -131,7 +136,7 @@ RUN git clone https://github.com/zeromq/zmqpp && \
     make && \
     make install PREFIX=/usr/
 
-RUN apt-get install -y gdb
+RUN apt-get install -y gdb libboost-dev
 
 # extra environment variables for FINN compiler
 ENV VIVADO_IP_CACHE "/tmp/vivado_ip_cache"

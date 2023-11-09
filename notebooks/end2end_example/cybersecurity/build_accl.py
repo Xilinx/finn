@@ -44,7 +44,6 @@ steps = [
     "step_hls_ipgen",
     "step_set_fifo_depths",
     "step_create_stitched_ip",
-    "step_setup_accl_interface",
 ]
 
 cfg_splits = build.DataflowBuildConfig(
@@ -54,16 +53,16 @@ cfg_splits = build.DataflowBuildConfig(
     mvau_wwidth_max     = 80,
     target_fps          = 1000000,
     synth_clk_period_ns = 10.0,
-    fpga_part           = "xc7z020clg400-1",
     generate_outputs    = [
         build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
         build_cfg.DataflowOutputType.STITCHED_IP,
     ],
-    verify_steps        = [build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM],
-    board               = 'U250',
-    num_boards          = 3,
+    stitched_ip_gen_dcp = True,
+    # verify_steps        = [build_cfg.VerificationStepType.FOLDED_HLS_CPPSIM],
+    shell_flow_type     = build_cfg.ShellFlowType.VITIS_ALVEO,
+    board               = "U55C",
+    num_boards          = 2,
     save_intermediate_models = True,
-    # start_step          = 'step_setup_accl_interface',
 )
 
 build.build_distributed_dataflow_cfg(model_file, cfg_splits)

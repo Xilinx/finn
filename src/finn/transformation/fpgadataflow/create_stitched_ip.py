@@ -86,7 +86,7 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
+    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[], accl_interface=False):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -101,6 +101,7 @@ class CreateStitchedIP(Transformation):
         self.clock_reset_are_external = False
         self.create_cmds = []
         self.connect_cmds = []
+        self.accl_interface = accl_interface
         # keep track of top-level interface names
         self.intf_names = {
             "clk": [],
@@ -278,6 +279,53 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("set_property name s_axilite_info [get_bd_intf_ports s_axi_0]")
         self.connect_cmds.append("assign_bd_address")
 
+    def setup_accl_interface(self, model):
+        has_accl_in = any(node.op_type == "ACCLIn" for node in model.graph.node)
+
+        unused_src = None
+        unused_sink = None
+
+        if has_accl_in:
+            tcl.append("set_property name data_from_cclo [get_bd_intf_ports s_axis_0]")
+            tcl.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 s_axis_0")
+            unused_src = "s_axis_0"
+        else:
+            tcl.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 data_from_cclo")
+            unused_src = "data_from_cclo"
+
+        accl_out_node = None
+        for node in model.graph.node:
+            if node.op_type == "ACCLOut":
+                accl_out_node = node
+                break
+
+        if accl_out_node is not None:
+            tcl.append("set_property name data_to_cclo [get_bd_intf_ports m_axis_0]")
+            tcl.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 m_axis_0")
+
+            # TODO: In a case where we have multiple nodes that access this interface we
+            # need to add an arbiter for these and the data streams.
+            tcl += [
+                "make_bd_intf_pins_external [get_bd_intf_pins {}/{}]".format(
+                    accl_out_node.name,
+                    pin_name
+                )
+                for pin_name in ["cmd_to_cclo", "sts_from_cclo", "s_axi_control"]
+            ]
+
+            tcl.append("create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 xlconstant_0")
+            tcl.append("connect_bd_net [get_bd_pins xlconstant_0/dout] [get_bd_pins {}/wait_for_ack]".format(accl_out_node.name))
+        else:
+            tcl.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 cmd_to_cclo")
+            tcl.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 sts_from_cclo")
+            tcl.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 data_to_cclo")
+
+        tie_off_cmd = accl_out_node is not None
+
+        def tie_off(a, b):
+
+
+
     def apply(self, model):
         # ensure non-relative readmemh .dat files
         model = model.transform(ReplaceVerilogRelPaths())
@@ -353,6 +401,9 @@ class CreateStitchedIP(Transformation):
             checksum_layers = model.get_nodes_by_op_type("checksum")
             self.insert_signature(len(checksum_layers))
 
+        if self.accl_interface:
+            self.setup_accl_interface(model)
+
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
         vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
@@ -392,6 +443,7 @@ class CreateStitchedIP(Transformation):
         tcl.append("add_files -norecurse %s" % wrapper_filename)
         model.set_metadata_prop("wrapper_filename", wrapper_filename)
         tcl.append("set_property top %s_wrapper [current_fileset]" % block_name)
+
         # synthesize to DCP and export stub, DCP and constraints
         if self.vitis:
             tcl.append(
@@ -415,6 +467,7 @@ class CreateStitchedIP(Transformation):
                 "report_utilization -hierarchical -hierarchical_depth 5 "
                 "-file %s_partition_util.rpt" % block_name
             )
+
         # export block design itself as an IP core
         block_vendor = "xilinx_finn"
         block_library = "finn"
