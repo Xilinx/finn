@@ -364,7 +364,6 @@ class ACCLOut(ACCLOp):
 
         return intf_names
 
-
 class ACCLIn(ACCLOp):
     def get_instream_width(self, ind=0):
         return accl_word_size

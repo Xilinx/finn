@@ -86,7 +86,7 @@ class CreateStitchedIP(Transformation):
     The packaged block design IP can be found under the ip subdirectory.
     """
 
-    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[]):
+    def __init__(self, fpgapart, clk_ns, ip_name="finn_design", vitis=False, signature=[], accl_interface=False):
         super().__init__()
         self.fpgapart = fpgapart
         self.clk_ns = clk_ns
@@ -101,6 +101,7 @@ class CreateStitchedIP(Transformation):
         self.clock_reset_are_external = False
         self.create_cmds = []
         self.connect_cmds = []
+        self.accl_interface = accl_interface
         # keep track of top-level interface names
         self.intf_names = {
             "clk": [],
@@ -353,6 +354,9 @@ class CreateStitchedIP(Transformation):
             checksum_layers = model.get_nodes_by_op_type("checksum")
             self.insert_signature(len(checksum_layers))
 
+        if self.accl_interface:
+            self.setup_accl_interface(model)
+
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
         vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
@@ -392,6 +396,7 @@ class CreateStitchedIP(Transformation):
         tcl.append("add_files -norecurse %s" % wrapper_filename)
         model.set_metadata_prop("wrapper_filename", wrapper_filename)
         tcl.append("set_property top %s_wrapper [current_fileset]" % block_name)
+
         # synthesize to DCP and export stub, DCP and constraints
         if self.vitis:
             tcl.append(
@@ -415,6 +420,7 @@ class CreateStitchedIP(Transformation):
                 "report_utilization -hierarchical -hierarchical_depth 5 "
                 "-file %s_partition_util.rpt" % block_name
             )
+
         # export block design itself as an IP core
         block_vendor = "xilinx_finn"
         block_library = "finn"
