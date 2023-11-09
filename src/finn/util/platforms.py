@@ -461,11 +461,42 @@ class Alveo_NxU280_Platform(Platform):
         ]
 
 
+class Alveo_NxU55C_Platform(Platform):
+    def __init__(
+        self,
+        ndevices=1,
+        limits=DEFAULT_RES_LIMITS,
+        avg_constraints=DEFAULT_AVG_CONSTRAINTS,
+    ):
+        sll_counts = [[0, 5000, 0], [5000, 0, 5000], [0, 5000, 0]]
+        super(Alveo_NxU55C_Platform, self).__init__(
+            nslr=3,
+            ndevices=ndevices,
+            sll_count=sll_counts,
+            ddr_slr=[],
+            hbm_slr=0,
+            eth_slr=1,
+            eth_gbps=100,
+            limits=limits,
+            avg_constraints=avg_constraints,
+        )
+
+    @property
+    def compute_resources(self):
+        # according to UG1120
+        return [
+            [386000, 773000, 2 * 600, 320, 2664],
+            [364000, 729000, 2 * 576, 320, 2784],
+            [381000, 763000, 2 * 600, 320, 2856],
+        ]
+
+
 platforms = dict()
 platforms["U50"] = Alveo_NxU50_Platform
 platforms["U200"] = Alveo_NxU200_Platform
 platforms["U250"] = Alveo_NxU250_Platform
 platforms["U280"] = Alveo_NxU280_Platform
+platforms["U55C"] = Alveo_NxU55C_Platform
 platforms["Pynq-Z1"] = Zynq7020_Platform
 platforms["Pynq-Z2"] = Zynq7020_Platform
 platforms["Ultra96"] = ZU3EG_Platform

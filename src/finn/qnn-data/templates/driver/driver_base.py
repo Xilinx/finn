@@ -271,12 +271,12 @@ class FINNExampleOverlay(Overlay):
         self.obuf_packed = []
         for i in range(self.num_inputs):
             new_packed_ibuf = allocate(
-                shape=self.ishape_packed(i), dtype=np.uint8, cacheable=cacheable
+                shape=self.ishape_packed(i), dtype=np.uint8, cacheable=cacheable, target=self.device
             )
             self.ibuf_packed_device.append(new_packed_ibuf)
         for o in range(self.num_outputs):
             new_packed_obuf = allocate(
-                shape=self.oshape_packed(o), dtype=np.uint8, cacheable=cacheable
+                shape=self.oshape_packed(o), dtype=np.uint8, cacheable=cacheable, target=self.device
             )
             self.obuf_packed_device.append(new_packed_obuf)
             self.obuf_packed.append(np.empty_like(new_packed_obuf))
