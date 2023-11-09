@@ -470,12 +470,12 @@ class Alveo_NxU55C_Platform(Platform):
     ):
         sll_counts = [[0, 5000, 0], [5000, 0, 5000], [0, 5000, 0]]
         super(Alveo_NxU55C_Platform, self).__init__(
-            nslr=2,
+            nslr=3,
             ndevices=ndevices,
             sll_count=sll_counts,
             ddr_slr=[],
             hbm_slr=0,
-            eth_slr=2,
+            eth_slr=1,
             eth_gbps=100,
             limits=limits,
             avg_constraints=avg_constraints,
@@ -484,14 +484,10 @@ class Alveo_NxU55C_Platform(Platform):
     @property
     def compute_resources(self):
         # according to UG1120
-        # return [[369000, 746000, 2*507, 320, 2733],
-        #        [333000, 675000, 2*468, 320, 2877],
-        #        [367000, 729000, 2*512, 320, 2880]]
-        # observed from Vivado:
         return [
-            [400800, 2 * 400800, 2 * 600, 320, 2736],
-            [382080, 2 * 382080, 2 * 576, 320, 2880],
-            [380640, 2 * 380640, 2 * 576, 320, 2880],
+            [386000, 773000, 2 * 600, 320, 2664],
+            [364000, 729000, 2 * 576, 320, 2784],
+            [381000, 763000, 2 * 600, 320, 2856],
         ]
 
 
