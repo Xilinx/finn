@@ -192,7 +192,7 @@ def build_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
 
 
 def build_distributed_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
-    steps = resolve_build_steps(cfg)
+    steps = resolve_build_steps(cfg, partial=False)
     step_names = list(map(lambda x: x.__name__, steps))
 
     # TODO: Not sure if splitting up the config implicitly up is the best way to do this.
@@ -207,19 +207,25 @@ def build_distributed_dataflow_cfg(model_filename, cfg: DataflowBuildConfig):
     global_cfg = deepcopy(cfg)
     global_cfg.steps = steps[:step_names.index(split_step) + 1]
 
+    local_cfg = deepcopy(cfg)
+    local_cfg.steps = steps[step_names.index(split_step) + 1:]
+
     if not cfg.save_intermediate_models:
         print("save_intermediate_models must be enabled for distributed build")
         return -1
 
-    if build_dataflow_cfg(model_filename, global_cfg) != 0:
-        print("Global build failed")
-        return -1
+    if not cfg.start_step or cfg.start_step in global_cfg.steps:
+        if build_dataflow_cfg(model_filename, global_cfg) != 0:
+            print("Global build failed")
+            return -1
+
+        local_cfg.start_step = None
+
+    if cfg.stop_step and cfg.stop_step in global_cfg.steps:
+        return 0
 
     intermediate_models_dir = cfg.output_dir + "/intermediate_models"
     parent_model = ModelWrapper(f"{intermediate_models_dir}/{split_step}.onnx")
-
-    local_cfg = deepcopy(cfg)
-    local_cfg.steps = steps[step_names.index(split_step) + 1:]
 
     sdp_nodes = parent_model.get_nodes_by_op_type("StreamingDataflowPartition")
     for i, node in enumerate(sdp_nodes):

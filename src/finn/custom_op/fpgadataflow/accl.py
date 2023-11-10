@@ -393,6 +393,7 @@ class ACCLIn(ACCLOp):
         self.code_gen_dict["$PRAGMAS$"] = [
             '#pragma HLS INTERFACE axis port=data_from_cclo',
             '#pragma HLS INTERFACE axis port=out_{}'.format(self.hls_sname()),
+            "#pragma HLS INTERFACE s_axilite port=dummy bundle=control",
         ]
 
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS INTERFACE ap_ctrl_none port=return")
@@ -501,7 +502,7 @@ class ACCLIn(ACCLOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            'void {}(STREAM<stream_word> &data_from_cclo, hls::stream<ap_uint<{}>> &out_{})'
+            'void {}(STREAM<stream_word> &data_from_cclo, hls::stream<ap_uint<{}>> &out_{}, ap_uint<32> dummy)'
             .format(
                 self.onnx_node.name,
                 self.get_outstream_width(),
@@ -513,6 +514,7 @@ class ACCLIn(ACCLOp):
         intf_names = super().get_verilog_top_module_intf_names()
 
         intf_names["s_axis"] = [("data_from_cclo", accl_word_size)]
+        intf_names["axilite"] = ["s_axi_control"]
 
         return intf_names
 

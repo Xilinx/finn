@@ -280,6 +280,8 @@ class CreateStitchedIP(Transformation):
         self.connect_cmds.append("assign_bd_address")
 
     def setup_accl_interface(self, model):
+        tcl = []
+
         has_accl_in = any(node.op_type == "ACCLIn" for node in model.graph.node)
 
         unused_src = None
@@ -303,8 +305,8 @@ class CreateStitchedIP(Transformation):
             tcl.append("set_property name data_to_cclo [get_bd_intf_ports m_axis_0]")
             tcl.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 m_axis_0")
 
-            # TODO: In a case where we have multiple nodes that access this interface we
-            # need to add an arbiter for these and the data streams.
+            # TODO: In a case where we have multiple nodes that access the cmd interface
+            # we will need to add an arbiter for this.
             tcl += [
                 "make_bd_intf_pins_external [get_bd_intf_pins {}/{}]".format(
                     accl_out_node.name,
@@ -315,16 +317,42 @@ class CreateStitchedIP(Transformation):
 
             tcl.append("create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 xlconstant_0")
             tcl.append("connect_bd_net [get_bd_pins xlconstant_0/dout] [get_bd_pins {}/wait_for_ack]".format(accl_out_node.name))
+
+            unused_sink = "m_axis_0"
         else:
             tcl.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 cmd_to_cclo")
             tcl.append("create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:axis_rtl:1.0 sts_from_cclo")
             tcl.append("create_bd_intf_port -mode Master -vlnv xilinx.com:interface:axis_rtl:1.0 data_to_cclo")
 
+            unused_sink = "data_to_cclo"
+
         tie_off_cmd = accl_out_node is not None
 
         def tie_off(a, b):
+            fifo_name = f"tie_off_{a}_{b}"
+            tcl.append(
+                f"create_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 {fifo_name}"
+            )
+            tcl.append(
+                f"""
+                    connect_bd_intf_net [get_bd_intf_pins {fifo_name}/S_AXIS]
+                    [get_bd_intf_pins {a}]
+                """
+            )
+            tcl.append(
+                f"""
+                    connect_bd_intf_net [get_bd_intf_pins {fifo_name}/M_AXIS]
+                    [get_bd_intf_pins {b}]
+                """
+            )
 
+        # Tie off the unused ports with a fifo so that they will not get removed from the
+        # interface of the generated IP.
+        # tie_off(unused_src, unused_sink)
+        # if accl_out_node is None:
+        #     tie_off("cmd_to_cclo", "sts_from_cclo")
 
+        return tcl
 
     def apply(self, model):
         # ensure non-relative readmemh .dat files
@@ -401,12 +429,10 @@ class CreateStitchedIP(Transformation):
             checksum_layers = model.get_nodes_by_op_type("checksum")
             self.insert_signature(len(checksum_layers))
 
-        if self.accl_interface:
-            self.setup_accl_interface(model)
-
         # create a temporary folder for the project
         prjname = "finn_vivado_stitch_proj"
         vivado_stitch_proj_dir = make_build_dir(prefix="vivado_stitch_proj_")
+        print(vivado_stitch_proj_dir)
         model.set_metadata_prop("vivado_stitch_proj", vivado_stitch_proj_dir)
         # start building the tcl script
         tcl = []
@@ -423,8 +449,13 @@ class CreateStitchedIP(Transformation):
         # create block design and instantiate all layers
         block_name = self.ip_name
         tcl.append('create_bd_design "%s"' % block_name)
+
         tcl.extend(self.create_cmds)
         tcl.extend(self.connect_cmds)
+
+        if self.accl_interface:
+            tcl.extend(self.setup_accl_interface(model))
+
         fclk_mhz = 1 / (self.clk_ns * 0.001)
         fclk_hz = fclk_mhz * 1000000
         model.set_metadata_prop("clk_ns", str(self.clk_ns))
@@ -647,9 +678,11 @@ close $ofile
         tcl_string = "\n".join(tcl) + "\n"
         with open(vivado_stitch_proj_dir + "/make_project.tcl", "w") as f:
             f.write(tcl_string)
+
         # create a shell script and call Vivado
         make_project_sh = vivado_stitch_proj_dir + "/make_project.sh"
         working_dir = os.environ["PWD"]
+
         with open(make_project_sh, "w") as f:
             f.write("#!/bin/bash \n")
             f.write("cd {}\n".format(vivado_stitch_proj_dir))
