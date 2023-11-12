@@ -684,14 +684,14 @@ class CoyoteBuild(Transformation):
                 module_name="axi_crossbar_0",
                 interfaces=[
                     AXI4Lite(
-                        name="s_axi_crossbar",
+                        name="s_axi",
                         width=32,
                         delimiter=Delimiter.UNDERSCORE,
                         external=False,
                         addr_width=32,
                     ),
                     AXI4Lite(
-                        name="m_axi_crossbar",
+                        name="m_axi",
                         width=32,
                         delimiter=Delimiter.UNDERSCORE,
                         external=False,
@@ -896,12 +896,14 @@ class CoyoteBuild(Transformation):
             design, coyote_interface["axis_host_0_sink"]
         )
 
-        instantiations["axi_crossbar_0_inst"]["m_axi_crossbar"].connect_multiple(
+        instantiations["axi_crossbar_0_inst"]["m_axi"].connect_multiple(
             design,
             [
                 instantiations["finn_kernel_inst"][key] for key in intf_names["axilite"]
             ],  # type: ignore
         )
+
+        instantiations["axi_crossbar_0_inst"]["s_axi"].connect(design, coyote_interface["axi_ctrl"])
 
         model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part, design=design))
         model = model.transform(CoyoteUserLogic(design=design))
