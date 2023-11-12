@@ -699,6 +699,8 @@ class CoyoteBuild(Transformation):
                         scale=len(axilites),
                     ),
                 ],
+                config=config,
+                run_needed=True,
             ),
             axilites_with_addr_width,
         )
