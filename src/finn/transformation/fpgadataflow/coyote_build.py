@@ -127,20 +127,18 @@ class AXIInterface(Interface):
                 self.owner.connections[our_interface] = wire.name
                 other.owner.connections[other_interface] = wire.name
 
-        print("Connected %s" % other.name)
         other.connected = True
         self.connected = True
-        print("Connected %s" % self.name)
 
     def connect_multiple(self, design: "Design", others: List["AXIInterface"]):
         assert isinstance(self, AXI4Lite)
         for other in others:
-            if other.connected:
-                print("Failed is %s" % other.name)
-            assert not other.connected
+            assert not other.connected, "%s already connected" % other.name
             assert isinstance(
-                other, AXI4Stream
-            ), "AXI4Stream not supported for multiple connections"
+                other, AXI4Lite
+            ), "%s is not of type AXI4Lite. Only AXI4Lite supported for multiple connections" % (
+                other.name
+            )
         assert not self.connected
         assert not self.external
         assert self.owner is not None
@@ -452,6 +450,7 @@ class GenerateCoyoteProject(Transformation):
         process_compile = subprocess.Popen(git_clone_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         assert os.path.isdir(self.coyote_repo_dir)
+        model.set_metadata_prop("coyote_dir", self.coyote_repo_dir.__str__())
 
         # Create build directory
         self.coyote_hw_build_dir.mkdir(parents=True)
@@ -651,17 +650,20 @@ class CoyoteBuild(Transformation):
 
         addr_width_and_base: Dict[str, Tuple[int, int]] = {}
         prev_width = 0
-        prev_base = 0
+        # NOTE: AXI4L address sent through the Coyote interface start at 0x12_0000
+        prev_base = 0x12_0000
         for signal_name, addr_width in axilites_with_addr_width:
             assert addr_width <= 32
             addr_width_and_base[signal_name] = (
                 addr_width,
-                prev_base + (1 << prev_width) if prev_width > 0 else 0,
+                prev_base + ((1 << prev_width) if prev_width > 0 else 0),
             )
             prev_width = addr_width_and_base[signal_name][0]
             prev_base = addr_width_and_base[signal_name][1]
 
-            assert (prev_base + (1 << prev_width)) <= (1 << 17)
+            # NOTE: Max we can go before we start modifying bits above
+            # the split done by Coyote (0x12_0000)
+            assert (prev_base + (1 << prev_width) - 1) <= 0x13_FFFF
 
         config: Dict[str, str] = {}
         config["ADDR_WIDTH"] = "32"
@@ -738,7 +740,7 @@ class CoyoteBuild(Transformation):
             if "control" in axilite:
                 intf_names["axilite"][i] = "s_axi_control_0"
                 break
-
+        print(intf_names["axilite"])
         # Only one main output and one main input
         # NOTE: This will probably stay like this
         assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
@@ -751,6 +753,7 @@ class CoyoteBuild(Transformation):
         interfaces: List[Interface] = []
 
         for axilite, width in axilites:
+            print("Adding axilite interface %s" % axilite)
             interfaces.append(
                 AXI4Lite(
                     name=axilite,

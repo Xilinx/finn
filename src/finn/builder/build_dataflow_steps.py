@@ -608,23 +608,14 @@ def step_create_stitched_ip(model: ModelWrapper, cfg: DataflowBuildConfig):
 
     if DataflowOutputType.STITCHED_IP in cfg.generate_outputs:
         stitched_ip_dir = cfg.output_dir + "/stitched_ip"
-        if cfg.shell_flow_type == ShellFlowType.COYOTE_ALVEO:
-            model = model.transform(
-                CoyoteBuild(
-                    fpga_part=cfg._resolve_fpga_part(),
-                    period_ns=cfg.synth_clk_period_ns,
-                    signature=cfg.signature,
-                )
+        model = model.transform(
+            CreateStitchedIP(
+                cfg._resolve_fpga_part(),
+                cfg.synth_clk_period_ns,
+                vitis=cfg.stitched_ip_gen_dcp,
+                signature=cfg.signature,
             )
-        else:
-            model = model.transform(
-                CreateStitchedIP(
-                    cfg._resolve_fpga_part(),
-                    cfg.synth_clk_period_ns,
-                    vitis=cfg.stitched_ip_gen_dcp,
-                    signature=cfg.signature,
-                )
-            )
+        )
         # TODO copy all ip sources into output dir? as zip?
         copy_tree(model.get_metadata_prop("vivado_stitch_proj"), stitched_ip_dir)
         print("Vivado stitched IP written into " + stitched_ip_dir)
@@ -808,6 +799,15 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                 model.get_metadata_prop("vivado_synth_rpt"),
                 report_dir + "/post_synth_resources.xml",
             )
+        elif cfg.shell_flow_type == ShellFlowType.COYOTE_ALVEO:
+            model = model.transform(
+                CoyoteBuild(
+                    fpga_part=cfg._resolve_fpga_part(),
+                    period_ns=cfg.synth_clk_period_ns,
+                    signature=cfg.signature,
+                )
+            )
+            copy_tree(model.get_metadata_prop("coyote_dir"), cfg.output_dir + "/coyote_proj")
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)
