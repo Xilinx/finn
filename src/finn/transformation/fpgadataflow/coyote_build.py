@@ -201,9 +201,6 @@ class AXI4Lite(AXIInterface):
         self, name: str, width: int, delimiter: Delimiter, external: bool, addr_width, scale=1
     ):
         super().__init__(name, width, delimiter, external)
-        # Infer address width from data width
-        # bresp, rresp always two bits
-        # One wstrb bit per byte on the data bus data width (in bits) / 2^3 (=8 bits)
         # TODO: Add arprot and awprot, three bits (recommended value is 0b000 so
         # can safely be ignored)
         self._sub_signals = [
@@ -279,6 +276,7 @@ class BD:
     interfaces: Dict[str, Interface]
     ips: Optional[List[IP]]
     make_external: Optional[List[str]]
+    module_name: str
 
     def __init__(
         self,
@@ -287,7 +285,7 @@ class BD:
         ips: Optional[List[IP]],
         make_external: Optional[List[str]],
     ):
-        self.bd_name = bd_name
+        self.module_name = bd_name
         self.interfaces = {}
         for interface in interfaces:
             self.interfaces[interface.name] = interface
@@ -311,7 +309,7 @@ class BD:
                     % (" ".join(config_keys), ip.module_name)
                 )
                 tcl.append(
-                    "set_property -dict [list %s] [get_ips %s]"
+                    "set_property -dict [list %s] [get_bd_cells %s]"
                     % (GenerateCoyoteProject.generate_config(ip.config), ip.module_name)
                 )
         return tcl
@@ -321,7 +319,9 @@ class BD:
 
 
 class Instantiation:
-    def __init__(self, instantiation_name: str, ip: IP):
+    ip: Union[IP, BD]
+
+    def __init__(self, instantiation_name: str, ip: Union[IP, BD]):
         self.instantiation_name = instantiation_name
         self.ip = ip
         self.connections = {}
@@ -356,18 +356,11 @@ class Design:
         # Sets of unique IPs and unique repo paths
         for name, instantiation in instantiations.items():
             self.ips.add(instantiation.ip)
-            if instantiation.ip.ip_repo_path is not None:
+            if isinstance(instantiation.ip, IP) and instantiation.ip.ip_repo_path is not None:
                 self.ip_repo_paths.add(instantiation.ip.ip_repo_path)
 
 
 class CreateStitchedIPForCoyote(Transformation):
-    """Create a stitched IP configured for use with Coyote
-
-    The stitched IP will be generated with vitis=True (i.e stitched_ip_gen_dcp=True
-    from the config).
-    Also, a TLastMarker is inserted as the last node.
-    """
-
     def __init__(self, fpga_part, period_ns, signature):
         super().__init__()
         self.fpga_part = fpga_part
@@ -421,6 +414,7 @@ class GenerateCoyoteProject(Transformation):
         tcl = []
         path_to_file: str = ""
         if isinstance(ip, IP):
+            path_to_file = "ip/%s/%s.xci" % (ip.module_name, ip.module_name)
             tcl.append("create_ip -vlnv %s -module_name %s" % (ip.vlnv, ip.module_name))
             if ip.config is not None:
                 tcl.append(
@@ -429,16 +423,17 @@ class GenerateCoyoteProject(Transformation):
                 )
             tcl.append(
                 "generate_target {instantiation_template} [get_files"
-                " %s/lynx/lynx.srcs/sources_1/ip/%s/%s.xci]"
-                % (self.coyote_hw_build_dir, ip.module_name, ip.module_name)
+                " %s/lynx/lynx.srcs/sources_1/%s]" % (self.coyote_hw_build_dir, path_to_file)
             )
-            path_to_file = "ip/%s/%s.xci"
+
         else:
+            tcl.append('create_bd_design "%s"' % ip.module_name)
+            tcl.append("update_compile_order -fileset sources_1")
             tcl.extend(ip.create_ips())
             if ip.make_external is not None:
                 tcl.extend(ip.make_external)
             tcl.append("save_bd_design")
-            path_to_file = "bd/%s/%s.bd"
+            path_to_file = "bd/%s/%s.bd" % (ip.module_name, ip.module_name)
 
         tcl.append("update_compile_order -fileset sources_1")
         tcl.append(
@@ -446,13 +441,8 @@ class GenerateCoyoteProject(Transformation):
             % (self.coyote_hw_build_dir, path_to_file)
         )
 
-        if isinstance(ip, BD):
-            tcl.append("set list_ips [get_ips -all %s_*]" % ip.bd_name)
-            tcl.append(
-                'foreach ip $list_ips {catch " config_ip_cache -export [get_ips -all $ip] "}'
-            )
-        else:
-            tcl.append("catch { config_ip_cache -export [get_ips -all %s] }" % ip.module_name)
+        tcl.append("set list_ips [get_ips -all %s*]" % ip.module_name)
+        tcl.append(r"foreach ip $list_ips {catch { config_ip_cache -export [get_ips -all $ip] } }")
 
         tcl.append(
             "export_ip_user_files -of_objects [get_files"
@@ -460,15 +450,14 @@ class GenerateCoyoteProject(Transformation):
             " -no_script -sync -force -quiet" % (self.coyote_hw_build_dir, path_to_file)
         )
 
-        if isinstance(ip, BD):
-            tcl.append('foreach ip $list_ips {launch_runs "$ip"}')
-        elif ip.run_needed:
+        # NOTE: Run always needed for BD
+        if isinstance(ip, BD) or ip.run_needed:
             tcl.append(
-                "create_ip_run [get_files -of_objects [get_fileset sources_1]"
-                " %s/lynx/lynx.srcs/sources_1/ip/%s/%s.xci]"
-                % (self.coyote_hw_build_dir, ip.module_name, ip.module_name)
+                r"foreach ip ${list_ips} { create_ip_run [get_files -of_objects [get_fileset"
+                r" sources_1]"
+                r" %s/lynx/lynx.srcs/sources_1/%s] }" % (self.coyote_hw_build_dir, path_to_file)
             )
-            tcl.append("launch_runs %s_synth_1 -jobs 4" % ip.module_name)
+            tcl.append(r'foreach ip ${list_ips} {launch_runs "${ip}_synth_1"}')
 
         tcl.append(
             "export_simulation -of_objects [get_files %s/lynx/lynx.srcs/sources_1/%s]"
@@ -502,8 +491,9 @@ class GenerateCoyoteProject(Transformation):
             )
             tcl.append(
                 "add_files -norecurse %s/lynx/lynx.gen/sources_1/bd/%s/hdl/%s_wrapper.v"
-                % (self.coyote_hw_build_dir, ip.bd_name, ip.bd_name)
+                % (self.coyote_hw_build_dir, ip.module_name, ip.module_name)
             )
+            tcl.append("update_compile_order -fileset sources_1")
 
         return tcl
 
@@ -552,7 +542,7 @@ class GenerateCoyoteProject(Transformation):
         tcl.append("set * [get_property ip_repo_paths [current_project]]")
         # Add IP paths to Coyote
         tcl.append(
-            'set_property  ip_repo_paths  "$* %s" [current_project]' % " ".join(ip_repo_paths)
+            'set_property  ip_repo_paths  "${*} %s" [current_project]' % " ".join(ip_repo_paths)
         )
 
         tcl.append("update_ip_catalog")
@@ -586,7 +576,7 @@ class CoyoteUserLogic(Transformation):
         user_logic_file = coyote_hw_build_dir / "lynx" / "hdl" / "config_0" / "user_logic_c0_0.sv"
 
         lines = None
-        with open(user_logic_file) as f:
+        with open(user_logic_file, "r") as f:
             lines = f.read().splitlines()
 
         assert lines is not None
@@ -608,7 +598,16 @@ class CoyoteUserLogic(Transformation):
         verilog.append("")
 
         for instantiation_name, instantiation in self.design.instantiations.items():
-            verilog.append("%s %s (" % (instantiation.ip.module_name, instantiation_name))
+            verilog.append(
+                "%s %s ("
+                % (
+                    (
+                        instantiation.ip.module_name
+                        + ("_wrapper" if isinstance(instantiation.ip, BD) else "")
+                    ),
+                    instantiation_name,
+                )
+            )
             for port, external_wire in instantiation.connections.items():
                 verilog.append("\t.%s(%s)," % (port, external_wire))
 
@@ -675,28 +674,10 @@ class CoyoteBuild(Transformation):
             run_needed=True,
         )
 
-    """
-    create_ip -name axi_crossbar -vendor xilinx.com -library ip -version 2.1
-    -module_name axi_crossbar_1
-    set_property -dict [list \
-    CONFIG.ADDR_WIDTH {24} \
-    CONFIG.M00_A00_ADDR_WIDTH {8} \
-    CONFIG.M01_A00_ADDR_WIDTH {8} \
-    CONFIG.M01_A00_BASE_ADDR {0x0000000000000100} \
-    CONFIG.M02_A00_ADDR_WIDTH {8} \
-    CONFIG.M02_A00_BASE_ADDR {0x0000000000000200} \
-    CONFIG.M03_A00_ADDR_WIDTH {8} \
-    CONFIG.M03_A00_BASE_ADDR {0x0000000000000300} \
-    CONFIG.NUM_MI {4} \
-    CONFIG.PROTOCOL {AXI4LITE} \
-    ] [get_ips axi_crossbar_1]
-
-    """
-
     @staticmethod
     def create_interconnect(
         vivado_stitch_proj: str, axilites: List[str]
-    ) -> Tuple[IP, List[Tuple[str, int]]]:
+    ) -> Tuple[IP, List[Tuple[str, int]], List[Interface]]:
         design_file = Path(vivado_stitch_proj) / "finn_design.v"
 
         # TODO: Max amount of master out per interconnect is 16.
@@ -769,6 +750,8 @@ class CoyoteBuild(Transformation):
                 )
             )
 
+        interfaces.extend([SimpleWire("aclk_0", 1), SimpleWire("aresetn_0", 1)])
+
         return (
             IP(
                 vlnv=IP.build_vlnv(
@@ -776,8 +759,12 @@ class CoyoteBuild(Transformation):
                 ),
                 module_name="axi_crossbar_0",
                 interfaces=interfaces,
+                ip_repo_path=None,
+                config=config,
+                run_needed=True,
             ),
             axilites_with_addr_width,
+            interfaces,
         )
 
     @staticmethod
@@ -799,8 +786,6 @@ class CoyoteBuild(Transformation):
         #     "intermediate_models/step_create_stitched_ip.onnx"
         # )
         model.set_metadata_prop("accl_mode", json.dumps(CoyoteBuild.__is_accl_mode(model)))
-        is_accl_mode = json.loads(model.get_metadata_prop("accl_mode"))  # type: ignore
-
         model = model.transform(
             CreateStitchedIPForCoyote(
                 fpga_part=self.fpga_part,
@@ -808,6 +793,11 @@ class CoyoteBuild(Transformation):
                 signature=self.signature,
             )
         )
+
+        is_accl_mode = json.loads(model.get_metadata_prop("accl_mode"))  # type: ignore
+        # model.set_metadata_prop(
+        #     "vivado_stitch_proj", "/tmp/finn_dev_antoine/vivado_stitch_proj_icrs393x"
+        # )
 
         intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))  # type: ignore
 
@@ -819,22 +809,32 @@ class CoyoteBuild(Transformation):
             if "control" in axilite:
                 intf_names["axilite"][i] = "s_axi_control_0"
                 break
-        print(intf_names["axilite"])
 
         # Only one main output and one main input
         # NOTE: This will probably stay like this
         assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
         assert len(intf_names["m_axis"]) == 1, "Only support one toplevel output"
 
-        (interconnect, axilites) = CoyoteBuild.create_interconnect(
+        (interconnect, axilites, interconnect_interfaces) = CoyoteBuild.create_interconnect(
             model.get_metadata_prop("vivado_stitch_proj"), intf_names["axilite"]
         )
 
-        interfaces: List[Interface] = []
+        interconnect_bd = BD(
+            bd_name="design_crossbar",
+            interfaces=interconnect_interfaces,
+            ips=[interconnect],
+            make_external=[
+                "startgroup",
+                "make_bd_pins_external  [get_bd_cells %s]" % interconnect.module_name,
+                "make_bd_intf_pins_external  [get_bd_cells %s]" % interconnect.module_name,
+                "endgroup",
+            ],
+        )
+
+        finn_interfaces: List[Interface] = []
 
         for axilite, width in axilites:
-            print("Adding axilite interface %s" % axilite)
-            interfaces.append(
+            finn_interfaces.append(
                 AXI4Lite(
                     name=axilite,
                     width=32,
@@ -844,7 +844,7 @@ class CoyoteBuild(Transformation):
                 )
             )
 
-        interfaces.extend(
+        finn_interfaces.extend(
             [
                 SimpleWire(intf_names["clk"][0], 1),
                 SimpleWire(intf_names["rst"][0], 1),
@@ -869,7 +869,7 @@ class CoyoteBuild(Transformation):
         finn_kernel_ip = IP(
             vlnv=model.get_metadata_prop("vivado_stitch_vlnv"),  # type: ignore
             module_name="finn_kernel_0",
-            interfaces=interfaces,
+            interfaces=finn_interfaces,
             ip_repo_path=model.get_metadata_prop("vivado_stitch_proj") + "/ip",  # type: ignore
         )
 
@@ -930,7 +930,7 @@ class CoyoteBuild(Transformation):
         )
 
         instantiations["axi_crossbar_0_inst"] = Instantiation(
-            instantiation_name="axi_crossbar_0_inst", ip=interconnect
+            instantiation_name="axi_crossbar_0_inst", ip=interconnect_bd
         )
 
         design = Design(instantiations, coyote_interface)
@@ -943,10 +943,6 @@ class CoyoteBuild(Transformation):
             design,
             instantiations["axis_dwidth_convert_host_to_finn_inst"]["m_axis"],
         )
-
-        # instantiations["finn_kernel_inst"][intf_names["axilite"][0]].connect(
-        #     design, coyote_interface["axi_ctrl"]
-        # )
 
         instantiations["finn_kernel_inst"][intf_names["clk"][0]].connect(
             design, coyote_interface["aclk"]
@@ -991,15 +987,18 @@ class CoyoteBuild(Transformation):
                 # type: ignore
             )
 
-        # instantiations["axi_crossbar_0_inst"]["m_axi_crossbar"].connect_multiple(
-        #     design,
-        #     [
-        #         instantiations["finn_kernel_inst"][key] for key in intf_names["axilite"]
-        #     ],  # type: ignore
-        # )
+        instantiations["axi_crossbar_0_inst"]["aclk_0"].connect(
+            design,
+            coyote_interface["aclk"],
+        )
+
+        instantiations["axi_crossbar_0_inst"]["aresetn_0"].connect(
+            design,
+            coyote_interface["aresetn"],
+        )
 
         model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part, design=design))
         model = model.transform(CoyoteUserLogic(design=design))
-        model = model.transform(CoyoteCompile())
+        # model = model.transform(CoyoteCompile())
 
         return (model, False)
