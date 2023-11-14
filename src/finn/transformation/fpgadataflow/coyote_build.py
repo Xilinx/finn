@@ -26,7 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
 import json
 import os
 import re
@@ -37,7 +36,7 @@ from pathlib import Path
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.base import Transformation
 from qonnx.transformation.general import GiveUniqueNodeNames
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 from typing_extensions import TypeAlias
 
 from finn.transformation.fpgadataflow.create_stitched_ip import CreateStitchedIP
@@ -172,17 +171,14 @@ class AXIInterface(Interface):
 
                 wire = wires[j]
                 wire.connected = True
-                print("Connected multiple %s" % self.name)
                 other.owner.connections[other_interface] = "%s[%d:%d]" % (
                     wire.name,
                     i * width_to_use + other_sub_signal_width - 1,
                     i * width_to_use,
                 )
             other.connected = True
-            print("Connected multiple  %s" % other.name)
 
         self.connected = True
-        print("Connected multiple %s" % self.name)
 
 
 class AXI4Stream(AXIInterface):
@@ -202,14 +198,16 @@ class AXI4Stream(AXIInterface):
 
 class AXI4Lite(AXIInterface):
     def __init__(
-        self, name: str, width: int, delimiter: Delimiter, external: bool, addr_width=0, scale=1
+        self, name: str, width: int, delimiter: Delimiter, external: bool, addr_width, scale=1
     ):
         super().__init__(name, width, delimiter, external)
         # Infer address width from data width
         # bresp, rresp always two bits
         # One wstrb bit per byte on the data bus data width (in bits) / 2^3 (=8 bits)
+        # TODO: Add arprot and awprot, three bits (recommended value is 0b000 so
+        # can safely be ignored)
         self._sub_signals = [
-            ("awaddr", (width.bit_length() - 1 if addr_width == 0 else addr_width) * scale),
+            ("awaddr", addr_width * scale),
             ("awvalid", 1 * scale),
             ("awready", 1 * scale),
             ("wdata", width * scale),
@@ -219,7 +217,7 @@ class AXI4Lite(AXIInterface):
             ("bresp", 2 * scale),
             ("bvalid", 1 * scale),
             ("bready", 1 * scale),
-            ("araddr", (width.bit_length() - 1 if addr_width == 0 else addr_width) * scale),
+            ("araddr", addr_width * scale),
             ("arvalid", 1 * scale),
             ("arready", 1 * scale),
             ("rdata", width * scale),
@@ -274,6 +272,52 @@ class IP:
     @staticmethod
     def build_vlnv(vendor: str, library: str, name: str, version: str):
         return "%s:%s:%s:%s" % (vendor, library, name, version)
+
+
+class BD:
+    Config: TypeAlias = "dict[str, str]"
+    interfaces: Dict[str, Interface]
+    ips: Optional[List[IP]]
+    make_external: Optional[List[str]]
+
+    def __init__(
+        self,
+        bd_name: str,
+        interfaces: List[Interface],
+        ips: Optional[List[IP]],
+        make_external: Optional[List[str]],
+    ):
+        self.bd_name = bd_name
+        self.interfaces = {}
+        for interface in interfaces:
+            self.interfaces[interface.name] = interface
+        self.ips = ips
+        self.make_external = make_external
+
+    def create_ips(self) -> List[str]:
+        tcl: List[str] = []
+        if self.ips is None:
+            return tcl
+        for ip in self.ips:
+            tcl.append("startgroup")
+            tcl.append("create_bd_cell -type ip -vlnv %s %s" % (ip.vlnv, ip.module_name))
+            tcl.append("endgroup")
+            if ip.config is not None:
+                config_keys: List[str] = []
+                for key in ip.config.keys():
+                    config_keys.append("CONFIG.%s.VALUE_SRC" % key)
+                tcl.append(
+                    "set_property -dict [list %s] [get_bd_cells %s]"
+                    % (" ".join(config_keys), ip.module_name)
+                )
+                tcl.append(
+                    "set_property -dict [list %s] [get_ips %s]"
+                    % (GenerateCoyoteProject.generate_config(ip.config), ip.module_name)
+                )
+        return tcl
+
+    def __getitem__(self, key):
+        return self.interfaces[key]
 
 
 class Instantiation:
@@ -363,59 +407,71 @@ class GenerateCoyoteProject(Transformation):
         self.coyote_hw_build_dir = self.coyote_hw_dir / "build"
         self.design = design
 
-    def generate_config(self, config: IP.IPConfig):
+    @staticmethod
+    def generate_config(config: IP.IPConfig):
         config_tcl = []
         for key, value in config.items():
             config_tcl.append("CONFIG.%s {%s}" % (key, value))
         return " ".join(config_tcl)
 
-    @staticmethod
-    def build_vlnv(vendor: str, library: str, name: str, version: str):
-        return "%s:%s:%s:%s" % (vendor, library, name, version)
-
     def create_ip(
         self,
-        ip: IP,
+        ip: Union[IP, BD],
     ):
         tcl = []
-        tcl.append("create_ip -vlnv %s -module_name %s" % (ip.vlnv, ip.module_name))
-        if ip.config is not None:
+        path_to_file: str = ""
+        if isinstance(ip, IP):
+            tcl.append("create_ip -vlnv %s -module_name %s" % (ip.vlnv, ip.module_name))
+            if ip.config is not None:
+                tcl.append(
+                    "set_property -dict [list %s] [get_ips %s]"
+                    % (self.generate_config(ip.config), ip.module_name)
+                )
             tcl.append(
-                "set_property -dict [list %s] [get_ips %s]"
-                % (self.generate_config(ip.config), ip.module_name)
+                "generate_target {instantiation_template} [get_files"
+                " %s/lynx/lynx.srcs/sources_1/ip/%s/%s.xci]"
+                % (self.coyote_hw_build_dir, ip.module_name, ip.module_name)
             )
-
-        tcl.append(
-            "generate_target {instantiation_template} [get_files"
-            " %s/lynx/lynx.srcs/sources_1/ip/%s/%s.xci]"
-            % (self.coyote_hw_build_dir, ip.module_name, ip.module_name)
-        )
+            path_to_file = "ip/%s/%s.xci"
+        else:
+            tcl.extend(ip.create_ips())
+            if ip.make_external is not None:
+                tcl.extend(ip.make_external)
+            tcl.append("save_bd_design")
+            path_to_file = "bd/%s/%s.bd"
 
         tcl.append("update_compile_order -fileset sources_1")
         tcl.append(
-            "generate_target all [get_files  %s/lynx/lynx.srcs/sources_1/ip/%s/%s.xci]"
-            % (self.coyote_hw_build_dir, ip.module_name, ip.module_name)
+            "generate_target all [get_files  %s/lynx/lynx.srcs/sources_1/%s]"
+            % (self.coyote_hw_build_dir, path_to_file)
         )
-        # NOTE: Only appears for width converter. Is this necessary?
-        tcl.append("catch { config_ip_cache -export [get_ips -all %s] }" % ip.module_name)
+
+        if isinstance(ip, BD):
+            tcl.append("set list_ips [get_ips -all %s_*]" % ip.bd_name)
+            tcl.append(
+                'foreach ip $list_ips {catch " config_ip_cache -export [get_ips -all $ip] "}'
+            )
+        else:
+            tcl.append("catch { config_ip_cache -export [get_ips -all %s] }" % ip.module_name)
 
         tcl.append(
             "export_ip_user_files -of_objects [get_files"
-            " %s/lynx/lynx.srcs/sources_1/ip/%s/%s.xci]"
-            " -no_script -sync -force -quiet"
-            % (self.coyote_hw_build_dir, ip.module_name, ip.module_name)
+            " %s/lynx/lynx.srcs/sources_1/%s]"
+            " -no_script -sync -force -quiet" % (self.coyote_hw_build_dir, path_to_file)
         )
 
-        if ip.run_needed:
+        if isinstance(ip, BD):
+            tcl.append('foreach ip $list_ips {launch_runs "$ip"}')
+        elif ip.run_needed:
             tcl.append(
                 "create_ip_run [get_files -of_objects [get_fileset sources_1]"
                 " %s/lynx/lynx.srcs/sources_1/ip/%s/%s.xci]"
                 % (self.coyote_hw_build_dir, ip.module_name, ip.module_name)
             )
             tcl.append("launch_runs %s_synth_1 -jobs 4" % ip.module_name)
-        # NOTE: Seems involved. Is this required?
+
         tcl.append(
-            "export_simulation -of_objects [get_files %s/lynx/lynx.srcs/sources_1/ip/%s/%s.xci]"
+            "export_simulation -of_objects [get_files %s/lynx/lynx.srcs/sources_1/%s]"
             " -directory %s/lynx/lynx.ip_user_files/sim_scripts -ip_user_files_dir"
             " %s/lynx/lynx.ip_user_files -ipstatic_source_dir %s/lynx/lynx.ip_user_files/ipstatic"
             " -lib_map_path [list {modelsim=%s/lynx/lynx.cache/compile_simlib/modelsim}"
@@ -426,8 +482,7 @@ class GenerateCoyoteProject(Transformation):
             " -quiet"
             % (
                 self.coyote_hw_build_dir,
-                ip.module_name,
-                ip.module_name,
+                path_to_file,
                 self.coyote_hw_build_dir,
                 self.coyote_hw_build_dir,
                 self.coyote_hw_build_dir,
@@ -438,6 +493,17 @@ class GenerateCoyoteProject(Transformation):
                 self.coyote_hw_build_dir,
             )
         )
+
+        if isinstance(ip, BD):
+            tcl.append("update_compile_order -fileset sources_1")
+            tcl.append(
+                " make_wrapper -files [get_files %s/lynx/lynx.srcs/sources_1/%s] -top"
+                % (self.coyote_hw_build_dir, path_to_file)
+            )
+            tcl.append(
+                "add_files -norecurse %s/lynx/lynx.gen/sources_1/bd/%s/hdl/%s_wrapper.v"
+                % (self.coyote_hw_build_dir, ip.bd_name, ip.bd_name)
+            )
 
         return tcl
 
@@ -476,14 +542,18 @@ class GenerateCoyoteProject(Transformation):
         tcl.append("open_project lynx/lynx.xpr")
         tcl.append("update_compile_order -fileset sources_1")
 
+        # TODO: To check how to use this
         tcl.append("set paths [get_property ip_repo_paths [current_project]];")
 
         ip_repo_paths = []
         for ip_repo_path in self.design.ip_repo_paths:
             ip_repo_paths.append(ip_repo_path)
 
+        tcl.append("set * [get_property ip_repo_paths [current_project]]")
         # Add IP paths to Coyote
-        tcl.append("set_property  ip_repo_paths  {%s} [current_project]" % " ".join(ip_repo_paths))
+        tcl.append(
+            'set_property  ip_repo_paths  "$* %s" [current_project]' % " ".join(ip_repo_paths)
+        )
 
         tcl.append("update_ip_catalog")
 
@@ -528,7 +598,7 @@ class CoyoteUserLogic(Transformation):
 
         assert user_logic_idx is not None
 
-        before_user_logic = lines[: user_logic_idx + 1]
+        user_logic = lines[: user_logic_idx + 1]
         after_user_logic = lines[user_logic_idx + 1 :]
 
         verilog = []
@@ -545,11 +615,11 @@ class CoyoteUserLogic(Transformation):
             verilog[len(verilog) - 1] = verilog[len(verilog) - 1][:-1]
             verilog.append(");\n")
 
-        before_user_logic.extend(verilog)
-        before_user_logic.extend(after_user_logic)
+        user_logic.extend(verilog)
+        user_logic.extend(after_user_logic)
 
         with open(user_logic_file, "w") as f:
-            f.write("\n".join(before_user_logic) + "\n")
+            f.write("\n".join(user_logic) + "\n")
 
         os.chdir(finn_cwd)
         return (model, False)
@@ -599,8 +669,8 @@ class CoyoteBuild(Transformation):
             config={
                 "HAS_TLAST": "1",
                 "HAS_TKEEP": "1",
-                "M_TDATA_NUM_BYTES": "%d" % (input_width_bits >> 3),
-                "S_TDATA_NUM_BYTES": "%d" % (output_width_bits >> 3),
+                "M_TDATA_NUM_BYTES": "%d" % (output_width_bits >> 3),
+                "S_TDATA_NUM_BYTES": "%d" % (input_width_bits >> 3),
             },
             run_needed=True,
         )
@@ -628,6 +698,9 @@ class CoyoteBuild(Transformation):
         vivado_stitch_proj: str, axilites: List[str]
     ) -> Tuple[IP, List[Tuple[str, int]]]:
         design_file = Path(vivado_stitch_proj) / "finn_design.v"
+
+        # TODO: Max amount of master out per interconnect is 16.
+        # Will have to chain them if we have more axilite.
 
         contents = None
         with open(design_file, "r") as f:
@@ -667,14 +740,13 @@ class CoyoteBuild(Transformation):
 
         config: Dict[str, str] = {}
         config["ADDR_WIDTH"] = "32"
+        config["DATA_WIDTH"] = "32"
         config["NUM_MI"] = str(len(axilites))
         config["PROTOCOL"] = "AXI4LITE"
         for i, axilite in enumerate(axilites):
             config["M%0.2d_A00_ADDR_WIDTH" % i] = str(addr_width_and_base[axilite][0])
             if addr_width_and_base[axilite][1] != 0:
                 config["M%0.2d_A00_BASE_ADDR" % i] = "0x%0.16x" % addr_width_and_base[axilite][1]
-
-        print(config)
 
         return (
             IP(
@@ -738,11 +810,14 @@ class CoyoteBuild(Transformation):
 
         # NOTE: s_axi_control_%d in intf_names["axilite"] does not match what is in the finn
         # design file. The index is 0 and not 3.
+        # TODO: Be a bit more reliable, there, we might have several of them.
+        # Keep a counter and update the name accordingly.
         for i, axilite in enumerate(intf_names["axilite"]):
             if "control" in axilite:
                 intf_names["axilite"][i] = "s_axi_control_0"
                 break
         print(intf_names["axilite"])
+
         # Only one main output and one main input
         # NOTE: This will probably stay like this
         assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
@@ -811,7 +886,13 @@ class CoyoteBuild(Transformation):
 
         coyote_interface = ExternalInterface(
             interfaces=[
-                AXI4Lite(name="axi_ctrl", width=64, delimiter=Delimiter.POINT, external=True),
+                AXI4Lite(
+                    name="axi_ctrl",
+                    width=64,
+                    delimiter=Delimiter.POINT,
+                    external=True,
+                    addr_width=64,
+                ),
                 SimpleWire(name="aclk", width=1),
                 SimpleWire(name="aresetn", width=1),
                 AXI4Stream(
@@ -907,6 +988,6 @@ class CoyoteBuild(Transformation):
 
         model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part, design=design))
         model = model.transform(CoyoteUserLogic(design=design))
-        # model = model.transform(CoyoteCompile())
+        model = model.transform(CoyoteCompile())
 
         return (model, False)
