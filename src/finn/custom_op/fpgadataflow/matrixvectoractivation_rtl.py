@@ -601,7 +601,8 @@ class MatrixVectorActivation_rtl(HLSCustomOp):
             if mem_mode == "decoupled":
                 # also save weights as Verilog .dat file
                 # This file will be ignored when synthesizing UltraScale memory.
-                weight_filename_rtl = "{}/memblock.dat".format(code_gen_dir)
+                weight_filename_rtl = self.get_decoupled_weight_filename(abspath=False)
+                weight_filename_rtl = code_gen_dir + "/" + weight_filename_rtl
                 self.make_weight_file(weights, "decoupled_verilog_dat", weight_filename_rtl)
         else:
             raise Exception(
