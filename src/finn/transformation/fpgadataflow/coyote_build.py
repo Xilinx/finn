@@ -748,31 +748,34 @@ class CoyoteBuild(Transformation):
             if addr_width_and_base[axilite][1] != 0:
                 config["M%0.2d_A00_BASE_ADDR" % i] = "0x%0.16x" % addr_width_and_base[axilite][1]
 
+        interfaces: List[Interface] = [
+            AXI4Lite(
+                name="S00_AXI_0",
+                width=32,
+                delimiter=Delimiter.UNDERSCORE,
+                external=False,
+                addr_width=32,
+            )
+        ]
+
+        for i, axilite in enumerate(axilites):
+            interfaces.append(
+                AXI4Lite(
+                    name="M%0.2d_AXI_0" % i,
+                    width=32,
+                    delimiter=Delimiter.UNDERSCORE,
+                    external=False,
+                    addr_width=32,
+                )
+            )
+
         return (
             IP(
                 vlnv=IP.build_vlnv(
                     vendor="xilinx.com", library="ip", name="axi_crossbar", version="2.1"
                 ),
                 module_name="axi_crossbar_0",
-                interfaces=[
-                    AXI4Lite(
-                        name="s_axi",
-                        width=32,
-                        delimiter=Delimiter.UNDERSCORE,
-                        external=False,
-                        addr_width=32,
-                    ),
-                    AXI4Lite(
-                        name="m_axi",
-                        width=32,
-                        delimiter=Delimiter.UNDERSCORE,
-                        external=False,
-                        addr_width=32,
-                        scale=len(axilites),
-                    ),
-                ],
-                config=config,
-                run_needed=True,
+                interfaces=interfaces,
             ),
             axilites_with_addr_width,
         )
@@ -977,14 +980,23 @@ class CoyoteBuild(Transformation):
             design, coyote_interface["axis_host_0_sink"]
         )
 
-        instantiations["axi_crossbar_0_inst"]["m_axi"].connect_multiple(
-            design,
-            [
-                instantiations["finn_kernel_inst"][key] for key in intf_names["axilite"]
-            ],  # type: ignore
+        instantiations["axi_crossbar_0_inst"]["S00_AXI_0"].connect(
+            design, coyote_interface["axi_ctrl"]
         )
 
-        instantiations["axi_crossbar_0_inst"]["s_axi"].connect(design, coyote_interface["axi_ctrl"])
+        for i, (axilite, width) in enumerate(axilites):
+            instantiations["axi_crossbar_0_inst"]["M%0.2d_AXI_0" % i].connect(
+                design,
+                instantiations["finn_kernel_inst"][axilite],
+                # type: ignore
+            )
+
+        # instantiations["axi_crossbar_0_inst"]["m_axi_crossbar"].connect_multiple(
+        #     design,
+        #     [
+        #         instantiations["finn_kernel_inst"][key] for key in intf_names["axilite"]
+        #     ],  # type: ignore
+        # )
 
         model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part, design=design))
         model = model.transform(CoyoteUserLogic(design=design))
