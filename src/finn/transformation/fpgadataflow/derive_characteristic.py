@@ -65,9 +65,7 @@ class DeriveCharacteristic(NodeLocalTransformation):
                 inst.derive_characteristic_fxns(period=self.period)
             except KeyError:
                 # exception if op_type is not supported
-                raise Exception(
-                    "Custom op_type %s is currently not supported." % op_type
-                )
+                raise Exception("Custom op_type %s is currently not supported." % op_type)
         return (node, False)
 
     def apply(self, model: ModelWrapper):
@@ -103,24 +101,16 @@ class DeriveCharacteristic(NodeLocalTransformation):
             # for DuplicateStreams, use comp_branch_first's input characterization
             # for AddStreams, use comp_branch_last's output characterization
             period = comp_branch_first.get_nodeattr("io_chrc_period")
-            comp_branch_first_f = comp_branch_first.get_nodeattr("io_characteristic")[
-                : 2 * period
-            ]
-            comp_branch_last_f = comp_branch_last.get_nodeattr("io_characteristic")[
-                2 * period :
-            ]
+            comp_branch_first_f = comp_branch_first.get_nodeattr("io_characteristic")[: 2 * period]
+            comp_branch_last_f = comp_branch_last.get_nodeattr("io_characteristic")[2 * period :]
             ds_node_inst = registry.getCustomOp(ds_node)
             addstrm_node_inst = registry.getCustomOp(addstrm_node)
             ds_node_inst.set_nodeattr("io_chrc_period", period)
             ds_node_inst.set_nodeattr("io_characteristic", comp_branch_first_f * 2)
             addstrm_node_inst.set_nodeattr("io_chrc_period", period)
             addstrm_node_inst.set_nodeattr("io_characteristic", comp_branch_last_f * 2)
-            warnings.warn(
-                f"Set {ds_node.name} chrc. from {comp_branch_first.onnx_node.name}"
-            )
-            warnings.warn(
-                f"Set {addstrm_node.name} chrc. from {comp_branch_last.onnx_node.name}"
-            )
+            warnings.warn(f"Set {ds_node.name} chrc. from {comp_branch_first.onnx_node.name}")
+            warnings.warn(f"Set {addstrm_node.name} chrc. from {comp_branch_last.onnx_node.name}")
         return (model, run_again)
 
 
@@ -147,9 +137,7 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 assert op_type != "StreamingFIFO", "Found existing FIFOs"
                 period = prod.get_nodeattr("io_chrc_period")
                 prod_chrc = prod.get_nodeattr("io_chrc_out")[0]
-                assert (
-                    len(prod_chrc) == 2 * period
-                ), "Found unexpected characterization attribute"
+                assert len(prod_chrc) == 2 * period, "Found unexpected characterization attribute"
                 if any([x > 2 for x in prod.get_nodeattr("outFIFODepths")]):
                     # FIFO depth already set, can skip this node
                     return (node, False)
@@ -186,14 +174,12 @@ class DeriveFIFOSizes(NodeLocalTransformation):
                 # finally, check node inputs to ensure FIFOs are added to
                 # any top-level inputs (at least self.io_fifo_depth deep)
                 in_fifo_depths = prod.get_nodeattr("inFIFODepths")
-                for (i, input_name) in enumerate(node.input):
+                for i, input_name in enumerate(node.input):
                     if input_name in [x.name for x in model.graph.input]:
                         in_fifo_depths[i] = max(self.io_fifo_depth, in_fifo_depths[i])
                 prod.set_nodeattr("inFIFODepths", in_fifo_depths)
 
             except KeyError:
                 # exception if op_type is not supported
-                raise Exception(
-                    "Custom op_type %s is currently not supported." % op_type
-                )
+                raise Exception("Custom op_type %s is currently not supported." % op_type)
         return (node, False)

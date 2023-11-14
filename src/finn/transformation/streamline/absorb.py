@@ -80,9 +80,7 @@ class AbsorbSignBiasIntoMultiThreshold(Transformation):
                     steps = T.shape[-1]
                     new_min = bias
                     new_max = steps + bias
-                    odt = DataType.get_smallest_possible(steps).name.replace(
-                        "UINT", "INT"
-                    )
+                    odt = DataType.get_smallest_possible(steps).name.replace("UINT", "INT")
                     odt = DataType[odt]
                     assert odt.allowed(new_max) and odt.allowed(
                         new_min
@@ -112,11 +110,7 @@ class AbsorbAddIntoMultiThreshold(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if (
-                n.op_type == "Add"
-                and not model.is_fork_node(n)
-                and not model.is_join_node(n)
-            ):
+            if n.op_type == "Add" and not model.is_fork_node(n) and not model.is_join_node(n):
                 consumer = model.find_consumer(n.output[0])
                 if consumer is not None and consumer.op_type == "MultiThreshold":
                     add_weight_name = n.input[1]
@@ -153,11 +147,7 @@ class AbsorbMulIntoMultiThreshold(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if (
-                n.op_type == "Mul"
-                and not model.is_fork_node(n)
-                and not model.is_join_node(n)
-            ):
+            if n.op_type == "Mul" and not model.is_fork_node(n) and not model.is_join_node(n):
                 mul_weight_name = n.input[1]
                 A = model.get_initializer(mul_weight_name)
                 assert A is not None, "Initializer for mul weights is not set."
@@ -203,9 +193,7 @@ class FactorOutMulSignMagnitude(Transformation):
                 is_scalar = np.prod(A.shape) == 1
                 actual_ndims = len(tuple(filter(lambda x: x > 1, A.shape)))
                 is_1d = actual_ndims == 1
-                is_not_bipolar = (
-                    model.get_tensor_datatype(mul_weight_name) != DataType["BIPOLAR"]
-                )
+                is_not_bipolar = model.get_tensor_datatype(mul_weight_name) != DataType["BIPOLAR"]
                 is_signed = (A < 0).any()
                 if is_signed and (is_scalar or is_1d) and is_not_bipolar:
                     start_name = n.input[0]
@@ -219,9 +207,7 @@ class FactorOutMulSignMagnitude(Transformation):
                     model.set_tensor_datatype(sign_mul_param_name, DataType["BIPOLAR"])
                     # replace original mul weight by magnitudes
                     model.set_initializer(mul_weight_name, np.abs(A))
-                    new_mul = oh.make_node(
-                        "Mul", [start_name, sign_mul_param_name], [middle_name]
-                    )
+                    new_mul = oh.make_node("Mul", [start_name, sign_mul_param_name], [middle_name])
                     n.input[0] = middle_name
                     graph.node.insert(node_ind - 1, new_mul)
                     graph_modified = True
@@ -338,13 +324,9 @@ class AbsorbTransposeIntoMultiThreshold(Transformation):
                             mt_cand.output[0]
                         )
                         # Create a new ValueInfoProto and set the shape
-                        model.set_tensor_shape(
-                            intermediate_tensor_name, intermediate_tensor_shape
-                        )
+                        model.set_tensor_shape(intermediate_tensor_name, intermediate_tensor_shape)
                         # Set the tensor layout
-                        model.set_tensor_layout(
-                            intermediate_tensor_name, DataLayout.NHWC
-                        )
+                        model.set_tensor_layout(intermediate_tensor_name, DataLayout.NHWC)
                         # Set the tensor FINN datatype
                         model.set_tensor_datatype(
                             intermediate_tensor_name, intermediate_tensor_finn_dtype
@@ -379,8 +361,7 @@ class AbsorbTransposeIntoFlatten(Transformation):
         for n in graph.node:
             node_ind += 1
             if (
-                n.op_type == "Reshape"
-                and (model.get_initializer(n.input[1]) == [1, -1]).all()
+                n.op_type == "Reshape" and (model.get_initializer(n.input[1]) == [1, -1]).all()
             ) or n.op_type == "Flatten":
                 prod = model.find_producer(n.input[0])
                 if (
@@ -556,23 +537,17 @@ class AbsorbTransposeIntoResize(Transformation):
                         if sizes is not None:
                             ishape = model.get_tensor_shape(mt_cand.input[0])
                             ns, cs, hs, ws = sizes / np.asarray(ishape)
-                            model.set_initializer(
-                                mt_cand.input[2], np.asarray([ns, cs, hs, ws])
-                            )
+                            model.set_initializer(mt_cand.input[2], np.asarray([ns, cs, hs, ws]))
                             mt_cand.input.remove(mt_cand.input[3])
                         # scales already specified, transpose indices to NHWC
                         scales = model.get_initializer(mt_cand.input[2])
                         assert scales is not None
                         ns, cs, hs, ws = scales
-                        model.set_initializer(
-                            mt_cand.input[2], np.asarray([ns, hs, ws, cs])
-                        )
+                        model.set_initializer(mt_cand.input[2], np.asarray([ns, hs, ws, cs]))
                         # get rid of first tranpose node
                         mt_cand.input[0] = node.input[0]
                         graph.node.remove(node)
-                        is_last_node = mt_cand.output[0] in [
-                            x.name for x in model.graph.output
-                        ]
+                        is_last_node = mt_cand.output[0] in [x.name for x in model.graph.output]
 
                         new_tensor_name = model.make_new_valueinfo_name()
                         if is_last_node:

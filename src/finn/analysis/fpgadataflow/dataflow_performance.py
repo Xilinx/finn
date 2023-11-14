@@ -66,9 +66,7 @@ def dataflow_performance(model):
                     max_pred_latency = 0
                 else:
                     # find max of any of predecessors
-                    pred_latencies = map(
-                        lambda x: latency_at_node_output[x.name], predecessors
-                    )
+                    pred_latencies = map(lambda x: latency_at_node_output[x.name], predecessors)
                     max_pred_latency = max(pred_latencies)
                 latency_at_node_output[node.name] = node_cycles + max_pred_latency
     critical_path_cycles = max(latency_at_node_output.values())

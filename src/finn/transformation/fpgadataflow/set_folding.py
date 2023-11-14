@@ -80,9 +80,7 @@ class SetFolding(Transformation):
       unfolded before SIMD is increased
     """
 
-    def __init__(
-        self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True
-    ):
+    def __init__(self, target_cycles_per_frame=1000, mvau_wwidth_max=36, two_pass_relaxation=True):
         super().__init__()
         self.target_cycles_per_frame = target_cycles_per_frame
         self.mvau_wwidth_max = mvau_wwidth_max
@@ -142,8 +140,7 @@ class SetFolding(Transformation):
                         # finish if target met
                         break
                     if (
-                        node_inst.get_weight_datatype().bitwidth()
-                        * node_inst.get_nodeattr("SIMD")
+                        node_inst.get_weight_datatype().bitwidth() * node_inst.get_nodeattr("SIMD")
                         > self.mvau_wwidth_max
                     ):
                         # revert if we've gone above width threshold
@@ -196,9 +193,7 @@ class SetFolding(Transformation):
                     else:
                         raise Exception("Undefined edge case for %s" % op_type)
                     if ksize != 1:  # pointwise vvau/pool lack a SWU
-                        raise Exception(
-                            "Expected SWU on DW op input, found " + swu_node.op_type
-                        )
+                        raise Exception("Expected SWU on DW op input, found " + swu_node.op_type)
             elif op_type in simd_ops:
                 if op_type.startswith("ConvolutionInputGenerator"):
                     depthwise = node_inst.get_nodeattr("depthwise")
@@ -224,9 +219,7 @@ class SetFolding(Transformation):
                     max_simd = node_inst.get_nodeattr("NumChannels")
                     self.optimize_attribute_val(node_inst, max_simd, "SIMD")
             else:
-                warnings.warn(
-                    "SetFolding doesn't know how to handle op_type " + op_type
-                )
+                warnings.warn("SetFolding doesn't know how to handle op_type " + op_type)
 
         model = model.transform(GiveUniqueNodeNames())
         model = model.transform(AnnotateCycles())

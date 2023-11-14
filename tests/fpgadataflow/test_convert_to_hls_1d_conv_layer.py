@@ -96,12 +96,8 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_
         out_chn = 20
         conv_param_shape = [out_chn, in_chn, k_h, k_w]
 
-    out_feature_dim_h = compute_conv_output_dim(
-        in_feature_dim_h, k_h, stride_h, pad_h, dilation_h
-    )
-    out_feature_dim_w = compute_conv_output_dim(
-        in_feature_dim_w, k_w, stride_w, pad_w, dilation_w
-    )
+    out_feature_dim_h = compute_conv_output_dim(in_feature_dim_h, k_h, stride_h, pad_h, dilation_h)
+    out_feature_dim_w = compute_conv_output_dim(in_feature_dim_w, k_w, stride_w, pad_w, dilation_w)
 
     input_shape = [1, in_chn, in_feature_dim_h, in_feature_dim_w]
     output_shape = [1, out_chn, out_feature_dim_h, out_feature_dim_w]
@@ -117,9 +113,7 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_
 
     top_in = helper.make_tensor_value_info("top_in", TensorProto.FLOAT, input_shape)
     top_out = helper.make_tensor_value_info("top_out", TensorProto.FLOAT, output_shape)
-    value_info = [
-        helper.make_tensor_value_info("p1", TensorProto.FLOAT, conv_param_shape)
-    ]
+    value_info = [helper.make_tensor_value_info("p1", TensorProto.FLOAT, conv_param_shape)]
 
     modelproto = qonnx_make_model(
         helper.make_graph(
@@ -127,9 +121,7 @@ def test_convert_to_hls_1d_conv_layer(conv_config, depthwise, use_rtl_swg, exec_
             inputs=[top_in],
             outputs=[top_out],
             value_info=value_info,
-            nodes=[
-                helper.make_node("Conv", ["top_in", "p1"], ["top_out"], **conv_config)
-            ],
+            nodes=[helper.make_node("Conv", ["top_in", "p1"], ["top_out"], **conv_config)],
         )
     )
 

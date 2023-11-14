@@ -137,9 +137,7 @@ class StreamingFIFO(HLSCustomOp):
 
     def code_generation_ipgen(self, model, fpgapart, clk):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(
-            code_gen_dir, self.onnx_node.name
-        )
+        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(code_gen_dir, self.onnx_node.name)
         os.makedirs(verilog_dir)
         # copy Q_srl.v from finn-rtllib to verilog directory
         memstream_dir = get_finn_root() + "/finn-rtllib/memstream/hdl/"
@@ -175,9 +173,7 @@ class StreamingFIFO(HLSCustomOp):
 
     def ipgen_singlenode_code(self):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
-        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(
-            code_gen_dir, self.onnx_node.name
-        )
+        verilog_dir = "{}/project_{}/sol1/impl/verilog".format(code_gen_dir, self.onnx_node.name)
         # prepare the IP packaging tcl template
         template = templates.ip_package_tcl
         self.code_gen_dict.clear()
@@ -215,9 +211,7 @@ class StreamingFIFO(HLSCustomOp):
         depth = self.get_adjusted_depth()
         assert depth >= 2, """Depth is too low"""
         if depth > 256 and self.get_nodeattr("impl_style") == "rtl":
-            warnings.warn(
-                "Depth is high, set between 2 and 256 for efficient SRL implementation"
-            )
+            warnings.warn("Depth is high, set between 2 and 256 for efficient SRL implementation")
         # derive normal shape from folded shape
         # StreamingFIFOs are inserted in between fpgadataflow nodes
         # the folded shape could be for example (1, nf, pe)
@@ -297,9 +291,7 @@ class StreamingFIFO(HLSCustomOp):
             np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
             output = self.rtlsim(sim, inp)
@@ -308,9 +300,7 @@ class StreamingFIFO(HLSCustomOp):
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
             # load and reshape output
             output = np.load(out_npy_path)
             oshape = self.get_normal_output_shape()
@@ -375,8 +365,7 @@ class StreamingFIFO(HLSCustomOp):
             cmd.append("create_bd_pin -dir I -type rst /%s/%s" % (node_name, rst_name))
             cmd.append(
                 "create_bd_intf_pin -mode Master "
-                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s"
-                % (node_name, dout_name)
+                "-vlnv xilinx.com:interface:axis_rtl:1.0 /%s/%s" % (node_name, dout_name)
             )
             cmd.append(
                 "create_bd_intf_pin -mode Slave "
@@ -397,8 +386,7 @@ class StreamingFIFO(HLSCustomOp):
             )
             cmd.append(
                 "set_property -dict [list CONFIG.TDATA_NUM_BYTES {%d}] "
-                "[get_bd_cells /%s/fifo]"
-                % (np.ceil(self.get_outstream_width() / 8), node_name)
+                "[get_bd_cells /%s/fifo]" % (np.ceil(self.get_outstream_width() / 8), node_name)
             )
             cmd.append(
                 "connect_bd_intf_net [get_bd_intf_pins %s/fifo/M_AXIS] "
@@ -410,8 +398,7 @@ class StreamingFIFO(HLSCustomOp):
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] "
-                "[get_bd_pins %s/fifo/s_axis_aresetn]"
-                % (node_name, rst_name, node_name)
+                "[get_bd_pins %s/fifo/s_axis_aresetn]" % (node_name, rst_name, node_name)
             )
             cmd.append(
                 "connect_bd_net [get_bd_pins %s/%s] "
@@ -420,8 +407,7 @@ class StreamingFIFO(HLSCustomOp):
             return cmd
         else:
             raise Exception(
-                "FIFO implementation style %s not supported, please use rtl or vivado"
-                % impl_style
+                "FIFO implementation style %s not supported, please use rtl or vivado" % impl_style
             )
 
     def bram_estimation(self):

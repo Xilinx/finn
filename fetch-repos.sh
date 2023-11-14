@@ -27,17 +27,18 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-QONNX_COMMIT="20a34289cf2297d2b2bbbe75d6ac152ece86e3b4"
+QONNX_COMMIT="04e24583fb5c1895744801480db3ced8a5b6a914"
 FINN_EXP_COMMIT="0aa7e1c44b20cf085b6fe42cff360f0a832afd2c"
-BREVITAS_COMMIT="c65f9c13dc124971f14739349531bbcda5c2a4aa"
+BREVITAS_COMMIT="9bb26bf2798de210a267d1e4aed4c20087e0e8a5"
 PYVERILATOR_COMMIT="766e457465f5c0dd315490d7b9cc5d74f9a76f4f"
 CNPY_COMMIT="4e8810b1a8637695171ed346ce68f6984e585ef4"
 HLSLIB_COMMIT="c17aa478ae574971d115afa9fa4d9c215857d1ac"
-OMX_COMMIT="d1065a788219ca0eb54d5e57600b1f9d7f67d4cc"
+OMX_COMMIT="0b59762f9e4c4f7e5aa535ee9bc29f292434ca7a"
 AVNET_BDF_COMMIT="2d49cfc25766f07792c0b314489f21fe916b639b"
 XIL_BDF_COMMIT="8cf4bb674a919ac34e3d99d8d71a9e60af93d14e"
+RFSOC4x2_BDF_COMMIT="13fb6f6c02c7dfd7e4b336b18b959ad5115db696"
 KV260_BDF_COMMIT="98e0d3efc901f0b974006bc4370c2a7ad8856c79"
-EXP_BOARD_FILES_MD5="30eecc497c31050bd46d10ea20eba232"
+EXP_BOARD_FILES_MD5="226ca927a16ea4ce579f1332675e9e9a"
 
 QONNX_URL="https://github.com/fastmachinelearning/qonnx.git"
 FINN_EXP_URL="https://github.com/Xilinx/finn-experimental.git"
@@ -48,6 +49,7 @@ HLSLIB_URL="https://github.com/Xilinx/finn-hlslib.git"
 OMX_URL="https://github.com/maltanar/oh-my-xilinx.git"
 AVNET_BDF_URL="https://github.com/Avnet/bdf.git"
 XIL_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
+RFSOC4x2_BDF_URL="https://github.com/RealDigitalOrg/RFSoC4x2-BSP.git"
 KV260_BDF_URL="https://github.com/Xilinx/XilinxBoardStore.git"
 
 QONNX_DIR="qonnx"
@@ -59,6 +61,7 @@ HLSLIB_DIR="finn-hlslib"
 OMX_DIR="oh-my-xilinx"
 AVNET_BDF_DIR="avnet-bdf"
 XIL_BDF_DIR="xil-bdf"
+RFSOC4x2_BDF_DIR="rfsoc4x2-bdf"
 KV260_SOM_BDF_DIR="kv260-som-bdf"
 
 # absolute path to this script, e.g. /home/user/bin/foo.sh
@@ -107,6 +110,7 @@ fetch_board_files() {
     unzip -q pynq-z2.zip
     cp -r $SCRIPTPATH/deps/$AVNET_BDF_DIR/* $SCRIPTPATH/deps/board_files/
     cp -r $SCRIPTPATH/deps/$XIL_BDF_DIR/boards/Xilinx/rfsoc2x2 $SCRIPTPATH/deps/board_files/;
+    cp -r $SCRIPTPATH/deps/$RFSOC4x2_BDF_DIR/board_files/rfsoc4x2 $SCRIPTPATH/deps/board_files/;
     cp -r $SCRIPTPATH/deps/$KV260_SOM_BDF_DIR/boards/Xilinx/kv260_som $SCRIPTPATH/deps/board_files/;
     cd $OLD_PWD
 }
@@ -120,6 +124,7 @@ fetch_repo $HLSLIB_URL $HLSLIB_COMMIT $HLSLIB_DIR
 fetch_repo $OMX_URL $OMX_COMMIT $OMX_DIR
 fetch_repo $AVNET_BDF_URL $AVNET_BDF_COMMIT $AVNET_BDF_DIR
 fetch_repo $XIL_BDF_URL $XIL_BDF_COMMIT $XIL_BDF_DIR
+fetch_repo $RFSOC4x2_BDF_URL $RFSOC4x2_BDF_COMMIT $RFSOC4x2_BDF_DIR
 fetch_repo $KV260_BDF_URL $KV260_BDF_COMMIT $KV260_SOM_BDF_DIR
 
 # download extra Pynq board files and extract if needed

@@ -62,12 +62,8 @@ def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt)
     odim_h = idim_h + pad_h
     odim_w = idim_w + pad_w
 
-    inp = helper.make_tensor_value_info(
-        "inp", TensorProto.FLOAT, [1, idim_h, idim_w, num_ch]
-    )
-    outp = helper.make_tensor_value_info(
-        "outp", TensorProto.FLOAT, [1, odim_h, odim_w, num_ch]
-    )
+    inp = helper.make_tensor_value_info("inp", TensorProto.FLOAT, [1, idim_h, idim_w, num_ch])
+    outp = helper.make_tensor_value_info("outp", TensorProto.FLOAT, [1, odim_h, odim_w, num_ch])
 
     FMPadding = helper.make_node(
         optype,
@@ -99,9 +95,7 @@ def make_single_fmpadding_modelwrapper(optype, idim, padding, num_ch, simd, idt)
 # input image dimension
 @pytest.mark.parametrize("idim", [[8, 8], [10, 8]])
 # number of rows and number of cols to add
-@pytest.mark.parametrize(
-    "pad", [[1, 1, 1, 1], [1, 1, 2, 2], [1, 3, 2, 3], [7, 0, 8, 0]]
-)
+@pytest.mark.parametrize("pad", [[1, 1, 1, 1], [1, 1, 2, 2], [1, 3, 2, 3], [7, 0, 8, 0]])
 # number of channels
 @pytest.mark.parametrize("num_ch", [2, 4])
 # Input parallelism
@@ -149,9 +143,7 @@ def test_fpgadataflow_fmpadding(idim, pad, num_ch, simd, idt, mode, impl_style):
     expected_oshape = (1, odim_h, odim_w, num_ch)
     assert y_produced.shape == expected_oshape
 
-    y_expected = np.pad(
-        x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant"
-    )
+    y_expected = np.pad(x, ((0, 0), (pad[0], pad[2]), (pad[1], pad[3]), (0, 0)), "constant")
 
     assert (y_produced == y_expected).all()
 

@@ -183,9 +183,7 @@ class CheckSum(HLSCustomOp):
             np.save(os.path.join(code_gen_dir, "input_0.npy"), reshaped_input)
             sim = self.get_rtlsim()
             nbits = self.get_instream_width()
-            inp = npy_to_rtlsim_input(
-                "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-            )
+            inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
             super().reset_rtlsim(sim)
             super().toggle_clk(sim)
             io_dict = {
@@ -199,9 +197,7 @@ class CheckSum(HLSCustomOp):
             packed_bits = self.get_outstream_width()
             out_npy_path = "{}/output.npy".format(code_gen_dir)
             out_shape = self.get_folded_output_shape()
-            rtlsim_output_to_npy(
-                output, out_npy_path, odt, out_shape, packed_bits, target_bits
-            )
+            rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
             # load and reshape output
             output = np.load(out_npy_path)
@@ -241,17 +237,28 @@ class CheckSum(HLSCustomOp):
         self.code_gen_dict["$READNPYDATA$"] = []
         # note: the innermost dim is reversed for the input
         self.code_gen_dict["$READNPYDATA$"].append(
-            'npy2apintstream<%s, %s, %d, %s>("%s", in0, false);'
-            % (packed_hls_type, elem_hls_type, elem_bits, npy_type, npy_in)
+            'npy2apintstream<%s, %s, %d, %s>("%s", in0_%s, false);'
+            % (
+                packed_hls_type,
+                elem_hls_type,
+                elem_bits,
+                npy_type,
+                npy_in,
+                self.hls_sname(),
+            )
         )
 
     def strm_decl(self):
         self.code_gen_dict["$STREAMDECLARATIONS$"] = []
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> in0 ("in0");'.format(self.get_instream_width())
+            'hls::stream<ap_uint<{}>> in0_{} ("in0_{}");'.format(
+                self.get_instream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append(
-            'hls::stream<ap_uint<{}>> out ("out");'.format(self.get_outstream_width())
+            'hls::stream<ap_uint<{}>> out_{} ("out_{}");'.format(
+                self.get_outstream_width(), self.hls_sname(), self.hls_sname()
+            )
         )
         self.code_gen_dict["$STREAMDECLARATIONS$"].append("ap_uint<32> chk;")
         # set drain = false for cppsim
@@ -259,7 +266,8 @@ class CheckSum(HLSCustomOp):
 
     def docompute(self):
         self.code_gen_dict["$DOCOMPUTE$"] = [
-            """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0, out, chk, drain);"""
+            """checksum<WORDS_PER_FRAME, ITEMS_PER_WORD>(in0_%s, out_%s, chk, drain);"""
+            % (self.hls_sname(), self.hls_sname())
         ]
 
     def dataoutstrm(self):
@@ -279,19 +287,19 @@ class CheckSum(HLSCustomOp):
 
         # note: the innermost dim is not reversed for the output
         self.code_gen_dict["$DATAOUTSTREAM$"] = [
-            'apintstream2npy<%s, %s, %d, %s>(out, %s, "%s", false);'
+            'apintstream2npy<%s, %s, %d, %s>(out_%s, %s, "%s", false);'
             % (
                 packed_hls_type,
                 elem_hls_type,
                 elem_bits,
                 npy_type,
+                self.hls_sname(),
                 shape_cpp_str,
                 npy_out,
             ),
             "std::vector<unsigned int> checksum(1);",
             "checksum[0] = chk;",
-            'cnpy::npy_save("%s/output_checksum.npy",&checksum[0],{1},"w");'
-            % code_gen_dir,
+            'cnpy::npy_save("%s/output_checksum.npy",&checksum[0],{1},"w");' % code_gen_dir,
         ]
 
     def save_as_npy(self):
@@ -299,18 +307,18 @@ class CheckSum(HLSCustomOp):
 
     def blackboxfunction(self):
         self.code_gen_dict["$BLACKBOXFUNCTION$"] = [
-            """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0,
-            hls::stream<T> &out, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
-                self.onnx_node.name
+            """using T = ap_uint<WORD_SIZE>;\n void {}(hls::stream<T> &in0_{},
+            hls::stream<T> &out_{}, ap_uint<32> &chk, ap_uint<1> &drain)""".format(
+                self.onnx_node.name, self.hls_sname(), self.hls_sname()
             )
         ]
 
     def pragmas(self):
         self.code_gen_dict["$PRAGMAS$"] = [
-            "#pragma HLS interface axis port=in0 name=in0_" + self.hls_sname()
+            "#pragma HLS interface axis port=in0_" + self.hls_sname()
         ]
         self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS interface axis port=out name=out_" + self.hls_sname()
+            "#pragma HLS interface axis port=out_" + self.hls_sname()
         )
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS interface s_axilite port=chk bundle=checksum"
@@ -318,13 +326,9 @@ class CheckSum(HLSCustomOp):
         self.code_gen_dict["$PRAGMAS$"].append(
             "#pragma HLS interface s_axilite port=drain bundle=checksum"
         )
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS interface ap_ctrl_none port=return"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS interface ap_ctrl_none port=return")
         self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow")
-        self.code_gen_dict["$PRAGMAS$"].append(
-            "#pragma HLS dataflow disable_start_propagation"
-        )
+        self.code_gen_dict["$PRAGMAS$"].append("#pragma HLS dataflow disable_start_propagation")
 
     def get_verilog_top_module_intf_names(self):
         intf_names = super().get_verilog_top_module_intf_names()

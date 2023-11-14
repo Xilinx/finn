@@ -29,11 +29,11 @@
 exclude: '^docs/conf.py'
 
 default_language_version:
-    python: python3.8
+    python: python3.10
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v4.2.0
+  rev: v4.4.0
   hooks:
   - id: trailing-whitespace
     exclude: '\.dat$'
@@ -56,15 +56,16 @@ repos:
   - id: isort
 
 - repo: https://github.com/psf/black
-  rev: 22.3.0
+  rev: 23.3.0
   hooks:
   - id: black
     language_version: python3
+    args: [--line-length=100]
 
 - repo: https://github.com/PyCQA/flake8
-  rev: 3.9.2
+  rev: 6.0.0
   hooks:
   - id: flake8
     # black-compatible flake-8 config
-    args: ['--max-line-length=88',  # black default
+    args: ['--max-line-length=100',  # black default
            '--extend-ignore=E203']  # E203 is not PEP8 compliant

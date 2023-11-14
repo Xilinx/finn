@@ -102,12 +102,8 @@ def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
         out_chn = 8
         conv_param_shape = [out_chn, in_chn, kernel_size_h, kernel_size_w]
 
-    output_size_h = compute_conv_output_dim(
-        input_size_h, kernel_size_h, stride_h, 2 * pad_h
-    )
-    output_size_w = compute_conv_output_dim(
-        input_size_w, kernel_size_w, stride_w, 2 * pad_w
-    )
+    output_size_h = compute_conv_output_dim(input_size_h, kernel_size_h, stride_h, 2 * pad_h)
+    output_size_w = compute_conv_output_dim(input_size_w, kernel_size_w, stride_w, 2 * pad_w)
 
     input_shape = [1, in_chn, input_size_h, input_size_w]
     fc_param_shape = [out_chn * output_size_h * output_size_w, fc_filters]
@@ -120,34 +116,20 @@ def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
     conv_config["pads"] = [pad_h, pad_w, pad_h, pad_w]
     conv_config["strides"] = [stride_h, stride_w]
 
-    global_in = helper.make_tensor_value_info(
-        "global_in", TensorProto.FLOAT, input_shape
-    )
-    global_out = helper.make_tensor_value_info(
-        "global_out", TensorProto.FLOAT, output_shape
-    )
+    global_in = helper.make_tensor_value_info("global_in", TensorProto.FLOAT, input_shape)
+    global_out = helper.make_tensor_value_info("global_out", TensorProto.FLOAT, output_shape)
     value_info = [
-        helper.make_tensor_value_info(
-            "conv_param", TensorProto.FLOAT, conv_param_shape
-        ),
+        helper.make_tensor_value_info("conv_param", TensorProto.FLOAT, conv_param_shape),
         helper.make_tensor_value_info("thres1_param", TensorProto.FLOAT, (out_chn, 15)),
-        helper.make_tensor_value_info(
-            "matmul_param", TensorProto.FLOAT, fc_param_shape
-        ),
-        helper.make_tensor_value_info(
-            "thres2_param", TensorProto.FLOAT, (fc_filters, 15)
-        ),
+        helper.make_tensor_value_info("matmul_param", TensorProto.FLOAT, fc_param_shape),
+        helper.make_tensor_value_info("thres2_param", TensorProto.FLOAT, (fc_filters, 15)),
         helper.make_tensor_value_info("reshape_shape", TensorProto.INT64, []),
     ]
 
     if use_reshape:
-        flatten_node = helper.make_node(
-            "Reshape", ["thres1_out", "reshape_shape"], ["flatten_out"]
-        )
+        flatten_node = helper.make_node("Reshape", ["thres1_out", "reshape_shape"], ["flatten_out"])
     else:
-        flatten_node = helper.make_node(
-            "Flatten", ["thres1_out"], ["flatten_out"], axis=1
-        )
+        flatten_node = helper.make_node("Flatten", ["thres1_out"], ["flatten_out"], axis=1)
 
     modelproto = qonnx_make_model(
         helper.make_graph(
@@ -156,9 +138,7 @@ def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
             outputs=[global_out],
             value_info=value_info,
             nodes=[
-                helper.make_node(
-                    "Conv", ["global_in", "conv_param"], ["conv_out"], **conv_config
-                ),
+                helper.make_node("Conv", ["global_in", "conv_param"], ["conv_out"], **conv_config),
                 helper.make_node(
                     "MultiThreshold",
                     ["conv_out", "thres1_param"],
@@ -167,9 +147,7 @@ def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
                     out_dtype="UINT4",
                 ),
                 flatten_node,
-                helper.make_node(
-                    "MatMul", ["flatten_out", "matmul_param"], ["matmul_out"]
-                ),
+                helper.make_node("MatMul", ["flatten_out", "matmul_param"], ["matmul_out"]),
                 helper.make_node(
                     "MultiThreshold",
                     ["matmul_out", "thres2_param"],
@@ -190,18 +168,10 @@ def test_convert_to_hls_conv_fc_transition(conv_config, depthwise, use_reshape):
     model.set_tensor_datatype("thres1_param", DataType["INT32"])
     model.set_tensor_datatype("thres2_param", DataType["INT32"])
 
-    model.set_initializer(
-        "conv_param", gen_finn_dt_tensor(conv_weight_dt, conv_param_shape)
-    )
-    model.set_initializer(
-        "thres1_param", get_multithreshold_rand_params(out_chn, 15, seed=0)
-    )
-    model.set_initializer(
-        "thres2_param", get_multithreshold_rand_params(fc_filters, 15, seed=0)
-    )
-    model.set_initializer(
-        "matmul_param", gen_finn_dt_tensor(fc_weight_dt, fc_param_shape)
-    )
+    model.set_initializer("conv_param", gen_finn_dt_tensor(conv_weight_dt, conv_param_shape))
+    model.set_initializer("thres1_param", get_multithreshold_rand_params(out_chn, 15, seed=0))
+    model.set_initializer("thres2_param", get_multithreshold_rand_params(fc_filters, 15, seed=0))
+    model.set_initializer("matmul_param", gen_finn_dt_tensor(fc_weight_dt, fc_param_shape))
     model.set_initializer("reshape_shape", np.array([1, -1], dtype=np.int64))
 
     model = model.transform(InferShapes())

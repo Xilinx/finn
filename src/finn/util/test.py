@@ -26,10 +26,9 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
+import importlib_resources as importlib
 import numpy as np
 import onnx
 import onnx.numpy_helper as nph
@@ -106,26 +105,26 @@ def load_test_checkpoint_or_skip(filename):
         pytest.skip(filename + " not found from previous test step, skipping")
 
 
-def get_build_env(kind, target_clk_ns):
+def get_build_env(board, target_clk_ns):
     """Get board-related build environment for testing.
-    - kind = either zynq or alveo.
+    - board = any from pynq_part_map or alveo_part_map
     """
     ret = {}
-    if kind == "zynq":
-        ret["board"] = os.getenv("PYNQ_BOARD", default="Pynq-Z1")
-        ret["part"] = pynq_part_map[ret["board"]]
-        ret["build_fxn"] = ZynqBuild(ret["board"], target_clk_ns)
-    elif kind == "alveo":
-        ret["board"] = os.getenv("ALVEO_BOARD", default="U250")
-        ret["part"] = alveo_part_map[ret["board"]]
+    if board in pynq_part_map:
+        ret["kind"] = "zynq"
+        ret["part"] = pynq_part_map[board]
+        ret["build_fxn"] = ZynqBuild(board, target_clk_ns)
+    elif board in alveo_part_map:
+        ret["kind"] = "alveo"
+        ret["part"] = alveo_part_map[board]
         ret["build_fxn"] = VitisBuild(
             ret["part"],
             target_clk_ns,
-            alveo_default_platform[ret["board"]],
+            alveo_default_platform[board],
             strategy=VitisOptStrategy.BUILD_SPEED,
         )
     else:
-        raise Exception("Unknown test build environment spec")
+        raise Exception("Unknown board specified")
     return ret
 
 
@@ -137,10 +136,9 @@ def get_example_input(topology):
         onnx_tensor = onnx.load_tensor_from_string(raw_i)
         return nph.to_array(onnx_tensor)
     elif topology == "cnv":
-        fn = pk.resource_filename(
-            "finn.qnn-data", "cifar10/cifar10-test-data-class3.npz"
-        )
-        input_tensor = np.load(fn)["arr_0"].astype(np.float32)
+        ref = importlib.files("finn.qnn-data") / "cifar10/cifar10-test-data-class3.npz"
+        with importlib.as_file(ref) as fn:
+            input_tensor = np.load(fn)["arr_0"].astype(np.float32)
         return input_tensor
     else:
         raise Exception("Unknown topology, can't return example input")

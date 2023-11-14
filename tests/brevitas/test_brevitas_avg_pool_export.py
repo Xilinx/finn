@@ -31,7 +31,7 @@ import numpy as np
 import os
 import torch
 from brevitas.export import export_qonnx
-from brevitas.nn import QuantAvgPool2d, QuantIdentity, QuantReLU
+from brevitas.nn import QuantIdentity, QuantReLU, TruncAvgPool2d
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.transformation.infer_datatypes import InferDataTypes
@@ -73,7 +73,7 @@ def test_brevitas_avg_pool_export(
             bit_width=input_bit_width,
             return_quant_tensor=True,
         )
-    quant_avgpool = QuantAvgPool2d(
+    quant_avgpool = TruncAvgPool2d(
         kernel_size=kernel_size,
         stride=stride,
         bit_width=bit_width,

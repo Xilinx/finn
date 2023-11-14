@@ -62,10 +62,7 @@ def res_estimation_complete(model):
         if is_fpgadataflow_node(node) is True:
             op_type = node.op_type
             inst = registry.getCustomOp(node)
-            if (
-                op_type == "MatrixVectorActivation"
-                or op_type == "VectorVectorActivation"
-            ):
+            if op_type == "MatrixVectorActivation" or op_type == "VectorVectorActivation":
                 orig_restype = inst.get_nodeattr("resType")
                 res_dict[node.name] = []
                 inst.set_nodeattr("resType", "dsp")

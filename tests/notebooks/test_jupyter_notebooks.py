@@ -13,14 +13,15 @@ notebook_bnn_dir = get_finn_root() + "/notebooks/end2end_example/bnn-pynq/"
 
 basics_notebooks = [
     pytest.param(notebook_basic_dir + "0_how_to_work_with_onnx.ipynb"),
-    pytest.param(notebook_basic_dir + "1a_brevitas_network_import_via_FINN-ONNX.ipynb"),
-    pytest.param(notebook_basic_dir + "1b_brevitas_network_import_via_QONNX.ipynb"),
+    pytest.param(notebook_basic_dir + "1_brevitas_network_import_via_QONNX.ipynb"),
 ]
 
 advanced_notebooks = [
     pytest.param(notebook_advanced_dir + "0_custom_analysis_pass.ipynb"),
     pytest.param(notebook_advanced_dir + "1_custom_transformation_pass.ipynb"),
     pytest.param(notebook_advanced_dir + "2_custom_op.ipynb"),
+    pytest.param(notebook_advanced_dir + "3_folding.ipynb"),
+    pytest.param(notebook_advanced_dir + "4_advanced_builder_settings.ipynb"),
 ]
 
 cyber_notebooks = [
@@ -43,9 +44,7 @@ bnn_notebooks = [
 def test_notebook_exec(notebook):
     with open(notebook) as f:
         nb = nbformat.read(f, as_version=4)
-        ep = ExecutePreprocessor(
-            timeout=notebook_timeout_seconds, kernel_name="python3"
-        )
+        ep = ExecutePreprocessor(timeout=notebook_timeout_seconds, kernel_name="python3")
         try:
             assert ep.preprocess(nb) is not None, f"Got empty notebook for {notebook}"
         except Exception:

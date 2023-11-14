@@ -61,9 +61,7 @@ class InferConvInpGen(Transformation):
                 i2c_out_shape = model.get_tensor_shape(i2c_output)
                 dt = model.get_tensor_datatype(i2c_input)
                 if not dt.is_integer():
-                    warnings.warn(
-                        "%s : Input is not int. Can't infer ConvInpGen." % n.name
-                    )
+                    warnings.warn("%s : Input is not int. Can't infer ConvInpGen." % n.name)
                     continue
                 i2c_inst = getCustomOp(n)
                 stride_h, stride_w = i2c_inst.get_nodeattr("stride")
@@ -92,8 +90,7 @@ class InferConvInpGen(Transformation):
                     # assert dt.allowed(pad_val),"""FMPadding_Batch DataType
                     # must support pad_val"""
                     assert pad_val == 0, (
-                        "%s : FMPadding_Batch doesn't currently support pad_val!= 0"
-                        % n.name
+                        "%s : FMPadding_Batch doesn't currently support pad_val!= 0" % n.name
                     )
 
                     odim_padding_h = ifm_dim_h + pad_h
@@ -113,9 +110,7 @@ class InferConvInpGen(Transformation):
                     ConvInpGen_idim_h = odim_padding_h
                     ConvInpGen_idim_w = odim_padding_w
 
-                    padding_optype = (
-                        "FMPadding_rtl" if self.use_rtl_variant else "FMPadding_Batch"
-                    )
+                    padding_optype = "FMPadding_rtl" if self.use_rtl_variant else "FMPadding_Batch"
 
                     padding_node = helper.make_node(
                         padding_optype,
@@ -167,13 +162,9 @@ class InferConvInpGen(Transformation):
                     if (stride_h > 1 or stride_w > 1) and is_kernel_pointwise:
                         downsample_1D = (ifm_dim_h == 1) or (ifm_dim_w == 1)
                         is1D_unitx = ifm_dim_w == 1
-                        downsample_2D = (
-                            (not downsample_1D) and is_square_image and is_equal_stride
-                        )
+                        downsample_2D = (not downsample_1D) and is_square_image and is_equal_stride
                         if not (downsample_1D or downsample_2D):
-                            warnings.warn(
-                                f"Couldn't infer Downsample from {n.name},check config."
-                            )
+                            warnings.warn(f"Couldn't infer Downsample from {n.name},check config.")
                             continue
                         ConvInpGen_idim = max(ConvInpGen_idim_h, ConvInpGen_idim_w)
                         stride = max(stride_h, stride_w)
@@ -196,9 +187,7 @@ class InferConvInpGen(Transformation):
                         graph.node.insert(ConvInpGen_node_idx, ConvInpGen_node)
                     else:
                         # create equivalent ConvolutionInputGenerator node
-                        if (
-                            is_square_image and is_square_kernel
-                        ):  # square images and square kernels
+                        if is_square_image and is_square_kernel:  # square images and square kernels
                             assert is_equal_stride, (
                                 """%s: Non-equal strides along different axes is not supported
                                 for (non-)square convolutions"""
@@ -290,15 +279,13 @@ class InferUpsample(Transformation):
                 dt = model.get_tensor_datatype(n.input[0])
                 if not dt.is_integer():
                     warnings.warn(
-                        "%s: Input not int. Can't infer UpsampleNearestNeighbour."
-                        % n.name
+                        "%s: Input not int. Can't infer UpsampleNearestNeighbour." % n.name
                     )
                     continue
 
                 if model.get_tensor_layout(n.input[0]) != DataLayout.NHWC:
                     warnings.warn(
-                        "%s: Input not NHWC. Can't infer UpsampleNearestNeighbour."
-                        % n.name
+                        "%s: Input not NHWC. Can't infer UpsampleNearestNeighbour." % n.name
                     )
                     continue
 
@@ -319,8 +306,7 @@ class InferUpsample(Transformation):
                 is_scale_square_2d = scales[1] == scales[2]
                 is_scale_1d = scales[1] > 1 and scales[2] == 1
                 assert is_scale_square_2d or is_scale_1d, (
-                    "%s: Upsampling only supported for 1D H, or 2D square scaling"
-                    % n.name
+                    "%s: Upsampling only supported for 1D H, or 2D square scaling" % n.name
                 )
                 assert scales[0] == scales[3] == 1, (
                     n.name + ": Upsampling is only supported for scales with "
@@ -334,8 +320,7 @@ class InferUpsample(Transformation):
                 is_shape_1d = in_shape[1] > 1 and in_shape[2] == 1
 
                 assert is_shape_square_2d or is_shape_1d, (
-                    "%s: Upsampling is only supported for 1D H or 2D square inputs."
-                    % n.name
+                    "%s: Upsampling is only supported for 1D H or 2D square inputs." % n.name
                 )
 
                 # Extract information for HLS node
@@ -538,9 +523,7 @@ class InferPool_Batch(Transformation):
                 elif node.op_type == "QuantAvgPool2d":
                     assert odt.is_integer(), """Output data type for QuantAvgPool2d
                     needs to be integer"""
-                    assert all(
-                        x == 0 for x in pad
-                    ), "Padding is not supported for QuantAvgPool2d"
+                    assert all(x == 0 for x in pad), "Padding is not supported for QuantAvgPool2d"
                     inst = getCustomOp(node)
                     pool_fxn = "QuantAvgPool"
                     pool_size_param = inst.get_shifts()
@@ -548,9 +531,7 @@ class InferPool_Batch(Transformation):
 
                 else:
                     raise Exception(
-                        "pad_value and pool_fxn not configured for {}".format(
-                            node.op_type
-                        )
+                        "pad_value and pool_fxn not configured for {}".format(node.op_type)
                     )
 
                 # format input tensor
@@ -809,17 +790,13 @@ class InferQuantizedMatrixVectorActivation(Transformation):
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name
-                            + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HLS conversion."
                         )
                         actval = int(actval)
                         odt_is_bipolar = odt == DataType["BIPOLAR"]
-                        bipolar_ok = (
-                            odt_is_bipolar and (scale == 2.0) and (actval == -1)
-                        )
+                        bipolar_ok = odt_is_bipolar and (scale == 2.0) and (actval == -1)
                         assert scale == 1.0 or bipolar_ok, (
-                            consumer.name
-                            + ": out_scale=1 or bipolar output needed for conversion."
+                            consumer.name + ": out_scale=1 or bipolar output needed for conversion."
                         )
                         assert (not odt.signed()) or (actval < 0), (
                             consumer.name + ": Signed output requres actval < 0"
@@ -909,10 +886,7 @@ class InferVectorVectorActivation(Transformation):
         graph_modified = False
         for n in graph.node:
             node_ind += 1
-            if (
-                n.op_type == "MatMul"
-                and model.get_tensor_sparsity(n.input[1]) is not None
-            ):
+            if n.op_type == "MatMul" and model.get_tensor_sparsity(n.input[1]) is not None:
                 sparsity = model.get_tensor_sparsity(n.input[1])
                 try:
                     k_h, k_w = sparsity["dw"]["kernel_shape"]
@@ -971,13 +945,11 @@ class InferVectorVectorActivation(Transformation):
                         odt = model.get_tensor_datatype(mt_output)
                         scale = getCustomOp(consumer).get_nodeattr("out_scale")
                         assert scale == 1.0, (
-                            consumer.name
-                            + ": out_scale must be equal to 1.0 for HLS conversion."
+                            consumer.name + ": out_scale must be equal to 1.0 for HLS conversion."
                         )
                         actval = getCustomOp(consumer).get_nodeattr("out_bias")
                         assert int(actval) == actval, (
-                            consumer.name
-                            + ": out_bias must be integer for HLS conversion."
+                            consumer.name + ": out_bias must be integer for HLS conversion."
                         )
                         actval = int(actval)
                         assert (not odt.signed()) or (actval < 0), (
@@ -1094,13 +1066,11 @@ class InferThresholdingLayer(Transformation):
                 odt = model.get_tensor_datatype(thl_output)
                 scale = getCustomOp(node).get_nodeattr("out_scale")
                 assert scale == 1.0, (
-                    node.name
-                    + ": MultiThreshold out_scale must be 1 for HLS conversion."
+                    node.name + ": MultiThreshold out_scale must be 1 for HLS conversion."
                 )
                 actval = getCustomOp(node).get_nodeattr("out_bias")
                 assert int(actval) == actval, (
-                    node.name
-                    + ": MultiThreshold out_bias must be integer for HLS conversion."
+                    node.name + ": MultiThreshold out_bias must be integer for HLS conversion."
                 )
                 actval = int(actval)
                 assert (not odt.signed()) or (actval < 0), (
@@ -1408,9 +1378,7 @@ class InferChannelwiseLinearLayer(Transformation):
                 # check if the shape of initializer is compatible
                 ll_cinit_shape = list(ll_cinit.shape)
                 if np.prod(ll_cinit_shape) == 1:
-                    warnings.warn(
-                        "Broadcasting " + str(node.op_type) + "(" + node.name + ")"
-                    )
+                    warnings.warn("Broadcasting " + str(node.op_type) + "(" + node.name + ")")
                     ll_cinit = np.full((ch), ll_cinit.flatten()[0])
                 elif np.prod(ll_cinit_shape) != ch or ll_cinit_shape[ch_index] != ch:
                     # parameter shape not compatible with Channelwise_batch
@@ -1719,9 +1687,7 @@ class InferConcatLayer(Transformation):
                 dt0 = model.get_tensor_datatype(node.input[0])
                 if dt0 is None:
                     continue
-                dt_coherent = all(
-                    [model.get_tensor_datatype(x) == dt0 for x in node.input]
-                )
+                dt_coherent = all([model.get_tensor_datatype(x) == dt0 for x in node.input])
                 if not dt_coherent:
                     continue
                 # skip conversion if any inputs are static

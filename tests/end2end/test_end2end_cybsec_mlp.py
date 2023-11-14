@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
 import json
@@ -37,9 +35,8 @@ import shutil
 import torch
 import torch.nn as nn
 from brevitas.core.quant import QuantType
-from brevitas.export import export_finn_onnx, export_qonnx
+from brevitas.export import export_qonnx
 from brevitas.nn import QuantIdentity, QuantLinear, QuantReLU
-from brevitas.quant_tensor import QuantTensor
 from qonnx.core.datatype import DataType
 from qonnx.core.modelwrapper import ModelWrapper
 from qonnx.util.cleanup import cleanup as qonnx_cleanup
@@ -48,20 +45,20 @@ import finn.builder.build_dataflow as build
 import finn.builder.build_dataflow_config as build_cfg
 from finn.transformation.qonnx.convert_qonnx_to_finn import ConvertQONNXtoFINN
 from finn.util.basic import make_build_dir
-from finn.util.test import get_build_env, load_test_checkpoint_or_skip
+from finn.util.test import load_test_checkpoint_or_skip
 
 target_clk_ns = 10
-build_kind = "zynq"
+build_board = "Pynq-Z1"
 build_dir = os.environ["FINN_BUILD_DIR"]
 
 
-def get_checkpoint_name(step, QONNX_export):
+def get_checkpoint_name(step):
     if step == "build":
         # checkpoint for build step is an entire dir
-        return build_dir + "/end2end_cybsecmlp_build_QONNX-%d" % (QONNX_export)
+        return build_dir + "/end2end_cybsecmlp_build"
     else:
         # other checkpoints are onnx files
-        return build_dir + "/end2end_cybsecmlp_QONNX-%d_%s.onnx" % (QONNX_export, step)
+        return build_dir + "/end2end_cybsecmlp_%s.onnx" % step
 
 
 class CybSecMLPForExport(nn.Module):
@@ -82,10 +79,9 @@ class CybSecMLPForExport(nn.Module):
         return out_final
 
 
-@pytest.mark.parametrize("QONNX_export", [False, True])
 @pytest.mark.end2end
-def test_end2end_cybsec_mlp_export(QONNX_export):
-    assets_dir = pk.resource_filename("finn.qnn-data", "cybsec-mlp/")
+def test_end2end_cybsec_mlp_export():
+    assets_dir = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/cybsec-mlp"
     # load up trained net in Brevitas
     input_size = 593
     hidden1 = 64
@@ -109,88 +105,57 @@ def test_end2end_cybsec_mlp_export(QONNX_export):
         QuantReLU(bit_width=act_bit_width),
         QuantLinear(hidden3, num_classes, bias=True, weight_bit_width=weight_bit_width),
     )
-    trained_state_dict = torch.load(assets_dir + "/state_dict.pth")[
-        "models_state_dict"
-    ][0]
+    trained_state_dict = torch.load(assets_dir + "/state_dict.pth")["models_state_dict"][0]
     model.load_state_dict(trained_state_dict, strict=False)
     W_orig = model[0].weight.data.detach().numpy()
     # pad the second (593-sized) dimensions with 7 zeroes at the end
     W_new = np.pad(W_orig, [(0, 0), (0, 7)])
     model[0].weight.data = torch.from_numpy(W_new)
     model_for_export = CybSecMLPForExport(model)
-    export_onnx_path = get_checkpoint_name("export", QONNX_export)
+    export_onnx_path = get_checkpoint_name("export")
     input_shape = (1, 600)
-    # create a QuantTensor instance to mark the input as bipolar during export
-    input_a = np.random.randint(0, 1, size=input_shape).astype(np.float32)
-    input_a = 2 * input_a - 1
-    scale = 1.0
-    input_t = torch.from_numpy(input_a * scale)
-    input_qt = QuantTensor(
-        input_t, scale=torch.tensor(scale), bit_width=torch.tensor(1.0), signed=True
-    )
 
-    if QONNX_export:
-        # With the onnx export from Brevitas we need to manually set
-        # the FINN DataType at the input
-        export_qonnx(
-            model_for_export, torch.randn(input_shape), export_path=export_onnx_path
-        )
-        model = ModelWrapper(export_onnx_path)
-        model.set_tensor_datatype(model.graph.input[0].name, DataType["BIPOLAR"])
-        model.save(export_onnx_path)
-        qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
-        model = ModelWrapper(export_onnx_path)
-        model = model.transform(ConvertQONNXtoFINN())
-        model.save(export_onnx_path)
-    else:
-        export_finn_onnx(
-            model_for_export, export_path=export_onnx_path, input_t=input_qt
-        )
+    # With the onnx export from Brevitas we need to manually set
+    # the FINN DataType at the input
+    export_qonnx(model_for_export, torch.randn(input_shape), export_path=export_onnx_path)
+    model = ModelWrapper(export_onnx_path)
+    model.set_tensor_datatype(model.graph.input[0].name, DataType["BIPOLAR"])
+    model.save(export_onnx_path)
+    qonnx_cleanup(export_onnx_path, out_file=export_onnx_path)
+    model = ModelWrapper(export_onnx_path)
+    model = model.transform(ConvertQONNXtoFINN())
     assert os.path.isfile(export_onnx_path)
     # fix input datatype
-    finn_model = ModelWrapper(export_onnx_path)
-    finnonnx_in_tensor_name = finn_model.graph.input[0].name
-    assert tuple(finn_model.get_tensor_shape(finnonnx_in_tensor_name)) == (1, 600)
+    finnonnx_in_tensor_name = model.graph.input[0].name
+    assert tuple(model.get_tensor_shape(finnonnx_in_tensor_name)) == (1, 600)
     # verify a few exported ops
-    if QONNX_export:
-        # The first "Mul" node doesn't exist in the QONNX export,
-        # because the QuantTensor scale is not exported.
-        # However, this node would have been unity scale anyways and
-        # the models are still equivalent.
-        assert finn_model.graph.node[0].op_type == "Add"
-        assert finn_model.graph.node[1].op_type == "Div"
-        assert finn_model.graph.node[2].op_type == "MatMul"
-        assert finn_model.graph.node[-1].op_type == "MultiThreshold"
-    else:
-        assert finn_model.graph.node[0].op_type == "Mul"
-        assert finn_model.get_initializer(finn_model.graph.node[0].input[1]) == 1.0
-        assert finn_model.graph.node[1].op_type == "Add"
-        assert finn_model.graph.node[2].op_type == "Div"
-        assert finn_model.graph.node[3].op_type == "MatMul"
-        assert finn_model.graph.node[-1].op_type == "MultiThreshold"
+    # The first "Mul" node doesn't exist in the QONNX export,
+    # because the QuantTensor scale is not exported.
+    # However, this node would have been unity scale anyways and
+    # the models are still equivalent.
+    assert model.graph.node[0].op_type == "Add"
+    assert model.graph.node[1].op_type == "Div"
+    assert model.graph.node[2].op_type == "MatMul"
+    assert model.graph.node[-1].op_type == "MultiThreshold"
     # verify datatypes on some tensors
-    assert (
-        finn_model.get_tensor_datatype(finnonnx_in_tensor_name) == DataType["BIPOLAR"]
-    )
-    first_matmul_w_name = finn_model.get_nodes_by_op_type("MatMul")[0].input[1]
-    assert finn_model.get_tensor_datatype(first_matmul_w_name) == DataType["INT2"]
+    assert model.get_tensor_datatype(finnonnx_in_tensor_name) == DataType["BIPOLAR"]
+    first_matmul_w_name = model.get_nodes_by_op_type("MatMul")[0].input[1]
+    assert model.get_tensor_datatype(first_matmul_w_name) == DataType["INT2"]
 
 
 @pytest.mark.slow
 @pytest.mark.vivado
 @pytest.mark.end2end
-@pytest.mark.parametrize("QONNX_export", [False, True])
-def test_end2end_cybsec_mlp_build(QONNX_export):
-    model_file = get_checkpoint_name("export", QONNX_export)
+def test_end2end_cybsec_mlp_build():
+    model_file = get_checkpoint_name("export")
     load_test_checkpoint_or_skip(model_file)
-    build_env = get_build_env(build_kind, target_clk_ns)
-    output_dir = make_build_dir(f"test_end2end_cybsec_mlp_build_QONNX-{QONNX_export}")
+    output_dir = make_build_dir("test_end2end_cybsec_mlp_build")
 
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
         target_fps=1000000,
         synth_clk_period_ns=target_clk_ns,
-        board=build_env["board"],
+        board=build_board,
         shell_flow_type=build_cfg.ShellFlowType.VIVADO_ZYNQ,
         generate_outputs=[
             build_cfg.DataflowOutputType.ESTIMATE_REPORTS,
@@ -222,4 +187,5 @@ def test_end2end_cybsec_mlp_build(QONNX_export):
         est_res_dict = json.load(f)
         assert est_res_dict["total"]["LUT"] == 7904.0
         assert est_res_dict["total"]["BRAM_18K"] == 36.0
-    shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build", QONNX_export))
+    shutil.copytree(output_dir + "/deploy", get_checkpoint_name("build"))
+    shutil.rmtree(get_checkpoint_name("build"))

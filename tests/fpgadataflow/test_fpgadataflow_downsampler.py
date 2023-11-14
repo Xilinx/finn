@@ -122,9 +122,7 @@ def test_fpgadataflow_downsampler(is_1d, flip_1d, exec_mode):
     stride = 2
     dt_in = DataType["UINT8"]
     dt_w = DataType["INT2"]
-    model = build_model(
-        is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=flip_1d
-    )
+    model = build_model(is_1d, in_dim, k, stride, dt_in, dt_w, pad_half=0, flip_1d=flip_1d)
     inp = gen_finn_dt_tensor(dt_in, model.get_tensor_shape("in0"))
     idict = {"in0": inp}
     y_expected = execute_onnx(model, idict)["out0"]

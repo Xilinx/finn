@@ -135,9 +135,7 @@ def _make_single_vvau_modelwrapper(
         mem_mode=mem_mode,
     )
 
-    graph = helper.make_graph(
-        nodes=[VVAU_node], name="vvau_graph", inputs=[inp], outputs=[outp]
-    )
+    graph = helper.make_graph(nodes=[VVAU_node], name="vvau_graph", inputs=[inp], outputs=[outp])
 
     model = qonnx_make_model(graph, producer_name="vvau-model")
     model = ModelWrapper(model)
@@ -202,9 +200,7 @@ def test_fpgadataflow_vvau(
 
     # Generate weights in expected shape for ONNX and HLS node
     W = gen_finn_dt_tensor(wdt, (channels, 1, k_h, k_w))  # shape: [channels, 1, k, k]
-    W_onnx = _infer_sparse_weight_tensor(
-        W, k_h, k_w, channels
-    )  # shape: [k*k*channels, channels]
+    W_onnx = _infer_sparse_weight_tensor(W, k_h, k_w, channels)  # shape: [k*k*channels, channels]
 
     # Generate inputs in expected format for ONNX and HLS node
     x = gen_finn_dt_tensor(idt, (1, dim_h, dim_w, k_h * k_w * channels))
@@ -273,9 +269,7 @@ def test_fpgadataflow_vvau(
             # signed offset
             y_expected += act.min()
 
-    y_produced = oxe.execute_onnx(model, input_dict, return_full_exec_context=False)[
-        "outp"
-    ]
+    y_produced = oxe.execute_onnx(model, input_dict, return_full_exec_context=False)["outp"]
 
     assert (y_produced == y_expected).all(), "incorrect result"
 
