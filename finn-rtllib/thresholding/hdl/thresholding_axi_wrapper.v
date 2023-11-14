@@ -40,9 +40,7 @@ module $MODULE_NAME_AXI_WRAPPER$ #(
 	parameter  SIGNED = $SIGNED$,	// signed inputs
 	parameter  BIAS = $BIAS$,		// offsetting the output [0, 2^N-1) -> [BIAS, 2^N-1 + BIAS)
 
-	parameter  O_BITS = BIAS > 0?
-		/* unsigned */ $clog2(2**N+BIAS) :
-		/* signed */ 1+$clog2(-BIAS >= 2**(N-1)? -BIAS : 2**N+BIAS)
+	parameter  O_BITS = $O_BITS$
 )(
 	//- Global Control ------------------
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF in0_V:out_V" *)

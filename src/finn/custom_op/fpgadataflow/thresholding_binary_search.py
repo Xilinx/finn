@@ -26,6 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+import math
 import numpy as np
 import os
 import warnings
@@ -221,23 +222,17 @@ class Thresholding_Binary_Search(HLSCustomOp):
         ), """Threshold matrix dimension is
         not as expected (2)."""
         n_thres_steps = orig_thres_matrix.shape[1]
-        assert n_thres_steps == self.get_nodeattr(
-            "numSteps"
-        ), "Mismatch in threshold steps"
+        assert n_thres_steps == self.get_nodeattr("numSteps"), "Mismatch in threshold steps"
         if not self.get_input_datatype().signed():
             # ensure all thresholds are nonnegative
             assert (orig_thres_matrix >= 0).all()
         # ensure all thresholds are integer
-        assert np.equal(
-            np.mod(orig_thres_matrix, 1), 0
-        ).all(), "Need int threshold tensor"
+        assert np.equal(np.mod(orig_thres_matrix, 1), 0).all(), "Need int threshold tensor"
         ret = orig_thres_matrix
         # ensure channels = mh , duplicating if necessary
         if ret.shape[0] == 1:
             ret = np.tile(ret, (mh, 1))
-        assert (
-            ret.shape[0] == mh
-        ), "Channels of threshold matrix are not as expected (mh)"
+        assert ret.shape[0] == mh, "Channels of threshold matrix are not as expected (mh)"
         # distribute rows between PEs
         ret = interleave_matrix_outer_dim_from_partitions(ret, pe)
         assert (
@@ -268,18 +263,16 @@ class Thresholding_Binary_Search(HLSCustomOp):
 
         # Identify the module variables
         output_data_type = self.get_nodeattr("outputDataType")  # output precision
-        input_data_type = self.get_nodeattr(
-            "inputDataType"
-        )  # input/threshold precision
+        input_data_type = self.get_nodeattr("inputDataType")  # input/threshold precision
         num_channels = self.get_nodeattr("NumChannels")  # number of channels
         bias = self.get_nodeattr("activation_bias")  # activation bias value
         pe = self.get_nodeattr("PE")
+        o_bitwidth = DataType[output_data_type].bitwidth()
+        i_bitwidth = DataType[input_data_type].bitwidth()
 
-        code_gen_dict["$N$"] = [
-            str(DataType[output_data_type].bitwidth())
-        ]  # output precision - convert bitwidth to string
+        code_gen_dict["$N$"] = [str(o_bitwidth)]  # output precision - convert bitwidth to string
         code_gen_dict["$M$"] = [
-            str(DataType[input_data_type].bitwidth())
+            str(i_bitwidth)
         ]  # input/threshold precision - convert bitwidth to string
         code_gen_dict["$C$"] = [str(num_channels)]  # number of channels
         code_gen_dict["$BIAS$"] = [str(bias)]  # activation bias value
@@ -289,8 +282,13 @@ class Thresholding_Binary_Search(HLSCustomOp):
         # The thresholding core needs to know this when comparing weights to inputs
         if self.get_input_datatype().signed():
             code_gen_dict["$SIGNED$"] = [str(1)]
+            o_bits = 1 + math.ceil(
+                -bias if -bias >= 2 ** (o_bitwidth - 1) else 2**o_bitwidth + bias
+            )
         else:
             code_gen_dict["$SIGNED$"] = [str(0)]
+            o_bits = math.ceil(2**o_bitwidth + bias)
+        code_gen_dict["$O_BITS$"] = [str(o_bits)]
 
         return code_gen_dict
 
@@ -429,18 +427,14 @@ class Thresholding_Binary_Search(HLSCustomOp):
         # Create a PyVerilator wrapper of the RTLSim .so
         sim = self.get_rtlsim()
         nbits = self.get_instream_width()
-        inp = npy_to_rtlsim_input(
-            "{}/input_0.npy".format(code_gen_dir), export_idt, nbits
-        )
+        inp = npy_to_rtlsim_input("{}/input_0.npy".format(code_gen_dir), export_idt, nbits)
 
         super().reset_rtlsim(sim)
         super().toggle_clk(sim)
 
         wnbits = self.get_weightstream_width()
         export_wdt = self.get_weight_datatype()
-        wei = npy_to_rtlsim_input(
-            "{}/thresholds.npy".format(code_gen_dir), export_wdt, wnbits
-        )
+        wei = npy_to_rtlsim_input("{}/thresholds.npy".format(code_gen_dir), export_wdt, wnbits)
         num_w_reps = np.prod(self.get_nodeattr("numInputVectors"))
         io_dict = {
             "inputs": {"in0": inp, "weights": wei * num_w_reps},
@@ -456,9 +450,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         out_npy_path = "{}/output.npy".format(code_gen_dir)
         out_shape = self.get_folded_output_shape()
 
-        rtlsim_output_to_npy(
-            output, out_npy_path, odt, out_shape, packed_bits, target_bits
-        )
+        rtlsim_output_to_npy(output, out_npy_path, odt, out_shape, packed_bits, target_bits)
 
         # load and reshape output
         output = np.load(out_npy_path)
@@ -475,9 +467,7 @@ class Thresholding_Binary_Search(HLSCustomOp):
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
 
         for rtl_file in rtl_file_list:
-            cmd.append(
-                "add_files -norecurse %s" % (os.path.join(code_gen_dir, rtl_file))
-            )
+            cmd.append("add_files -norecurse %s" % (os.path.join(code_gen_dir, rtl_file)))
 
         # Create an RTL block, not an IP core (-type ip)
         cmd.append(
