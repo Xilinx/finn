@@ -29,7 +29,7 @@
  * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  * @brief	Pipelined thresholding by binary search.
- * @author	Thomas B. Preußer <tpreusse@amd.com>
+ * @author	Thomas B. Preußer <thomas.preusser@amd.com>
  *
  * @description
  *  Produces the N-bit count of those among 2^N-1 thresholds that are not
@@ -42,6 +42,14 @@
  *  with respect to a selectable set of thresholds. The corresponding
  *  threshold configuration relies on a channel address prefix. Inputs are
  *  accompanied by a channel selector.
+ *
+ *  Parameter Layout as seen on AXI-Lite (row by row):
+ *            | Base               \   Offs  |   0    1    2  ...   N-2     N-1
+ *   ---------+------------------------------+----------------------------------
+ *    Chnl #0 |   0                          |  T_0  T_1  T_2 ... T_{N-2}    'x
+ *    Chnl #1 |   N                          |  T_0  T_1  T_2 ... T_{N-2}    'x
+ *    Chnl #c | ((c/PE)*$clog2(PE) + c%PE)*N |  T_0  T_1  T_2 ... T_{N-2}    'x
+ *
  *****************************************************************************/
 module thresholding #(
 	int unsigned  N,  // output precision
@@ -52,6 +60,9 @@ module thresholding #(
 	bit  SIGNED = 1,  // signed inputs
 	bit  FPARG  = 0,  // floating-point inputs: [sign] | exponent | mantissa
 	int  BIAS   = 0,  // offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
+
+	// Initial Thresholds (per channel)
+	logic [K-1:0]  THRESHOLDS[C][2**N-1] = '{ default: '{ default: '0 } },
 
 	localparam int unsigned  CF = C/PE,  // Channel fold
 	localparam int unsigned  O_BITS = BIAS >= 0?
@@ -136,7 +147,6 @@ module thresholding #(
 			end
 		end
 
-
 		uwire ptr_t  iptr;
 		assign	iptr[0+:N] = cfg_a[0+:N];
 		if(CF > 1) begin
@@ -180,16 +190,26 @@ module thresholding #(
 			uwire  cs = (p.ptr[SN:0] == 2**SN-1);
 
 			// Threshold Memory
-			logic [K-1:0]  Thresh = 'x;	// Read-out register
+			val_t  Thresh;	// Read-out register
 			if(1) begin : blkThreshMem
 				uwire  we = (p.op ==? WR) && cs;
 				if((CF == 1) && (stage == 0)) begin
+					initial begin
+						Thresh = THRESHOLDS[pe][2**SN-1];
+					end
 					always_ff @(posedge clk) begin
 						if(we)  Thresh <= p.val;
 					end
 				end
 				else begin
-					logic [K-1:0]  Threshs[CF * 2**stage];
+					val_t  Threshs[CF * 2**stage];
+					initial begin
+						for(int unsigned  c = 0; c < CF; c++) begin
+							for(int unsigned  i = 0; i < 2**stage; i++) begin
+								Threshs[(c << stage) + i] = THRESHOLDS[c*PE + pe][(i<<(N-stage)) + 2**SN-1];
+							end
+						end
+					end
 					uwire [$clog2(CF)+stage-1:0]  addr = p.ptr[$clog2(CF)+N-1:SN+1];
 					always_ff @(posedge clk) begin
 						if(we)  Threshs[addr] <= p.val;
