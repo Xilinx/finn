@@ -807,7 +807,7 @@ def step_synthesize_bitfile(model: ModelWrapper, cfg: DataflowBuildConfig):
                     signature=cfg.signature,
                 )
             )
-            copy_tree(model.get_metadata_prop("coyote_dir"), cfg.output_dir + "/coyote_proj")
+            copy_tree(model.get_metadata_prop("bitstream"), bitfile_dir)
         else:
             raise Exception("Unrecognized shell_flow_type: " + str(cfg.shell_flow_type))
         print("Bitfile written into " + bitfile_dir)

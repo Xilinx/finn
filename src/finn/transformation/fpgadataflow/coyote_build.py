@@ -167,7 +167,11 @@ class AXIInterface(Interface):
                 # NOTE: Guaranteed to give an integer by construction, see scale in AXI4Lite
                 width_to_use = width / len(others)
 
-                other_interface = "%s%s%s" % (other.name, other.delimiter, other_sub_signal)
+                other_interface = "%s%s%s" % (
+                    other.name,
+                    other.delimiter,
+                    other_sub_signal,
+                )
 
                 wire = wires[j]
                 wire.connected = True
@@ -198,7 +202,13 @@ class AXI4Stream(AXIInterface):
 
 class AXI4Lite(AXIInterface):
     def __init__(
-        self, name: str, width: int, delimiter: Delimiter, external: bool, addr_width, scale=1
+        self,
+        name: str,
+        width: int,
+        delimiter: Delimiter,
+        external: bool,
+        addr_width,
+        scale=1,
     ):
         super().__init__(name, width, delimiter, external)
         # TODO: Add arprot and awprot, three bits (recommended value is 0b000 so
@@ -502,7 +512,12 @@ class GenerateCoyoteProject(Transformation):
         # Clone Coyote git repo
         COYOTE_REPOSITORY = "https://github.com/fpgasystems/Coyote.git"
 
-        git_clone_command = ["git", "clone", f"{COYOTE_REPOSITORY}", f"{self.coyote_repo_dir}"]
+        git_clone_command = [
+            "git",
+            "clone",
+            f"{COYOTE_REPOSITORY}",
+            f"{self.coyote_repo_dir}",
+        ]
         process_compile = subprocess.Popen(git_clone_command, stdout=subprocess.PIPE)
         process_compile.communicate()
         assert os.path.isdir(self.coyote_repo_dir)
@@ -520,7 +535,11 @@ class GenerateCoyoteProject(Transformation):
 
         # CMake Coyote
         coyote_board = board.lower()
-        cmake_command = ["/usr/bin/cmake", f"{self.coyote_hw_dir}", f"-DFDEV_NAME={coyote_board}"]
+        cmake_command = [
+            "/usr/bin/cmake",
+            f"{self.coyote_hw_dir}",
+            f"-DFDEV_NAME={coyote_board}",
+        ]
         process_compile = subprocess.Popen(cmake_command, stdout=subprocess.PIPE)
         process_compile.communicate()
 
@@ -532,7 +551,6 @@ class GenerateCoyoteProject(Transformation):
         tcl.append("open_project lynx/lynx.xpr")
         tcl.append("update_compile_order -fileset sources_1")
 
-        # TODO: To check how to use this
         tcl.append("set paths [get_property ip_repo_paths [current_project]];")
 
         ip_repo_paths = []
@@ -637,6 +655,11 @@ class CoyoteCompile(Transformation):
         process_compile = subprocess.Popen(make_shell_command, stdout=subprocess.PIPE)
         process_compile.communicate()
 
+        bitfile_coyote_dir = coyote_hw_build_dir / "bitstreams"
+        assert os.path.isdir(bitfile_coyote_dir)
+
+        model.set_metadata_prop("bitstream", bitfile_coyote_dir)
+
         os.chdir(finn_cwd)
         return (model, False)
 
@@ -654,7 +677,10 @@ class CoyoteBuild(Transformation):
     ) -> IP:
         return IP(
             vlnv=IP.build_vlnv(
-                vendor="xilinx.com", library="ip", name="axis_dwidth_converter", version="1.1"
+                vendor="xilinx.com",
+                library="ip",
+                name="axis_dwidth_converter",
+                version="1.1",
             ),
             module_name="axis_dwidth_converter_%s" % suffix,
             interfaces=[
@@ -755,7 +781,10 @@ class CoyoteBuild(Transformation):
         return (
             IP(
                 vlnv=IP.build_vlnv(
-                    vendor="xilinx.com", library="ip", name="axi_crossbar", version="2.1"
+                    vendor="xilinx.com",
+                    library="ip",
+                    name="axi_crossbar",
+                    version="2.1",
                 ),
                 module_name="axi_crossbar_0",
                 interfaces=interfaces,
@@ -781,10 +810,6 @@ class CoyoteBuild(Transformation):
         # Also, we only want it at the output since the Coyote interface already provides tlast to
         # the input width converter
 
-        # model = ModelWrapper(
-        #     "/home/antoine/Documents/coyote_finn/cybersecurity/outputs_u250_automate/"
-        #     "intermediate_models/step_create_stitched_ip.onnx"
-        # )
         model.set_metadata_prop("accl_mode", json.dumps(CoyoteBuild.__is_accl_mode(model)))
         model = model.transform(
             CreateStitchedIPForCoyote(
@@ -795,9 +820,6 @@ class CoyoteBuild(Transformation):
         )
 
         is_accl_mode = json.loads(model.get_metadata_prop("accl_mode"))  # type: ignore
-        # model.set_metadata_prop(
-        #     "vivado_stitch_proj", "/tmp/finn_dev_antoine/vivado_stitch_proj_icrs393x"
-        # )
 
         intf_names = json.loads(model.get_metadata_prop("vivado_stitch_ifnames"))  # type: ignore
 
@@ -815,7 +837,11 @@ class CoyoteBuild(Transformation):
         assert len(intf_names["s_axis"]) == 1, "Only support one toplevel input"
         assert len(intf_names["m_axis"]) == 1, "Only support one toplevel output"
 
-        (interconnect, axilites, interconnect_interfaces) = CoyoteBuild.create_interconnect(
+        (
+            interconnect,
+            axilites,
+            interconnect_interfaces,
+        ) = CoyoteBuild.create_interconnect(
             model.get_metadata_prop("vivado_stitch_proj"), intf_names["axilite"]
         )
 
@@ -999,6 +1025,6 @@ class CoyoteBuild(Transformation):
 
         model = model.transform(GenerateCoyoteProject(fpga_part=self.fpga_part, design=design))
         model = model.transform(CoyoteUserLogic(design=design))
-        # model = model.transform(CoyoteCompile())
+        model = model.transform(CoyoteCompile())
 
         return (model, False)
