@@ -48,6 +48,11 @@ module thresholding_axi #(
 	bit  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
 	int  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
+	// Initial Thresholds (per channel)
+	logic [K-1:0]  THRESHOLDS[C][2**N-1] = '{ default: '{ default: '0 } },
+
+	bit  HAVE_AXILITE = 1,	// Activate AXI-Lite for threshold read/write
+
 	localparam int unsigned  CF = C/PE,	// Channel Fold
 	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
 	localparam int unsigned  O_BITS = BIAS >= 0?
@@ -102,19 +107,28 @@ module thresholding_axi #(
 	uwire [K        -1:0]  cfg_d;
 	uwire  cfg_rack;
 	uwire [K        -1:0]  cfg_q;
-	axi4lite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(K)) axi (
-		.aclk(ap_clk), .aresetn(ap_rst_n),
 
-		.awready(s_axilite_AWREADY), .awvalid(s_axilite_AWVALID), .awaddr(s_axilite_AWADDR), .awprot('x),
-		.wready(s_axilite_WREADY),   .wvalid(s_axilite_WVALID),   .wdata(s_axilite_WDATA),   .wstrb(s_axilite_WSTRB),
-		.bready(s_axilite_BREADY),   .bvalid(s_axilite_BVALID),   .bresp(s_axilite_BRESP),
+	if(HAVE_AXILITE) begin
+		axi4lite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(K)) axi (
+			.aclk(ap_clk), .aresetn(ap_rst_n),
 
-		.arready(s_axilite_ARREADY), .arvalid(s_axilite_ARVALID), .araddr(s_axilite_ARADDR), .arprot('x),
-		.rready(s_axilite_RREADY),   .rvalid(s_axilite_RVALID),   .rresp(s_axilite_RRESP),   .rdata(s_axilite_RDATA),
+			.awready(s_axilite_AWREADY), .awvalid(s_axilite_AWVALID), .awaddr(s_axilite_AWADDR), .awprot('x),
+			.wready(s_axilite_WREADY),   .wvalid(s_axilite_WVALID),   .wdata(s_axilite_WDATA),   .wstrb(s_axilite_WSTRB),
+			.bready(s_axilite_BREADY),   .bvalid(s_axilite_BVALID),   .bresp(s_axilite_BRESP),
 
-		.ip_en(cfg_en), .ip_wen(cfg_we), .ip_addr(cfg_a), .ip_wdata(cfg_d),
-		.ip_rack(cfg_rack), .ip_rdata(cfg_q)
-	);
+			.arready(s_axilite_ARREADY), .arvalid(s_axilite_ARVALID), .araddr(s_axilite_ARADDR), .arprot('x),
+			.rready(s_axilite_RREADY),   .rvalid(s_axilite_RVALID),   .rresp(s_axilite_RRESP),   .rdata(s_axilite_RDATA),
+
+			.ip_en(cfg_en), .ip_wen(cfg_we), .ip_addr(cfg_a), .ip_wdata(cfg_d),
+			.ip_rack(cfg_rack), .ip_rdata(cfg_q)
+		);
+	end
+	else begin
+		assign	cfg_en =  0;
+		assign	cfg_we = 'x;
+		assign	cfg_a  = 'x;
+		assign	cfg_d  = 'x;
+	end
 
 	//-----------------------------------------------------------------------
 	// Kernel Implementation
