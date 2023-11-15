@@ -35,23 +35,23 @@ module mvu_vvu_axi_tb();
 
 //-------------------- Simulation parameters --------------------\\
 	// Matrix & parallelism config
-	localparam bit IS_MVU = 1;
+	localparam bit IS_MVU = 0;
 	localparam string COMPUTE_CORE = "mvu_vvu_8sx9_dsp58";
-	localparam int unsigned MW = 1500;
-	localparam int unsigned MH = 256;
-	localparam int unsigned SIMD = 60;
-	localparam int unsigned PE = 16;
-	localparam int unsigned SEGMENTLEN = 2.0;
+	localparam int unsigned MW = 36;
+	localparam int unsigned MH = 1;
+	localparam int unsigned SIMD = 3;
+	localparam int unsigned PE = 4;
+	localparam int unsigned SEGMENTLEN = 1.0;
 	localparam bit FORCE_BEHAVIORAL = 1;
 	localparam bit M_REG_LUT = 1;
 	// Bit-width config
-	localparam int unsigned ACTIVATION_WIDTH = 4;
-	localparam int unsigned WEIGHT_WIDTH = 4;
-	localparam int unsigned ACCU_WIDTH = 21; // == ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW)
-	localparam bit SIGNED_ACTIVATIONS = 0;
+	localparam int unsigned ACTIVATION_WIDTH = 8;
+	localparam int unsigned WEIGHT_WIDTH = 6;
+	localparam int unsigned ACCU_WIDTH = ACTIVATION_WIDTH+WEIGHT_WIDTH+$clog2(MW);
+	localparam bit SIGNED_ACTIVATIONS = 1;
 	// Simulation constants
-	localparam int unsigned NF = MH/PE;
-	localparam int unsigned SF = MW/SIMD;
+	localparam int unsigned NF = IS_MVU ? MH/PE : 1;
+	localparam int unsigned SF = IS_MVU ? MW/SIMD : MW/(SIMD*PE);
 	localparam int unsigned WEIGHT_WIDTH_BA = (PE*SIMD*WEIGHT_WIDTH+7)/8*8;
 	localparam int unsigned ACTIVATION_WIDTH_BA = ((IS_MVU ? 1 : PE)*SIMD*ACTIVATION_WIDTH+7)/8*8;
 	localparam int unsigned WEIGHT_WIDTH_BA_DELTA = WEIGHT_WIDTH_BA - PE*SIMD*WEIGHT_WIDTH;
@@ -72,7 +72,7 @@ module mvu_vvu_axi_tb();
 
 	// Generate activations
 	typedef logic [(IS_MVU ? 1 : PE)*SIMD-1:0][ACTIVATION_WIDTH-1:0] activation_t;
-	typedef activation_t activation_vector_t[(IS_MVU ? 1 : NF)*SF];
+	typedef activation_t activation_vector_t[SF];
 
 	function activation_vector_t init_ACTIVATIONS;
 		automatic activation_vector_t res;
@@ -93,14 +93,12 @@ module mvu_vvu_axi_tb();
 		activations.dat = 'X;
 		@(posedge clk iff ap_rst_n);
 
-		for (int j=0; j<(IS_MVU ? 1 : NF); j++) begin
-			for (int i=0; i<SF; i++) begin
-				activations.dat <= ACTIVATIONS[SF*j+i];
-				do begin
-					activations.vld <= $urandom()%7 >= 0;
-					@(posedge clk);
-				end while (!(activations.vld === 1 && activations.rdy === 1));
-			end
+		for (int i=0; i<SF; i++) begin
+			activations.dat <= ACTIVATIONS[i];
+			do begin
+				activations.vld <= $urandom()%7 >= 0;
+				@(posedge clk);
+			end while (!(activations.vld === 1 && activations.rdy === 1));
 		end
 
 		activations.vld <= 0;
@@ -143,7 +141,9 @@ module mvu_vvu_axi_tb();
 	end
 
 	// Function to compute golden output
-	// a: [(IS_MVU?1:NF)*SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
+	// a: [SF][(IS_MVU ? 1 : PE)*SIMD-1:0][ACTIVATION_WIDTH-1:0]
+	// a: [SF][SIMD-1:0][ACTIVATION_WIDTH-1:0]
+	// a: [SF][PE*SIMD-1:0][ACTIVATION_WIDTH-1:0]
 	// w: [NF][SF][PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0]
 	typedef logic signed [PE-1:0][ACCU_WIDTH-1:0] output_t;
 	typedef output_t output_vector_t [NF];
@@ -156,14 +156,33 @@ module mvu_vvu_axi_tb();
 
 	function output_vector_t check_output(activation_vector_t a, weight_matrix_t w);
 		automatic output_vector_t res = '{default: 0};
-		for (int j = 0; j<MH; j++) begin
-			for (int i = 0; i<MW; i++) begin
-				if (SIGNED_ACTIVATIONS)
-					res[j/PE][j%PE] = IS_MVU ? $signed(res[j/PE][j%PE]) + $signed(a[i/SIMD][i%SIMD]) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]) : 
-											   $signed(res[j/PE][j%PE]) + ( PE > 1 ? $signed(a[j/PE*SF+i/SIMD][(i*PE + j%PE) % (SIMD*PE)]) : $signed(a[j/PE*SF+i/SIMD][i%SIMD]) ) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]);
-				else
-					res[j/PE][j%PE] = IS_MVU ? $signed(res[j/PE][j%PE]) + $signed({1'b0, a[i/SIMD][i%SIMD]}) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]) : 
-											   $signed(res[j/PE][j%PE]) + ( PE > 1 ? $signed({1'b0, a[j/PE*SF+i/SIMD][(i*PE + j%PE) % (SIMD*PE)]}) : $signed({1'b0, a[j/PE+SF+i/SIMD][i%SIMD]}) ) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]);
+		// for (int j = 0; j<MH; j++) begin
+		// 	for (int i = 0; i<MW; i++) begin
+		// 		if (SIGNED_ACTIVATIONS)
+		// 			res[j/PE][j%PE] = IS_MVU ? $signed(res[j/PE][j%PE]) + $signed(a[i/SIMD][i%SIMD]) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]) : 
+		// 									   $signed(res[j/PE][j%PE]) + ( PE > 1 ? $signed(a[i/SIMD/PE][i % (SIMD*PE)]) : $signed(a[i/SIMD/PE][(i)%(SIMD*PE)]) ) * $signed(w[0][i/SIMD/PE][i/PE][i%SIMD]);
+		// 		else
+		// 			res[j/PE][j%PE] = IS_MVU ? $signed(res[j/PE][j%PE]) + $signed({1'b0, a[i/SIMD][i%SIMD]}) * $signed(w[j/PE][i/SIMD][j%PE][i%SIMD]) : 
+		// 									   $signed(res[j/PE][j%PE]) + ( PE > 1 ? $signed({1'b0, a[i/SIMD/PE][i % (SIMD*PE)]}) : $signed({1'b0, a[i/SIMD/PE][i%(SIMD*PE)]}) ) * $signed(w[0][i/SIMD][0][i%SIMD]);
+		// 	end
+		// end
+		// The input stream will have the channels interleaved for VVU when PE>1
+		// Hence, we need to 'untangle' the input stream, i.e. [..][SIMD*PE][..] --> [..][PE][SIMD][..]
+		// Note that for each 'SIMD' (S) and 'PE' (P) element, we have something like:
+		// (S_0, P_0), ..., (S_0, P_i), (S_1, P_0), ..., (S_1, P_i), ..., (S_i, P_i) which we need to 'untangle' to
+		// (S_0, P_0), ..., (S_i, P_0), (S_0, P_1), ..., (S_i,, P_1), ..., (S_i, P_i)
+		for (int i = 0; i < NF; i++) begin
+			for (int j = 0; j < SF; j++) begin
+				for (int k = 0; k < PE; k++) begin
+					for (int l = 0; l < SIMD; l++) begin
+						if (SIGNED_ACTIVATIONS)
+							res[i][k] = IS_MVU ? $signed(res[i][k]) + $signed(a[j][l]) * $signed(w[i][j][k][l]) :
+												 $signed(res[i][k]) + $signed(a[j][k + l*PE]) * $signed(w[i][j][k][l]);
+						else
+							res[i][k] = IS_MVU ? $signed(res[i][k]) + $signed({1'b0, a[j][l]}) * $signed(w[i][j][k][l]) :
+												 $signed(res[i][k]) + $signed({1'b0, a[j][k + l*PE]}) * $signed(w[i][j][k][l]);
+					end
+				end
 			end
 		end
 		return res;

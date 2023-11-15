@@ -42,7 +42,8 @@ module mvu_vvu_8sx9_dsp58 #(
     int unsigned SEGMENTLEN = 0, // Default to 0 (which implies a single segment)
 	bit FORCE_BEHAVIORAL = 0,
 
-	localparam int unsigned ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD
+	localparam int unsigned ACTIVATION_ELEMENTS = (IS_MVU ? 1 : PE) * SIMD,
+	localparam int unsigned WEIGHT_ELEMENTS = PE*SIMD
   )
   (
     // Global Control
@@ -53,7 +54,7 @@ module mvu_vvu_8sx9_dsp58 #(
 	// Input
     input   logic last,
     input   logic zero, // ignore current inputs and force this partial product to zero
-    input   logic [PE-1:0][SIMD-1:0][WEIGHT_WIDTH-1:0] w, // weights
+    input   logic [WEIGHT_ELEMENTS-1:0][WEIGHT_WIDTH-1:0] w, // weights
 	input   logic [ACTIVATION_ELEMENTS-1:0][ACTIVATION_WIDTH-1:0] a, // activations
 
 	// Ouput
@@ -164,7 +165,8 @@ module mvu_vvu_8sx9_dsp58 #(
 // synthesis translate_off
 							zero ? '1 : 						
 // synthesis translate_on							
-							w[i][3*j +: LANES_OCCUPIED];
+							//w[i][3*j +: LANES_OCCUPIED];
+							w[SIMD*i+3*j +: LANES_OCCUPIED];
 						if (EXTERNAL_PREGS > 1) B[i][0:EXTERNAL_PREGS-2] <= B[i][1:EXTERNAL_PREGS-1];
 					end
 				end
@@ -181,7 +183,8 @@ module mvu_vvu_8sx9_dsp58 #(
 // synthesis translate_off					
 						zero ? '1 : 
 // synthesis translate_on					
-						PAD_BITS_WEIGHT == 0 ? w[i][3*j+k] : { {PAD_BITS_WEIGHT{w[i][3*j+k][WEIGHT_WIDTH-1]}}, w[i][3*j+k] };
+						//PAD_BITS_WEIGHT == 0 ? w[i][3*j+k] : { {PAD_BITS_WEIGHT{w[i][3*j+k][WEIGHT_WIDTH-1]}}, w[i][3*j+k] };
+						PAD_BITS_WEIGHT == 0 ? w[SIMD*i+3*j+k] : { {PAD_BITS_WEIGHT{w[SIMD*i+3*j+k][WEIGHT_WIDTH-1]}}, w[SIMD*i+3*j+k] };
 				end : genBin
 				for (genvar k=LANES_OCCUPIED; k<3; k++) begin : genBinZero
 					assign b_in_i[i][j][8*k +: 8] = 8'b0;
