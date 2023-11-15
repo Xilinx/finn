@@ -680,6 +680,17 @@ class MoveScalarLinearPastInvariants(Transformation):
     GlobalAveragePool
     """
 
+    # Op-types of currently supported invariants
+    SUPPORTED_INVARIANTS = {
+        "GlobalAveragePool",
+        "Reshape",
+        "Transpose",
+        "Flatten",
+        "Slice",
+        "Squeeze",
+        "Unsqueeze",
+    }
+
     def apply(self, model):
         graph = model.graph
         node_ind = 0
@@ -692,13 +703,7 @@ class MoveScalarLinearPastInvariants(Transformation):
                 # Extract mode and scales and input shape
                 mode = get_by_name(n.attribute, "mode").s.decode("ascii")
                 is_nearest_neighbor_resample = mode == "nearest"
-            if (
-                n.op_type == "GlobalAveragePool"
-                or n.op_type == "Reshape"
-                or n.op_type == "Transpose"
-                or n.op_type == "Flatten"
-                or is_nearest_neighbor_resample
-            ):
+            if n.op_type in self.SUPPORTED_INVARIANTS or is_nearest_neighbor_resample:
                 in0 = n.input[0]
                 if in0 is None:
                     continue
@@ -708,6 +713,16 @@ class MoveScalarLinearPastInvariants(Transformation):
                     continue
 
                 if prod0.op_type in ["Mul", "Add", "Div"]:
+                    # Cannot handle fork-nodes, try MoveLinearPastFork first
+                    if model.is_fork_node(prod0):
+                        warnings.warn(
+                            f"{self.__class__.__name__}:"
+                            f" Skipping near match: {prod0.name} is a fork-node,"
+                            f" try MoveLinearPastFork first"
+                        )
+                        # Skip transforming this node as moving this would lead
+                        # to messed up or detached graph
+                        continue
                     # check if second input of producer is an initializer
                     init0 = model.get_initializer(prod0.input[1])
                     # if either initializer is None, skip
