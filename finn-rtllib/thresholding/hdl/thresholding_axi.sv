@@ -51,7 +51,7 @@ module thresholding_axi #(
 	// Initial Thresholds (per channel)
 	logic [K-1:0]  THRESHOLDS[C][2**N-1] = '{ default: '{ default: '0 } },
 
-	bit  HAVE_AXILITE = 1,	// Activate AXI-Lite for threshold read/write
+	bit  USE_AXILITE,	// Implement AXI-Lite for threshold read/write
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold
 	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
@@ -108,7 +108,7 @@ module thresholding_axi #(
 	uwire  cfg_rack;
 	uwire [K        -1:0]  cfg_q;
 
-	if(HAVE_AXILITE) begin
+	if(USE_AXILITE) begin
 		axi4lite_if #(.ADDR_WIDTH(ADDR_BITS), .DATA_WIDTH(32), .IP_DATA_WIDTH(K)) axi (
 			.aclk(ap_clk), .aresetn(ap_rst_n),
 
@@ -132,7 +132,11 @@ module thresholding_axi #(
 
 	//-----------------------------------------------------------------------
 	// Kernel Implementation
-	thresholding #(.N(N), .K(K), .C(C), .PE(PE), .SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS)) impl (
+	thresholding #(
+		.N(N), .K(K), .C(C), .PE(PE),
+		.SIGNED(SIGNED), .FPARG(FPARG), .BIAS(BIAS),
+		.THRESHOLDS(THRESHOLDS)
+	) impl (
 		.clk(ap_clk), .rst(!ap_rst_n),
 
 		.cfg_en, .cfg_we, .cfg_a, .cfg_d,

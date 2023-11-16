@@ -31,25 +31,30 @@
  * @brief	Verilog wrapper for IP packaging.
  */
 
-module thresholding_axi_wrapper #(
-	parameter  N =  4,	// output precision
-	parameter  K = 16,	// input/threshold precision
-	parameter  C =  1,	// Channels
-	parameter  PE = 1,	// Processing Parallelism, requires C = k*PE
+module thresholding_axi_tpl_inner #(
+	int unsigned  N,	// output precision
+	int unsigned  K,	// input/threshold precision
+	int unsigned  C,	// Channels
+	int unsigned  PE,	// Processing Parallelism, requires C = k*PE
 
-	parameter  SIGNED = 1,	// signed inputs
-	parameter  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
-	parameter  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
+	int unsigned  SIGNED,	// signed inputs
+	int unsigned  FPARG,	// floating-point inputs: [sign] | exponent | mantissa
+	int unsigned  BIAS,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-	parameter  CF = C/PE,	// Channel Fold
-	parameter  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
-	parameter  O_BITS = $clog2(2**N+BIAS)
+	logic [K-1:0]  THRESHOLDS[C][2**N-1] = '{
+		'{ 'hC0, 'hC1, 'hC2, 'hC3, 'hC4, 'hC5, 'hC6, 'hC7, 'hC8, 'hC9, 'hCa, 'hCb, 'hCc, 'hCd, 'hCe },
+		'{ 'hD0, 'hD1, 'hD2, 'hD3, 'hD4, 'hD5, 'hD6, 'hD7, 'hD8, 'hD9, 'hDa, 'hDb, 'hDc, 'hDd, 'hDe },
+		'{ 'hE0, 'hE1, 'hE2, 'hE3, 'hE4, 'hE5, 'hE6, 'hE7, 'hE8, 'hE9, 'hEa, 'hEb, 'hEc, 'hEd, 'hEe },
+		'{ 'hF0, 'hF1, 'hF2, 'hF3, 'hF4, 'hF5, 'hF6, 'hF7, 'hF8, 'hF9, 'hFa, 'hFb, 'hFc, 'hFd, 'hFe }
+	},
+	bit  USE_AXILITE,	// Implement AXI-Lite for threshold read/write
+
+	localparam int unsigned  CF = C/PE,	// Channel Fold
+	localparam int unsigned  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
+	localparam int unsigned  O_BITS = $clog2(2**N+BIAS)
 )(
 	// Global Control
-	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:s_axis:m_axis, ASSOCIATED_RESET ap_rst_n" *)
-	(* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 ap_clk CLK" *)
 	input	ap_clk,
-	(* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
 	input	ap_rst_n,
 
 	//- AXI Lite ------------------------
@@ -92,7 +97,9 @@ module thresholding_axi_wrapper #(
 		.N(N), .K(K), .C(C), .PE(PE),
 		.SIGNED(SIGNED),
 		.FPARG(FPARG),
-		.BIAS(BIAS)
+		.BIAS(BIAS),
+		.THRESHOLDS(THRESHOLDS),
+		.USE_AXILITE(USE_AXILITE)
 	) core (
 		.ap_clk, .ap_rst_n,
 
@@ -102,9 +109,8 @@ module thresholding_axi_wrapper #(
 
 		.s_axilite_ARVALID, .s_axilite_ARREADY, .s_axilite_ARADDR,
 		.s_axilite_RVALID, .s_axilite_RREADY, .s_axilite_RDATA, .s_axilite_RRESP,
-
 		.s_axis_tready, .s_axis_tvalid, .s_axis_tdata,
 		.m_axis_tready, .m_axis_tvalid, .m_axis_tdata
 	);
 
-endmodule : thresholding_axi_wrapper
+endmodule : thresholding_axi_tpl_inner
