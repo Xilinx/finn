@@ -41,12 +41,7 @@ module thresholding_axi_tpl_inner #(
 	int unsigned  FPARG,	// floating-point inputs: [sign] | exponent | mantissa
 	int unsigned  BIAS,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-	logic [K-1:0]  THRESHOLDS[C][2**N-1] = '{
-		'{ 'hC0, 'hC1, 'hC2, 'hC3, 'hC4, 'hC5, 'hC6, 'hC7, 'hC8, 'hC9, 'hCa, 'hCb, 'hCc, 'hCd, 'hCe },
-		'{ 'hD0, 'hD1, 'hD2, 'hD3, 'hD4, 'hD5, 'hD6, 'hD7, 'hD8, 'hD9, 'hDa, 'hDb, 'hDc, 'hDd, 'hDe },
-		'{ 'hE0, 'hE1, 'hE2, 'hE3, 'hE4, 'hE5, 'hE6, 'hE7, 'hE8, 'hE9, 'hEa, 'hEb, 'hEc, 'hEd, 'hEe },
-		'{ 'hF0, 'hF1, 'hF2, 'hF3, 'hF4, 'hF5, 'hF6, 'hF7, 'hF8, 'hF9, 'hFa, 'hFb, 'hFc, 'hFd, 'hFe }
-	},
+	logic [K-1:0]  THRESHOLDS[C][2**N-1] = $THRESHOLDS$,
 	bit  USE_AXILITE,	// Implement AXI-Lite for threshold read/write
 
 	localparam int unsigned  CF = C/PE,	// Channel Fold

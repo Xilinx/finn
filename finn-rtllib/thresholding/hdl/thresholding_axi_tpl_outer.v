@@ -32,20 +32,18 @@
  */
 
 module thresholding_axi_tpl_outer #(
-	parameter  N =  4,	// output precision
-	parameter  K = 16,	// input/threshold precision
-	parameter  C =  4,	// Channels
-	parameter  PE = 1,	// Processing Parallelism, requires C = k*PE
+	parameter  N = $N$,	// output precision
+	parameter  K = $M$,	// input/threshold precision
+	parameter  C = $C$,	// Channels
+	parameter  PE = $PE$,	// Processing Parallelism, requires C = k*PE
 
-	parameter  SIGNED = 1,	// signed inputs
-	parameter  FPARG  = 0,	// floating-point inputs: [sign] | exponent | mantissa
-	parameter  BIAS   = 0,	// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
+	parameter  SIGNED = $SIGNED$,	// signed inputs
+	parameter  FPARG  = 0,			// floating-point inputs: [sign] | exponent | mantissa
+	parameter  BIAS   = $BIAS$,		// offsetting the output [0, 2^N-1] -> [BIAS, 2^N-1 + BIAS]
 
-	parameter  USE_AXILITE = 0,	// Implement AXI-Lite for threshold read/write
+	parameter  USE_AXILITE = $USE_AXILITE$,	// Implement AXI-Lite for threshold read/write
 
-	parameter  CF = C/PE,	// Channel Fold
-	parameter  ADDR_BITS = $clog2(CF) + $clog2(PE) + N + 2,
-	parameter  O_BITS = $clog2(2**N+BIAS)
+	parameter  O_BITS = $O_BITS$
 )(
 	// Global Control
 	(* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axilite:s_axis:m_axis, ASSOCIATED_RESET ap_rst_n" *)
@@ -56,9 +54,9 @@ module thresholding_axi_tpl_outer #(
 
 	//- AXI Lite ------------------------
 	// Writing
-	input                  s_axilite_AWVALID,
-	output                 s_axilite_AWREADY,
-	input [ADDR_BITS-1:0]  s_axilite_AWADDR,	// lowest 2 bits (byte selectors) are ignored
+	input   s_axilite_AWVALID,
+	output  s_axilite_AWREADY,
+	input [$clog2(C/PE) + $clog2(PE) + N + 1:0]  s_axilite_AWADDR,	// lowest 2 bits (byte selectors) are ignored
 
 	input         s_axilite_WVALID,
 	output        s_axilite_WREADY,
@@ -70,9 +68,9 @@ module thresholding_axi_tpl_outer #(
 	output [1:0]  s_axilite_BRESP,
 
 	// Reading
-	input                  s_axilite_ARVALID,
-	output                 s_axilite_ARREADY,
-	input [ADDR_BITS-1:0]  s_axilite_ARADDR,
+	input   s_axilite_ARVALID,
+	output  s_axilite_ARREADY,
+	input [$clog2(C/PE) + $clog2(PE) + N + 1:0]  s_axilite_ARADDR,
 
 	output         s_axilite_RVALID,
 	input          s_axilite_RREADY,
