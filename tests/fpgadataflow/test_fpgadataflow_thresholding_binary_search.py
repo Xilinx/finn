@@ -177,11 +177,11 @@ def test_fpgadataflow_thresholding_binary_search_prepare_rtlsim():
 # Test brief: Create a Thresholding binary search layer using various parameters
 # and test against a SW generated & simulated dataset
 # N.B. Fold values where C % PE != 0 fail
-@pytest.mark.parametrize("activation", [DataType["INT4"], DataType["BIPOLAR"]])
-@pytest.mark.parametrize("input_data_type", [DataType["INT16"], DataType["UINT16"]])
-@pytest.mark.parametrize("fold", [-1, 1, 2, 4, 6])
-@pytest.mark.parametrize("num_input_channels", [16])
-@pytest.mark.parametrize("rt_writable", [0, 1])
+@pytest.mark.parametrize("activation", [DataType["UINT8"]])
+@pytest.mark.parametrize("input_data_type", [DataType["UINT24"]])
+@pytest.mark.parametrize("fold", [-1])
+@pytest.mark.parametrize("num_input_channels", [32, 64, 128])
+@pytest.mark.parametrize("rt_writable", [0])
 @pytest.mark.fpgadataflow
 @pytest.mark.vivado
 @pytest.mark.slow

@@ -29,6 +29,7 @@
 import math
 import numpy as np
 import os
+import sys
 import warnings
 from qonnx.core.datatype import DataType
 from qonnx.util.basic import interleave_matrix_outer_dim_from_partitions
@@ -271,7 +272,10 @@ class Thresholding_Binary_Search(HLSCustomOp):
             prefix="'h",
         )
         # massage generated thresholds string to fit SystemVerilog array formatting
+        orig_printops = np.get_printoptions()
+        np.set_printoptions(threshold=sys.maxsize)
         t_str = np.array2string(t_packed, separator=", ")
+        np.set_printoptions(**orig_printops)
         t_str = t_str.replace("[", "'{")
         t_str = t_str.replace("]", "}")
         t_str = t_str.replace('"', "")
