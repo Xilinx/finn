@@ -92,11 +92,11 @@ module mvu_vvu_axi #(
 
 //-------------------- Parameter sanity checks --------------------\\
 	initial begin
-		if ((MW % SIMD != 0 && IS_MVU) || (MW % (SIMD*PE) != 0 && !IS_MVU)) begin
+		if (MW % SIMD != 0) begin
 			$error("Matrix width (%0d) is not a multiple of SIMD (%0d).", MW, SIMD);
 			$finish;
 		end
-		if (MH % PE != 0 && IS_MVU) begin
+		if (MH % PE != 0) begin
 			$error("Matrix height (%0d) is not a multiple of PE (%0d).", MH, PE);
 			$finish;
 		end
@@ -165,7 +165,6 @@ module mvu_vvu_axi #(
 	uwire mvu_a_t  amvau_i;
 	if (IS_MVU || (PE == 1)) begin : genMVUInput
 		assign  amvau_i = amvau;
-		assign  wmvau_i = s_axis_weights_tdata;
 	end : genMVUInput
 	else begin : genVVUInput
 		// The input stream will have the channels interleaved for VVU when PE>1

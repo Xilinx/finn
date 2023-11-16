@@ -26,8 +26,6 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-import pkg_resources as pk
-
 import pytest
 
 import os
@@ -84,9 +82,8 @@ def test_end2end_ext_weights_build():
     model_file = get_checkpoint_name("download")
     load_test_checkpoint_or_skip(model_file)
     build_env = get_build_env(build_kind, target_clk_ns)
-    folding_config_file = pk.resource_filename(
-        "finn.qnn-data", "test_ext_weights/tfc-w1a1-extw.json"
-    )
+    test_data = os.environ["FINN_ROOT"] + "/src/finn/qnn-data/test_ext_weights"
+    folding_config_file = test_data + "/tfc-w1a1-extw.json"
     output_dir = make_build_dir("test_end2end_ext_weights_build")
     cfg = build.DataflowBuildConfig(
         output_dir=output_dir,
