@@ -462,12 +462,16 @@ class Thresholding_Binary_Search(HLSCustomOp):
     def code_generation_ipi(self):
         """Constructs and returns the TCL commands for node instantiation as an RTL
         block."""
-        cmd = []
         rtl_file_list = self.get_rtl_file_list()
         code_gen_dir = self.get_nodeattr("code_gen_dir_ipgen")
+        source_target = "./ip/verilog/rtl_ops/%s" % self.onnx_node.name
+        cmd = ["file mkdir %s" % source_target]
 
         for rtl_file in rtl_file_list:
-            cmd.append("add_files -norecurse %s" % (os.path.join(code_gen_dir, rtl_file)))
+            cmd.append(
+                "add_files -copy_to %s -norecurse %s"
+                % (source_target, os.path.join(code_gen_dir, rtl_file))
+            )
 
         # Create an RTL block, not an IP core (-type ip)
         cmd.append(
