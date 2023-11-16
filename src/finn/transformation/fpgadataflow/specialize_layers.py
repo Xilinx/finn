@@ -26,7 +26,7 @@
 # OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-
+import warnings
 from onnx import helper
 from qonnx.custom_op.registry import getCustomOp
 from qonnx.transformation.base import Transformation
@@ -55,6 +55,51 @@ class SpecializeFMPadding(Transformation):
                     optype,
                     [pad_input],
                     [pad_output],
+                    domain="finn.custom_op.fpgadataflow." + impl_style,
+                )
+                # add all attributes
+                for attribute in node.attribute:
+                    if attribute.name != "preferred_impl_style":
+                        new_node.attribute.append(attribute)
+                graph.node.insert(node_ind, new_node)
+                # remove old nodes
+                graph.node.remove(node)
+                graph_modified = True
+        if graph_modified:
+            model = model.transform(InferShapes())
+            model = model.transform(InferDataTypes())
+        return (model, graph_modified)
+
+
+class SpecializeAddStreams(Transformation):
+    """Convert AddStreams layer to Addstreams_hls. There is no RTL variant of this node"""
+
+    def apply(self, model):
+        graph = model.graph
+        node_ind = 0
+        graph_modified = False
+        for node in graph.node:
+            node_ind += 1
+            if node.op_type == "AddStreams":
+                add_input0 = node.input[0]
+                add_input1 = node.input[1]
+                add_output = node.output[0]
+                add_inst = getCustomOp(node)
+                impl_style = add_inst.get_nodeattr("preferred_impl_style")
+                if impl_style == "rtl":
+                    warn_str = """There is no RTL variant of %s. Node %s will automatically be
+                        set to HLS variant.""" % (
+                        node.op_type,
+                        node.name,
+                    )
+                    warnings.warn(warn_str)
+                if impl_style == "" or impl_style == "rtl":
+                    impl_style = "hls"
+                optype = node.op_type + "_" + impl_style
+                new_node = helper.make_node(
+                    optype,
+                    [add_input0, add_input1],
+                    [add_output],
                     domain="finn.custom_op.fpgadataflow." + impl_style,
                 )
                 # add all attributes
